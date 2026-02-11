@@ -6,7 +6,6 @@ from enum import Enum
 from dataclasses import dataclass
 
 
-@dataclass
 class AgentEventType(str, Enum):
     # agent lifecycle
     AGENT_START = "agent_start"
