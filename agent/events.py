@@ -4,6 +4,7 @@ from dataclasses import field
 from typing import Any
 from enum import Enum
 from dataclasses import dataclass
+from tools.base import ToolResult
 
 
 class AgentEventType(str, Enum):
@@ -15,6 +16,10 @@ class AgentEventType(str, Enum):
     # text streaming
     TEXT_DELTA = "text_delta"
     TEXT_COMPLETE = "text_complete"
+
+    # tool calls
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_COMPLETE = "tool_call_complete"
 
 
 @dataclass
@@ -66,4 +71,40 @@ class AgentEvent:
         return cls(
             type=AgentEventType.TEXT_COMPLETE,
             data={"content": content},
+        )
+
+    @classmethod
+    def tool_call_start(
+        cls,
+        call_id: str,
+        name: str,
+        arguments: dict[str, Any],
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.TOOL_CALL_START,
+            data={
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+            },
+        )
+
+    @classmethod
+    def tool_call_complete(
+        cls,
+        call_id: str,
+        name: str,
+        result: ToolResult,
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.TOOL_CALL_COMPLETE,
+            data={
+                "call_id": call_id,
+                "name": name,
+                "success": result.success,
+                "output": result.output,
+                "error": result.error,
+                "metadata": result.metadata,
+                "truncated": result.truncated,
+            },
         )

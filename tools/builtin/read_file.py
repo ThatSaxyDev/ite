@@ -100,7 +100,7 @@ class ReadFileTool(Tool):
 
             output = "\n".join(formatted_lines)
 
-            token_count = count_tokens(output)
+            token_count = count_tokens(output, "arcee-ai/trinity-large-preview:free")
 
             truncated = False
 
