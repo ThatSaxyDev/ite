@@ -208,18 +208,65 @@ class TUI:
             ".kts": "kotlin",
         }.get(suffix, "text")
 
-    def print_welcome(self, title: str, lines: list[str]) -> None:
-        body = "\n".join(lines)
+    def _gradient_text(self, text: str) -> Text:
+        start_r, start_g, start_b = 0, 200, 255
+        end_r, end_g, end_b = 180, 80, 255
+
+        rich_text = Text()
+        total = max(len(text) - 1, 1)
+
+        for i, char in enumerate(text):
+            t = i / total
+            r = int(start_r + (end_r - start_r) * t)
+            g = int(start_g + (end_g - start_g) * t)
+            b = int(start_b + (end_b - start_b) * t)
+            rich_text.append(char, style=f"bold #{r:02x}{g:02x}{b:02x}")
+
+        return rich_text
+
+    def print_welcome(
+        self,
+        model: str = "",
+        commands: list[str] | None = None,
+        version: str = "0.1.0",
+    ) -> None:
+        import pyfiglet
+
+        ascii_art = pyfiglet.figlet_format("ite", font="slant")
+        logo = self._gradient_text(ascii_art.rstrip())
+
+        info_table = Table.grid(padding=(0, 2))
+        info_table.add_column(style="muted", justify="right", min_width=8)
+        info_table.add_column(style="code")
+
+        cwd_display = str(self.cwd).replace(str(Path.home()), "~")
+        info_table.add_row("model", Text(model or "not set", style="cyan"))
+        info_table.add_row("cwd", Text(cwd_display, style="info"))
+        if commands:
+            info_table.add_row("commands", Text("  ".join(commands), style="success"))
+
+        footer = Text(f"v{version} · type /help for commands", style="dim")
+
+        content = Group(
+            Text(),
+            logo,
+            Text(),
+            Rule(style="grey35"),
+            Text(),
+            info_table,
+            Text(),
+            footer,
+        )
+
         self.console.print(
             Panel(
-                Text(body, style="code"),
-                title=Text(title, style="highlight"),
-                title_align="left",
-                border_style="border",
-                box=box.ROUNDED,
-                padding=(1, 2),
+                content,
+                border_style="grey35",
+                box=box.DOUBLE,
+                padding=(0, 3),
             )
         )
+        self.console.print()
 
     def tool_call_complete(
         self,

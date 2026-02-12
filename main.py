@@ -1,4 +1,3 @@
-from pathlib import Path
 import sys
 from ui.tui import TUI, get_console
 from agent.events import AgentEventType
@@ -21,12 +20,8 @@ class CLI:
 
     async def run_interactive(self) -> str | None:
         self.tui.print_welcome(
-            "Ite",
-            lines=[
-                "model:",
-                f"cwd: {Path.cwd()}",
-                "commands: /help /config /approval /model /exit",
-            ],
+            model="arcee-ai/trinity-large-preview:free",
+            commands=["/help", "/config", "/approval", "/model", "/exit"],
         )
         async with Agent() as agent:
             self.agent = agent
