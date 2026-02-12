@@ -1,3 +1,4 @@
+from pathlib import Path
 import sys
 from ui.tui import TUI, get_console
 from agent.events import AgentEventType
@@ -13,10 +14,36 @@ class CLI:
         self.agent: Agent | None = None
         self.tui = TUI(console)
 
-    async def run_single(self, message: str):
+    async def run_single(self, message: str) -> str | None:
         async with Agent() as agent:
             self.agent = agent
             return await self._process_message(message)
+
+    async def run_interactive(self) -> str | None:
+        self.tui.print_welcome(
+            "Ite",
+            lines=[
+                "model:",
+                f"cwd: {Path.cwd()}",
+                "commands: /help /config /approval /model /exit",
+            ],
+        )
+        async with Agent() as agent:
+            self.agent = agent
+
+            while True:
+                try:
+                    user_input = console.input("\n[user]>[/user] ").strip()
+                    if not user_input:
+                        continue
+
+                    await self._process_message(user_input)
+                except KeyboardInterrupt:
+                    console.print("\n[dim]Use /exit to quit[/dim]")
+                except EOFError:
+                    break
+
+        console.print("\n[dim]Bye![/dim]")
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
         tool_kind = None
@@ -84,11 +111,12 @@ class CLI:
 @click.argument("prompt", required=False)
 def main(prompt: str | None):
     cli = CLI()
-    # messages = [{"role": "user", "content": prompt}]
     if prompt:
         result = asyncio.run(cli.run_single(prompt))
         if result is None:
             sys.exit(1)
+    else:
+        asyncio.run(cli.run_interactive())
 
 
 main()
