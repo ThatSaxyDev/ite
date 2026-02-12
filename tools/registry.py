@@ -1,3 +1,4 @@
+from tools.builtin import get_all_builtin_tools
 from tools.base import ToolInvocation
 from tools.base import ToolResult
 from pathlib import Path
@@ -8,7 +9,7 @@ from tools.base import Tool
 logger = logging.getLogger(__name__)
 
 
-class Registry:
+class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Tool] = {}
 
@@ -86,3 +87,11 @@ class Registry:
                     name,
                 },
             )
+
+def create_default_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+
+    for tool_class in get_all_builtin_tools():
+        registry.register(tool_class())
+
+    return registry
