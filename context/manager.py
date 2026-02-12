@@ -32,7 +32,7 @@ class MessageItem:
 class ContextManager:
     def __init__(self, config: Config) -> None:
         self.config = config
-        self._system_prompt = get_system_prompt()
+        self._system_prompt = get_system_prompt(config)
         self._model_name = self.config.model_name
         self._messages: list(MessageItem) = []
 
