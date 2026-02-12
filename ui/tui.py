@@ -1,3 +1,4 @@
+from config.config import Config
 from utils.text import truncate_text
 from rich.syntax import Syntax
 from rich import box
@@ -54,12 +55,14 @@ def get_console() -> Console:
 class TUI:
     def __init__(
         self,
+        config: Config,
         console: Console | None = None,
     ) -> None:
         self.console = console or get_console()
         self._assistant_stream_open = False
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
-        self.cwd = Path.cwd()
+        self.config = config
+        self.cwd = self.config.cwd
 
     def begin_assistant(self) -> None:
         self.console.print()
@@ -227,6 +230,7 @@ class TUI:
     def print_welcome(
         self,
         model: str = "",
+        cwd: str = "",
         commands: list[str] | None = None,
         version: str = "0.1.0",
     ) -> None:
@@ -239,7 +243,7 @@ class TUI:
         info_table.add_column(style="muted", justify="right", min_width=8)
         info_table.add_column(style="code")
 
-        cwd_display = str(self.cwd).replace(str(Path.home()), "~")
+        cwd_display = str(cwd).replace(str(Path.home()), "~")
         info_table.add_row("model", Text(model or "not set", style="cyan"))
         info_table.add_row("cwd", Text(cwd_display, style="info"))
         if commands:

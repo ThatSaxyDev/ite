@@ -36,7 +36,7 @@ def _parse_toml(path: Path):
 
 def _get_project_config(cwd: Path) -> Path | None:
     current = cwd.resolve()
-    agent_dir = current / ".ai-agent"
+    agent_dir = current / ".ite"
 
     if agent_dir.is_dir():
         config_file = agent_dir / CONFIG_FILE_NAME

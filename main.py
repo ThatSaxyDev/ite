@@ -1,3 +1,4 @@
+from config.config import Config
 from pathlib import Path
 from config.loader import load_config
 import sys
@@ -11,21 +12,23 @@ console = get_console()
 
 
 class CLI:
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.agent: Agent | None = None
-        self.tui = TUI(console)
+        self.tui = TUI(config=config, console=console)
 
     async def run_single(self, message: str) -> str | None:
-        async with Agent() as agent:
+        async with Agent(config=self.config) as agent:
             self.agent = agent
             return await self._process_message(message)
 
     async def run_interactive(self) -> str | None:
         self.tui.print_welcome(
-            model="arcee-ai/trinity-large-preview:free",
+            model=self.config.model_name,
+            cwd=self.config.cwd,
             commands=["/help", "/config", "/approval", "/model", "/exit"],
         )
-        async with Agent() as agent:
+        async with Agent(config=self.config) as agent:
             self.agent = agent
 
             while True:
@@ -126,10 +129,10 @@ def main(
     errors = config.validate()
     if errors:
         for error in errors:
-            console.print(f"[error]Configuration error: {error}[/error]")
+            console.print(f"[error]{error}[/error]")
         sys.exit(1)
 
-    cli = CLI()
+    cli = CLI(config)
 
     if prompt:
         result = asyncio.run(cli.run_single(prompt))

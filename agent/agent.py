@@ -1,7 +1,6 @@
 from __future__ import annotations
+from config.config import Config
 from client.response import ToolResultMessage
-
-from pathlib import Path
 from client.response import ToolCall
 from context.manager import ContextManager
 from agent.events import AgentEventType
@@ -13,9 +12,10 @@ from tools.registry import create_default_registry
 
 
 class Agent:
-    def __init__(self):
-        self.client = LLMClient()
-        self.context_manager = ContextManager()
+    def __init__(self, config: Config):
+        self.config = config
+        self.client = LLMClient(config=self.config)
+        self.context_manager = ContextManager(config=self.config)
         self.tool_registry = create_default_registry()
 
     async def run(self, message: str):
@@ -99,7 +99,7 @@ class Agent:
             result = await self.tool_registry.invoke(
                 tool_call.name,
                 tool_call.arguments,
-                Path.cwd(),
+                self.config.cwd,
             )
 
             yield AgentEvent.tool_call_complete(
