@@ -50,7 +50,7 @@ class ToolCallDelta:
 class ToolCall:
     call_id: str
     name: str | None
-    arguments_delta: str | None = ""
+    arguments: str | None = ""
 
 
 @dataclass
