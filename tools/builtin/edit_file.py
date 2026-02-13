@@ -78,6 +78,59 @@ class EditTool(Tool):
         if occurrence_count == 0:
             return self._no_match_error(params.old_string, old_content, path)
 
+        if occurrence_count > 1 and not params.replace_all:
+            return ToolResult.error_result(
+                f"old_string found {occurrence_count} times  in {path}. "
+                f"Either: \n"
+                f"1. Provide more context to make the match unique or\n"
+                f"2. Set replace_all=true to replace all accurrences",
+                metadata={
+                    "occurrence_count": occurrence_count,
+                },
+            )
+
+        if params.replace_all:
+            new_content = old_content.replace(params.old_string, params.new_string)
+            replace_count = occurrence_count
+        else:
+            new_content = old_content.replace(params.old_string, params.new_string, 1)
+            replace_count = 1
+
+        if new_content == old_content:
+            return ToolResult.error_result(
+                "No changes made - old_string equals new_strinc"
+            )
+
+        try:
+            path.write_text(new_content, encoding="utf-8")
+        except IOError as e:
+            return ToolResult.error_result(f"Failed to write file: {e}")
+
+        old_lines = len(old_content.splitlines())
+        new_lines = len(new_content.splitlines())
+        line_diff = new_lines - old_lines
+
+        diff_msg = ""
+
+        if line_diff > 0:
+            diff_msg = f" (+{line_diff} line{'s' if line_diff != 1 else ''})"
+        elif line_diff < 0:
+            diff_msg = f" (-{abs(line_diff)} line{'s' if abs(line_diff) != 1 else ''})"
+
+        return ToolResult.success_result(
+            f"Edited {path}: {replace_count} occurrence{'s' if replace_count != 1 else ''} {diff_msg}",
+            diff=FileDiff(
+                path=path,
+                old_content=old_content,
+                new_content=new_content,
+            ),
+            metadata={
+                "path": str(path),
+                "replace_count": replace_count,
+                "line_diff": line_diff,
+            },
+        )
+
     def _no_match_error(self, old_string: str, content: str, path: Path) -> ToolResult:
         lines = content.splitlines()
 
@@ -105,7 +158,7 @@ class EditTool(Tool):
                 "- All whitespace and indentation\n"
                 "- Line breaks\n"
                 "- Any invisible characters\n"
-                "Try re-reading the file using read_file tool and then editing."
+                "- Try re-reading the file using read_file tool and then editing."
             )
 
         return ToolResult.error_result(error_msg)
