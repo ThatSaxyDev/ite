@@ -1,3 +1,4 @@
+from tools.base import FileDiff
 from utils.paths import ensure_parent_dir
 from utils.paths import resolve_path
 from pydantic import BaseModel, Field
@@ -43,7 +44,7 @@ class WriteFileTool(Tool):
         if not is_new_file:
             try:
                 old_content = path.read_text(encoding="utf-8")
-            except:
+            except (OSError, UnicodeDecodeError):
                 pass
 
         try:
@@ -60,7 +61,19 @@ class WriteFileTool(Tool):
             line_count = len(params.content.splitlines())
 
             return ToolResult.success_result(
-                f"{action} {path} {line_count} lines", 
+                f"{action} {path} {line_count} lines",
+                diff=FileDiff(
+                    path=path,
+                    old_content=old_content,
+                    new_content=params.content,
+                    is_new_file=is_new_file,
+                ),
+                metadata={
+                    "path": str(path),
+                    "is_new_file": is_new_file,
+                    "lines_added": line_count,
+                    "bytes": len(params.content.encode("utf-8")),
+                },
             )
         except OSError as e:
             return ToolResult.error_result(f"Failed to write file: {e}")
