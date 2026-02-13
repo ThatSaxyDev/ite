@@ -23,8 +23,8 @@ class MessageItem:
         if self.tool_calls:
             result["tool_calls"] = self.tool_calls
 
-        if self.content:
-            result["content"] = self.content
+        if self.content or self.tool_calls:
+            result["content"] = self.content or ""
 
         return result
 

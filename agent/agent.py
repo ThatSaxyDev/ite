@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from config.config import Config
 from client.response import ToolResultMessage
 from client.response import ToolCall
@@ -58,14 +59,14 @@ class Agent:
                     )
 
             self.session.context_manager.add_assistant_message(
-                response_text or None,
+                response_text,
                 [
                     {
                         "id": tc.call_id,
                         "type": "function",
                         "function": {
                             "name": tc.name,
-                            "arguments": str(tc.arguments),
+                            "arguments": json.dumps(tc.arguments),
                         },
                     }
                     for tc in tool_calls
