@@ -94,14 +94,15 @@ class CLI:
                 tool_name = event.data.get("name", "Unknown tool")
                 tool_kind = self._get_tool_kind(tool_name)
                 self.tui.tool_call_complete(
-                    event.data.get("call_id", ""),
-                    tool_name,
-                    tool_kind,
-                    event.data.get("success", False),
-                    event.data.get("output", ""),
-                    event.data.get("error"),
-                    event.data.get("metadata"),
-                    event.data.get("truncated", False),
+                    call_id=event.data.get("call_id", ""),
+                    name=tool_name,
+                    tool_kind=tool_kind,
+                    success=event.data.get("success", False),
+                    output=event.data.get("output", ""),
+                    error=event.data.get("error"),
+                    metadata=event.data.get("metadata"),
+                    diff=event.data.get("diff"),
+                    truncated=event.data.get("truncated", False),
                 )
 
         return final_response
