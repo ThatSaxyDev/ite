@@ -61,26 +61,50 @@ class TUI:
     ) -> None:
         self.console = console or get_console()
         self._assistant_stream_open = False
+        self._assistant_buffer: str = ""
+        self._streamed_line_count: int = 0
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.config = config
         self.cwd = self.config.cwd
         self._max_block_tokens = 2500
 
     def begin_assistant(self) -> None:
+        self._assistant_buffer = ""
+        self._streamed_line_count = 0
+        self._assistant_stream_open = True
+        # Print a subtle header
         self.console.print()
         self.console.print(
-            Rule(
-                Text("Assistant", style="assistant"),
-            )
+            Text("  ⏺ Assistant", style="bold bright_white"),
         )
-        self._assistant_stream_open = True
+        self.console.print()
 
     def end_assistant(self) -> None:
-        if self._assistant_stream_open:
+        if self._assistant_stream_open and self._assistant_buffer:
+            # Erase the raw streamed lines
+            lines_to_clear = self._streamed_line_count + 1
+            if lines_to_clear > 0:
+                # Move up and clear each line
+                self.console.file.write(
+                    f"\033[{lines_to_clear}A"  # move up
+                    + ("\033[2K\n" * lines_to_clear)  # clear each line
+                    + f"\033[{lines_to_clear}A"  # move back up
+                )
+                self.console.file.flush()
+
+            # Render the final styled markdown
+            self.console.print(
+                Markdown(self._assistant_buffer.strip()),
+            )
             self.console.print()
         self._assistant_stream_open = False
+        self._assistant_buffer = ""
+        self._streamed_line_count = 0
 
     def stream_assistant_delta(self, content: str) -> None:
+        self._assistant_buffer += content
+        self._streamed_line_count += content.count("\n")
+        # Show raw text so the user sees activity
         self.console.print(content, end="", markup=False)
 
     def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[Tuple]:
