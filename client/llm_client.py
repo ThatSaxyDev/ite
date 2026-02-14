@@ -26,6 +26,8 @@ class LLMClient:
             self._client = AsyncOpenAI(
                 base_url=self.config.base_url,
                 api_key=self.config.api_key,
+                timeout=300.0,  # 5 min — streaming can be slow
+                max_retries=0,  # we handle retries ourselves
             )
         return self._client
 
