@@ -33,7 +33,7 @@ class CLI:
 
             while True:
                 try:
-                    user_input = console.input("\n[user]</>[/user] ").strip()
+                    user_input = console.input("\n[user]>[/user] ").strip()
                     if not user_input:
                         continue
 
