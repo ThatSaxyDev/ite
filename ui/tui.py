@@ -63,7 +63,7 @@ class TUI:
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.config = config
         self.cwd = self.config.cwd
-        self._max_block_tokens = 240
+        self._max_block_tokens = 2500
 
     def begin_assistant(self) -> None:
         self.console.print()
@@ -426,7 +426,7 @@ class TUI:
                 summary.append(f"{matches} matches were found")
 
             if isinstance(files_searched, int):
-                summary.append(f"searched{files_searched} files")
+                summary.append(f"searched {files_searched} files")
 
             if summary:
                 blocks.append(Text(" • ".join(summary), style="muted"))
