@@ -71,7 +71,7 @@ class GrepTool(Tool):
             # 1: def main():
             # 2:     print("Hello, world!")
 
-            for i, line in lines:
+            for i, line in enumerate(lines):
                 if pattern.search(line):
                     matches += 1
                     if not file_matches:
@@ -90,6 +90,7 @@ class GrepTool(Tool):
                 metadata={
                     "path": str(search_path),
                     "matches": 0,
+                    "files_searched": len(files),
                 },
             )
 
@@ -98,6 +99,7 @@ class GrepTool(Tool):
             metadata={
                 "path": str(search_path),
                 "matches": matches,
+                "files_searched": len(files),
             },
         )
 
