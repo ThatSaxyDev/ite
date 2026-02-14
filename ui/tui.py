@@ -1,6 +1,7 @@
 from config.config import Config
 from utils.text import truncate_text
 from rich.syntax import Syntax
+from rich.markdown import Markdown
 from rich import box
 from utils.paths import display_path_relative_to_cwd
 from pathlib import Path
@@ -557,9 +558,12 @@ class TUI:
                 self._max_block_tokens,
             )
 
-            blocks.append(
-                Syntax(output_display, "text", theme="monokai", word_wrap=True)
-            )
+            if isinstance(content_type, str) and "json" in content_type:
+                blocks.append(
+                    Syntax(output_display, "json", theme="monokai", word_wrap=True)
+                )
+            else:
+                blocks.append(Markdown(output_display))
 
         if error and not success:
             blocks.append(Text(error, style="error"))
