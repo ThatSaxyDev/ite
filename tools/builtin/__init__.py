@@ -1,3 +1,4 @@
+from tools.builtin.web_search import WebSearchTool
 from tools.builtin.glob import GlobTool
 from tools.builtin.grep import GrepTool
 from tools.builtin.list_dir import ListDirTool
@@ -14,6 +15,7 @@ __all__ = [
     "ListDirTool",
     "GrepTool",
     "GlobTool",
+    "WebSearchTool",
 ]
 
 
@@ -26,4 +28,5 @@ def get_all_builtin_tools() -> list[type]:
         ListDirTool,
         GrepTool,
         GlobTool,
+        WebSearchTool,
     ]
