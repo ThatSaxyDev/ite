@@ -565,6 +565,43 @@ class TUI:
             else:
                 blocks.append(Markdown(output_display))
 
+        elif name == "todos" and success:
+            completed = metadata.get("completed", 0) if metadata else 0
+            total = metadata.get("total", 0) if metadata else 0
+            action = metadata.get("action", "") if metadata else ""
+
+            # Progress header
+            if total > 0:
+                bar_width = 20
+                filled = int((completed / total) * bar_width) if total else 0
+                bar = "█" * filled + "░" * (bar_width - filled)
+                header = Text()
+                header.append(f"Tasks: {completed}/{total} completed ", style="muted")
+                header.append(bar, style="green" if completed == total else "yellow")
+                blocks.append(header)
+                blocks.append(Text())
+
+            # Render each line with styled checkboxes
+            for line in output.splitlines():
+                styled = Text()
+                stripped = line.strip()
+                if stripped.startswith("☑"):
+                    styled.append("  ☑ ", style="bold green")
+                    styled.append(
+                        stripped[1:].strip(),
+                        style="dim strikethrough",
+                    )
+                elif stripped.startswith("☐"):
+                    styled.append("  ☐ ", style="bold yellow")
+                    styled.append(stripped[1:].strip(), style="white")
+                else:
+                    continue
+
+                blocks.append(styled)
+
+            if action == "clear":
+                blocks.append(Text("  All todos cleared", style="muted"))
+
         if error and not success:
             blocks.append(Text(error, style="error"))
 
