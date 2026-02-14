@@ -1,3 +1,4 @@
+from tools.base import Tool
 from config.config import Config
 from dataclasses import field
 from typing import Any
@@ -33,9 +34,14 @@ class MessageItem:
 
 
 class ContextManager:
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        user_memory: str | None = None,
+        tools: list[Tool] | None = None,
+    ) -> None:
         self.config = config
-        self._system_prompt = get_system_prompt(config)
+        self._system_prompt = get_system_prompt(config, user_memory, tools)
         self._model_name = self.config.model_name
         self._messages: list(MessageItem) = []
 
