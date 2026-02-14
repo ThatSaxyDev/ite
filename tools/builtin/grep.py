@@ -75,7 +75,10 @@ class GrepTool(Tool):
                 if pattern.search(line):
                     matches += 1
                     if not file_matches:
-                        relative_path = file_path.relative_to(invocation.cwd)
+                        try:
+                            relative_path = file_path.relative_to(invocation.cwd)
+                        except Exception:
+                            relative_path = file_path
                         output_lines.append(f"=== {relative_path} ===")
                         file_matches = True
 
@@ -92,6 +95,11 @@ class GrepTool(Tool):
                     "matches": 0,
                     "files_searched": len(files),
                 },
+            )
+
+        if matches > 500:
+            output_lines.append(
+                f"... limited to 500 matches; ({matches - 500} more matches not shown)"
             )
 
         return ToolResult.success_result(
