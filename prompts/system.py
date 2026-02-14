@@ -1,5 +1,5 @@
 
-from sys import platform
+import platform
 from datetime import datetime
 from config.config import Config
 from tools.base import Tool

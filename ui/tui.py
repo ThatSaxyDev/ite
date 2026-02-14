@@ -93,6 +93,8 @@ class TUI:
             "grep": ["path", "case_insensitive", "pattern"],
             "glob": ["path", "pattern"],
             "web_search": ["query", "max_results"],
+            "todos": ["action", "task", "due_date"],
+            "memory": ["action", "key", "value"],
         }
 
         preferred = _PREFERRED_ORDER.get(tool_name, [])
