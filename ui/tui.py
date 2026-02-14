@@ -312,26 +312,53 @@ class TUI:
         commands: list[str] | None = None,
         version: str = "0.1.0",
     ) -> None:
-        import pyfiglet
+        # Hand-crafted large block art — no pyfiglet needed
+        logo_lines = [
+            "  ██╗ ██████╗ ███████╗",
+            "  ╚═╝ ╚═██╔═╝ ██╔═══╝",
+            "  ██╗   ██║   ████╗  ",
+            "  ██║   ██║   ██╔═╝  ",
+            "  ██║   ██║   ███████╗",
+            "  ╚═╝   ╚═╝   ╚══════╝",
+        ]
+        logo = self._gradient_text("\n".join(logo_lines))
 
-        ascii_art = pyfiglet.figlet_format("ite", font="slant")
-        logo = self._gradient_text(ascii_art.rstrip())
+        tagline = Text("  your intelligent terminal engine", style="dim italic")
 
+        # Info section with icons
         info_table = Table.grid(padding=(0, 2))
-        info_table.add_column(style="muted", justify="right", min_width=8)
+        info_table.add_column(style="muted", justify="right", min_width=10)
         info_table.add_column(style="code")
 
         cwd_display = str(cwd).replace(str(Path.home()), "~")
-        info_table.add_row("model", Text(model or "not set", style="cyan"))
-        info_table.add_row("cwd", Text(cwd_display, style="info"))
+        info_table.add_row(
+            Text("🤖 model", style="muted"),
+            Text(model or "not set", style="cyan bold"),
+        )
+        info_table.add_row(
+            Text("📁 cwd", style="muted"),
+            Text(cwd_display, style="info"),
+        )
         if commands:
-            info_table.add_row("commands", Text("  ".join(commands), style="success"))
+            cmd_text = Text()
+            for i, cmd in enumerate(commands):
+                if i > 0:
+                    cmd_text.append("  ", style="dim")
+                cmd_text.append(cmd, style="green")
+            info_table.add_row(
+                Text("⌨  cmds", style="muted"),
+                cmd_text,
+            )
 
-        footer = Text(f"v{version} · type /help for commands", style="dim")
+        footer = Text(
+            f"  v{version} · type /help for commands",
+            style="dim",
+        )
 
         content = Group(
             Text(),
             logo,
+            # tagline,
             Text(),
             Rule(style="grey35"),
             Text(),
@@ -344,7 +371,7 @@ class TUI:
             Panel(
                 content,
                 border_style="grey35",
-                box=box.DOUBLE,
+                box=box.HEAVY,
                 padding=(0, 3),
             )
         )
