@@ -71,7 +71,7 @@ class GrepTool(Tool):
             # 1: def main():
             # 2:     print("Hello, world!")
 
-            for i, line in enumerate(lines):
+            for i, line in enumerate(lines, start=1):
                 if pattern.search(line):
                     matches += 1
                     if not file_matches:
@@ -114,7 +114,7 @@ class GrepTool(Tool):
                 not in {".git", ".venv", "__pycache__", "node_modules", ".git", "venv"}
             ]
             for filename in filenames:
-                if not filename.startswith("."):
+                if filename.startswith("."):
                     continue
 
                 file_path = Path(root) / filename

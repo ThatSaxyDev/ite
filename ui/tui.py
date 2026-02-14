@@ -423,10 +423,14 @@ class TUI:
             summary = []
 
             if isinstance(matches, int):
-                summary.append(f"{matches} matches were found")
+                if matches == 1:
+                    summary.append("1 match was found")
+                else:
+                    summary.append(f"{matches} matches were found")
 
             if isinstance(files_searched, int):
-                summary.append(f"searched {files_searched} files")
+                file_word = "file" if files_searched == 1 else "files"
+                summary.append(f"searched {files_searched} {file_word}")
 
             if summary:
                 blocks.append(Text(" • ".join(summary), style="muted"))
