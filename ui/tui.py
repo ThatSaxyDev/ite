@@ -77,6 +77,7 @@ class TUI:
         """Show an animated spinner with a message."""
         if self._spinner_running:
             return
+        self.console.print()
         spinner = Spinner("dots", text=Text(f" {message}...", style="muted"))
         self._spinner_live = Live(
             spinner,
@@ -101,7 +102,7 @@ class TUI:
         # Print a subtle header
         self.console.print()
         self.console.print(
-            Text("  ⏺ Assistant", style="bold bright_white"),
+            Text("  ⏺ ite", style="bold bright_white"),
         )
         self.console.print()
 
