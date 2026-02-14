@@ -591,7 +591,7 @@ class TUI:
             subtitle=Text("done" if success else "failed", style=status_style),
             subtitle_align="right",
             border_style=border_style,
-            box=box.ROUNDED,
+            box=box.HEAVY,
             padding=(1, 2),
         )
 
