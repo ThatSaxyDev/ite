@@ -602,6 +602,65 @@ class TUI:
             if action == "clear":
                 blocks.append(Text("  All todos cleared", style="muted"))
 
+        elif name == "memory" and success:
+            action = args.get("action", "")
+            key = args.get("key", "")
+
+            if action == "set":
+                styled = Text()
+                styled.append("  ✓ ", style="bold green")
+                styled.append("Saved ", style="muted")
+                styled.append(key, style="bold cyan")
+                blocks.append(styled)
+
+            elif action == "get":
+                found = metadata.get("found", False) if metadata else False
+                styled = Text()
+                if found:
+                    styled.append("  🔑 ", style="bold cyan")
+                    styled.append(f"{key}", style="bold cyan")
+                    styled.append(" → ", style="muted")
+                    # Extract value from output after "key: "
+                    val = output.split(f"{key}: ", 1)[-1] if key else output
+                    styled.append(val, style="white")
+                else:
+                    styled.append("  ○ ", style="dim")
+                    styled.append(f"{key} ", style="dim")
+                    styled.append("not found", style="dim italic")
+                blocks.append(styled)
+
+            elif action == "delete":
+                styled = Text()
+                styled.append("  ✗ ", style="bold red")
+                styled.append("Deleted ", style="muted")
+                styled.append(key, style="bold cyan")
+                blocks.append(styled)
+
+            elif action == "list":
+                found = metadata.get("found", False) if metadata else False
+                if not found:
+                    blocks.append(Text("  No memories stored", style="muted"))
+                else:
+                    mem_table = Table(
+                        show_header=True,
+                        header_style="bold cyan",
+                        box=None,
+                        padding=(0, 2),
+                    )
+                    mem_table.add_column("Key", style="cyan")
+                    mem_table.add_column("Value", style="white")
+
+                    for line in output.splitlines():
+                        stripped = line.strip()
+                        if ":" in stripped and not stripped.startswith("Stored"):
+                            k, v = stripped.split(":", 1)
+                            mem_table.add_row(k.strip(), v.strip())
+
+                    blocks.append(mem_table)
+
+            elif action == "clear":
+                blocks.append(Text(f"  ✓ {output}", style="muted"))
+
         if error and not success:
             blocks.append(Text(error, style="error"))
 

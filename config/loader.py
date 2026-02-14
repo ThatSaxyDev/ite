@@ -1,3 +1,4 @@
+from platformdirs import user_data_dir
 import logging
 from typing import Any
 from utils.errors import ConfigError
@@ -14,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 def get_config_dir() -> Path:
     return Path(user_config_dir("ite"))
+
+
+def get_data_dir() -> Path:
+    return Path(user_data_dir("ite"))
 
 
 def get_system_config_path() -> Path:

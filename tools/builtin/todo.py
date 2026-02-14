@@ -8,13 +8,13 @@ from pydantic import BaseModel, Field
 class TodosParams(BaseModel):
     action: str = Field(
         ...,
-        description="Action: add, complete, list, clear",
+        description="Action: `add`, `complete`, `list`, `clear`",
     )
-    id: str | None = Field(None, description="Todo ID (for complete)")
-    content: str | None = Field(None, description="Single todo item text (for add)")
+    id: str | None = Field(None, description="Todo ID (for `complete`)")
+    content: str | None = Field(None, description="Single todo item text (for `add`)")
     items: list[str] | None = Field(
         None,
-        description="Multiple todo items to add at once (for add). Preferred over 'content' when adding more than one.",
+        description="Multiple todo items to add at once (for `add`). Preferred over `content` when adding more than one.",
     )
 
 

@@ -1,3 +1,4 @@
+from tools.builtin.memory import MemoryTool
 from tools.builtin.todo import TodosTool
 from tools.builtin.web_fetch import WebFetchTool
 from tools.builtin.web_search import WebSearchTool
@@ -20,6 +21,7 @@ __all__ = [
     "WebSearchTool",
     "WebFetchTool",
     "TodosTool",
+    "MemoryTool",
 ]
 
 
@@ -35,4 +37,5 @@ def get_all_builtin_tools() -> list[type]:
         WebSearchTool,
         WebFetchTool,
         TodosTool,
+        MemoryTool,
     ]
