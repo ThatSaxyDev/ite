@@ -291,7 +291,7 @@ class TUI:
 
     def _gradient_text(self, text: str) -> Text:
         start_r, start_g, start_b = 0, 200, 255
-        end_r, end_g, end_b = 180, 80, 255
+        end_r, end_g, end_b = 30, 80, 48
 
         rich_text = Text()
         total = max(len(text) - 1, 1)
