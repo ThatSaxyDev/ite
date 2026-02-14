@@ -87,6 +87,7 @@ class TUI:
             "read_file": ["path", "offset", "limit"],
             "write_file": ["path", "create_directories", "content"],
             "edit": ["path", "replace_all", "old_string", "new_string"],
+            "shell": ["command", "timeout", "cwd"],
         }
 
         preferred = _PREFERRED_ORDER.get(tool_name, [])
@@ -291,6 +292,7 @@ class TUI:
         metadata: dict[str, Any] | None,
         diff: str | None,
         truncated: bool,
+        exit_code: int | None,
     ) -> None:
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
