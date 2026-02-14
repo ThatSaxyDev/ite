@@ -99,11 +99,6 @@ class TUI:
         self._assistant_buffer = ""
         self._streamed_line_count = 0
         self._assistant_stream_open = True
-        # Print a subtle header
-        self.console.print()
-        self.console.print(
-            Text("  ⏺ ite", style="bold bright_white"),
-        )
         self.console.print()
 
     def end_assistant(self) -> None:
@@ -119,11 +114,21 @@ class TUI:
                 )
                 self.console.file.flush()
 
-            # Render the final styled markdown
-            self.console.print(
-                Markdown(self._assistant_buffer.strip()),
+            title = Text.assemble(
+                ("⏺ ", "muted"),
+                ("ite", "bold bright_white"),
             )
-            self.console.print()
+
+            # Render the final styled markdown in a panel
+            panel = Panel(
+                Markdown(self._assistant_buffer.strip()),
+                title=title,
+                title_align="left",
+                border_style="bright_white",
+                box=box.HEAVY,
+                padding=(1, 2),
+            )
+            self.console.print(panel)
         self._assistant_stream_open = False
         self._assistant_buffer = ""
         self._streamed_line_count = 0
