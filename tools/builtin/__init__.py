@@ -1,3 +1,4 @@
+from tools.builtin.todo import TodosTool
 from tools.builtin.web_fetch import WebFetchTool
 from tools.builtin.web_search import WebSearchTool
 from tools.builtin.glob import GlobTool
@@ -18,6 +19,7 @@ __all__ = [
     "GlobTool",
     "WebSearchTool",
     "WebFetchTool",
+    "TodosTool",
 ]
 
 
@@ -32,4 +34,5 @@ def get_all_builtin_tools() -> list[type]:
         GlobTool,
         WebSearchTool,
         WebFetchTool,
+        TodosTool,
     ]
