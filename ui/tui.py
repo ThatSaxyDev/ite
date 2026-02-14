@@ -537,13 +537,13 @@ class TUI:
             summary = []
 
             if isinstance(status_code, int):
-                summary.append(status_code)
+                summary.append(str(status_code))
 
             if isinstance(content_length, int):
                 summary.append(f"{content_length} bytes")
 
             if isinstance(content_type, str):
-                summary.append(f"Type: {content_type}")
+                summary.append(content_type)
 
             if isinstance(url, str):
                 summary.append(url)
