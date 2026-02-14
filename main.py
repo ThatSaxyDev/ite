@@ -61,11 +61,15 @@ class CLI:
         assistant_streaming = False
         final_response: str | None = None
 
+        # Start spinner while waiting for LLM
+        self.tui.start_spinner("Thinking")
+
         async for event in self.agent.run(message):
             # print(event)
             if event.type == AgentEventType.TEXT_DELTA:
                 content = event.data.get("content", "")
                 if not assistant_streaming:
+                    self.tui.stop_spinner()
                     self.tui.begin_assistant()
                     assistant_streaming = True
                 self.tui.stream_assistant_delta(content)
@@ -77,10 +81,12 @@ class CLI:
                     assistant_streaming = False
 
             elif event.type == AgentEventType.AGENT_ERROR:
+                self.tui.stop_spinner()
                 error = event.data.get("error", "Unknown error")
                 console.print(f"\n[error]Error: {error}[/error]")
 
             elif event.type == AgentEventType.TOOL_CALL_START:
+                self.tui.stop_spinner()
                 tool_name = event.data.get("name", "Unknown tool")
                 tool_kind = self._get_tool_kind(tool_name)
                 self.tui.tool_call_start(
@@ -105,7 +111,10 @@ class CLI:
                     truncated=event.data.get("truncated", False),
                     exit_code=event.data.get("exit_code"),
                 )
+                # Restart spinner while LLM processes tool results
+                self.tui.start_spinner("Thinking")
 
+        self.tui.stop_spinner()
         return final_response
 
 

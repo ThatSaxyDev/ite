@@ -12,6 +12,8 @@ from rich.theme import Theme
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.live import Live
+from rich.spinner import Spinner
 from typing import Tuple
 import re
 
@@ -67,6 +69,30 @@ class TUI:
         self.config = config
         self.cwd = self.config.cwd
         self._max_block_tokens = 2500
+        # Spinner state
+        self._spinner_live: Live | None = None
+        self._spinner_running = False
+
+    def start_spinner(self, message: str = "Thinking") -> None:
+        """Show an animated spinner with a message."""
+        if self._spinner_running:
+            return
+        spinner = Spinner("dots", text=Text(f" {message}...", style="muted"))
+        self._spinner_live = Live(
+            spinner,
+            console=self.console,
+            refresh_per_second=10,
+            transient=True,  # Erase spinner when stopped
+        )
+        self._spinner_live.start()
+        self._spinner_running = True
+
+    def stop_spinner(self) -> None:
+        """Stop and remove the spinner."""
+        if self._spinner_live and self._spinner_running:
+            self._spinner_live.stop()
+        self._spinner_live = None
+        self._spinner_running = False
 
     def begin_assistant(self) -> None:
         self._assistant_buffer = ""
