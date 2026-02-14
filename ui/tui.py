@@ -91,6 +91,7 @@ class TUI:
             "list_dir": ["path", "include_hidden"],
             "grep": ["path", "case_insensitive", "pattern"],
             "glob": ["path", "pattern"],
+            "web_search": ["query", "max_results"],
         }
 
         preferred = _PREFERRED_ORDER.get(tool_name, [])
@@ -121,6 +122,8 @@ class TUI:
                     value = f" <-- {line_count} lines | {byte_count} bytes -->"
 
             if isinstance(value, bool):
+                value = str(value)
+            elif not isinstance(value, str):
                 value = str(value)
 
             table.add_row(key, value)
@@ -462,6 +465,67 @@ class TUI:
             blocks.append(
                 Syntax(output_display, "text", theme="monokai", word_wrap=True)
             )
+
+        elif name == "web_search" and success:
+            results_count = metadata.get("results")
+            query = args.get("query")
+
+            summary = []
+
+            if isinstance(query, str):
+                summary.append(f'"{query}"')
+
+            if isinstance(results_count, int):
+                if results_count == 1:
+                    summary.append("1 result")
+                else:
+                    summary.append(f"{results_count} results")
+
+            if summary:
+                blocks.append(Text(" • ".join(summary), style="muted"))
+                blocks.append(Text())
+
+            # Parse results into structured data
+            results = []
+            current = {}
+            for line in output.splitlines():
+                line = line.strip()
+                if not line or line.startswith("Search results for:"):
+                    if current:
+                        results.append(current)
+                        current = {}
+                    continue
+                if line and line[0].isdigit() and ". Title: " in line:
+                    if current:
+                        results.append(current)
+                    current = {"title": line.split(". Title: ", 1)[1]}
+                elif line.startswith("URL: "):
+                    current["url"] = line[5:]
+                elif line.startswith("Snippet: "):
+                    current["snippet"] = line[9:]
+            if current:
+                results.append(current)
+
+            result_table = Table.grid(padding=(0, 1))
+            result_table.add_column(style="muted", justify="right", width=3)
+            result_table.add_column()
+
+            for i, r in enumerate(results, start=1):
+                title_text = Text()
+                title_text.append(r.get("title", ""), style="highlight")
+                result_table.add_row(f"{i}.", title_text)
+
+                if r.get("url"):
+                    result_table.add_row("", Text(r["url"], style="dim"))
+
+                if r.get("snippet"):
+                    result_table.add_row("", Text(r["snippet"], style="muted"))
+
+                # spacer between results
+                if i < len(results):
+                    result_table.add_row("", Text())
+
+            blocks.append(result_table)
 
         if error and not success:
             blocks.append(Text(error, style="error"))
