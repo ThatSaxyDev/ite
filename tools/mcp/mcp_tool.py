@@ -5,7 +5,6 @@ from tools.mcp.client import MCPClient, MCPToolInfo
 
 
 class MCPTool(Tool):
-
     def __init__(
         self,
         config: Config,
