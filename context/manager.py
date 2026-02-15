@@ -115,5 +115,52 @@ class ContextManager:
     def add_usage(self, usage: TokenUsage) -> None:
         self._total_usage += usage
 
-    def get_total_usage(self) -> TokenUsage:
-        return self._total_usage
+    def replace_with_summary(self, summary: str) -> None:
+        self._messages = []
+
+        continuation_content = f"""# Context Restoration (Previous Session Compacted)
+
+        The previous conversation was compacted due to context length limits. Below is a detailed summary of the work done so far. 
+
+        **CRITICAL: Actions listed under "COMPLETED ACTIONS" are already done. DO NOT repeat them.**
+
+        ---
+
+        {summary}
+
+        ---
+
+        Resume work from where we left off. Focus ONLY on the remaining tasks."""
+
+        summary_item = MessageItem(
+            role="user",
+            content=continuation_content,
+            token_count=count_tokens(continuation_content, self._model_name),
+        )
+        self._messages.append(summary_item)
+
+        ack_content = """I've reviewed the context from the previous session. I understand:
+- The original goal and what was requested
+- Which actions are ALREADY COMPLETED (I will NOT repeat these)
+- The current state of the project
+- What still needs to be done
+
+I'll continue with the REMAINING tasks only, starting from where we left off."""
+        ack_item = MessageItem(
+            role="assistant",
+            content=ack_content,
+            token_count=count_tokens(ack_content, self._model_name),
+        )
+        self._messages.append(ack_item)
+
+        continue_content = (
+            "Continue with the REMAINING work only. Do NOT repeat any completed actions. "
+            "Proceed with the next step as described in the context above."
+        )
+
+        continue_item = MessageItem(
+            role="user",
+            content=continue_content,
+            token_count=count_tokens(continue_content, self._model_name),
+        )
+        self._messages.append(continue_item)
