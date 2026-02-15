@@ -1,3 +1,4 @@
+from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
 import json
 from config.loader import get_data_dir
@@ -23,13 +24,17 @@ class Session:
             self.config,
             self.tool_registry,
         )
+        self.mcp_manager = MCPManager(self.config)
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
 
         self.discovery_manager.discover_all()
-
         self._turn_count = 0
+
+    async def initialize(self) -> None:
+        self.mcp_manager.initialize()
+        self.mcp_manager.register_tools(self.tool_registry)
 
     def _load_memory(self) -> str | None:
         data_dir = get_data_dir()

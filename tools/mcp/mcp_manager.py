@@ -1,3 +1,4 @@
+from tools.mcp.mcp_tool import MCPTool
 from tools.mcp.client import MCPServerStatus
 from tools.registry import ToolRegistry
 import asyncio
@@ -46,5 +47,14 @@ class MCPManager:
             if client.status != MCPServerStatus.CONNECTED:
                 continue
 
-            for tool in client.tools:
-                registry.register_mcp_tool(tool)
+            for tool_info in client.tools:
+                mcp_tool = MCPTool(
+                    tool_info=tool_info,
+                    client=client,
+                    config=self.config,
+                    name=f"{client.name}_{tool_info.name}",
+                )
+                registry.register_mcp_tool(mcp_tool)
+                count += 1
+
+        return count
