@@ -750,18 +750,21 @@ class TUI:
             if error and not success:
                 blocks.append(Text(error, style="error"))
 
-                output_display = truncate_text(
-                    output,
-                    self.config.model_name,
-                    self._max_block_tokens,
-                )
+            output_display = truncate_text(
+                output,
+                self.config.model_name,
+                self._max_block_tokens,
+            )
 
-                if output_display.strip():
+            if output_display.strip():
+                if success:
+                    blocks.append(Markdown(output_display))
+                else:
                     blocks.append(
                         Syntax(output_display, "text", theme="monokai", word_wrap=True)
                     )
-                else:
-                    blocks.append(Text("No output", style="muted"))
+            else:
+                blocks.append(Text("No output", style="muted"))
 
         if truncated:
             blocks.append(Text("... [truncated]", style="warning"))
