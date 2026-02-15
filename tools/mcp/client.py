@@ -1,5 +1,5 @@
 from typing import Any
-from dataclasses import Field
+from dataclasses import field
 from dataclasses import dataclass
 import os
 from fastmcp.client.transports import StdioTransport, SSETransport
@@ -20,7 +20,7 @@ class MCPServerStatus(str, Enum):
 class MCPToolInfo:
     name: str
     description: str
-    input_schema: dict[str, Any] = Field(default_factory=dict)
+    input_schema: dict[str, Any] = field(default_factory=dict)
     server_name: str = ""
 
 

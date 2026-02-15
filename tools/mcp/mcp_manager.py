@@ -17,6 +17,7 @@ class MCPManager:
             return
 
         mcp_configs = self.config.mcp_servers
+        print(mcp_configs)
 
         if not mcp_configs:
             return
