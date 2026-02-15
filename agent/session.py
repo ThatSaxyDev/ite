@@ -1,3 +1,4 @@
+from context.compaction import ChatCompactor
 from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
 import json
@@ -21,6 +22,7 @@ class Session:
             self.tool_registry,
         )
         self.mcp_manager = MCPManager(self.config)
+        self.chat_compactor = ChatCompactor(self.config)
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()
         self.updated_at = datetime.now()

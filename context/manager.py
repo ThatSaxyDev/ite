@@ -1,3 +1,4 @@
+from client.response import TokenUsage
 from tools.base import Tool
 from config.config import Config
 from dataclasses import field
@@ -42,8 +43,10 @@ class ContextManager:
     ) -> None:
         self.config = config
         self._system_prompt = get_system_prompt(config, user_memory, tools)
-        self._model_name = self.config.model_name
+        self._model_name = self.config.model_names
         self._messages: list(MessageItem) = []
+        self._latest_usage = TokenUsage()
+        self._total_usage = TokenUsage()
 
     def add_user_message(self, content: str) -> None:
         item = MessageItem(
@@ -100,3 +103,17 @@ class ContextManager:
             messages.append(item.to_dict())
 
         return messages
+
+    def needs_compression(self) -> bool:
+        context_limit = self.config.model.context_window
+        current_tokens = self._latest_usage.total_tokens
+        return current_tokens > (context_limit * 0.8)
+
+    def set_latest_usage(self, usage: TokenUsage) -> None:
+        self._latest_usage = usage
+
+    def add_usage(self, usage: TokenUsage) -> None:
+        self._total_usage += usage
+
+    def get_total_usage(self) -> TokenUsage:
+        return self._total_usage
