@@ -1,3 +1,5 @@
+from __future__ import annotations
+from pydantic import model_validator
 from typing import Any
 import os
 from pathlib import Path
@@ -19,6 +21,35 @@ class ShellEnvironmentPolicy(BaseModel):
     set_vars: dict[str, str] = Field(default_factory=dict)
 
 
+class MCPServerConfig(BaseModel):
+    enabled: bool = True
+    startup_timeout_sec: float = 10
+
+    # stdio transport
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: Path | None = None
+
+    # http/sse transport
+    url: str | None = None
+
+    @model_validator(mode="after")
+    def validate_transport(self) -> MCPServerConfig:
+        has_command = self.command is not None
+        has_url = self.url is not None
+
+        if not has_command and not has_url:
+            raise ValueError(
+                "MCP Server must have either 'command' (stdio) or 'url' (http/sse)"
+            )
+
+        if has_command and has_url:
+            raise ValueError("MCP Server must have only one of command or url set")
+
+        return self
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
@@ -27,7 +58,11 @@ class Config(BaseModel):
     )
 
     max_turns: int = 100
+
+    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+
     max_tool_output_tokens: int = 50_000
+
     allowed_tools: list[str] | None = Field(
         None,
         description="If set only these tools will be available to the agent",

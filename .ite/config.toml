@@ -1,2 +1,20 @@
 [model]
 name = "minimax-m2.5:cloud"
+
+[mcp_servers.filesystem]
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "/Users/kiishidavid/Documents/Dev/Projects/ite",
+    "/tmp",
+]
+
+[mcp_servers.filesystem1]
+command = "npx"
+args = [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "/Users/kiishidavid/Documents/Dev/Projects/ite",
+    "/tmp",
+]
