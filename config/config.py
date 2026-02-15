@@ -51,7 +51,7 @@ class MCPServerConfig(BaseModel):
 
 
 class Config(BaseModel):
-    model: ModelConfig = Field(default=ModelConfig)
+    model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
     shell_environment: ShellEnvironmentPolicy = Field(
         default_factory=ShellEnvironmentPolicy

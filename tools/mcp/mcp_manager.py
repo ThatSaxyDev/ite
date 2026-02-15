@@ -4,6 +4,9 @@ from tools.registry import ToolRegistry
 import asyncio
 from tools.mcp.client import MCPClient
 from config.config import Config
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class MCPManager:
@@ -26,6 +29,13 @@ class MCPManager:
             if not server_config.enabled:
                 continue
 
+            logger.info(
+                "Initializing MCP server '%s' (command=%s url=%s cwd=%s)",
+                name,
+                server_config.command,
+                server_config.url,
+                server_config.cwd or self.config.cwd,
+            )
             self._clients[name] = MCPClient(
                 name=name,
                 config=server_config,
@@ -39,7 +49,20 @@ class MCPManager:
             for name, client in self._clients.items()
         ]
 
-        await asyncio.gather(*connection_tasks, return_exceptions=True)
+        results = await asyncio.gather(*connection_tasks, return_exceptions=True)
+        for (name, client), result in zip(self._clients.items(), results):
+            if isinstance(result, Exception):
+                logger.error(
+                    "MCP server '%s' failed to connect: %s",
+                    name,
+                    result,
+                )
+            else:
+                logger.info(
+                    "MCP server '%s' connected with %d tools",
+                    name,
+                    len(client.tools),
+                )
 
         self._initialized = True
 
@@ -55,7 +78,7 @@ class MCPManager:
                     tool_info=tool_info,
                     client=client,
                     config=self.config,
-                    name=f"{client.name}_{tool_info.name}",
+                    name=f"{client.name}__{tool_info.name}",
                 )
                 registry.register_mcp_tool(mcp_tool)
                 count += 1

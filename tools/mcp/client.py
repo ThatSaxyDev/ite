@@ -7,6 +7,9 @@ from enum import Enum
 from pathlib import Path
 from config.config import MCPServerConfig
 from fastmcp import Client
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class MCPServerStatus(str, Enum):
@@ -47,11 +50,12 @@ class MCPClient:
         if self.config.command:
             env = os.environ.copy()
             env.update(self.config.env)
+            cwd = self.config.cwd if self.config.cwd is not None else self.cwd
             return StdioTransport(
                 command=self.config.command,
                 args=list(self.config.args),
                 env=env,
-                cwd=str(self.config.cwd) or str(self.cwd),
+                cwd=str(cwd),
                 log_file=Path(os.devnull),
             )
 
@@ -72,8 +76,15 @@ class MCPClient:
             await self._client.__aenter__()
 
             tool_result = await self._client.list_tools()
+            tools = (
+                tool_result.tools
+                if hasattr(tool_result, "tools")
+                else tool_result
+                if isinstance(tool_result, list)
+                else []
+            )
 
-            for tool in tool_result.tools:
+            for tool in tools:
                 self._tools[tool.name] = MCPToolInfo(
                     name=tool.name,
                     description=tool.description or "",
@@ -86,6 +97,7 @@ class MCPClient:
             self.status = MCPServerStatus.CONNECTED
 
         except Exception:
+            logger.exception("MCP server '%s' connection error", self.name)
             self.status = MCPServerStatus.ERROR
             raise
 
