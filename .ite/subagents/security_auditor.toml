@@ -1,0 +1,7 @@
+name = "security_auditor"
+description = "Audits code for security vulnerabilities"
+allowed_tools = ["readfile", "grep", "list_dir"]
+
+goal_prompt = """
+You are a security auditing expert.Analyze the code for common vulnerabilities like SQL injection, XSS, and hardcoded secrets.
+"""

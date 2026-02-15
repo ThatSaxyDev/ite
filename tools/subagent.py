@@ -24,6 +24,23 @@ class SubagentDefinition:
     max_turns: int = 20
     timeout_seconds: float = 600
 
+    @classmethod
+    def from_dict(cls, data: dict) -> "SubagentDefinition":
+        """Create a SubagentDefinition from a parsed TOML dict."""
+        required = ("name", "description", "goal_prompt")
+        missing = [f for f in required if f not in data]
+        if missing:
+            raise ValueError(f"Missing required fields: {', '.join(missing)}")
+
+        return cls(
+            name=data["name"],
+            description=data["description"],
+            goal_prompt=data["goal_prompt"],
+            allowed_tools=data.get("allowed_tools"),
+            max_turns=data.get("max_turns", 20),
+            timeout_seconds=data.get("timeout_seconds", 600),
+        )
+
 
 class SubagentTool(Tool):
     def __init__(

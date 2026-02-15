@@ -1,5 +1,6 @@
 from tools.subagent import SubagentTool
 from tools.subagent import get_default_subagent_definitions
+from tools.subagent_loader import discover_subagents
 from config.config import Config
 from tools.builtin import get_all_builtin_tools
 from tools.base import ToolInvocation
@@ -107,5 +108,10 @@ def create_default_registry(config: Config) -> ToolRegistry:
 
     for subagent_definition in get_default_subagent_definitions():
         registry.register(SubagentTool(config, subagent_definition))
+
+    # Discover and register user-defined subagents (override defaults by name)
+    user_subagents = discover_subagents(config.cwd)
+    for definition in user_subagents:
+        registry.register(SubagentTool(config, definition))
 
     return registry
