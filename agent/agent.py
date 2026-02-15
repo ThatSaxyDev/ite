@@ -119,6 +119,7 @@ class Agent:
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 
     async def __aenter__(self) -> Agent:
+        await self.session.initialize()
         return self
 
     async def __aexit__(
