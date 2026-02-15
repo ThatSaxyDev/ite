@@ -1,3 +1,4 @@
+from typing import Any
 from tools.mcp.mcp_tool import MCPTool
 from tools.mcp.client import MCPServerStatus
 from tools.registry import ToolRegistry
@@ -84,3 +85,23 @@ class MCPManager:
                 count += 1
 
         return count
+
+    async def shutdown(self) -> None:
+        disconnection_tasks = [client.disconnect() for client in self._clients.values()]
+
+        await asyncio.gather(*disconnection_tasks, return_exceptions=True)
+
+        self._clients.clear()
+        self._initialized = False
+
+    def get_all_servers(self) -> list[dict[str, Any]]:
+        servers = []
+        for name, client in self._clients.items():
+            server_info = {
+                "name": name,
+                "status": client.status.value,
+                "tools": len(client.tools),
+            }
+            servers.append(server_info)
+
+        return servers
