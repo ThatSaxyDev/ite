@@ -39,6 +39,10 @@ class MCPClient:
 
         self._tools: dict[str, MCPToolInfo] = dict()
 
+    @property
+    def tools(self) -> list[MCPToolInfo]:
+        return list(self._tools.values())
+
     def _create_transport(self) -> StdioTransport | SSETransport:
         if self.config.command:
             env = os.environ.copy()
