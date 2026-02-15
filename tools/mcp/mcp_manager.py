@@ -17,7 +17,7 @@ class MCPManager:
             return
 
         mcp_configs = self.config.mcp_servers
-        print(mcp_configs)
+        # print(mcp_configs)
 
         if not mcp_configs:
             return
@@ -33,7 +33,9 @@ class MCPManager:
             )
 
         connection_tasks = [
-            await asyncio.wait_for(client.connect())
+            asyncio.wait_for(
+                client.connect(), timeout=client.config.startup_timeout_sec
+            )
             for name, client in self._clients.items()
         ]
 
