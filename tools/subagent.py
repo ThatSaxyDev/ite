@@ -98,6 +98,9 @@ class SubagentTool(Tool):
 
                     elif event.type == AgentEvent.text_complete:
                         final_response = event.data.get("content")
+                    elif event.type == AgentEvent.agent_end:
+                        if final_response is None:
+                            final_response = event.data.get("response")
                     elif event.type == AgentEvent.agent_error:
                         terminate_response = "error"
                         error = event.data.get("error", "Unknown error")
