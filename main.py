@@ -62,7 +62,7 @@ class CLI:
         final_response: str | None = None
 
         # Start spinner while waiting for LLM
-        self.tui.start_spinner("Thinking")
+        self.tui.start_spinner("Running...")
 
         async for event in self.agent.run(message):
             # print(event)
@@ -95,8 +95,10 @@ class CLI:
                     tool_kind,
                     event.data.get("arguments", {}),
                 )
+                self.tui.start_spinner("Running")
 
             elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                self.tui.stop_spinner()
                 tool_name = event.data.get("name", "Unknown tool")
                 tool_kind = self._get_tool_kind(tool_name)
                 self.tui.tool_call_complete(
@@ -112,7 +114,7 @@ class CLI:
                     exit_code=event.data.get("exit_code"),
                 )
                 # Restart spinner while LLM processes tool results
-                self.tui.start_spinner("Thinking")
+                self.tui.start_spinner("Running...")
 
         self.tui.stop_spinner()
         return final_response

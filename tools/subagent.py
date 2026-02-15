@@ -48,7 +48,7 @@ class SubagentTool(Tool):
         return True
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
-        from agent.events import AgentEvent
+        from agent.events import AgentEventType
         from agent.agent import Agent
 
         params = SubagentParams(**invocation.params)
@@ -93,15 +93,15 @@ class SubagentTool(Tool):
                         terminate_response = "timeout"
                         final_response = "Sub-agent timed out"
                         break
-                    if event.type == AgentEvent.tool_call_start:
-                        tool_calls.append(event.data.get("name"))
 
-                    elif event.type == AgentEvent.text_complete:
+                    if event.type == AgentEventType.TOOL_CALL_START:
+                        tool_calls.append(event.data.get("name"))
+                    elif event.type == AgentEventType.TEXT_COMPLETE:
                         final_response = event.data.get("content")
-                    elif event.type == AgentEvent.agent_end:
+                    elif event.type == AgentEventType.AGENT_END:
                         if final_response is None:
                             final_response = event.data.get("response")
-                    elif event.type == AgentEvent.agent_error:
+                    elif event.type == AgentEventType.AGENT_ERROR:
                         terminate_response = "error"
                         error = event.data.get("error", "Unknown error")
                         final_response = f"Sub-agent failed: {error}"
