@@ -1,6 +1,4 @@
 import asyncio
-from agent.events import AgentEvent
-from agent.agent import Agent
 from pydantic import Field
 from tools.base import ToolInvocation
 from tools.base import ToolResult
@@ -50,6 +48,9 @@ class SubagentTool(Tool):
         return True
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        from agent.events import AgentEvent
+        from agent.agent import Agent
+
         params = SubagentParams(**invocation.params)
         if not params.goal:
             return ToolResult.error_result("No goal specified for subagent")
