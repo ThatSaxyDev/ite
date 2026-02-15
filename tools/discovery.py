@@ -1,3 +1,4 @@
+from config.loader import get_config_dir
 import inspect
 from tools.base import Tool
 import sys
@@ -63,3 +64,4 @@ class ToolDiscoveryManager:
 
     def discover_all(self) -> None:
         self.discover_from_directory(self.config.cwd)
+        self.discover_from_directory(get_config_dir())
