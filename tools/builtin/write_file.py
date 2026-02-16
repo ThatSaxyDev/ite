@@ -1,3 +1,4 @@
+from tools.base import ToolConfirmation
 from tools.base import FileDiff
 from utils.paths import ensure_parent_dir
 from utils.paths import resolve_path
@@ -31,6 +32,41 @@ class WriteFileTool(Tool):
 
     kind = ToolKind.WRITE
     schema = WriteFileParams
+
+    async def get_confirmation(
+        self,
+        invocation: ToolInvocation,
+    ) -> ToolConfirmation | None:
+        params = WriteFileParams(**invocation.params)
+        path = resolve_path(invocation.cwd, params.path)
+
+        is_new_file = not path.exists()
+
+        action = "Create" if is_new_file else "Update"
+
+        old_content = ""
+
+        if not is_new_file:
+            try:
+                old_content = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        diff = FileDiff(
+            path=path,
+            old_content=old_content,
+            new_content=params.content,
+            is_new_file=is_new_file,
+        )
+
+        return ToolConfirmation(
+            tool_name=self.name,
+            description=f"{action} file: {path}",
+            params=invocation.params,
+            diff=diff,
+            affected_paths=[path],
+            is_dangerous=not is_new_file,
+        )
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = WriteFileParams(**invocation.params)

@@ -1,3 +1,4 @@
+from safety.approval import ApprovalManager
 from tools.subagent import SubagentTool
 from tools.subagent import get_default_subagent_definitions
 from tools.subagent_loader import discover_subagents
@@ -72,6 +73,7 @@ class ToolRegistry:
         name: str,
         params: dict[str, Any],
         cwd: Path,
+        approval_manager: ApprovalManager | None = None,
     ) -> ToolResult:
         tool = self.get(name)
 
@@ -98,6 +100,9 @@ class ToolRegistry:
             params=params,
             cwd=cwd,
         )
+
+        if approval_manager:
+            tool.get_confirmation()
 
         try:
             result = await tool.execute(invocation)

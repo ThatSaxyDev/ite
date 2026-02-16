@@ -109,6 +109,10 @@ class ToolConfirmation:
     tool_name: str
     description: str
     params: dict[str, Any]
+    diff: FileDiff | None = None
+    affected_paths: list[Path] = field(default_factory=list)
+    command: str | None = None
+    is_dangerous: bool = False
 
 
 class Tool(abc.ABC):
