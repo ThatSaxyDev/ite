@@ -43,7 +43,7 @@ class ContextManager:
     ) -> None:
         self.config = config
         self._system_prompt = get_system_prompt(config, user_memory, tools)
-        self._model_name = self.config.model_names
+        self._model_name = self.config.model_name
         self._messages: list(MessageItem) = []
         self._latest_usage = TokenUsage()
         self._total_usage = TokenUsage()

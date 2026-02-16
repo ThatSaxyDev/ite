@@ -43,6 +43,7 @@ class Agent:
                 )
 
                 if summary:
+                    self.session.context_manager.replace_with_summary(summary)
                     self.session.context_manager.set_latest_usage(usage)
                     self.session.context_manager.add_usage(usage)
 
