@@ -1,3 +1,4 @@
+from tools.base import ToolConfirmation
 from signal import signal
 import asyncio
 import sys
@@ -43,8 +44,28 @@ class ShellTool(Tool):
 
     schema = ShellParams
 
-    # async def execute(self, invocation: ToolInvocation) -> ToolResult:
-    #     return await super().execute(invocation)
+    async def get_confirmation(
+        self, invocation: ToolInvocation
+    ) -> ToolConfirmation | None:
+        params = ShellParams(**invocation.params)
+
+        for blocked in BLOCKED_COMMANDS:
+            if blocked in params.command:
+                return ToolConfirmation(
+                    tool_name=self.name,
+                    params=invocation.params,
+                    description=f"Execute (BLOCKED): {params.command}",
+                    command=params.command,
+                    is_dangerous=True,
+                )
+
+        return ToolConfirmation(
+            tool_name=self.name,
+            params=invocation.params,
+            description=f"Execute: {params.command}",
+            command=params.command,
+            is_dangerous=False,
+        )
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = ShellParams(**invocation.params)
