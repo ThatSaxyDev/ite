@@ -1,3 +1,4 @@
+from context.loop_detector import LoopDetector
 from safety.approval import ApprovalManager
 from context.compaction import ChatCompactor
 from tools.mcp.mcp_manager import MCPManager
@@ -31,6 +32,7 @@ class Session:
             self.config.approval,
             self.config.cwd,
         )
+        self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()

@@ -11,6 +11,7 @@ from agent.session import Session
 from client.response import TokenUsage
 from tools.base import ToolConfirmation
 from typing import Callable
+from prompts.system import create_loop_breaker_prompt
 
 
 class Agent:
@@ -103,6 +104,7 @@ class Agent:
 
             if response_text:
                 yield AgentEvent.text_complete(response_text)
+                self.session.loop_detector.record_action("response", text=response_text)
 
             if not tool_calls:
                 if usage:
@@ -120,6 +122,18 @@ class Agent:
                     tool_call.name,
                     tool_call.arguments,
                 )
+
+                self.session.loop_detector.record_action(
+                    "tool_call",
+                    tool_name=tool_call.name,
+                    args=tool_call.arguments,
+                )
+
+                loop_message = self.session.loop_detector.check_for_loop()
+                if loop_message:
+                    loop_breaker_prompt = create_loop_breaker_prompt(loop_message)
+                    self.session.context_manager.add_user_message(loop_breaker_prompt)
+                    continue
 
                 result = await self.session.tool_registry.invoke(
                     tool_call.name,
