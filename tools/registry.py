@@ -124,7 +124,7 @@ class ToolRegistry:
                     )
 
                 elif decision == ApprovalDecision.NEEDS_CONFIRMATION:
-                    approved = await approval_manager.request_confirmation(confirmation)
+                    approved = approval_manager.request_confirmation(confirmation)
 
                     if not approved:
                         return ToolResult.error_result("User rejected the operation")

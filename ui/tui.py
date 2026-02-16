@@ -786,6 +786,8 @@ class TUI:
         self.console.print(panel)
 
     def handle_confirmation(self, confirmation: ToolConfirmation) -> bool:
+        if self._spinner_running:
+            self.stop_spinner()
         output = [
             Text(confirmation.tool_name, style="tool"),
             Text(confirmation.description, style="code"),
