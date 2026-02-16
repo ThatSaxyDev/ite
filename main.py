@@ -77,6 +77,16 @@ class CLI:
             return True
 
         elif command == "/exit" or command == "/quit":
+            # Clear session-scoped short-term memory
+            try:
+                from tools.builtin.memory import MemoryTool
+
+                st_path = MemoryTool(self.config)._get_memory_path("short_term")
+                if st_path.exists():
+                    st_path.unlink()
+            except Exception:
+                pass
+
             console.print()
             console.print(
                 Text.assemble(
@@ -484,6 +494,15 @@ class CLI:
                 total_usage=self.agent.session.context_manager.total_usage,
             )
             session_manager.save_session(session_snapshot)
+
+            # Auto-save episodic entry
+            from tools.builtin.memory import MemoryTool
+
+            MemoryTool.append_episodic_entry(
+                summary=f"Session saved ({self.agent.session.turn_count} turns)",
+                cwd=str(self.config.cwd),
+                key=self.agent.session.session_id,
+            )
             title = Text.assemble(("💾  ", ""), ("Session saved", "bold bright_white"))
             console.print()
             console.print(

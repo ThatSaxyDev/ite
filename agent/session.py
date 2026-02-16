@@ -4,8 +4,6 @@ from safety.approval import ApprovalManager
 from context.compaction import ChatCompactor
 from tools.mcp.mcp_manager import MCPManager
 from tools.discovery import ToolDiscoveryManager
-import json
-from config.loader import get_data_dir
 from datetime import datetime
 import uuid
 from tools.registry import create_default_registry
@@ -60,27 +58,19 @@ class Session:
             tools=self.tool_registry.get_tools(),
         )
 
-    def _load_memory(self) -> str | None:
-        data_dir = get_data_dir()
-        data_dir.mkdir(parents=True, exist_ok=True)
-        path = data_dir / "user_memory.json"
+    def _load_memory(self) -> dict | None:
+        from tools.builtin.memory import MemoryTool
 
-        if not path.exists():
-            return None
+        memory = MemoryTool.load_all_memory(str(self.config.cwd))
 
-        try:
-            content = path.read_text(encoding="utf-8")
-            data = json.loads(content)
-            entries = data.get("entries")
-            if not entries:
-                return None
-
-            lines = ["User preferences and notes:"]
-            for key, value in entries.items():
-                lines.append(f"- {key}: {value}")
-            return "\n".join(lines)
-        except Exception:
-            return None
+        # Return None if all stores are empty
+        has_data = (
+            memory.get("long_term")
+            or memory.get("short_term")
+            or memory.get("episodic")
+            or memory.get("semantic")
+        )
+        return memory if has_data else None
 
     def increment_turn(self) -> int:
         self._turn_count += 1

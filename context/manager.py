@@ -43,7 +43,7 @@ class ContextManager:
     def __init__(
         self,
         config: Config,
-        user_memory: str | None = None,
+        user_memory: dict | None = None,
         tools: list[Tool] | None = None,
     ) -> None:
         self.config = config
