@@ -1,3 +1,5 @@
+from safety.approval import ApprovalDecision
+from safety.approval import ApprovalContext
 from safety.approval import ApprovalManager
 from tools.subagent import SubagentTool
 from tools.subagent import get_default_subagent_definitions
@@ -102,7 +104,30 @@ class ToolRegistry:
         )
 
         if approval_manager:
-            tool.get_confirmation()
+            confirmation = await tool.get_confirmation()
+
+            if confirmation:
+                context = ApprovalContext(
+                    tool_name=name,
+                    params=params,
+                    is_mutating=tool.is_mutating(params),
+                    affected_paths=confirmation.affected_paths,
+                    command=confirmation.command,
+                    is_dangerous=confirmation.is_dangerous,
+                )
+
+                decision = await approval_manager.check_approval(context)
+
+                if decision == ApprovalDecision.REJECTED:
+                    return ToolResult.error_result(
+                        "Operation rejected by by safety policy",
+                    )
+
+                elif decision == ApprovalDecision.NEEDS_CONFIRMATION:
+                    approved = await approval_manager.request_confirmation(confirmation)
+
+                    if not approved:
+                        return ToolResult.error_result("User rejected the operation")
 
         try:
             result = await tool.execute(invocation)
