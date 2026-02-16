@@ -203,6 +203,134 @@ class CLI:
             )
             return True
 
+        elif command == "/approval":
+            from config.config import ApprovalPolicy
+
+            valid_modes = [p.value for p in ApprovalPolicy]
+
+            if args and args[0].lower() == "help":
+                mode_descriptions = {
+                    "on_request": "Ask before every mutating action",
+                    "on_failure": "Auto-approve, ask only on failure",
+                    "auto": "Auto-approve all safe operations",
+                    "auto_edit": "Auto-approve edits, confirm commands",
+                    "never": "Only allow safe commands, reject all else",
+                    "yolo": "Approve everything — no guardrails",
+                }
+                lines = Text()
+                for mode in ApprovalPolicy:
+                    marker = " ← current" if mode == self.config.approval else ""
+                    lines.append(
+                        f"  {mode.value}",
+                        style="bold cyan"
+                        if mode == self.config.approval
+                        else "green bold",
+                    )
+                    lines.append(f"  {mode_descriptions[mode.value]}", style="dim")
+                    if marker:
+                        lines.append(marker, style="yellow")
+                    lines.append("\n")
+
+                title = Text.assemble(
+                    ("🛡 ", ""), ("Approval Modes", "bold bright_white")
+                )
+                console.print()
+                console.print(
+                    Panel(
+                        lines,
+                        title=title,
+                        title_align="left",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
+            elif args:
+                new_approval = args[0].lower()
+                if new_approval not in valid_modes:
+                    console.print(
+                        f"[error]Invalid approval mode:[/error] [bold]{args[0]}[/bold]\n"
+                        f"[dim]Valid modes: [green]{', '.join(valid_modes)}[/green] — try [green]/approval help[/green][/dim]"
+                    )
+                    return True
+
+                old_approval = self.config.approval.value
+                self.config.approval = ApprovalPolicy(new_approval)
+                title = Text.assemble(
+                    ("🛡 ", ""), ("Approval Changed", "bold bright_white")
+                )
+                console.print()
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            (old_approval, "dim strikethrough"),
+                            (" → ", "muted"),
+                            (new_approval, "bold cyan"),
+                            "\n\n",
+                            ("Approval changed successfully", "green"),
+                        ),
+                        title=title,
+                        title_align="left",
+                        border_style="green",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
+            else:
+                title = Text.assemble(("🛡 ", ""), ("Approval", "bold bright_white"))
+                console.print()
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            ("Active approval: ", "code"),
+                            (self.config.approval.value, "bold cyan"),
+                            "\n\n",
+                            ("Use ", "code"),
+                            ("/approval <mode>", "green bold"),
+                            (" to change  •  ", "code"),
+                            ("/approval help", "green bold"),
+                            (" to see all modes", "code"),
+                        ),
+                        title=title,
+                        title_align="left",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
+            return True
+
+        elif command == "/stats":
+            stats = self.session.get_stats()
+            title = Text.assemble(
+                ("📊 ", ""), ("Session Statistics", "bold bright_white")
+            )
+            console.print()
+            console.print(
+                Panel(
+                    Text.assemble(
+                        ("Session ID: ", "code"),
+                        (stats["session_id"], "bold cyan"),
+                        ("\nTurn Count: ", "code"),
+                        (str(stats["turn_count"]), "bold cyan"),
+                        ("\nMessage Count: ", "code"),
+                        (str(stats["message_count"]), "bold cyan"),
+                        ("\nToken Usage: ", "code"),
+                        (str(stats["token_usage"]), "bold cyan"),
+                        ("\nTools Enabled: ", "code"),
+                        (str(stats["tools_enabled"]), "bold cyan"),
+                        ("\nMCP Servers: ", "code"),
+                        (str(stats["mcp_servers"]), "bold cyan"),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
+            return True
+
         elif command == "/subagent" or command == "/subagents":
             if not args:
                 console.print("[error]Usage: /subagent <list|create|delete>[/error]")
