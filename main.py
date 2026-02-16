@@ -484,13 +484,13 @@ class CLI:
                 total_usage=self.agent.session.context_manager.total_usage,
             )
             session_manager.save_session(session_snapshot)
-            title = Text.assemble(("💾  ", ""), ("Saved", "bold bright_white"))
+            title = Text.assemble(("💾  ", ""), ("Session saved", "bold bright_white"))
             console.print()
             console.print(
                 Panel(
                     Text.assemble(
                         (
-                            f"Session saved: {self.agent.session.session_id}",
+                            f"Session: {self.agent.session.session_id}",
                             "bold cyan",
                         ),
                     ),
@@ -569,6 +569,92 @@ class CLI:
                     Text.assemble(
                         (
                             f"Session loaded: {session_id}",
+                            "bold cyan",
+                        ),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
+            return True
+
+        elif command == "/checkpoint":
+            session_manager = SessionManager()
+            session_snapshot = SessionSnapshot(
+                session_id=self.agent.session.session_id,
+                created_at=self.agent.session.created_at,
+                updated_at=self.agent.session.updated_at,
+                turn_count=self.agent.session.turn_count,
+                messages=self.agent.session.context_manager.get_messages(),
+                total_usage=self.agent.session.context_manager.total_usage,
+            )
+            checkpoint_id = session_manager.save_checkpoint(session_snapshot)
+            title = Text.assemble(
+                ("💾  ", ""), ("Checkpoint created", "bold bright_white")
+            )
+            console.print()
+            console.print(
+                Panel(
+                    Text.assemble(
+                        (
+                            f"Checkpoint: {checkpoint_id}",
+                            "bold cyan",
+                        ),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
+            return True
+
+        elif command == "/restore":
+            if not args:
+                console.print(
+                    "[error]Missing checkpoint ID.[/error]  [dim]Use [green]/restore <checkpoint_id>[/green] to restore a checkpoint.[/dim]"
+                )
+                return True
+
+            checkpoint_id = args[0]
+            session_manager = SessionManager()
+            snapshot = session_manager.load_checkpoint(checkpoint_id)
+
+            if snapshot is None:
+                console.print(
+                    f"[error]Checkpoint not found:[/error] [bold]{checkpoint_id}[/bold]"
+                )
+                return True
+            else:
+                session = Session(
+                    config=self.config,
+                )
+                session.session_id = snapshot.session_id
+                session.created_at = snapshot.created_at
+                session.updated_at = snapshot.updated_at
+                session.turn_count = snapshot.turn_count
+
+                await self.agent.session.client.close()
+                await self.agent.session.mcp_manager.shutdown()
+                await session.initialize()
+
+                session.context_manager.set_messages(snapshot.messages)
+                session.context_manager.total_usage = snapshot.total_usage
+                self.agent.session = session
+
+            title = Text.assemble(
+                ("💾  ", ""), ("Checkpoint Restored", "bold bright_white")
+            )
+            console.print()
+            console.print(
+                Panel(
+                    Text.assemble(
+                        (
+                            f"Checkpoint: {checkpoint_id}",
                             "bold cyan",
                         ),
                     ),
