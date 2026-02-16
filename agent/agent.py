@@ -129,13 +129,6 @@ class Agent:
                     args=tool_call.arguments,
                 )
 
-                loop_message = self.session.loop_detector.check_for_loop()
-                if loop_message:
-                    yield AgentEvent.loop_detected(loop_message)
-                    loop_breaker_prompt = create_loop_breaker_prompt(loop_message)
-                    self.session.context_manager.add_user_message(loop_breaker_prompt)
-                    continue
-
                 result = await self.session.tool_registry.invoke(
                     tool_call.name,
                     tool_call.arguments,
@@ -163,6 +156,12 @@ class Agent:
                     tool_result.tool_call_id,
                     tool_result.content,
                 )
+
+            loop_message = self.session.loop_detector.check_for_loop()
+            if loop_message:
+                yield AgentEvent.loop_detected(loop_message)
+                loop_breaker_prompt = create_loop_breaker_prompt(loop_message)
+                self.session.context_manager.add_user_message(loop_breaker_prompt)
 
             if usage:
                 self.session.context_manager.set_latest_usage(usage)
