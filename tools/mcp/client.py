@@ -2,6 +2,7 @@ from typing import Any
 from dataclasses import field
 from dataclasses import dataclass
 import os
+import shutil
 from fastmcp.client.transports import StdioTransport, SSETransport
 from enum import Enum
 from pathlib import Path
@@ -96,8 +97,40 @@ class MCPClient:
 
             self.status = MCPServerStatus.CONNECTED
 
+        except (RuntimeError, OSError) as e:
+            self.status = MCPServerStatus.ERROR
+            cmd = self.config.command or self.config.url or "unknown"
+
+            # Check for command-not-found (FileNotFoundError wrapped in RuntimeError)
+            root = e.__cause__ or e
+            if isinstance(root, FileNotFoundError) or (
+                isinstance(e, OSError) and e.errno == 2
+            ):
+                resolved = shutil.which(str(cmd))
+                hint = (
+                    f"Command '{cmd}' was not found on your PATH."
+                    if resolved is None
+                    else f"Command '{cmd}' resolved to '{resolved}' but failed to start."
+                )
+                msg = (
+                    f"MCP server '{self.name}' failed to start: {hint}\n"
+                    f"  → Check the 'command' field in [mcp_servers.{self.name}] "
+                    f"in your .ite/config.toml"
+                )
+                logger.error(msg)
+                raise RuntimeError(msg) from None
+
+            # Other runtime / connection errors — log without full traceback
+            msg = (
+                f"MCP server '{self.name}' failed to connect: {e}\n"
+                f"  → Check the configuration in [mcp_servers.{self.name}] "
+                f"in your .ite/config.toml"
+            )
+            logger.error(msg)
+            raise RuntimeError(msg) from None
+
         except Exception:
-            logger.exception("MCP server '%s' connection error", self.name)
+            logger.exception("MCP server '%s' unexpected connection error", self.name)
             self.status = MCPServerStatus.ERROR
             raise
 

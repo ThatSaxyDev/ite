@@ -407,14 +407,14 @@ class CLI:
                 mcp_table = Table.grid(padding=(0, 2))
                 mcp_table.add_column(style="cyan bold", min_width=16)
                 mcp_table.add_column(min_width=12)
-                mcp_table.add_column(style="dim")
+                mcp_table.add_column(style="code")
                 for server in servers:
                     is_connected = server["status"] == "connected"
                     status_style = "green bold" if is_connected else "red bold"
                     mcp_table.add_row(
                         Text(server["name"], style="cyan bold"),
                         Text(f"● {server['status']}", style=status_style),
-                        Text(f"{server['tools']} tools", style="dim"),
+                        Text(f"[{server['tools']} tools]", style="code"),
                     )
                 console.print()
                 console.print(

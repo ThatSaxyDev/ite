@@ -10,6 +10,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _get_console():
+    """Lazily import the shared console to avoid circular imports."""
+    from ui.tui import get_console
+
+    return get_console()
+
+
 class MCPManager:
     def __init__(self, config: Config) -> None:
         self.config = config
@@ -21,7 +28,6 @@ class MCPManager:
             return
 
         mcp_configs = self.config.mcp_servers
-        # print(mcp_configs)
 
         if not mcp_configs:
             return
@@ -43,6 +49,15 @@ class MCPManager:
                 cwd=self.config.cwd,
             )
 
+        if not self._clients:
+            self._initialized = True
+            return
+
+        console = _get_console()
+        server_count = len(self._clients)
+        server_word = "server" if server_count == 1 else "servers"
+        names = ", ".join(self._clients.keys())
+
         connection_tasks = [
             asyncio.wait_for(
                 client.connect(), timeout=client.config.startup_timeout_sec
@@ -50,20 +65,26 @@ class MCPManager:
             for name, client in self._clients.items()
         ]
 
-        results = await asyncio.gather(*connection_tasks, return_exceptions=True)
+        with console.status(
+            f"[muted] Connecting to {server_count} MCP {server_word} ({names})...[/muted]",
+            spinner="dots",
+            spinner_style="cyan",
+        ):
+            results = await asyncio.gather(*connection_tasks, return_exceptions=True)
+
+        # Print per-server results
         for (name, client), result in zip(self._clients.items(), results):
             if isinstance(result, Exception):
-                logger.error(
-                    "MCP server '%s' failed to connect: %s",
-                    name,
-                    result,
+                console.print(
+                    f"  [bright_red]✗[/bright_red] [bold]{name}[/bold] [muted]— unavailable[/muted]"
                 )
             else:
-                logger.info(
-                    "MCP server '%s' connected with %d tools",
-                    name,
-                    len(client.tools),
+                tool_count = len(client.tools)
+                tool_word = "tool" if tool_count == 1 else "tools"
+                console.print(
+                    f"  [green]✓[/green] [bold]{name}[/bold] [muted]— {tool_count} {tool_word}[/muted]"
                 )
+        console.print()
 
         self._initialized = True
 
