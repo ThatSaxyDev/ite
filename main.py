@@ -546,6 +546,21 @@ class CLI:
                 )
                 return True
             else:
+                # Auto-checkpoint current session before overwriting
+                if (
+                    self.agent.session.context_manager
+                    and self.agent.session.context_manager.message_count > 0
+                ):
+                    current_snapshot = SessionSnapshot(
+                        session_id=self.agent.session.session_id,
+                        created_at=self.agent.session.created_at,
+                        updated_at=self.agent.session.updated_at,
+                        turn_count=self.agent.session.turn_count,
+                        messages=self.agent.session.context_manager.get_messages(),
+                        total_usage=self.agent.session.context_manager.total_usage,
+                    )
+                    session_manager.save_checkpoint(current_snapshot)
+
                 session = Session(
                     config=self.config,
                 )
@@ -613,10 +628,45 @@ class CLI:
             )
             return True
 
+        elif command == "/checkpoints":
+            session_manager = SessionManager()
+            # Use provided session_id or fall back to current session
+            target_id = args[0] if args else self.agent.session.session_id
+            checkpoints = session_manager.list_checkpoints(target_id)
+
+            if not checkpoints:
+                console.print(
+                    f"[dim]No checkpoints found for session [bold]{target_id[:8]}…[/bold][/dim]"
+                )
+                return True
+
+            table = Table(
+                title=f"Checkpoints for {target_id[:8]}…",
+                title_style="bold bright_white",
+                border_style="cyan",
+                box=box.SIMPLE_HEAVY,
+                padding=(0, 2),
+            )
+            table.add_column("Checkpoint ID", style="bold")
+            table.add_column("Created At", style="cyan")
+            table.add_column("Turn Count", style="dim", justify="right")
+
+            for cp in checkpoints:
+                created = datetime.fromisoformat(cp["created_at"])
+                table.add_row(
+                    cp["checkpoint_id"],
+                    created.strftime("%b %d, %Y · %I:%M %p"),
+                    str(cp["turn_count"]),
+                )
+
+            console.print()
+            console.print(table)
+            return True
+
         elif command == "/restore":
             if not args:
                 console.print(
-                    "[error]Missing checkpoint ID.[/error]  [dim]Use [green]/restore <checkpoint_id>[/green] to restore a checkpoint.[/dim]"
+                    "[error]Missing checkpoint ID.[/error]  [dim]Use [green]/checkpoints[/green] to list checkpoints, then [green]/restore <checkpoint_id>[/green][/dim]"
                 )
                 return True
 
@@ -626,7 +676,7 @@ class CLI:
 
             if snapshot is None:
                 console.print(
-                    f"[error]Checkpoint not found:[/error] [bold]{checkpoint_id}[/bold]"
+                    f"[error]Checkpoint not found:[/error] [bold]{checkpoint_id}[/bold]. [dim]Use [green]/checkpoints[/green] to list available checkpoints.[/dim]"
                 )
                 return True
             else:

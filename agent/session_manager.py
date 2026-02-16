@@ -106,3 +106,23 @@ class SessionManager:
             data = json.load(fp)
 
         return SessionSnapshot.from_dict(data)
+
+    def list_checkpoints(self, session_id: str) -> list[dict[str, Any]]:
+        """List all checkpoints for a given session ID."""
+        checkpoints = []
+        for file_path in self.checkpoints_dir.glob(f"{session_id}_*.json"):
+            with open(file_path, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+
+            # Extract timestamp from the checkpoint filename
+            checkpoint_id = file_path.stem
+            checkpoints.append(
+                {
+                    "checkpoint_id": checkpoint_id,
+                    "created_at": data.get("updated_at", data.get("created_at", "")),
+                    "turn_count": data.get("turn_count", 0),
+                }
+            )
+
+        checkpoints.sort(key=lambda x: x["created_at"], reverse=True)
+        return checkpoints
