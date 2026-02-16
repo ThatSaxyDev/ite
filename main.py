@@ -65,7 +65,23 @@ class CLI:
         command = parts[0].lower()
         args = parts[1:]
 
-        if command == "/exit" or command == "/quit":
+        if command == "/ite":
+            self.tui.print_welcome(
+                model=self.config.model_name,
+                cwd=self.config.cwd,
+            )
+            return True
+
+        elif command == "/exit" or command == "/quit":
+            console.print()
+            console.print(
+                Text.assemble(
+                    ("👋 ", ""),
+                    ("Goodbye! ", "bold bright_white"),
+                    ("See you next time.", "code"),
+                )
+            )
+            console.print()
             sys.exit(0)
 
         elif command == "/help":
