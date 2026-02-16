@@ -1,3 +1,5 @@
+from agent.session_manager import SessionSnapshot
+from agent.session_manager import SessionManager
 from config.config import Config
 from pathlib import Path
 from config.loader import load_config
@@ -459,6 +461,35 @@ class CLI:
                 Panel(
                     Text.assemble(
                         ("Conversation cleared", "bold cyan"),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
+            return True
+
+        elif command == "/save":
+            session_manager = SessionManager()
+            session_snapshot = SessionSnapshot(
+                session_id=self.agent.session.session_id,
+                created_at=self.agent.session.created_at,
+                updated_at=self.agent.session.updated_at,
+                turn_count=self.agent.session.turn_count,
+                messages=self.agent.session.context_manager.get_messages(),
+            )
+            session_manager.save_session(session_snapshot)
+            title = Text.assemble(("💾  ", ""), ("Saved", "bold bright_white"))
+            console.print()
+            console.print(
+                Panel(
+                    Text.assemble(
+                        (
+                            f"Session saved: {self.agent.session.session_id}",
+                            "bold cyan",
+                        ),
                     ),
                     title=title,
                     title_align="left",

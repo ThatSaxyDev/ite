@@ -15,32 +15,32 @@ trigger = "before_agent"
 command = "python3 ./scripts/test_tool.py"
 
 
-[mcp_servers.filesystem]
-enabled = true
-command = "npx"
-args = [
-    "-y",
-    "@modelcontextprotocol/server-filesystem",
-    "/Users/kiishidavid/Documents/Dev/Projects/ite",
-    "/tmp",
-]
+# [mcp_servers.filesystem]
+# enabled = true
+# command = "npx"
+# args = [
+#     "-y",
+#     "@modelcontextprotocol/server-filesystem",
+#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
+#     "/tmp",
+# ]
 
-[mcp_servers.filesystem2]
-enabled = true
-command = "np"
-args = [
-    "-y",
-    "@modelcontextprotocol/server-filesystem",
-    "/Users/kiishidavid/Documents/Dev/Projects/ite",
-    "/tmp",
-]
+# [mcp_servers.filesystem2]
+# enabled = true
+# command = "np"
+# args = [
+#     "-y",
+#     "@modelcontextprotocol/server-filesystem",
+#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
+#     "/tmp",
+# ]
 
-[mcp_servers.filesystem3]
-enabled = true
-command = "npx"
-args = [
-    "-y",
-    "@modelcontextprotocol/server-filesystem22",
-    "/Users/kiishidavid/Documents/Dev/Projects/ite",
-    "/tmp",
-]
+# [mcp_servers.filesystem3]
+# enabled = true
+# command = "npx"
+# args = [
+#     "-y",
+#     "@modelcontextprotocol/server-filesystem22",
+#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
+#     "/tmp",
+# ]
