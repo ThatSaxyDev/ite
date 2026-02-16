@@ -5,6 +5,8 @@ import sys
 from ui.tui import TUI, get_console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
+from rich.markdown import Markdown
 from rich import box
 from agent.events import AgentEventType
 from agent.agent import Agent
@@ -48,7 +50,7 @@ class CLI:
 
                     await self._process_message(user_input)
                 except KeyboardInterrupt:
-                    console.print("\n[dim]Use /exit to quit[/dim]")
+                    console.print("\n[dim]Use /exit or /quit to quit[/dim]")
                 except EOFError:
                     break
 
@@ -63,34 +65,113 @@ class CLI:
         command = parts[0].lower()
         args = parts[1:]
 
-        if command == "/exit":
+        if command == "/exit" or command == "/quit":
             sys.exit(0)
 
         elif command == "/help":
+            help_md = Markdown(
+                "- `/help` — Show this help\n"
+                "- `/exit` or `/quit` — Exit the agent\n"
+                "- `/clear` — Clear conversation history\n"
+                "- `/config` — Show current configuration\n"
+                "- `/model` — Show current model\n"
+                "- `/model <name>` — Change the model\n"
+                "- `/approval <mode>` — Change approval mode\n"
+                "- `/stats` — Show session statistics\n"
+                "- `/tools` — List available tools\n"
+                "- `/mcp` — Show MCP server status\n"
+                "- `/save` — Save current session\n"
+                "- `/checkpoint [name]` — Create a checkpoint\n"
+                "- `/checkpoints` — List available checkpoints\n"
+                "- `/restore <checkpoint_id>` — Restore a checkpoint\n"
+                "- `/sessions` — List saved sessions\n"
+                "- `/resume <session_id>` — Resume a saved session\n\n"
+                "- `/subagent list` — List all available subagents\n"
+                "- `/subagent create` — Interactively create a new subagent\n"
+                "- `/subagent delete <name>` — Delete a subagent by name\n\n"
+                # "---\n\n"
+                # "### Tips\n\n"
+                # "- Just type your message to chat with the agent\n"
+                # "- The agent can read, write, and execute code\n"
+                # "- Some operations require approval (can be configured)\n"
+            )
+
+            title = Text.assemble(
+                ("⌨  ", ""),
+                ("Commands", "bold bright_white"),
+            )
+
+            console.print()
             console.print(
                 Panel(
-                    """[bold]Commands:[/bold]
-  /subagent list   List available subagents
-  /subagent create Create a new subagent
-  /subagent delete Delete a subagent
-  /model           Show current model
-  /config          Show current configuration
-  /exit            Exit the application""",
-                    title="Help",
+                    help_md,
+                    title=title,
+                    title_align="left",
                     border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
                 )
             )
             return True
 
         elif command == "/model":
+            title = Text.assemble(("🤖 ", ""), ("Model", "bold bright_white"))
+            console.print()
             console.print(
-                f"[bold cyan]Current model:[/bold cyan] {self.config.model_name}"
+                Panel(
+                    Text.assemble(
+                        ("Active model: ", "dim"),
+                        (self.config.model_name, "bold cyan"),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
             )
             return True
 
         elif command == "/config":
-            console.print(f"[bold]CWD:[/bold] {self.config.cwd}")
-            console.print(f"[bold]Model:[/bold] {self.config.model_name}")
+            title = Text.assemble(
+                ("⚙ ", ""), ("Current Configuration", "bold bright_white")
+            )
+            config_table = Table.grid(padding=(0, 2))
+            config_table.add_column(style="code", justify="right", min_width=8)
+            config_table.add_column(style="bold white")
+            cwd_display = str(self.config.cwd).replace(str(Path.home()), "~")
+            config_table.add_row(
+                Text("Model", style="muted"),
+                Text(self.config.model_name, style="cyan bold"),
+            )
+            config_table.add_row(
+                Text("Current Dir", style="muted"),
+                Text(cwd_display, style="info"),
+            )
+            config_table.add_row(
+                Text("Approval", style="muted"),
+                Text(self.config.approval.value, style="info"),
+            )
+            config_table.add_row(
+                Text("Max Turns", style="muted"),
+                Text(str(self.config.max_turns), style="info"),
+            )
+            config_table.add_row(
+                Text("Hooks Enabled", style="muted"),
+                Text(str(self.config.hooks_enabled), style="info"),
+            )
+
+            console.print()
+            console.print(
+                Panel(
+                    config_table,
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
             return True
 
         elif command == "/subagent" or command == "/subagents":
@@ -114,7 +195,29 @@ class CLI:
 
             return True
 
-        return False
+        elif command == "/clear":
+            self.agent.session.context_manager.clear()
+            self.agent.session.loop_detector.clear()
+            title = Text.assemble(("🗑  ", ""), ("Cleared", "bold bright_white"))
+            console.print()
+            console.print(
+                Panel(
+                    Text.assemble(
+                        ("Conversation cleared", "bold cyan"),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
+            return True
+
+        console.print(
+            f"[error]Unknown command:[/error] [bold]{command}[/bold]  [dim]— type [green]/help[/green] for a list of commands[/dim]"
+        )
+        return True
 
     def _list_subagents(self):
         from tools.subagent import SubagentTool

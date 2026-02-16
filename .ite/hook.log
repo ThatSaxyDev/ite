@@ -52,3 +52,10 @@
 [HOOK] {"timestamp": "2026-02-16T14:25:39.357283", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "shell", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-02-16T14:25:42.746870", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "shell", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-02-16T14:25:45.821361", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "shell", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T14:39:26.191983", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "/h", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T14:47:11.612934", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "\u001b[A\u001b[B\u001b[B/exit", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T15:05:36.231923", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "hello", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T15:06:42.875952", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "hello", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T15:07:17.236770", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "what did I say previously?", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T15:07:28.612960", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "memory", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T15:12:48.061304", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "\u001b[A/exit", "error": null, "response": null}
