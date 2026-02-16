@@ -4,6 +4,7 @@ from typing import Any
 import os
 from pathlib import Path
 from pydantic import BaseModel, Field
+from enum import Enum
 
 
 class ModelConfig(BaseModel):
@@ -50,12 +51,22 @@ class MCPServerConfig(BaseModel):
         return self
 
 
+class ApprovalPolicy(str, Enum):
+    ON_REQUEST = "on_request"
+    ON_FAILURE = "on_failure"
+    AUTO = "auto"
+    AUT0_EDIT = "auto_edit"
+    NEVER = "never"
+    YOLO = "yolo"
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
     shell_environment: ShellEnvironmentPolicy = Field(
         default_factory=ShellEnvironmentPolicy
     )
+    approval: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
 
     max_turns: int = 100
 
