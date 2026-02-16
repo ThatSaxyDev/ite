@@ -307,6 +307,14 @@ goal_prompt = \"\"\"
                 # Restart spinner while LLM processes tool results
                 self.tui.start_spinner("Running...")
 
+            elif event.type == AgentEventType.LOOP_DETECTED:
+                self.tui.stop_spinner()
+                message = event.data.get("message", "Repetitive pattern detected")
+                console.print(
+                    f"\n[bold yellow]⚠ Loop detected:[/bold yellow] [yellow]{message}[/yellow]"
+                )
+                self.tui.start_spinner("Recovering...")
+
         self.tui.stop_spinner()
         return final_response
 

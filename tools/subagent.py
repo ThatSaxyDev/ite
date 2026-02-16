@@ -123,6 +123,8 @@ class SubagentTool(Tool):
                         error = event.data.get("error", "Unknown error")
                         final_response = f"Sub-agent failed: {error}"
                         break
+                    elif event.type == AgentEventType.LOOP_DETECTED:
+                        pass
 
         except Exception as e:
             terminate_response = "error"

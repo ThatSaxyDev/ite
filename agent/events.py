@@ -21,6 +21,9 @@ class AgentEventType(str, Enum):
     TOOL_CALL_START = "tool_call_start"
     TOOL_CALL_COMPLETE = "tool_call_complete"
 
+    # loop detection
+    LOOP_DETECTED = "loop_detected"
+
 
 @dataclass
 class AgentEvent:
@@ -109,4 +112,11 @@ class AgentEvent:
                 "truncated": result.truncated,
                 "exit_code": result.exit_code,
             },
+        )
+
+    @classmethod
+    def loop_detected(cls, message: str) -> AgentEvent:
+        return cls(
+            type=AgentEventType.LOOP_DETECTED,
+            data={"message": message},
         )

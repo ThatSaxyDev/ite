@@ -131,6 +131,7 @@ class Agent:
 
                 loop_message = self.session.loop_detector.check_for_loop()
                 if loop_message:
+                    yield AgentEvent.loop_detected(loop_message)
                     loop_breaker_prompt = create_loop_breaker_prompt(loop_message)
                     self.session.context_manager.add_user_message(loop_breaker_prompt)
                     continue
