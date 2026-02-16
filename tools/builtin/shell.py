@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from tools.base import Tool, ToolKind, ToolInvocation, ToolResult
 
 BLOCKED_COMMANDS = {
+    "rm",
     "rm -rf /",
     "rm -rf ~",
     "rm -rf /*",
