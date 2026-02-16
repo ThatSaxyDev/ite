@@ -27,7 +27,7 @@ args = [
 
 [mcp_servers.filesystem2]
 enabled = true
-command = "npx"
+command = "np"
 args = [
     "-y",
     "@modelcontextprotocol/server-filesystem",
@@ -40,7 +40,7 @@ enabled = true
 command = "npx"
 args = [
     "-y",
-    "@modelcontextprotocol/server-filesystem",
+    "@modelcontextprotocol/server-filesystem22",
     "/Users/kiishidavid/Documents/Dev/Projects/ite",
     "/tmp",
 ]

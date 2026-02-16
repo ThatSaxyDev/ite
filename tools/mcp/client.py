@@ -97,7 +97,7 @@ class MCPClient:
 
             self.status = MCPServerStatus.CONNECTED
 
-        except (RuntimeError, OSError) as e:
+        except Exception as e:
             self.status = MCPServerStatus.ERROR
             cmd = self.config.command or self.config.url or "unknown"
 
@@ -120,19 +120,16 @@ class MCPClient:
                 logger.error(msg)
                 raise RuntimeError(msg) from None
 
-            # Other runtime / connection errors — log without full traceback
+            # All other connection errors — clean message, no traceback
+            # Extract the root error message for clarity
+            error_str = str(root) if root is not e else str(e)
             msg = (
-                f"MCP server '{self.name}' failed to connect: {e}\n"
+                f"MCP server '{self.name}' failed to connect: {error_str}\n"
                 f"  → Check the configuration in [mcp_servers.{self.name}] "
                 f"in your .ite/config.toml"
             )
             logger.error(msg)
             raise RuntimeError(msg) from None
-
-        except Exception:
-            logger.exception("MCP server '%s' unexpected connection error", self.name)
-            self.status = MCPServerStatus.ERROR
-            raise
 
     async def disconnect(self) -> None:
         if self._client:

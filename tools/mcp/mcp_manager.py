@@ -5,6 +5,10 @@ from tools.registry import ToolRegistry
 import asyncio
 from tools.mcp.client import MCPClient
 from config.config import Config
+from rich.text import Text
+from rich.table import Table
+from rich.panel import Panel
+from rich import box
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,19 +76,46 @@ class MCPManager:
         ):
             results = await asyncio.gather(*connection_tasks, return_exceptions=True)
 
-        # Print per-server results
+        # Build a styled panel with per-server results
+        connected = 0
+        mcp_table = Table.grid(padding=(0, 2))
+        mcp_table.add_column(min_width=2)  # status icon
+        mcp_table.add_column(min_width=12)  # server name
+        mcp_table.add_column()  # details
+
         for (name, client), result in zip(self._clients.items(), results):
             if isinstance(result, Exception):
-                console.print(
-                    f"  [bright_red]✗[/bright_red] [bold]{name}[/bold] [muted]— unavailable[/muted]"
+                mcp_table.add_row(
+                    Text("●", style="bright_red"),
+                    Text(name, style="bold"),
+                    Text("unavailable", style="muted"),
                 )
             else:
+                connected += 1
                 tool_count = len(client.tools)
                 tool_word = "tool" if tool_count == 1 else "tools"
-                console.print(
-                    f"  [green]✓[/green] [bold]{name}[/bold] [muted]— {tool_count} {tool_word}[/muted]"
+                mcp_table.add_row(
+                    Text("●", style="green"),
+                    Text(name, style="bold"),
+                    Text(f"{tool_count} {tool_word}", style="muted"),
                 )
-        console.print()
+
+        title = Text.assemble(
+            ("🔌 ", ""),
+            ("MCP Servers ", "bold bright_white"),
+            (f"{connected}/{server_count} connected", "muted"),
+        )
+
+        console.print(
+            Panel(
+                mcp_table,
+                title=title,
+                title_align="left",
+                border_style="cyan" if connected == server_count else "yellow",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
 
         self._initialized = True
 
