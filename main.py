@@ -115,21 +115,50 @@ class CLI:
             return True
 
         elif command == "/model":
-            title = Text.assemble(("🤖 ", ""), ("Model", "bold bright_white"))
-            console.print()
-            console.print(
-                Panel(
-                    Text.assemble(
-                        ("Active model: ", "dim"),
-                        (self.config.model_name, "bold cyan"),
-                    ),
-                    title=title,
-                    title_align="left",
-                    border_style="cyan",
-                    box=box.ROUNDED,
-                    padding=(1, 2),
+            if args:
+                old_model = self.config.model_name
+                new_model = args[0]
+                self.config.model_name = new_model
+                title = Text.assemble(
+                    ("🤖 ", ""), ("Model Changed", "bold bright_white")
                 )
-            )
+                console.print()
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            (old_model, "dim strikethrough"),
+                            (" → ", "muted"),
+                            (new_model, "bold cyan"),
+                            "\n\n",
+                            ("Model changed successfully", "green"),
+                        ),
+                        title=title,
+                        title_align="left",
+                        border_style="green",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
+            else:
+                title = Text.assemble(("🤖 ", ""), ("Model", "bold bright_white"))
+                console.print()
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            ("Active model: ", "code"),
+                            (self.config.model_name, "bold cyan"),
+                            "\n\n",
+                            ("Use ", "code"),
+                            ("/model <name>", "green bold"),
+                            (" to change the model", "code"),
+                        ),
+                        title=title,
+                        title_align="left",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
             return True
 
         elif command == "/config":
