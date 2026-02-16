@@ -71,3 +71,35 @@ class SessionManager:
 
         sessions.sort(key=lambda x: x["updated_at"], reverse=True)
         return sessions
+
+    def load_session(self, session_id: str) -> SessionSnapshot | None:
+        file_path = self.sessions_dir / f"{session_id}.json"
+
+        if not file_path.exists():
+            return None
+
+        with open(file_path, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+
+        return SessionSnapshot.from_dict(data)
+
+    def save_checkpoint(self, snapshot: SessionSnapshot) -> str:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        checkpoint_id = f"{snapshot.session_id}_{timestamp}"
+        file_path = self.checkpoints_dir / f"{checkpoint_id}.json"
+
+        with open(file_path, "w", encoding="utf-8") as fp:
+            json.dump(snapshot.to_dict(), fp, indent=2)
+        os.chmod(file_path, 0o600)
+        return checkpoint_id
+
+    def load_checkpoint(self, checkpoint_id: str) -> SessionSnapshot | None:
+        file_path = self.checkpoints_dir / f"{checkpoint_id}.json"
+
+        if not file_path.exists():
+            return None
+
+        with open(file_path, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+
+        return SessionSnapshot.from_dict(data)

@@ -1,3 +1,4 @@
+from agent.session import Session
 from agent.session_manager import SessionSnapshot
 from agent.session_manager import SessionManager
 from config.config import Config
@@ -526,6 +527,67 @@ class CLI:
                 )
 
             console.print(table)
+            return True
+
+        elif command == "/resume":
+            if not args:
+                console.print(
+                    "[error]Missing session ID.[/error]  [dim]Run [green]/sessions[/green] to list saved sessions, then use [green]/resume <session_id>[/green][/dim]"
+                )
+                return True
+
+            session_id = args[0]
+            session_manager = SessionManager()
+            snapshot = session_manager.load_session(session_id)
+
+            if snapshot is None:
+                console.print(
+                    f"[error]Session not found:[/error] [bold]{session_id}[/bold]. [dim]Run [green]/sessions[/green] to list saved sessions, then use [green]/resume <session_id>[/green][/dim]"
+                )
+                return True
+            else:
+                session = Session(
+                    config=self.config,
+                )
+                session.created_at = snapshot.created_at
+                session.updated_at = snapshot.updated_at
+                session.turn_count = snapshot.turn_count
+                session.context_manager.set_messages(snapshot.messages)
+                session.context_manager.total_usage = snapshot.total_usage
+
+                for msg in snapshot.messages:
+                    if msg.get("role") == "system":
+                        continue
+                    elif msg["role"] == "user":
+                        session.context_manager.add_user_message(msg.get("content", ""))
+                    elif msg["role"] == "assistant":
+                        session.context_manager.add_assistant_message(
+                            msg.get("content", ""), msg.get("tool_calls")
+                        )
+                    elif msg["role"] == "tool":
+                        session.context_manager.add_tool_result(
+                            msg.get("tool_call_id", ""), msg.get("content", "")
+                        )
+                self.agent.session.client.close()
+                self.agent.session.mcp_manager.shutdown()
+
+            title = Text.assemble(("💾  ", ""), ("Loaded", "bold bright_white"))
+            console.print()
+            console.print(
+                Panel(
+                    Text.assemble(
+                        (
+                            f"Session loaded: {session_id}",
+                            "bold cyan",
+                        ),
+                    ),
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
             return True
 
         console.print(
