@@ -100,7 +100,7 @@ class HookSystem:
             HookTrigger.AFTER_AGENT,
             user_message=user_message,
         )
-        env["ITE_AGENT_RESPONSE"] = agent_response
+        env["ITE_RESPONSE"] = agent_response
 
         for hook in self.hooks:
             if hook.trigger == HookTrigger.AFTER_AGENT:

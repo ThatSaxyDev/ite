@@ -1,9 +1,20 @@
 [model]
 name = "minimax-m2.5:cloud"
 
-[mcp_servers.filesystem]
-enabled = false
-command = "npx"
+[[hooks]]
+name = "test_before_tool"
+trigger = "before_tool"
+command = "python3 ./scripts/test_tool.py"
+
+[[hooks]]
+name = "test_before_agent"
+trigger = "before_agent"
+command = "python3 ./scripts/test_tool.py"
+
+
+# [mcp_servers.filesystem]
+# enabled = false
+# command = "npx"
 # args = [
 #     "-y",
 #     "@modelcontextprotocol/server-filesystem",
