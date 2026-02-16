@@ -403,8 +403,9 @@ class TUI:
             primary_path = metadata.get("path")
 
         if name == "read_file" and success:
-            if primary_path:
-                start_line, code = self._extract_read_file_code(output)
+            extracted = self._extract_read_file_code(output) if primary_path else None
+            if primary_path and extracted is not None:
+                start_line, code = extracted
                 shown_start = metadata.get("shown_start")
                 shown_end = metadata.get("shown_end")
                 total_lines = metadata.get("total_lines")
