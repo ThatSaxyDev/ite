@@ -1,0 +1,2 @@
+[HOOK] {"timestamp": "2026-02-16T13:01:19.331718", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "echo out hello world", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-16T13:01:40.839777", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "shell", "user_message": null, "error": null, "response": null}
