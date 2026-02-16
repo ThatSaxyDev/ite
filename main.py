@@ -480,6 +480,7 @@ class CLI:
                 updated_at=self.agent.session.updated_at,
                 turn_count=self.agent.session.turn_count,
                 messages=self.agent.session.context_manager.get_messages(),
+                total_usage=self.agent.session.context_manager.total_usage,
             )
             session_manager.save_session(session_snapshot)
             title = Text.assemble(("💾  ", ""), ("Saved", "bold bright_white"))

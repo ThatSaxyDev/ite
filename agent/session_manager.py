@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import os
 from config.loader import get_data_dir
 import json
+from client.response import TokenUsage
 
 
 @dataclass
@@ -14,6 +15,7 @@ class SessionSnapshot:
     updated_at: datetime
     turn_count: int
     messages: list[dict[str, Any]]
+    total_usage: TokenUsage
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -22,6 +24,7 @@ class SessionSnapshot:
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
             "messages": self.messages,
+            "total_usage": self.total_usage.__dict__,
         }
 
     @classmethod
@@ -32,6 +35,7 @@ class SessionSnapshot:
             updated_at=datetime.fromisoformat(data["updated_at"]),
             turn_count=data["turn_count"],
             messages=data["messages"],
+            total_usage=TokenUsage(**data["total_usage"]),
         )
 
 
