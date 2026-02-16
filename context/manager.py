@@ -1,3 +1,4 @@
+from datetime import datetime
 from client.response import TokenUsage
 from tools.base import Tool
 from config.config import Config
@@ -164,3 +165,41 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
             token_count=count_tokens(continue_content, self._model_name),
         )
         self._messages.append(continue_item)
+
+    def prune_tool_outputs(self) -> int:
+        user_message_count = sum(1 for msg in self._messages if msg.role == "user")
+
+        if user_message_count < 2:
+            return 0
+
+        total_tokens = 0
+        pruned_tokens = 0
+        to_prune: list[MessageItem] = []
+
+        for msg in reversed(self._messages):
+            if msg.role == "tool" and msg.tool_call_id:
+                if msg.pruned_at:
+                    break
+
+                tokens = msg.token_count or count_tokens(msg.content, self._model_name)
+                total_tokens += tokens
+
+                if total_tokens > self.PRUNE_PROTECT_TOKENS:
+                    pruned_tokens += tokens
+                    to_prune.append(msg)
+
+        if pruned_tokens < self.PRUNE_MINIMUM_TOKENS:
+            return 0
+
+        pruned_count = 0
+
+        for msg in to_prune:
+            msg.content = "[Old tool result content cleared]"
+            msg.token_count = count_tokens(msg.content, self._model_name)
+            msg.pruned_at = datetime.now()
+            pruned_count += 1
+
+        return pruned_count
+
+    def clear(self) -> None:
+        self._messages = []
