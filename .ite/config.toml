@@ -1,6 +1,5 @@
 [model]
 name = "minimax-m2.5:cloud"
-context_window = 16000
 
 [mcp_servers.filesystem]
 command = "npx"
