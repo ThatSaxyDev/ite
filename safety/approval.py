@@ -132,15 +132,11 @@ class ApprovalManager:
 
         if context.command:
             decision = self._assess_command_safety(context.command)
-            if decision != ApprovalDecision.NEEDS_CONFIRMATION:
-                return decision
+            return decision
 
         for path in context.affected_paths:
-            path_decision = ApprovalDecision.NEEDS_CONFIRMATION
-            if path.is_relative_to(self.cwd):
-                path_decision = ApprovalDecision.APPROVED
-            else:
-                return path_decision
+            if not path.is_relative_to(self.cwd):
+                return ApprovalDecision.NEEDS_CONFIRMATION
 
         if context.is_dangerous:
             if self.approval_policy == ApprovalPolicy.YOLO:
