@@ -36,6 +36,9 @@ class MessageItem:
 
 
 class ContextManager:
+    PRUNE_PROTECT_TOKENS = 40_000
+    PRUNE_MINIMUM_TOKENS = 10_000
+
     def __init__(
         self,
         config: Config,
