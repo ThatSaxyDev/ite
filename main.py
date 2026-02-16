@@ -301,7 +301,7 @@ class CLI:
             return True
 
         elif command == "/stats":
-            stats = self.session.get_stats()
+            stats = self.agent.session.get_stats()
             title = Text.assemble(
                 ("📊 ", ""), ("Session Statistics", "bold bright_white")
             )
@@ -329,6 +329,88 @@ class CLI:
                     padding=(1, 2),
                 )
             )
+            return True
+
+        elif command == "/tools":
+            tools = self.agent.session.tool_registry.get_tools()
+            title = Text.assemble(
+                ("🔧 ", ""), (f"Available Tools ({len(tools)})", "bold bright_white")
+            )
+            tools_table = Table.grid(padding=(0, 2))
+            tools_table.add_column(style="code", justify="right", min_width=4)
+            tools_table.add_column(style="green bold", min_width=20)
+            tools_table.add_column(style="code")
+            for i, tool in enumerate(tools, 1):
+                desc = getattr(tool, "description", "")
+                if desc and len(desc) > 60:
+                    desc = desc[:57] + "..."
+                tools_table.add_row(
+                    Text(str(i), style="code"),
+                    Text(tool.name, style="cyan bold"),
+                    Text(desc, style="code"),
+                )
+            console.print()
+            console.print(
+                Panel(
+                    tools_table,
+                    title=title,
+                    title_align="left",
+                    border_style="cyan",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                )
+            )
+            return True
+
+        elif command == "/mcp":
+            mcp_mgr = self.agent.session.mcp_manager
+            servers = mcp_mgr.get_all_servers()
+            title = Text.assemble(
+                ("🔌 ", ""), (f"MCP Servers ({len(servers)})", "bold bright_white")
+            )
+            if not servers:
+                console.print()
+                console.print(
+                    Panel(
+                        Text.assemble(
+                            ("No MCP servers configured", "dim"),
+                            ("\n\n", ""),
+                            ("Add servers in ", "code"),
+                            (".ite/config.toml", "green bold"),
+                            (" under ", "code"),
+                            ("[mcp_servers]", "green bold"),
+                        ),
+                        title=title,
+                        title_align="left",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
+            else:
+                mcp_table = Table.grid(padding=(0, 2))
+                mcp_table.add_column(style="cyan bold", min_width=16)
+                mcp_table.add_column(min_width=12)
+                mcp_table.add_column(style="dim")
+                for server in servers:
+                    is_connected = server["status"] == "connected"
+                    status_style = "green bold" if is_connected else "red bold"
+                    mcp_table.add_row(
+                        Text(server["name"], style="cyan bold"),
+                        Text(f"● {server['status']}", style=status_style),
+                        Text(f"{server['tools']} tools", style="dim"),
+                    )
+                console.print()
+                console.print(
+                    Panel(
+                        mcp_table,
+                        title=title,
+                        title_align="left",
+                        border_style="cyan",
+                        box=box.ROUNDED,
+                        padding=(1, 2),
+                    )
+                )
             return True
 
         elif command == "/subagent" or command == "/subagents":

@@ -312,7 +312,7 @@ class TUI:
         model: str = "",
         cwd: str = "",
         commands: list[str] | None = None,
-        version: str = "0.1.0",
+        version: str = "0.0.1",
     ) -> None:
         # Hand-crafted large block art — no pyfiglet needed
         logo_lines = [
@@ -325,7 +325,7 @@ class TUI:
         ]
         logo = self._gradient_text("\n".join(logo_lines))
 
-        tagline = Text("  your intelligent terminal engine", style="dim italic")
+        # tagline = Text("  your intelligent terminal engine", style="dim italic")
 
         # Info section with icons
         info_table = Table.grid(padding=(0, 2))
@@ -334,27 +334,17 @@ class TUI:
 
         cwd_display = str(cwd).replace(str(Path.home()), "~")
         info_table.add_row(
-            Text("🤖 model", style="muted"),
+            Text("Model", style="muted"),
             Text(model or "not set", style="cyan bold"),
         )
         info_table.add_row(
-            Text("📁 cwd", style="muted"),
+            Text("Workspace", style="muted"),
             Text(cwd_display, style="info"),
         )
-        if commands:
-            cmd_text = Text()
-            for i, cmd in enumerate(commands):
-                if i > 0:
-                    cmd_text.append("  ", style="dim")
-                cmd_text.append(cmd, style="green")
-            info_table.add_row(
-                Text("⌨  cmds", style="muted"),
-                cmd_text,
-            )
 
         footer = Text(
             f"  v{version} · type /help for commands",
-            style="dim",
+            style="code",
         )
 
         content = Group(
