@@ -3,6 +3,7 @@ from agent.session_manager import SessionManager
 from config.config import Config
 from pathlib import Path
 from config.loader import load_config
+from datetime import datetime
 import sys
 from ui.tui import TUI, get_console
 from rich.panel import Panel
@@ -498,6 +499,32 @@ class CLI:
                     padding=(1, 2),
                 )
             )
+            return True
+
+        elif command == "/sessions":
+            session_manager = SessionManager()
+            sessions = session_manager.list_sessions()
+            if not sessions:
+                console.print("[dim]No sessions found.[/dim]")
+                return True
+
+            table = Table(title="Available Sessions", box=box.SIMPLE)
+            table.add_column("Session ID", style="bold cyan")
+            table.add_column("Created At")
+            table.add_column("Updated At")
+            table.add_column("Turn Count")
+
+            for session in sessions:
+                created = datetime.fromisoformat(session["created_at"])
+                updated = datetime.fromisoformat(session["updated_at"])
+                table.add_row(
+                    session["session_id"],
+                    created.strftime("%b %d, %Y · %I:%M %p"),
+                    updated.strftime("%b %d, %Y · %I:%M %p"),
+                    str(session["turn_count"]),
+                )
+
+            console.print(table)
             return True
 
         console.print(
