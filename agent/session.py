@@ -46,6 +46,10 @@ class Session:
     def turn_count(self) -> int:
         return self._turn_count
 
+    @turn_count.setter
+    def turn_count(self, value: int) -> None:
+        self._turn_count = value
+
     async def initialize(self) -> None:
         await self.mcp_manager.initialize()
         self.mcp_manager.register_tools(self.tool_registry)

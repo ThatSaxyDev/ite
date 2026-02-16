@@ -61,6 +61,26 @@ class ContextManager:
     def total_usage(self) -> TokenUsage:
         return self._total_usage
 
+    @total_usage.setter
+    def total_usage(self, value: TokenUsage) -> None:
+        self._total_usage = value
+
+    def set_messages(self, messages: list[dict]) -> None:
+        """Restore messages from a saved session snapshot."""
+        self._messages = []
+        for msg in messages:
+            if msg.get("role") == "system":
+                continue
+            self._messages.append(
+                MessageItem(
+                    role=msg["role"],
+                    content=msg.get("content", ""),
+                    tool_call_id=msg.get("tool_call_id"),
+                    tool_calls=msg.get("tool_calls", []),
+                    token_count=count_tokens(msg.get("content", ""), self._model_name),
+                )
+            )
+
     def add_user_message(self, content: str) -> None:
         item = MessageItem(
             role="user",
