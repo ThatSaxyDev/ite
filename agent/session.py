@@ -10,7 +10,7 @@ from tools.registry import create_default_registry
 from context.manager import ContextManager
 from client.llm_client import LLMClient
 from config.config import Config
-
+from hooks.hook_system import HookSystem
 
 class Session:
     def __init__(
@@ -31,6 +31,7 @@ class Session:
             self.config.approval,
             self.config.cwd,
         )
+        self.hook_system = HookSystem(self.config)
         self.session_id = str(uuid.uuid4())
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
