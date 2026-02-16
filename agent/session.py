@@ -1,6 +1,3 @@
-from typing import Awaitable
-from tools.base import ToolConfirmation
-from typing import Callable
 from safety.approval import ApprovalManager
 from context.compaction import ChatCompactor
 from tools.mcp.mcp_manager import MCPManager
@@ -19,7 +16,6 @@ class Session:
     def __init__(
         self,
         config: Config,
-        confirmation_callback: Callable[[ToolConfirmation], Awaitable[bool]],
     ):
         self.config = config
         self.client = LLMClient(config=self.config)

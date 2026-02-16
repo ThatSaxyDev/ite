@@ -55,7 +55,7 @@ class ApprovalPolicy(str, Enum):
     ON_REQUEST = "on_request"
     ON_FAILURE = "on_failure"
     AUTO = "auto"
-    AUT0_EDIT = "auto_edit"
+    AUTO_EDIT = "auto_edit"
     NEVER = "never"
     YOLO = "yolo"
 

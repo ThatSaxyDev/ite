@@ -257,6 +257,7 @@ You have access to the following tools to accomplish your tasks:
    - Use `read_file` before editing to understand current content
    - Use `edit` for surgical changes (search/replace)
    - Use `write_file` for creating new files or complete rewrites
+   - Prefer built-in tools first; only use MCP tools if no built-in tool can do the job or if explicitly requested
 
 2. **Search and Discovery**:
    - Use `grep` to find code by content

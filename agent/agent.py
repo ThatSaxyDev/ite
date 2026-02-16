@@ -9,7 +9,6 @@ from agent.events import AgentEvent
 from typing import AsyncGenerator
 from agent.session import Session
 from client.response import TokenUsage
-from typing import Awaitable
 from tools.base import ToolConfirmation
 from typing import Callable
 
@@ -18,13 +17,11 @@ class Agent:
     def __init__(
         self,
         config: Config,
-        confirmation_callback: (
-            Callable[[ToolConfirmation], Awaitable[bool]] | None
-        ) = None,
+        confirmation_callback: (Callable[[ToolConfirmation], bool] | None) = None,
     ):
         self.config = config
         self.session: Session | None = Session(self.config)
-        self.session.approval_manager = confirmation_callback
+        self.session.approval_manager.confirmation_callback = confirmation_callback
 
     async def run(self, message: str):
         yield AgentEvent.agent_start(message)
