@@ -115,3 +115,27 @@ def load_config(
         raise ConfigError(f"Invalid configuration: {e}") from e
 
     return config
+
+
+def save_system_config(
+    api_key: str,
+    base_url: str,
+    model_name: str,
+) -> Path:
+    """Save credentials and model to the system-level config file."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / CONFIG_FILE_NAME
+
+    # Build TOML content manually (no extra dependency needed)
+    lines = []
+    lines.append(f'api_key = "{api_key}"')
+    lines.append(f'base_url = "{base_url}"')
+    lines.append("")
+    lines.append("[model]")
+    lines.append(f'name = "{model_name}"')
+    lines.append("")
+
+    config_path.write_text("\n".join(lines), encoding="utf-8")
+    logger.info("Saved system config to %s", config_path)
+    return config_path

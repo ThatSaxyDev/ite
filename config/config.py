@@ -116,13 +116,18 @@ class Config(BaseModel):
 
     debug: bool = False
 
-    @property
-    def api_key(self) -> str | None:
-        return os.environ.get("API_KEY")
+    # Credentials — loaded from config.toml, overridden by env vars / CLI flags
+    api_key: str | None = None
+    base_url: str | None = None
 
-    @property
-    def base_url(self) -> str | None:
-        return os.environ.get("BASE_URL")
+    @model_validator(mode="after")
+    def resolve_credentials(self) -> "Config":
+        """Env vars override config file values."""
+        if env_key := os.environ.get("API_KEY"):
+            self.api_key = env_key
+        if env_url := os.environ.get("BASE_URL"):
+            self.base_url = env_url
+        return self
 
     @property
     def model_name(self) -> str:
@@ -144,12 +149,17 @@ class Config(BaseModel):
         errors: list[str] = []
 
         if not self.api_key:
-            errors.append("No API key found. Set API_KEY environment variable")
+            errors.append("missing_api_key")
 
         if not self.cwd.exists():
             errors.append(f"Working directory does not exist: {self.cwd}")
 
         return errors
+
+    @property
+    def needs_setup(self) -> bool:
+        """True if essential credentials are missing."""
+        return not self.api_key
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")

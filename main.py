@@ -277,8 +277,14 @@ class CLI:
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="Current working directory",
 )
+@click.option("--model", "-m", help="Model name to use")
+@click.option("--api-key", "-k", help="API key for the LLM provider")
+@click.option("--base-url", "-u", help="Base URL for the OpenAI-compatible API")
 def main(
     cwd: Path | None,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
 ):
 
     try:
@@ -287,11 +293,28 @@ def main(
         console.print(f"[error]Configuration error: {e}[/error]")
         sys.exit(1)
 
+    # CLI flags override everything
+    if api_key:
+        config.api_key = api_key
+    if base_url:
+        config.base_url = base_url
+    if model:
+        config.model.name = model
+
+    # If credentials are still missing, run the setup wizard
+    if config.needs_setup:
+        from config.setup import run_setup_wizard
+
+        config = run_setup_wizard(console, config)
+
     errors = config.validate()
     if errors:
-        for error in errors:
-            console.print(f"[error]{error}[/error]")
-        sys.exit(1)
+        # Filter out the api_key error since wizard should have handled it
+        real_errors = [e for e in errors if e != "missing_api_key"]
+        if real_errors:
+            for error in real_errors:
+                console.print(f"[error]{error}[/error]")
+            sys.exit(1)
 
     cli = CLI(config)
     asyncio.run(cli.run_interactive())
