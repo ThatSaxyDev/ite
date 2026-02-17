@@ -53,6 +53,28 @@ async def cmd_sandbox(ctx: CommandContext, args: list[str]) -> None:
             ctx.config.sandbox.allowed_paths.append(new_path)
         _print_panel(ctx, "🔒", "Path Allowed", f"Added: {new_path}", "green")
 
+    elif sub_cmd == "remove":
+        if len(args) < 2:
+            ctx.console.print("[error]Usage: /sandbox remove <path>[/error]")
+            return
+        rm_path = Path(args[1]).expanduser().resolve()
+        if rm_path in ctx.config.sandbox.allowed_paths:
+            ctx.config.sandbox.allowed_paths.remove(rm_path)
+            _print_panel(ctx, "🔒", "Path Removed", f"Removed: {rm_path}", "yellow")
+        else:
+            ctx.console.print(f"[dim]{rm_path} was not in the allowed list.[/dim]")
+
+    elif sub_cmd == "clear":
+        count = len(ctx.config.sandbox.allowed_paths)
+        ctx.config.sandbox.allowed_paths.clear()
+        _print_panel(
+            ctx,
+            "🔒",
+            "Paths Cleared",
+            f"Removed {count} allowed path(s). Only project cwd remains.",
+            "yellow",
+        )
+
     elif sub_cmd == "git":
         if len(args) > 1 and args[1].lower() == "on":
             gs = _get_git_sandbox(ctx)
@@ -135,6 +157,10 @@ def _show_status(ctx: CommandContext) -> None:
     info.append("Toggle filesystem sandbox\n", style="dim")
     info.append("  /sandbox allow <path> ", style="green")
     info.append("Allow an extra path\n", style="dim")
+    info.append("  /sandbox remove <path>", style="green")
+    info.append("Remove an allowed path\n", style="dim")
+    info.append("  /sandbox clear        ", style="green")
+    info.append("Clear all allowed paths\n", style="dim")
     info.append("  /sandbox git on|off   ", style="green")
     info.append("Toggle git sandbox\n", style="dim")
     info.append("  /sandbox diff         ", style="green")
