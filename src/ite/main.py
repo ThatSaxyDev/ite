@@ -1,6 +1,6 @@
 from ite.config.config import Config
 from pathlib import Path
-from ite.config.loader import load_config
+from ite.config.loader import load_config, ensure_workspace_layout
 import logging
 import sys
 from ite.ui.tui import TUI, get_console
@@ -291,7 +291,7 @@ class CLI:
 
 
 @click.command()
-@click.version_option(version="0.0.2", prog_name="ite")
+@click.version_option(version="0.0.3", prog_name="ite")
 @click.option(
     "--cwd",
     "-c",
@@ -307,9 +307,11 @@ def main(
     api_key: str | None,
     base_url: str | None,
 ):
+    workspace_dir = cwd or Path.cwd()
+    ensure_workspace_layout(workspace_dir)
 
     try:
-        config = load_config(cwd=cwd)
+        config = load_config(cwd=workspace_dir)
     except Exception as e:
         console.print(f"[error]Configuration error: {e}[/error]")
         sys.exit(1)

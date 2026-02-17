@@ -9,6 +9,25 @@ from platformdirs import user_config_dir
 
 CONFIG_FILE_NAME = "config.toml"
 AGENT_MD_FILE = "AGENT.MD"
+WORKSPACE_DIR_NAME = ".ite"
+
+DEFAULT_PROJECT_CONFIG = """# Workspace-level ITE config
+# Add overrides here (model, hooks, mcp servers, etc.)
+#
+# Example:
+# [model]
+# name = "gpt-4o-mini"
+"""
+
+DEFAULT_SECURITY_SUBAGENT = """name = "security_auditor"
+description = "Audits code for security vulnerabilities"
+allowed_tools = ["read_file", "grep", "list_dir"]
+
+goal_prompt = \"\"\"
+You are a security auditing expert. Analyze the code for common vulnerabilities
+like SQL injection, XSS, and hardcoded secrets.
+\"\"\"
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +58,33 @@ def _parse_toml(path: Path):
         ) from e
 
 
+def ensure_workspace_layout(cwd: Path | None = None) -> Path:
+    """Create a starter .ite workspace folder when missing."""
+    workspace = (cwd or Path.cwd()).resolve()
+    ite_dir = workspace / WORKSPACE_DIR_NAME
+    tools_dir = ite_dir / "tools"
+    subagents_dir = ite_dir / "subagents"
+    config_file = ite_dir / CONFIG_FILE_NAME
+    security_subagent_file = subagents_dir / "security_auditor.toml"
+
+    ite_dir.mkdir(parents=True, exist_ok=True)
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    subagents_dir.mkdir(parents=True, exist_ok=True)
+
+    if not config_file.exists():
+        config_file.write_text(DEFAULT_PROJECT_CONFIG + "\n", encoding="utf-8")
+
+    if not security_subagent_file.exists():
+        security_subagent_file.write_text(
+            DEFAULT_SECURITY_SUBAGENT + "\n", encoding="utf-8"
+        )
+
+    return ite_dir
+
+
 def _get_project_config(cwd: Path) -> Path | None:
     current = cwd.resolve()
-    agent_dir = current / ".ite"
+    agent_dir = current / WORKSPACE_DIR_NAME
 
     if agent_dir.is_dir():
         config_file = agent_dir / CONFIG_FILE_NAME
