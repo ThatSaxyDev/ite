@@ -92,15 +92,16 @@ class GitSandbox:
         if not self.active:
             raise GitSandboxError("Git sandbox is not active")
 
-        # Show diff between original branch and current state (staged + unstaged)
+        # Stage everything (including new untracked files) so they appear in diff
+        self._run_git("add", "-A", check=False)
+
+        # Show full diff between original branch and current staged state
         diff = self._run_git(
-            "diff", self.original_branch, "--", ".", check=False
+            "diff", "--staged", self.original_branch, "--", ".", check=False
         )
 
-        # Also include unstaged changes
-        unstaged = self._run_git("diff", check=False)
-        if unstaged:
-            diff = diff + "\n\n# Unstaged changes:\n" + unstaged if diff else unstaged
+        # Unstage so we don't alter the working state
+        self._run_git("reset", "HEAD", check=False)
 
         return diff or "No changes detected."
 
