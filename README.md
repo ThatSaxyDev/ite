@@ -19,11 +19,32 @@ pip install -e .
 Install globally using `pipx` (recommended) or `pip`:
 
 ```bash
-# Using pipx
-pipx install ite-agent
+### Method 1: The Best Experience (Recommended)
+We recommend using **pipx** to install `ite`. This ensures the `ite` command is available globally without conflicting with other Python packages.
 
-# Using pip
+1. **Install pipx** (if you haven't already):
+   ```bash
+   brew install pipx
+   pipx ensurepath
+   ```
+   *(Restart your terminal after this)*
+
+2. **Install ite-agent**:
+   ```bash
+   pipx install ite-agent
+   ```
+
+3. **Run it**:
+   ```bash
+   ite
+   ```
+
+### Method 2: Standard Pip
+If you prefer standard pip:
+```bash
 pip install ite-agent
+```
+*Note: You may need to add your Python binary location to your PATH to run the `ite` command directly.*
 ```
 
 ### Option 3: Install from Git
