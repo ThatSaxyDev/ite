@@ -123,9 +123,9 @@ class CLI:
                 total_usage=session.context_manager.total_usage,
             )
             session_manager.save_session(snapshot)
-            console.print(
-                f"[dim]  💾 Session auto-saved · {session.turn_count} turns · {session.name or session.session_id[:8]}[/dim]"
-            )
+            # console.print(
+            #     f"[dim]  💾 Session auto-saved · {session.turn_count} turns · {session.name or session.session_id[:8]}[/dim]"
+            # )
 
             # Auto-checkpoint every 5 turns
             if session.turn_count > 0 and session.turn_count % 5 == 0:
