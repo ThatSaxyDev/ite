@@ -20,10 +20,6 @@ class CLI:
         self.agent: Agent | None = None
         self.tui = TUI(config=config, console=console)
 
-    async def run_single(self, message: str) -> str | None:
-        async with Agent(config=self.config) as agent:
-            self.agent = agent
-            return await self._process_message(message)
 
     async def run_interactive(self) -> str | None:
         self.tui.print_welcome(
@@ -275,7 +271,6 @@ class CLI:
 
 
 @click.command()
-@click.argument("prompt", required=False)
 @click.option(
     "--cwd",
     "-c",
@@ -283,7 +278,6 @@ class CLI:
     help="Current working directory",
 )
 def main(
-    prompt: str | None,
     cwd: Path | None,
 ):
 
@@ -300,13 +294,7 @@ def main(
         sys.exit(1)
 
     cli = CLI(config)
-
-    if prompt:
-        result = asyncio.run(cli.run_single(prompt))
-        if result is None:
-            sys.exit(1)
-    else:
-        asyncio.run(cli.run_interactive())
+    asyncio.run(cli.run_interactive())
 
 
 main()
