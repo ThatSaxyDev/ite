@@ -54,17 +54,17 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
 
     table = Table(title="Available Sessions", box=box.SIMPLE)
     table.add_column("Session ID", style="bold cyan")
-    table.add_column("Created At")
+    table.add_column("Name", style="bold white")
     table.add_column("Updated At")
-    table.add_column("Turn Count")
+    table.add_column("Turns", justify="right")
 
     for session in sessions:
-        created = datetime.fromisoformat(session["created_at"])
         updated = datetime.fromisoformat(session["updated_at"])
+        name = session.get("name") or "[dim]—[/dim]"
         table.add_row(
-            session["session_id"],
-            created.strftime("%b %d, %Y · %I:%M %p"),
-            updated.strftime("%b %d, %Y · %I:%M %p"),
+            session["session_id"][:8] + "…",
+            name,
+            updated.strftime("%b %d · %I:%M %p"),
             str(session["turn_count"]),
         )
 

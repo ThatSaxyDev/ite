@@ -16,6 +16,25 @@ async def cmd_ite(ctx: CommandContext, args: list[str]) -> None:
 
 
 async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
+    # Auto-save session before exiting
+    try:
+        from agent.session_manager import SessionSnapshot, SessionManager
+
+        session = ctx.agent.session
+        session_manager = SessionManager()
+        snapshot = SessionSnapshot(
+            session_id=session.session_id,
+            name=session.name,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            turn_count=session.turn_count,
+            messages=session.context_manager.get_messages(),
+            total_usage=session.context_manager.total_usage,
+        )
+        session_manager.save_session(snapshot)
+    except Exception:
+        pass
+
     try:
         from tools.builtin.memory import MemoryTool
 

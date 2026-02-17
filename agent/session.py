@@ -35,6 +35,7 @@ class Session:
         self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)
         self.session_id = str(uuid.uuid4())
+        self.name: str | None = None
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
 

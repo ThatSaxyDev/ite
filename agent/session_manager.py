@@ -16,10 +16,12 @@ class SessionSnapshot:
     turn_count: int
     messages: list[dict[str, Any]]
     total_usage: TokenUsage
+    name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
+            "name": self.name,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
@@ -31,6 +33,7 @@ class SessionSnapshot:
     def from_dict(cls, data: dict[str, Any]) -> "SessionSnapshot":
         return cls(
             session_id=data["session_id"],
+            name=data.get("name"),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
             turn_count=data["turn_count"],
@@ -66,6 +69,7 @@ class SessionManager:
             sessions.append(
                 {
                     "session_id": data["session_id"],
+                    "name": data.get("name"),
                     "created_at": data["created_at"],
                     "updated_at": data["updated_at"],
                     "turn_count": data["turn_count"],

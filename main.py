@@ -1,13 +1,16 @@
 from config.config import Config
 from pathlib import Path
 from config.loader import load_config
+import logging
 import sys
 from ui.tui import TUI, get_console
 from agent.events import AgentEventType
 from agent.agent import Agent
+from agent.session_manager import SessionSnapshot, SessionManager
 import click
 import asyncio
 
+logger = logging.getLogger(__name__)
 console = get_console()
 
 
@@ -34,20 +37,28 @@ class CLI:
         ) as agent:
             self.agent = agent
 
-            while True:
-                try:
-                    user_input = console.input("\n[user]>[/user] ").strip()
-                    if not user_input:
-                        continue
+            try:
+                while True:
+                    try:
+                        user_input = console.input("\n[user]>[/user] ").strip()
+                        if not user_input:
+                            continue
 
-                    if await self._handle_command(user_input):
-                        continue
+                        if await self._handle_command(user_input):
+                            continue
 
-                    await self._process_message(user_input)
-                except KeyboardInterrupt:
-                    console.print("\n[dim]Use /exit or /quit to quit[/dim]")
-                except EOFError:
-                    break
+                        await self._process_message(user_input)
+
+                        # ── Flight recorder: auto-save after every exchange ──
+                        await self._auto_save()
+
+                    except KeyboardInterrupt:
+                        console.print("\n[dim]Use /exit or /quit to quit[/dim]")
+                    except EOFError:
+                        break
+            finally:
+                # Crash safety: save on any unexpected exit
+                self._auto_save_sync()
 
         console.print("\n[dim]Bye![/dim]")
 
@@ -70,6 +81,114 @@ class CLI:
             console=console,
         )
         return await registry.dispatch(command, args, ctx)
+
+    async def _auto_save(self) -> None:
+        """Flight recorder: silently save session state after every exchange."""
+        if not self.agent or not self.agent.session:
+            return
+
+        try:
+            session = self.agent.session
+            session_manager = SessionManager()
+
+            # Generate smart name on first exchange
+            if session.name is None and session.turn_count > 0:
+                session.name = await self._generate_session_name(session)
+
+            snapshot = SessionSnapshot(
+                session_id=session.session_id,
+                name=session.name,
+                created_at=session.created_at,
+                updated_at=session.updated_at,
+                turn_count=session.turn_count,
+                messages=session.context_manager.get_messages(),
+                total_usage=session.context_manager.total_usage,
+            )
+            session_manager.save_session(snapshot)
+            console.print(
+                f"[dim]  💾 Session auto-saved · {session.turn_count} turns · {session.name or session.session_id[:8]}[/dim]"
+            )
+
+            # Auto-checkpoint every 5 turns
+            if session.turn_count > 0 and session.turn_count % 5 == 0:
+                cp_id = session_manager.save_checkpoint(snapshot)
+                console.print(f"[dim]  📌 Auto-checkpoint · {cp_id[:20]}…[/dim]")
+
+        except Exception as e:
+            logger.warning("Auto-save failed: %s", e)
+
+    def _auto_save_sync(self) -> None:
+        """Synchronous fallback for auto-save in finally blocks."""
+        if not self.agent or not self.agent.session:
+            return
+
+        try:
+            session = self.agent.session
+            session_manager = SessionManager()
+            snapshot = SessionSnapshot(
+                session_id=session.session_id,
+                name=session.name,
+                created_at=session.created_at,
+                updated_at=session.updated_at,
+                turn_count=session.turn_count,
+                messages=session.context_manager.get_messages(),
+                total_usage=session.context_manager.total_usage,
+            )
+            session_manager.save_session(snapshot)
+        except Exception:
+            pass
+
+    async def _generate_session_name(self, session) -> str:
+        """Use the LLM to generate a concise session title from the first exchange."""
+        first_user = ""
+        try:
+            # Get the first user message and assistant response
+            messages = session.context_manager.get_messages()
+            first_user = ""
+            first_assistant = ""
+            for msg in messages:
+                if msg.get("role") == "user" and not first_user:
+                    first_user = msg.get("content", "")[:200]
+                elif (
+                    msg.get("role") == "assistant"
+                    and first_user
+                    and not first_assistant
+                ):
+                    first_assistant = msg.get("content", "")[:200]
+                    break
+
+            if not first_user:
+                return "New Session"
+
+            naming_messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate a concise 3-6 word title for this conversation. "
+                        "Reply with ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n"
+                        f"User: {first_user}\n"
+                        + (f"Assistant: {first_assistant}" if first_assistant else "")
+                    ),
+                }
+            ]
+
+            title = ""
+            async for event in session.client.chat_completion(
+                naming_messages, tools=None, stream=True
+            ):
+                if event.text_delta and event.text_delta.content:
+                    title += event.text_delta.content
+
+            title = title.strip()[:60]
+            if title:
+                return title
+
+        except Exception as e:
+            logger.warning("Session naming failed: %s", e)
+
+        # Fallback: first sentence of user message, max 60 chars
+        first_sentence = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
+        return first_sentence.strip() or "New Session"
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
         tool = self.agent.session.tool_registry.get(tool_name)
