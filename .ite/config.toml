@@ -1,8 +1,5 @@
 hooks_enabled = true
 
-[model]
-name = "minimax-m2.5:cloud"
-
 
 [[hooks]]
 name = "test_before_tool"
