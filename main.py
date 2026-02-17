@@ -9,6 +9,7 @@ from agent.agent import Agent
 from agent.session_manager import SessionSnapshot, SessionManager
 import click
 import asyncio
+import signal
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -43,13 +44,32 @@ class CLI:
                         if await self._handle_command(user_input):
                             continue
 
-                        await self._process_message(user_input)
+                        # Run agent in a cancellable task with SIGINT → cancel
+                        response_task = asyncio.create_task(
+                            self._process_message(user_input)
+                        )
+
+                        loop = asyncio.get_running_loop()
+                        loop.add_signal_handler(signal.SIGINT, response_task.cancel)
+
+                        was_interrupted = False
+                        try:
+                            await response_task
+                        except asyncio.CancelledError:
+                            was_interrupted = True
+                            self.tui.stop_spinner()
+                            self.tui.end_assistant()
+                            console.print("\n[grey50]⏹ Response interrupted[/grey50]")
+                        finally:
+                            # Restore default so Ctrl+C works at the prompt
+                            loop.remove_signal_handler(signal.SIGINT)
 
                         # ── Flight recorder: auto-save after every exchange ──
-                        await self._auto_save()
+                        if not was_interrupted:
+                            await self._auto_save()
 
                     except KeyboardInterrupt:
-                        console.print("\n[dim]Use /exit or /quit to quit[/dim]")
+                        console.print()  # clean line after ^C at prompt
                     except EOFError:
                         break
             finally:
