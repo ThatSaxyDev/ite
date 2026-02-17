@@ -116,3 +116,25 @@ def register(registry: CommandRegistry) -> None:
         name="/clear", description="Clear conversation history",
         handler=cmd_clear,
     ))
+    registry.register(
+        Command(
+            name="/setup",
+            description="Re-run provider setup wizard",
+            handler=cmd_setup,
+        )
+    )
+
+
+async def cmd_setup(ctx: CommandContext, args: list[str]) -> None:
+    from config.setup import run_setup_wizard
+
+    config = run_setup_wizard(ctx.console, ctx.config)
+
+    # Update live config
+    ctx.config.api_key = config.api_key
+    ctx.config.base_url = config.base_url
+    ctx.config.model.name = config.model.name
+
+    # Update the LLM client with new credentials
+    if ctx.agent and ctx.agent.session:
+        ctx.agent.session.client._client = None  # force re-init on next call
