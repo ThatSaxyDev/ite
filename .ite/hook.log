@@ -246,3 +246,4 @@
 [HOOK] {"timestamp": "2026-02-17T13:18:36.550765", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "grep", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-02-17T13:18:38.807636", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-02-17T13:18:41.449712", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-02-17T13:23:25.356491", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "where weere we?", "error": null, "response": null}

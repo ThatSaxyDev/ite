@@ -62,7 +62,7 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
         updated = datetime.fromisoformat(session["updated_at"])
         name = session.get("name") or "[dim]—[/dim]"
         table.add_row(
-            session["session_id"][:8] + "…",
+            session["session_id"],
             name,
             updated.strftime("%b %d · %I:%M %p"),
             str(session["turn_count"]),
@@ -84,7 +84,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
 
     if snapshot is None:
         ctx.console.print(
-            f"[error]Session not found:[/error] [bold]{session_id}[/bold]. [dim]Run [green]/sessions[/green] to list saved sessions, then use [green]/resume <session_id>[/green][/dim]"
+            f"[error]Session not found:[/error] [bold]{session_id}[/bold]. [dim]Run [green]/sessions[/green] to list saved sessions.[/dim]"
         )
         return
 
@@ -121,7 +121,10 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     ctx.console.print()
     ctx.console.print(
         Panel(
-            Text.assemble((f"Session loaded: {session_id}", "bold cyan")),
+            Text.assemble(
+                (f"Session loaded: {session_id}", "bold cyan"),
+                (f"  {snapshot.name}" if snapshot.name else "", "dim"),
+            ),
             title=title,
             title_align="left",
             border_style="cyan",
