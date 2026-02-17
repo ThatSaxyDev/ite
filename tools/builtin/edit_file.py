@@ -87,6 +87,10 @@ class EditTool(Tool):
 
         path = resolve_path(invocation.cwd, params.path)
 
+        sandbox_error = self._sandbox_check(path, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
         if not path.exists():
             if params.old_string:
                 return ToolResult.error_result(

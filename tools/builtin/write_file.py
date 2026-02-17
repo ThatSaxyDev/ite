@@ -73,6 +73,10 @@ class WriteFileTool(Tool):
 
         path = resolve_path(invocation.cwd, params.path)
 
+        sandbox_error = self._sandbox_check(path, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
         is_new_file = not path.exists()
 
         old_content = ""

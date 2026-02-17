@@ -44,6 +44,10 @@ class ReadFileTool(Tool):
 
         path = resolve_path(invocation.cwd, params.path)
 
+        sandbox_error = self._sandbox_check(path, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
         if not path.exists():
             return ToolResult.error_result(error=f"File not found: {path}")
 

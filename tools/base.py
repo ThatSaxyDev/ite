@@ -157,6 +157,19 @@ class Tool(abc.ABC):
             ToolKind.MEMORY,
         }
 
+    def _sandbox_check(self, path: Path, cwd: Path) -> ToolResult | None:
+        """Validate path against sandbox policy. Returns error result if blocked, None if OK."""
+        from safety.sandbox import validate_path, SandboxViolation
+
+        try:
+            validate_path(path.resolve(), cwd, self.config.sandbox)
+            return None
+        except SandboxViolation:
+            return ToolResult.error_result(
+                f"Access denied: {path} is outside the project sandbox. "
+                f"Use /sandbox allow <path> to grant access."
+            )
+
     async def get_confirmation(
         self,
         invocation: ToolInvocation,

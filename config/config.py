@@ -83,12 +83,19 @@ class HookConfig(BaseModel):
         return self
 
 
+class SandboxPolicy(BaseModel):
+    enabled: bool = True
+    git_sandbox: bool = False
+    allowed_paths: list[Path] = Field(default_factory=list)
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
     shell_environment: ShellEnvironmentPolicy = Field(
         default_factory=ShellEnvironmentPolicy
     )
+    sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     hooks_enabled: bool = False
     hooks: list[HookConfig] = Field(default_factory=list)
     approval: ApprovalPolicy = ApprovalPolicy.ON_REQUEST

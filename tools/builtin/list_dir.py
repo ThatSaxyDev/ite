@@ -27,6 +27,10 @@ class ListDirTool(Tool):
 
         dir_path = resolve_path(invocation.cwd, params.path)
 
+        sandbox_error = self._sandbox_check(dir_path, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
         if not dir_path.exists() or not dir_path.is_dir():
             return ToolResult.error_result(f"Directory: '{dir_path}' does not exist.")
 

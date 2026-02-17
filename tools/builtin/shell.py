@@ -90,6 +90,10 @@ class ShellTool(Tool):
         if not cwd.exists():
             return ToolResult.error_result(f"Working directory does not exist: '{cwd}'")
 
+        sandbox_error = self._sandbox_check(cwd, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
         env = self._build_environment()
 
         if sys.platform == "win32":
