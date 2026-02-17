@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import dataclass
-from config.config import Config
-from tools.base import ToolResult, ToolInvocation, ToolKind, Tool
+from ite.config.config import Config
+from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
 from pydantic import BaseModel, Field
 
 

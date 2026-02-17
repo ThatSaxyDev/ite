@@ -1,7 +1,7 @@
 from typing import Any
-from config.config import Config
-from tools.base import Tool, ToolInvocation, ToolKind, ToolResult
-from tools.mcp.client import MCPClient, MCPToolInfo
+from ite.config.config import Config
+from ite.tools.base import Tool, ToolInvocation, ToolKind, ToolResult
+from ite.tools.mcp.client import MCPClient, MCPToolInfo
 
 
 class MCPTool(Tool):

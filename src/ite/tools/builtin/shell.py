@@ -1,4 +1,4 @@
-from tools.base import ToolConfirmation
+from ite.tools.base import ToolConfirmation
 from signal import signal
 import asyncio
 import sys
@@ -7,7 +7,7 @@ import os
 import re
 from pathlib import Path
 from pydantic import BaseModel, Field
-from tools.base import Tool, ToolKind, ToolInvocation, ToolResult
+from ite.tools.base import Tool, ToolKind, ToolInvocation, ToolResult
 
 
 def _extract_paths_from_command(command: str) -> list[Path]:

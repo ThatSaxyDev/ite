@@ -1,11 +1,11 @@
-from utils.text import truncate_text
-from utils.text import count_tokens
-from utils.paths import is_binary_file
-from utils.paths import resolve_path
-from tools.base import ToolResult
-from tools.base import ToolInvocation
-from tools.base import ToolKind
-from tools.base import Tool
+from ite.utils.text import truncate_text
+from ite.utils.text import count_tokens
+from ite.utils.paths import is_binary_file
+from ite.utils.paths import resolve_path
+from ite.tools.base import ToolResult
+from ite.tools.base import ToolInvocation
+from ite.tools.base import ToolKind
+from ite.tools.base import Tool
 from pydantic import BaseModel, Field
 
 

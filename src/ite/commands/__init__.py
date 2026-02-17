@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from config.config import Config
-    from agent.agent import Agent
-    from ui.tui import TUI
+    from ite.config.config import Config
+    from ite.agent.agent import Agent
+    from ite.ui.tui import TUI
 
 from rich.console import Console
 
@@ -72,12 +72,12 @@ class CommandRegistry:
 
 def build_registry() -> CommandRegistry:
     """Build and return the full command registry with all commands."""
-    from commands.general import register as register_general
-    from commands.model import register as register_model
-    from commands.info import register as register_info
-    from commands.session import register as register_session
-    from commands.subagent import register as register_subagent
-    from commands.sandbox import register as register_sandbox
+    from ite.commands.general import register as register_general
+    from ite.commands.model import register as register_model
+    from ite.commands.info import register as register_info
+    from ite.commands.session import register as register_session
+    from ite.commands.subagent import register as register_subagent
+    from ite.commands.sandbox import register as register_sandbox
 
     registry = CommandRegistry()
     register_general(registry)

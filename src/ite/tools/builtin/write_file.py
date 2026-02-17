@@ -1,9 +1,9 @@
-from tools.base import ToolConfirmation
-from tools.base import FileDiff
-from utils.paths import ensure_parent_dir
-from utils.paths import resolve_path
+from ite.tools.base import ToolConfirmation
+from ite.tools.base import FileDiff
+from ite.utils.paths import ensure_parent_dir
+from ite.utils.paths import resolve_path
 from pydantic import BaseModel, Field
-from tools.base import ToolInvocation, ToolResult, ToolKind, Tool
+from ite.tools.base import ToolInvocation, ToolResult, ToolKind, Tool
 
 
 class WriteFileParams(BaseModel):

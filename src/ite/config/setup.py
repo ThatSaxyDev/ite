@@ -1,7 +1,7 @@
 """First-run setup wizard for ITE."""
 
-from config.loader import save_system_config
-from config.config import Config
+from ite.config.loader import save_system_config
+from ite.config.config import Config
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text

@@ -8,7 +8,7 @@ import abc
 from enum import Enum
 from pydantic import BaseModel
 from pydantic.json_schema import model_json_schema
-from config.config import Config
+from ite.config.config import Config
 
 
 class ToolKind(Enum):
@@ -159,7 +159,7 @@ class Tool(abc.ABC):
 
     def _sandbox_check(self, path: Path, cwd: Path) -> ToolResult | None:
         """Validate path against sandbox policy. Returns error result if blocked, None if OK."""
-        from safety.sandbox import validate_path, SandboxViolation
+        from ite.safety.sandbox import validate_path, SandboxViolation
 
         try:
             validate_path(path.resolve(), cwd, self.config.sandbox)

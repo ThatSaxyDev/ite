@@ -5,8 +5,8 @@ import signal
 import sys
 import tempfile
 from typing import Any
-from config.config import Config, HookConfig, HookTrigger
-from tools.base import ToolResult
+from ite.config.config import Config, HookConfig, HookTrigger
+from ite.tools.base import ToolResult
 
 
 class HookSystem:

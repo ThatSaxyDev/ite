@@ -1,12 +1,12 @@
-from config.config import Config
+from ite.config.config import Config
 from pathlib import Path
-from config.loader import load_config
+from ite.config.loader import load_config
 import logging
 import sys
-from ui.tui import TUI, get_console
-from agent.events import AgentEventType
-from agent.agent import Agent
-from agent.session_manager import SessionSnapshot, SessionManager
+from ite.ui.tui import TUI, get_console
+from ite.agent.events import AgentEventType
+from ite.agent.agent import Agent
+from ite.agent.session_manager import SessionSnapshot, SessionManager
 import click
 import asyncio
 import signal
@@ -87,7 +87,7 @@ class CLI:
         command = parts[0].lower()
         args = parts[1:]
 
-        from commands import build_registry, CommandContext
+        from ite.commands import build_registry, CommandContext
 
         registry = build_registry()
         ctx = CommandContext(
@@ -291,6 +291,7 @@ class CLI:
 
 
 @click.command()
+@click.version_option(version="0.0.1", prog_name="ite")
 @click.option(
     "--cwd",
     "-c",
@@ -323,7 +324,7 @@ def main(
 
     # If credentials are still missing, run the setup wizard
     if config.needs_setup:
-        from config.setup import run_setup_wizard
+        from ite.config.setup import run_setup_wizard
 
         config = run_setup_wizard(console, config)
 

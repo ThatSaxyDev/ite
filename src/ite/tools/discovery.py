@@ -1,12 +1,12 @@
-from config.loader import get_config_dir
+from ite.config.loader import get_config_dir
 import inspect
-from tools.base import Tool
+from ite.tools.base import Tool
 import sys
 import importlib.util
 from typing import Any
 from pathlib import Path
-from tools.registry import ToolRegistry
-from config.config import Config
+from ite.tools.registry import ToolRegistry
+from ite.config.config import Config
 
 
 class ToolDiscoveryManager:

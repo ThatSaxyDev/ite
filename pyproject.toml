@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ite"
+version = "0.0.1"
+description = "Interactive Terminal Environment — an AI coding agent for your terminal"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "Kiishi David" },
+]
+keywords = ["ai", "agent", "terminal", "cli", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "click",
+    "rich",
+    "openai",
+    "pydantic",
+    "tiktoken",
+    "html2text",
+    "beautifulsoup4",
+    "duckduckgo-search",
+    "tomli; python_version < '3.11'",
+    "platformdirs",
+    "fastmcp",
+    "lxml",
+]
+
+[project.scripts]
+ite = "ite.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ite"]

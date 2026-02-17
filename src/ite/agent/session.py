@@ -1,16 +1,16 @@
 from typing import Any
-from context.loop_detector import LoopDetector
-from safety.approval import ApprovalManager
-from context.compaction import ChatCompactor
-from tools.mcp.mcp_manager import MCPManager
-from tools.discovery import ToolDiscoveryManager
+from ite.context.loop_detector import LoopDetector
+from ite.safety.approval import ApprovalManager
+from ite.context.compaction import ChatCompactor
+from ite.tools.mcp.mcp_manager import MCPManager
+from ite.tools.discovery import ToolDiscoveryManager
 from datetime import datetime
 import uuid
-from tools.registry import create_default_registry
-from context.manager import ContextManager
-from client.llm_client import LLMClient
-from config.config import Config
-from hooks.hook_system import HookSystem
+from ite.tools.registry import create_default_registry
+from ite.context.manager import ContextManager
+from ite.client.llm_client import LLMClient
+from ite.config.config import Config
+from ite.hooks.hook_system import HookSystem
 
 
 class Session:
@@ -60,7 +60,7 @@ class Session:
         )
 
     def _load_memory(self) -> dict | None:
-        from tools.builtin.memory import MemoryTool
+        from ite.tools.builtin.memory import MemoryTool
 
         memory = MemoryTool.load_all_memory(str(self.config.cwd))
 

@@ -3,9 +3,9 @@ from typing import Any
 from datetime import datetime
 from dataclasses import dataclass
 import os
-from config.loader import get_data_dir
+from ite.config.loader import get_data_dir
 import json
-from client.response import TokenUsage
+from ite.client.response import TokenUsage
 
 
 @dataclass

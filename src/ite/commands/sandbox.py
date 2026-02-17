@@ -2,7 +2,7 @@
 
 from rich.syntax import Syntax
 from pathlib import Path
-from commands import Command, CommandContext, CommandRegistry
+from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
@@ -16,7 +16,7 @@ def _get_git_sandbox(ctx: CommandContext):
     """Lazily create and return the GitSandbox instance."""
     global _git_sandbox
     if _git_sandbox is None:
-        from safety.git_sandbox import GitSandbox
+        from ite.safety.git_sandbox import GitSandbox
 
         _git_sandbox = GitSandbox(ctx.config.cwd)
     return _git_sandbox

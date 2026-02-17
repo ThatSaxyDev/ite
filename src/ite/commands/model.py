@@ -1,7 +1,7 @@
 """Model/config commands: /model, /config, /approval."""
 
 from pathlib import Path
-from commands import Command, CommandContext, CommandRegistry
+from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -94,7 +94,7 @@ async def cmd_config(ctx: CommandContext, args: list[str]) -> None:
 
 
 async def cmd_approval(ctx: CommandContext, args: list[str]) -> None:
-    from config.config import ApprovalPolicy
+    from ite.config.config import ApprovalPolicy
 
     valid_modes = [p.value for p in ApprovalPolicy]
 

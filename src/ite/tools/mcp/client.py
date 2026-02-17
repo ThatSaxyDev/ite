@@ -6,7 +6,7 @@ import shutil
 from fastmcp.client.transports import StdioTransport, SSETransport
 from enum import Enum
 from pathlib import Path
-from config.config import MCPServerConfig
+from ite.config.config import MCPServerConfig
 from fastmcp import Client
 import logging
 

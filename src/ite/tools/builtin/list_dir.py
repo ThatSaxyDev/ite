@@ -1,9 +1,9 @@
-from utils.paths import resolve_path
-from tools.base import ToolResult
-from tools.base import ToolInvocation
-from tools.base import ToolKind
+from ite.utils.paths import resolve_path
+from ite.tools.base import ToolResult
+from ite.tools.base import ToolInvocation
+from ite.tools.base import ToolKind
 from pydantic import BaseModel, Field
-from tools.base import Tool
+from ite.tools.base import Tool
 
 
 class ListDirParams(BaseModel):

@@ -1,17 +1,17 @@
 from __future__ import annotations
 import json
-from config.config import Config
-from client.response import ToolResultMessage
-from client.response import ToolCall
-from agent.events import AgentEventType
-from client.response import StreamEventType
-from agent.events import AgentEvent
+from ite.config.config import Config
+from ite.client.response import ToolResultMessage
+from ite.client.response import ToolCall
+from ite.agent.events import AgentEventType
+from ite.client.response import StreamEventType
+from ite.agent.events import AgentEvent
 from typing import AsyncGenerator
-from agent.session import Session
-from client.response import TokenUsage
-from tools.base import ToolConfirmation
+from ite.agent.session import Session
+from ite.client.response import TokenUsage
+from ite.tools.base import ToolConfirmation
 from typing import Callable
-from prompts.system import create_loop_breaker_prompt
+from ite.prompts.system import create_loop_breaker_prompt
 
 
 class Agent:

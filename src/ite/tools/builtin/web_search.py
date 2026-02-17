@@ -1,6 +1,6 @@
-from tools.base import ToolResult, ToolInvocation, ToolKind, Tool
+from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
 from pydantic import BaseModel, Field
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 
 class WebSearchParams(BaseModel):

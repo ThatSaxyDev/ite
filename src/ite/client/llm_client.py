@@ -1,16 +1,16 @@
-from config.config import Config
-from client.response import parse_tool_call_arguments
-from client.response import ToolCall
-from client.response import ToolCallDelta
+from ite.config.config import Config
+from ite.client.response import parse_tool_call_arguments
+from ite.client.response import ToolCall
+from ite.client.response import ToolCallDelta
 from openai import APIError
 from openai import APIConnectionError
 import asyncio
 from openai import RateLimitError
 from typing import AsyncGenerator
-from client.response import StreamEventType
-from client.response import StreamEvent
-from client.response import TokenUsage
-from client.response import TextDelta
+from ite.client.response import StreamEventType
+from ite.client.response import StreamEvent
+from ite.client.response import TokenUsage
+from ite.client.response import TextDelta
 from typing import Any
 from openai import AsyncOpenAI
 

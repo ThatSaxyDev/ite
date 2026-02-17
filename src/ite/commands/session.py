@@ -1,9 +1,9 @@
 """Session commands: /save, /sessions, /resume, /checkpoint, /checkpoints, /restore."""
 
 from datetime import datetime
-from commands import Command, CommandContext, CommandRegistry
-from agent.session import Session
-from agent.session_manager import SessionSnapshot, SessionManager
+from ite.commands import Command, CommandContext, CommandRegistry
+from ite.agent.session import Session
+from ite.agent.session_manager import SessionSnapshot, SessionManager
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -22,7 +22,7 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
     )
     session_manager.save_session(session_snapshot)
 
-    from tools.builtin.memory import MemoryTool
+    from ite.tools.builtin.memory import MemoryTool
 
     MemoryTool.append_episodic_entry(
         summary=f"Session saved ({ctx.agent.session.turn_count} turns)",

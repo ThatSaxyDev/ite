@@ -1,9 +1,9 @@
 from typing import Any
-from prompts.system import get_compaction_prompt
-from client.response import StreamEventType
-from client.response import TokenUsage
-from context.manager import ContextManager
-from client.llm_client import LLMClient
+from ite.prompts.system import get_compaction_prompt
+from ite.client.response import StreamEventType
+from ite.client.response import TokenUsage
+from ite.context.manager import ContextManager
+from ite.client.llm_client import LLMClient
 
 
 class ChatCompactor:

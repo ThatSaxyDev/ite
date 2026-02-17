@@ -1,10 +1,10 @@
 from __future__ import annotations
-from client.response import TokenUsage
+from ite.client.response import TokenUsage
 from dataclasses import field
 from typing import Any
 from enum import Enum
 from dataclasses import dataclass
-from tools.base import ToolResult
+from ite.tools.base import ToolResult
 
 
 class AgentEventType(str, Enum):

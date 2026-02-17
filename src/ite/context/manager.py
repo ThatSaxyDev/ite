@@ -1,11 +1,11 @@
 from datetime import datetime
-from client.response import TokenUsage
-from tools.base import Tool
-from config.config import Config
+from ite.client.response import TokenUsage
+from ite.tools.base import Tool
+from ite.config.config import Config
 from dataclasses import field
 from typing import Any
-from utils.text import count_tokens
-from prompts.system import get_system_prompt
+from ite.utils.text import count_tokens
+from ite.prompts.system import get_system_prompt
 from dataclasses import dataclass
 
 

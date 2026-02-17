@@ -1,7 +1,7 @@
 """General commands: /ite, /exit, /quit, /help, /clear."""
 
 import sys
-from commands import Command, CommandContext, CommandRegistry
+from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.text import Text
 from rich.markdown import Markdown
@@ -18,7 +18,7 @@ async def cmd_ite(ctx: CommandContext, args: list[str]) -> None:
 async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
     # Auto-save session before exiting (skip empty sessions)
     try:
-        from agent.session_manager import SessionSnapshot, SessionManager
+        from ite.agent.session_manager import SessionSnapshot, SessionManager
 
         session = ctx.agent.session
         if session.turn_count > 0:
@@ -37,7 +37,7 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
         pass
 
     try:
-        from tools.builtin.memory import MemoryTool
+        from ite.tools.builtin.memory import MemoryTool
 
         st_path = MemoryTool(ctx.config)._get_memory_path("short_term")
         if st_path.exists():
@@ -58,7 +58,7 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
 
 
 async def cmd_help(ctx: CommandContext, args: list[str]) -> None:
-    from commands import build_registry
+    from ite.commands import build_registry
 
     registry = build_registry()
     lines = []
@@ -126,7 +126,7 @@ def register(registry: CommandRegistry) -> None:
 
 
 async def cmd_setup(ctx: CommandContext, args: list[str]) -> None:
-    from config.setup import run_setup_wizard
+    from ite.config.setup import run_setup_wizard
 
     config = run_setup_wizard(ctx.console, ctx.config)
 

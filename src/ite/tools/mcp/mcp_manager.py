@@ -1,10 +1,10 @@
 from typing import Any
-from tools.mcp.mcp_tool import MCPTool
-from tools.mcp.client import MCPServerStatus
-from tools.registry import ToolRegistry
+from ite.tools.mcp.mcp_tool import MCPTool
+from ite.tools.mcp.client import MCPServerStatus
+from ite.tools.registry import ToolRegistry
 import asyncio
-from tools.mcp.client import MCPClient
-from config.config import Config
+from ite.tools.mcp.client import MCPClient
+from ite.config.config import Config
 from rich.text import Text
 from rich.table import Table
 from rich.panel import Panel
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def _get_console():
     """Lazily import the shared console to avoid circular imports."""
-    from ui.tui import get_console
+    from ite.ui.tui import get_console
 
     return get_console()
 

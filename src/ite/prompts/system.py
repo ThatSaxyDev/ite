@@ -1,8 +1,8 @@
 
 import platform
 from datetime import datetime
-from config.config import Config
-from tools.base import Tool
+from ite.config.config import Config
+from ite.tools.base import Tool
 
 
 def get_system_prompt(

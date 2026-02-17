@@ -11,8 +11,8 @@ from pathlib import Path
 
 import tomli
 
-from config.loader import get_config_dir
-from tools.subagent import SubagentDefinition
+from ite.config.loader import get_config_dir
+from ite.tools.subagent import SubagentDefinition
 
 logger = logging.getLogger(__name__)
 

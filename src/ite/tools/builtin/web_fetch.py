@@ -2,7 +2,7 @@ import httpx
 import html2text
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from tools.base import ToolResult, ToolInvocation, ToolKind, Tool
+from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
 from pydantic import BaseModel, Field
 
 

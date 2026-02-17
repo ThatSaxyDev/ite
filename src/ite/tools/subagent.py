@@ -1,12 +1,12 @@
 import asyncio
 from pydantic import Field
-from tools.base import ToolInvocation
-from tools.base import ToolResult
+from ite.tools.base import ToolInvocation
+from ite.tools.base import ToolResult
 from typing import Any
 from pydantic import BaseModel
 from dataclasses import dataclass
-from config.config import Config
-from tools.base import Tool
+from ite.config.config import Config
+from ite.tools.base import Tool
 
 
 class SubagentParams(BaseModel):
@@ -65,8 +65,8 @@ class SubagentTool(Tool):
         return True
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
-        from agent.events import AgentEventType
-        from agent.agent import Agent
+        from ite.agent.events import AgentEventType
+        from ite.agent.agent import Agent
 
         params = SubagentParams(**invocation.params)
         if not params.goal:

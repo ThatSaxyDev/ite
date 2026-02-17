@@ -1,8 +1,8 @@
 import json
 import hashlib
 from datetime import datetime
-from config.loader import get_data_dir
-from tools.base import Tool, ToolInvocation, ToolKind, ToolResult
+from ite.config.loader import get_data_dir
+from ite.tools.base import Tool, ToolInvocation, ToolKind, ToolResult
 from pydantic import BaseModel, Field
 
 

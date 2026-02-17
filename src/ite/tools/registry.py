@@ -1,18 +1,18 @@
-from hooks.hook_system import HookSystem
-from safety.approval import ApprovalDecision
-from safety.approval import ApprovalContext
-from safety.approval import ApprovalManager
-from tools.subagent import SubagentTool
-from tools.subagent import get_default_subagent_definitions
-from tools.subagent_loader import discover_subagents
-from config.config import Config
-from tools.builtin import get_all_builtin_tools
-from tools.base import ToolInvocation
-from tools.base import ToolResult
+from ite.hooks.hook_system import HookSystem
+from ite.safety.approval import ApprovalDecision
+from ite.safety.approval import ApprovalContext
+from ite.safety.approval import ApprovalManager
+from ite.tools.subagent import SubagentTool
+from ite.tools.subagent import get_default_subagent_definitions
+from ite.tools.subagent_loader import discover_subagents
+from ite.config.config import Config
+from ite.tools.builtin import get_all_builtin_tools
+from ite.tools.base import ToolInvocation
+from ite.tools.base import ToolResult
 from pathlib import Path
 from typing import Any
 import logging
-from tools.base import Tool
+from ite.tools.base import Tool
 
 logger = logging.getLogger(__name__)
 

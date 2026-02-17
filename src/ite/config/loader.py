@@ -1,9 +1,9 @@
 from platformdirs import user_data_dir
 import logging
 from typing import Any
-from utils.errors import ConfigError
+from ite.utils.errors import ConfigError
 import tomli
-from config.config import Config
+from ite.config.config import Config
 from pathlib import Path
 from platformdirs import user_config_dir
 

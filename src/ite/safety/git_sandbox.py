@@ -6,7 +6,7 @@ import subprocess
 import logging
 from pathlib import Path
 from datetime import datetime
-from config.loader import get_data_dir
+from ite.config.loader import get_data_dir
 
 logger = logging.getLogger(__name__)
 

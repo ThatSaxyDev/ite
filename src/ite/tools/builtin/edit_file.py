@@ -1,10 +1,10 @@
-from tools.base import ToolConfirmation
+from ite.tools.base import ToolConfirmation
 from pathlib import Path
-from tools.base import FileDiff
-from utils.paths import ensure_parent_dir
-from utils.paths import resolve_path
+from ite.tools.base import FileDiff
+from ite.utils.paths import ensure_parent_dir
+from ite.utils.paths import resolve_path
 from pydantic import BaseModel, Field
-from tools.base import Tool, ToolKind, ToolInvocation, ToolResult
+from ite.tools.base import Tool, ToolKind, ToolInvocation, ToolResult
 
 
 class EditParams(BaseModel):

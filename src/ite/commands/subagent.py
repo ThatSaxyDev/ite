@@ -1,6 +1,6 @@
 """Subagent commands: /subagent list|create|delete."""
 
-from commands import Command, CommandContext, CommandRegistry
+from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
@@ -27,7 +27,7 @@ async def cmd_subagent(ctx: CommandContext, args: list[str]) -> None:
 
 
 def _list_subagents(ctx: CommandContext) -> None:
-    from tools.subagent import SubagentTool
+    from ite.tools.subagent import SubagentTool
 
     tools = ctx.agent.session.tool_registry.get_tools()
     subagents = [t for t in tools if isinstance(t, SubagentTool)]

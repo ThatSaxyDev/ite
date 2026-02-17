@@ -1,6 +1,6 @@
 """Info commands: /stats, /tools, /mcp."""
 
-from commands import Command, CommandContext, CommandRegistry
+from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
