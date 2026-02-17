@@ -48,6 +48,8 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
 async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
     session_manager = SessionManager()
     sessions = session_manager.list_sessions()
+    # Filter out empty sessions (0 turns)
+    sessions = [s for s in sessions if s["turn_count"] > 0]
     if not sessions:
         ctx.console.print("[dim]No sessions found.[/dim]")
         return
@@ -239,10 +241,12 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
 
 
 def register(registry: CommandRegistry) -> None:
-    registry.register(Command(
-        name="/save", description="Save current session",
-        handler=cmd_save,
-    ))
+    # /save and /checkpoint disabled — auto-save handles persistence now.
+    # Handler code preserved above for future use.
+    # registry.register(Command(
+    #     name="/save", description="Save current session",
+    #     handler=cmd_save,
+    # ))
     registry.register(Command(
         name="/sessions", description="List saved sessions",
         handler=cmd_sessions,
@@ -251,10 +255,10 @@ def register(registry: CommandRegistry) -> None:
         name="/resume", description="Resume a saved session",
         handler=cmd_resume,
     ))
-    registry.register(Command(
-        name="/checkpoint", description="Create a checkpoint",
-        handler=cmd_checkpoint,
-    ))
+    # registry.register(Command(
+    #     name="/checkpoint", description="Create a checkpoint",
+    #     handler=cmd_checkpoint,
+    # ))
     registry.register(Command(
         name="/checkpoints", description="List available checkpoints",
         handler=cmd_checkpoints,
