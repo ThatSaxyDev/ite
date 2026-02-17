@@ -4,9 +4,44 @@ import asyncio
 import sys
 import fnmatch
 import os
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field
 from tools.base import Tool, ToolKind, ToolInvocation, ToolResult
+
+
+def _extract_paths_from_command(command: str) -> list[Path]:
+    """Extract file paths from a shell command string for sandbox validation.
+
+    Catches: absolute paths (/etc/passwd), home paths (~/Desktop),
+    and parent traversals (../../etc).
+    """
+    paths = []
+    # Expand ~ to actual home dir
+    home = Path.home()
+
+    # Split on whitespace, pipes, semicolons, &&, ||
+    tokens = re.split(r"[\s;|&]+", command)
+
+    for token in tokens:
+        # Strip quotes
+        token = token.strip("'\"")
+        if not token:
+            continue
+
+        # Absolute paths
+        if token.startswith("/"):
+            paths.append(Path(token))
+        # Home-relative paths
+        elif token.startswith("~"):
+            expanded = token.replace("~", str(home), 1)
+            paths.append(Path(expanded))
+        # Parent traversals that escape cwd
+        elif ".." in token and "/" in token:
+            paths.append(Path(token))
+
+    return paths
+
 
 BLOCKED_COMMANDS = {
     "rm -rf /",
@@ -93,6 +128,17 @@ class ShellTool(Tool):
         sandbox_error = self._sandbox_check(cwd, invocation.cwd)
         if sandbox_error:
             return sandbox_error
+
+        # Also check paths referenced in the command itself
+        for cmd_path in _extract_paths_from_command(params.command):
+            resolved = (
+                (cwd / cmd_path).resolve()
+                if not cmd_path.is_absolute()
+                else cmd_path.resolve()
+            )
+            path_error = self._sandbox_check(resolved, invocation.cwd)
+            if path_error:
+                return path_error
 
         env = self._build_environment()
 
