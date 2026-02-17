@@ -291,7 +291,7 @@ class CLI:
 
 
 @click.command()
-@click.version_option(version="0.0.1", prog_name="ite")
+@click.version_option(version="0.0.2", prog_name="ite")
 @click.option(
     "--cwd",
     "-c",

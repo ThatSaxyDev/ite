@@ -20,10 +20,10 @@ Install globally using `pipx` (recommended) or `pip`:
 
 ```bash
 # Using pipx
-pipx install .
+pipx install ite-agent
 
 # Using pip
-pip install .
+pip install ite-agent
 ```
 
 ### Option 3: Install from Git
