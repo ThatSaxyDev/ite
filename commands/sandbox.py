@@ -111,6 +111,10 @@ async def cmd_sandbox(ctx: CommandContext, args: list[str]) -> None:
                 info += f"\nBranch: {status['sandbox_branch']}"
             if status["original_branch"]:
                 info += f"\nOriginal: {status['original_branch']}"
+            # Check for recovery
+            recovery = gs.check_recovery()
+            if recovery:
+                info += f"\n\n⚠️  {recovery['message']}"
             _print_panel(ctx, "🌿", "Git Sandbox", info, "cyan")
 
     elif sub_cmd == "diff":
@@ -181,6 +185,17 @@ def _show_status(ctx: CommandContext) -> None:
         info.append("\n")
         info.append("Allowed Paths: ", style="code")
         info.append(", ".join(allowed), style="dim")
+
+    # Check for orphan/active sandbox recovery
+    try:
+        gs = _get_git_sandbox(ctx)
+        recovery = gs.check_recovery()
+        if recovery:
+            info.append("\n\n")
+            info.append("⚠️  ", style="bold yellow")
+            info.append(recovery["message"], style="yellow")
+    except Exception:
+        pass
 
     info.append("\n\n")
     info.append("Commands:\n", style="bold")
