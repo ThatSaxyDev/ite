@@ -86,6 +86,8 @@ class CLI:
         """Flight recorder: silently save session state after every exchange."""
         if not self.agent or not self.agent.session:
             return
+        if self.agent.session.turn_count == 0:
+            return  # Don't save empty sessions
 
         try:
             session = self.agent.session
@@ -121,6 +123,8 @@ class CLI:
         """Synchronous fallback for auto-save in finally blocks."""
         if not self.agent or not self.agent.session:
             return
+        if self.agent.session.turn_count == 0:
+            return  # Don't save empty sessions
 
         try:
             session = self.agent.session
