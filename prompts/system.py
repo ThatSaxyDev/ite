@@ -60,12 +60,22 @@ def _get_environment_section(config: Config) -> str:
     now = datetime.now()
     os_info = f"{platform.system()} {platform.release()}"
 
+    sandbox_info = ""
+    if config.sandbox.enabled:
+        allowed = config.sandbox.allowed_paths
+        if allowed:
+            paths_list = ", ".join(str(p) for p in allowed)
+            sandbox_info = f"\n- **Additional Allowed Paths**: {paths_list}"
+        sandbox_info += "\n- **Sandbox**: Enabled — file operations are restricted to the working directory and any additional allowed paths listed above."
+    else:
+        sandbox_info = "\n- **Sandbox**: Disabled — no path restrictions."
+
     return f"""# Environment
 
 - **Current Date**: {now.strftime("%A, %B %d, %Y")}
 - **Operating System**: {os_info}
 - **Working Directory**: {config.cwd}
-- **Shell**: {_get_shell_info()}
+- **Shell**: {_get_shell_info()}{sandbox_info}
 
 The user has granted you access to run tools in service of their request. Use them when needed."""
 

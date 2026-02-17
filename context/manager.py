@@ -5,8 +5,8 @@ from config.config import Config
 from dataclasses import field
 from typing import Any
 from utils.text import count_tokens
-from dataclasses import dataclass
 from prompts.system import get_system_prompt
+from dataclasses import dataclass
 
 
 @dataclass
@@ -47,7 +47,8 @@ class ContextManager:
         tools: list[Tool] | None = None,
     ) -> None:
         self.config = config
-        self._system_prompt = get_system_prompt(config, user_memory, tools)
+        self._user_memory = user_memory
+        self._tools = tools
         self._model_name = self.config.model_name
         self._messages: list(MessageItem) = []
         self._latest_usage = TokenUsage()
@@ -124,11 +125,12 @@ class ContextManager:
     def get_messages(self) -> list(dict[str, Any]):
         messages = []
 
-        if self._system_prompt:
+        system_prompt = get_system_prompt(self.config, self._user_memory, self._tools)
+        if system_prompt:
             messages.append(
                 {
                     "role": "system",
-                    "content": self._system_prompt,
+                    "content": system_prompt,
                 }
             )
 

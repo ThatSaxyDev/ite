@@ -73,20 +73,44 @@ SAFE_PATTERNS = [
 ]
 
 
-def is_dangerous_command(command: str) -> bool:
-    for pattern in DANGEROUS_PATTERNS:
-        if re.search(pattern, command, re.IGNORECASE):
-            return True
+def _split_compound_command(command: str) -> list[str]:
+    """Split a compound command into individual sub-commands.
 
+    Handles: &&, ||, ;, and | (pipe)
+    """
+    # Split on &&, ||, ;, | — but not inside quotes
+    parts = re.split(r"\s*(?:&&|\|\||;|\|)\s*", command)
+    # Also handle $(...) subshells by extracting inner commands
+    subshells = re.findall(r"\$\(([^)]+)\)", command)
+    parts.extend(subshells)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def is_dangerous_command(command: str) -> bool:
+    """A compound command is dangerous if ANY sub-command is dangerous."""
+    for sub_cmd in _split_compound_command(command):
+        for pattern in DANGEROUS_PATTERNS:
+            if re.search(pattern, sub_cmd, re.IGNORECASE):
+                return True
     return False
 
 
 def is_safe_command(command: str) -> bool:
-    for pattern in SAFE_PATTERNS:
-        if re.search(pattern, command, re.IGNORECASE):
-            return True
+    """A compound command is safe only if ALL sub-commands are safe."""
+    sub_cmds = _split_compound_command(command)
+    if not sub_cmds:
+        return False
 
-    return False
+    for sub_cmd in sub_cmds:
+        sub_is_safe = False
+        for pattern in SAFE_PATTERNS:
+            if re.search(pattern, sub_cmd, re.IGNORECASE):
+                sub_is_safe = True
+                break
+        if not sub_is_safe:
+            return False
+
+    return True
 
 
 class ApprovalManager:
@@ -134,16 +158,29 @@ class ApprovalManager:
             decision = self._assess_command_safety(context.command)
             return decision
 
-        for path in context.affected_paths:
-            if not path.is_relative_to(self.cwd):
-                return ApprovalDecision.NEEDS_CONFIRMATION
+        # Non-shell mutating operations (write_file, edit_file, etc.)
+        # Check policy first
+        if self.approval_policy == ApprovalPolicy.YOLO:
+            return ApprovalDecision.APPROVED
 
+        if self.approval_policy == ApprovalPolicy.NEVER:
+            return ApprovalDecision.REJECTED
+
+        if self.approval_policy in {ApprovalPolicy.AUTO, ApprovalPolicy.ON_FAILURE}:
+            return ApprovalDecision.APPROVED
+
+        if self.approval_policy == ApprovalPolicy.AUTO_EDIT:
+            # Auto-approve edits inside cwd, ask for outside
+            for path in context.affected_paths:
+                if not path.is_relative_to(self.cwd):
+                    return ApprovalDecision.NEEDS_CONFIRMATION
+            return ApprovalDecision.APPROVED
+
+        # on_request: always ask for mutating operations
         if context.is_dangerous:
-            if self.approval_policy == ApprovalPolicy.YOLO:
-                return ApprovalDecision.APPROVED
             return ApprovalDecision.NEEDS_CONFIRMATION
 
-        return ApprovalDecision.APPROVED
+        return ApprovalDecision.NEEDS_CONFIRMATION
 
     def request_confirmation(self, confirmation: ToolConfirmation) -> bool:
         if self.confirmation_callback:
