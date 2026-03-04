@@ -1,13 +1,13 @@
 import flet as ft
-import asyncio
-from pathlib import Path
 from typing import Any
+import io
 
 from ite.config.config import Config
-from ite.config.loader import load_config, ensure_workspace_layout
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.tools.base import ToolConfirmation
+from ite.commands import build_registry, CommandContext
+from rich.console import Console
 
 
 class GUI:
@@ -21,15 +21,16 @@ class GUI:
         self.loading_indicator: ft.ProgressRing | None = None
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
+        self.streaming_markdown: ft.Markdown | None = None
+        self.streaming_container: ft.Container | None = None
+        self.streaming_text: str = ""
+        self._command_registry = build_registry()
 
     def run(self, page: ft.Page):
         self.page = page
         page.title = "ITE - Interactive Terminal Environment"
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 0
-
-        # Subscribe to pubsub messages for agent updates
-        page.pubsub.subscribe(self._on_pubsub_message)
 
         # Cleanup on close
         page.on_close = self._on_close
@@ -120,43 +121,6 @@ class GUI:
             )
         )
 
-    def _on_pubsub_message(self, msg: Any):
-        """Handle pubsub messages from the agent."""
-        if not isinstance(msg, dict):
-            return
-
-        event_type = msg.get("type")
-        data = msg.get("data", {})
-
-        if event_type == "add_message":
-            self._add_message(
-                data.get("role", "assistant"),
-                data.get("content", ""),
-            )
-        elif event_type == "add_tool_call":
-            self._add_tool_call(
-                data.get("call_id", ""),
-                data.get("name", ""),
-                data.get("arguments", {}),
-                data.get("tool_kind", ""),
-            )
-        elif event_type == "tool_call_complete":
-            self._update_tool_call(
-                data.get("call_id", ""),
-                data.get("name", ""),
-                data.get("success", False),
-                data.get("output", ""),
-                data.get("error"),
-                data.get("diff"),
-                data.get("exit_code"),
-            )
-        elif event_type == "set_loading":
-            self._set_loading(data.get("loading", False))
-        elif event_type == "request_confirmation":
-            self._request_confirmation(data)
-        elif event_type == "error":
-            self._add_message("system", f"Error: {data.get('error', 'Unknown error')}", is_error=True)
-
     def _add_message(self, role: str, content: str, is_error: bool = False):
         """Add a message to the chat."""
         if not self.messages_column or not self.page:
@@ -167,8 +131,6 @@ class GUI:
             else ft.Colors.SURFACE_CONTAINER_HIGH if role == "user"
             else ft.Colors.SURFACE
         )
-        alignment = ft.CrossAxisAlignment.END if role == "user" else ft.CrossAxisAlignment.START
-
         bubble = ft.Container(
             content=ft.Markdown(
                 content,
@@ -178,12 +140,49 @@ class GUI:
             bgcolor=bg_color,
             border_radius=10,
             padding=12,
-            width=700,
-            alignment=alignment,
+            width=700
         )
 
-        self.messages_column.controls.append(bubble)
+        row_alignment = (
+            ft.MainAxisAlignment.END if role == "user" else ft.MainAxisAlignment.START
+        )
+        self.messages_column.controls.append(
+            ft.Row([bubble], alignment=row_alignment)
+        )
         self.page.update()
+
+    def _stream_assistant_delta(self, content: str):
+        """Stream assistant text into a single in-progress bubble."""
+        if not self.messages_column or not self.page:
+            return
+
+        if self.streaming_markdown is None or self.streaming_container is None:
+            self.streaming_text = ""
+            self.streaming_markdown = ft.Markdown(
+                "",
+                selectable=True,
+                extension_set="gitHubFlavored",
+            )
+            self.streaming_container = ft.Container(
+                content=self.streaming_markdown,
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=10,
+                padding=12,
+                width=700,
+            )
+            self.messages_column.controls.append(
+                ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
+            )
+
+        self.streaming_text += content
+        self.streaming_markdown.value = self.streaming_text
+        self.page.update()
+
+    def _finalize_streaming_message(self):
+        """Mark the current streamed assistant bubble as complete."""
+        self.streaming_markdown = None
+        self.streaming_container = None
+        self.streaming_text = ""
 
     def _add_tool_call(
         self,
@@ -341,22 +340,88 @@ class GUI:
 
     async def _run_agent(self, message: str):
         """Run the agent with the given message."""
-        self._set_loading(True)
-        self._add_message("user", message)
+        try:
+            self._set_loading(True)
+            self._add_message("user", message)
+            await self._ensure_agent()
 
-        async with Agent(
+            if not self.agent:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return
+
+            async for event in self.agent.run(message):
+                await self._handle_agent_event(event)
+        except Exception as e:
+            self._add_message("system", f"Error: {str(e)}", is_error=True)
+        finally:
+            self._set_loading(False)
+
+    async def _ensure_agent(self) -> None:
+        if self.agent is not None:
+            return
+
+        self.agent = Agent(
             config=self.config,
             confirmation_callback=self._gui_confirmation_callback,
-        ) as agent:
-            self.agent = agent
+        )
+        await self.agent.__aenter__()
 
-            try:
-                async for event in agent.run(message):
-                    await self._handle_agent_event(event)
-            except Exception as e:
-                self._add_message("system", f"Error: {str(e)}", is_error=True)
+    async def _run_command(self, command_line: str) -> None:
+        """Dispatch slash commands through the same registry as CLI mode."""
+        self._set_loading(True)
+        self._add_message("user", command_line)
+        try:
+            await self._ensure_agent()
+            if not self.agent:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return
 
-        self._set_loading(False)
+            parts = command_line.split()
+            command = parts[0].lower()
+            args = parts[1:]
+
+            if command == "/setup" or (command == "/subagent" and args and args[0] == "create"):
+                self._add_message(
+                    "system",
+                    "This command is interactive and currently supported in TUI only.",
+                    is_error=True,
+                )
+                return
+
+            output = io.StringIO()
+            command_console = Console(
+                file=output,
+                force_terminal=False,
+                color_system=None,
+                width=110,
+            )
+            ctx = CommandContext(
+                config=self.config,
+                agent=self.agent,
+                tui=self,
+                console=command_console,
+            )
+            await self._command_registry.dispatch(command, args, ctx)
+
+            rendered = output.getvalue().strip()
+            if rendered:
+                self._add_message("assistant", f"```text\n{rendered}\n```")
+        except SystemExit:
+            self._add_message("system", "Exiting ITE GUI.")
+            raise
+        except Exception as e:
+            self._add_message("system", f"Error: {e}", is_error=True)
+        finally:
+            self._set_loading(False)
+
+    def print_welcome(self, model: str, cwd, commands: list[str] | None = None):
+        command_text = ""
+        if commands:
+            command_text = "\nCommands: " + ", ".join(commands)
+        self._add_message(
+            "assistant",
+            f"ITE ready\nModel: {model}\nWorkspace: {cwd}{command_text}",
+        )
 
     async def _handle_agent_event(self, event: AgentEvent):
         """Handle agent events and publish to UI."""
@@ -364,47 +429,42 @@ class GUI:
             return
 
         if event.type == AgentEventType.TEXT_DELTA:
-            # For streaming text, we'd need to accumulate - simplified here
-            pass
+            content = event.data.get("content", "")
+            if content:
+                self._stream_assistant_delta(content)
 
         elif event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
-            if content:
-                self.page.pubsub.send_all({
-                    "type": "add_message",
-                    "data": {"role": "assistant", "content": content}
-                })
+            if self.streaming_markdown is not None:
+                self._finalize_streaming_message()
+            elif content:
+                self._add_message("assistant", content)
 
         elif event.type == AgentEventType.TOOL_CALL_START:
-            self.page.pubsub.send_all({
-                "type": "add_tool_call",
-                "data": {
-                    "call_id": event.data.get("call_id", ""),
-                    "name": event.data.get("name", ""),
-                    "arguments": event.data.get("arguments", {}),
-                    "tool_kind": event.data.get("tool_kind"),
-                }
-            })
+            self._add_tool_call(
+                event.data.get("call_id", ""),
+                event.data.get("name", ""),
+                event.data.get("arguments", {}),
+                event.data.get("tool_kind"),
+            )
 
         elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
-            self.page.pubsub.send_all({
-                "type": "tool_call_complete",
-                "data": {
-                    "call_id": event.data.get("call_id", ""),
-                    "name": event.data.get("name", ""),
-                    "success": event.data.get("success", False),
-                    "output": event.data.get("output", ""),
-                    "error": event.data.get("error"),
-                    "diff": event.data.get("diff"),
-                    "exit_code": event.data.get("exit_code"),
-                }
-            })
+            self._update_tool_call(
+                event.data.get("call_id", ""),
+                event.data.get("name", ""),
+                event.data.get("success", False),
+                event.data.get("output", ""),
+                event.data.get("error"),
+                event.data.get("diff"),
+                event.data.get("exit_code"),
+            )
 
         elif event.type == AgentEventType.AGENT_ERROR:
-            self.page.pubsub.send_all({
-                "type": "error",
-                "data": {"error": event.data.get("error", "Unknown error")}
-            })
+            self._add_message(
+                "system",
+                f"Error: {event.data.get('error', 'Unknown error')}",
+                is_error=True,
+            )
 
     def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:
         """Handle tool confirmation requests from the agent."""
@@ -414,15 +474,14 @@ class GUI:
         # Send confirmation request to UI
         diff_text = confirmation.diff.to_diff() if confirmation.diff else None
 
-        self.page.pubsub.send_all({
-            "type": "request_confirmation",
-            "data": {
+        self._request_confirmation(
+            {
                 "tool_name": confirmation.tool_name,
                 "description": confirmation.description,
                 "command": confirmation.command,
                 "diff": diff_text,
             }
-        })
+        )
 
         # For now, auto-deny in GUI mode - proper async confirmation would need more work
         return False
@@ -439,9 +498,12 @@ class GUI:
         self.input_field.value = ""
         self.input_field.update()
 
-        # Run agent on Flet's event loop.
+        # Route slash commands through the command registry.
         try:
-            self.page.run_task(self._run_agent, message)
+            if message.startswith("/"):
+                self.page.run_task(self._run_command, message)
+            else:
+                self.page.run_task(self._run_agent, message)
         except Exception as ex:
             self._add_message(
                 "system",
@@ -451,8 +513,16 @@ class GUI:
 
     def _on_close(self, e):
         """Cleanup on page close."""
-        if self.page:
-            self.page.pubsub.unsubscribe(self._on_pubsub_message)
+        if self.page and self.agent is not None:
+            self.page.run_task(self._shutdown_agent)
+
+    async def _shutdown_agent(self):
+        if self.agent is None:
+            return
+        try:
+            await self.agent.__aexit__(None, None, None)
+        finally:
+            self.agent = None
 
 
 def create_gui_app(config: Config):

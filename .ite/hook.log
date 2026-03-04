@@ -327,3 +327,12 @@
 [HOOK] {"timestamp": "2026-03-04T12:23:37.345338", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-03-04T12:23:47.055442", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "glob", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-03-04T12:23:49.653119", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "glob", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:37:16.649584", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "hello", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:37:29.330356", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "/sessions", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:37:32.086823", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "list_dir", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:37:35.830177", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "glob", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:37:42.113522", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:37:57.976776", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:38:05.397198", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:38:10.572244", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-04T12:38:50.495711", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "/help", "error": null, "response": null}
