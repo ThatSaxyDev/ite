@@ -13,6 +13,18 @@ from rich.console import Console
 from ite.agent.session_manager import SessionManager
 
 UI_BG = "#181818"
+UI_TEXT = ft.Colors.GREY_100
+UI_TEXT_MUTED = ft.Colors.GREY_400
+UI_BORDER_SOFT = ft.Colors.with_opacity(0.16, ft.Colors.WHITE)
+UI_BORDER_ACCENT = ft.Colors.with_opacity(0.28, ft.Colors.CYAN_200)
+UI_SHADOW = [
+    ft.BoxShadow(
+        spread_radius=0,
+        blur_radius=22,
+        color=ft.Colors.with_opacity(0.28, ft.Colors.BLACK),
+        offset=ft.Offset(0, 8),
+    )
+]
 
 
 class GUI:
@@ -57,7 +69,7 @@ class GUI:
                 ft.Text(
                     f"Model: {self.config.model_name}",
                     size=14,
-                    color=ft.Colors.GREY_300,
+                    color=UI_TEXT_MUTED,
                 ),
             ],
             spacing=12,
@@ -71,7 +83,7 @@ class GUI:
                     ft.Text(
                         f"Workspace: {self.config.cwd}",
                         size=14,
-                        color=ft.Colors.GREY_300,
+                        color=UI_TEXT_MUTED,
                         expand=True,
                         text_align=ft.TextAlign.RIGHT,
                     ),
@@ -79,7 +91,7 @@ class GUI:
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
             padding=ft.Padding.symmetric(horizontal=22, vertical=14),
-            border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.15, ft.Colors.WHITE))),
+            border=ft.Border.only(bottom=ft.BorderSide(1, UI_BORDER_SOFT)),
             bgcolor=UI_BG,
         )
 
@@ -96,7 +108,7 @@ class GUI:
                 [
                     ft.Container(
                         content=self.messages_column,
-                        width=980,
+                        width=960,
                         expand=False,
                     )
                 ],
@@ -127,8 +139,8 @@ class GUI:
             focused_border_color=ft.Colors.CYAN_200,
             bgcolor=UI_BG,
             cursor_color=ft.Colors.CYAN_200,
-            text_style=ft.TextStyle(size=18, color=ft.Colors.GREY_50),
-            hint_style=ft.TextStyle(size=18, color=ft.Colors.GREY_500),
+            text_style=ft.TextStyle(size=17, color=UI_TEXT),
+            hint_style=ft.TextStyle(size=17, color=ft.Colors.GREY_500),
             content_padding=ft.Padding.symmetric(horizontal=18, vertical=18),
         )
 
@@ -142,6 +154,7 @@ class GUI:
                 shape=ft.RoundedRectangleBorder(radius=12),
                 padding=ft.Padding.symmetric(horizontal=22, vertical=18),
                 text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_700),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.CYAN_100)),
             ),
         )
 
@@ -156,7 +169,7 @@ class GUI:
                 spacing=12,
             ),
             padding=ft.Padding.symmetric(horizontal=20, vertical=16),
-            border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.with_opacity(0.16, ft.Colors.WHITE))),
+            border=ft.Border.only(top=ft.BorderSide(1, UI_BORDER_SOFT)),
             bgcolor=UI_BG,
         )
 
@@ -181,8 +194,8 @@ class GUI:
         border_color = (
             ft.Colors.with_opacity(0.35, ft.Colors.RED_200)
             if is_error
-            else ft.Colors.with_opacity(0.2, ft.Colors.CYAN_100) if role == "assistant"
-            else ft.Colors.with_opacity(0.25, ft.Colors.WHITE)
+            else UI_BORDER_ACCENT if role == "assistant"
+            else UI_BORDER_SOFT
         )
         bubble = ft.Container(
             content=ft.Markdown(
@@ -195,6 +208,7 @@ class GUI:
             padding=14,
             width=bubble_width,
             border=ft.Border.all(1, border_color),
+            shadow=UI_SHADOW,
         )
 
         row_alignment = (
@@ -214,7 +228,7 @@ class GUI:
             content=ft.Column(
                 [
                     ft.Text(title, weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.CYAN_100),
-                    ft.Divider(height=1),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
                     content,
                 ],
                 tight=True,
@@ -224,7 +238,8 @@ class GUI:
             border_radius=14,
             padding=14,
             width=760,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.CYAN_100)),
+            border=ft.Border.all(1, UI_BORDER_ACCENT),
+            shadow=UI_SHADOW,
         )
         self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         self.page.update()
@@ -255,7 +270,8 @@ class GUI:
                 border_radius=14,
                 padding=14,
                 width=700,
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.CYAN_100)),
+                border=ft.Border.all(1, UI_BORDER_ACCENT),
+                shadow=UI_SHADOW,
             )
             self.messages_column.controls.append(
                 ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
@@ -291,10 +307,10 @@ class GUI:
                 ft.Row([
                     ft.Text("●", color=ft.Colors.AMBER_300),
                     ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_100),
-                    ft.Text(f"#{call_id[:8]}", color=ft.Colors.GREY_400),
-                    ft.Text("running...", color=ft.Colors.GREY_300, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"#{call_id[:8]}", color=UI_TEXT_MUTED),
+                    ft.Text("running...", color=UI_TEXT_MUTED, expand=True, text_align=ft.TextAlign.RIGHT),
                 ]),
-                ft.Divider(height=1),
+                ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
                 ft.Markdown(args_text, selectable=True),
             ]),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.AMBER_300)),
@@ -302,6 +318,7 @@ class GUI:
             padding=14,
             width=700,
             bgcolor=UI_BG,
+            shadow=UI_SHADOW,
         )
 
         # Store reference for updates
@@ -342,7 +359,7 @@ class GUI:
                     ft.Row([
                         ft.Text(status_icon, color=status_color),
                         ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_100),
-                        ft.Text(f"#{call_id[:8]}", color=ft.Colors.GREY_400),
+                        ft.Text(f"#{call_id[:8]}", color=UI_TEXT_MUTED),
                         ft.Text(
                             "done" if success else "failed",
                             color=status_color,
@@ -350,8 +367,8 @@ class GUI:
                             text_align=ft.TextAlign.RIGHT,
                         ),
                     ]),
-                    ft.Divider(height=1),
-                    ft.Markdown(output_display, selectable=True) if output_display else ft.Text("No output", color=ft.Colors.GREY_300),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
+                    ft.Markdown(output_display, selectable=True) if output_display else ft.Text("No output", color=UI_TEXT_MUTED),
                 ])
 
                 # Replace the card
@@ -365,6 +382,7 @@ class GUI:
                     padding=14,
                     width=700,
                     bgcolor=UI_BG,
+                    shadow=UI_SHADOW,
                 )
                 self.messages_column.controls[i] = new_card
                 self.page.update()
