@@ -301,11 +301,18 @@ class CLI:
 @click.option("--model", "-m", help="Model name to use")
 @click.option("--api-key", "-k", help="API key for the LLM provider")
 @click.option("--base-url", "-u", help="Base URL for the OpenAI-compatible API")
+@click.option(
+    "--gui",
+    "-g",
+    is_flag=True,
+    help="Launch GUI mode instead of TUI",
+)
 def main(
     cwd: Path | None,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
+    gui: bool = False,
 ):
     workspace_dir = cwd or Path.cwd()
     ensure_workspace_layout(workspace_dir)
@@ -339,8 +346,12 @@ def main(
                 console.print(f"[error]{error}[/error]")
             sys.exit(1)
 
-    cli = CLI(config)
-    asyncio.run(cli.run_interactive())
+    if gui:
+        from ite.ui.gui import run_gui
+        asyncio.run(run_gui(config))
+    else:
+        cli = CLI(config)
+        asyncio.run(cli.run_interactive())
 
 
 main()

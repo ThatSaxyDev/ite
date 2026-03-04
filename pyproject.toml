@@ -33,6 +33,7 @@ dependencies = [
     "platformdirs",
     "fastmcp",
     "lxml",
+    "flet",
 ]
 
 [project.scripts]
