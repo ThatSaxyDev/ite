@@ -446,7 +446,7 @@ def create_gui_app(config: Config):
     return gui.run
 
 
-async def run_gui(config: Config):
+def run_gui(config: Config):
     """Run the Flet GUI application."""
     import flet
 
@@ -454,4 +454,4 @@ async def run_gui(config: Config):
         gui = GUI(config)
         gui.run(page)
 
-    flet.app(target=create_page, view=ft.AppView.FLET_APP)
+    flet.run(target=create_page, view=ft.AppView.FLET_APP)

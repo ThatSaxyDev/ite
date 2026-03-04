@@ -3,9 +3,21 @@ from typing import Any
 from datetime import datetime
 from dataclasses import dataclass
 import os
+import logging
 from ite.config.loader import get_data_dir
 import json
+from pathlib import Path
+from uuid import uuid4
 from ite.client.response import TokenUsage
+
+logger = logging.getLogger(__name__)
+
+REQUIRED_SESSION_FIELDS = (
+    "session_id",
+    "created_at",
+    "updated_at",
+    "turn_count",
+)
 
 
 @dataclass
@@ -52,19 +64,89 @@ class SessionManager:
         os.chmod(self.sessions_dir, 0o700)
         os.chmod(self.checkpoints_dir, 0o700)
 
+    def _atomic_write_json(self, file_path: Path, data: dict[str, Any]) -> None:
+        tmp_path = file_path.with_name(
+            f".{file_path.name}.{os.getpid()}.{uuid4().hex}.tmp"
+        )
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(tmp_path, file_path)
+            os.chmod(file_path, 0o600)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
+    def _quarantine_session_file(self, file_path: Path, reason: str) -> None:
+        corrupt_dir = self.sessions_dir / "corrupt"
+        corrupt_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(corrupt_dir, 0o700)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        quarantine_path = corrupt_dir / f"{file_path.stem}.{timestamp}.json"
+
+        try:
+            os.replace(file_path, quarantine_path)
+            os.chmod(quarantine_path, 0o600)
+            logger.warning(
+                "Quarantined corrupt session file %s to %s: %s",
+                file_path,
+                quarantine_path,
+                reason,
+            )
+        except OSError as e:
+            logger.warning(
+                "Failed to quarantine corrupt session file %s: %s",
+                file_path,
+                e,
+            )
+
+    def _load_session_json(
+        self,
+        file_path: Path,
+        *,
+        quarantine_on_error: bool = True,
+    ) -> dict[str, Any] | None:
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            if quarantine_on_error:
+                self._quarantine_session_file(file_path, str(e))
+            return None
+
+        if not isinstance(data, dict):
+            if quarantine_on_error:
+                self._quarantine_session_file(file_path, "JSON root must be an object")
+            return None
+
+        missing_fields = [field for field in REQUIRED_SESSION_FIELDS if field not in data]
+        if missing_fields:
+            if quarantine_on_error:
+                self._quarantine_session_file(
+                    file_path,
+                    f"Missing required fields: {', '.join(missing_fields)}",
+                )
+            return None
+
+        return data
+
     def save_session(self, snapShot: SessionSnapshot) -> None:
         file_path = self.sessions_dir / f"{snapShot.session_id}.json"
-
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(snapShot.to_dict(), f, indent=2)
-
-        os.chmod(file_path, 0o600)
+        self._atomic_write_json(file_path, snapShot.to_dict())
 
     def list_sessions(self) -> list[dict[str, Any]]:
         sessions = []
         for file_path in self.sessions_dir.glob("*.json"):
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = self._load_session_json(file_path)
+            if not data:
+                continue
 
             sessions.append(
                 {
@@ -85,8 +167,9 @@ class SessionManager:
         if not file_path.exists():
             return None
 
-        with open(file_path, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
+        data = self._load_session_json(file_path)
+        if not data:
+            return None
 
         return SessionSnapshot.from_dict(data)
 
@@ -94,10 +177,7 @@ class SessionManager:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         checkpoint_id = f"{snapshot.session_id}_{timestamp}"
         file_path = self.checkpoints_dir / f"{checkpoint_id}.json"
-
-        with open(file_path, "w", encoding="utf-8") as fp:
-            json.dump(snapshot.to_dict(), fp, indent=2)
-        os.chmod(file_path, 0o600)
+        self._atomic_write_json(file_path, snapshot.to_dict())
         return checkpoint_id
 
     def load_checkpoint(self, checkpoint_id: str) -> SessionSnapshot | None:
