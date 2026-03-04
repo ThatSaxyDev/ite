@@ -348,7 +348,7 @@ def main(
 
     if gui:
         from ite.ui.gui import run_gui
-        asyncio.run(run_gui(config))
+        run_gui(config)
     else:
         cli = CLI(config)
         asyncio.run(cli.run_interactive())

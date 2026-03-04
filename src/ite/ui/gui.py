@@ -18,7 +18,8 @@ class GUI:
         self.messages_column: ft.Column | None = None
         self.input_field: ft.TextField | None = None
         self.send_button: ft.Button | None = None
-        self.loading_indicator: ft.ProgressIndicator | None = None
+        self.loading_indicator: ft.ProgressRing | None = None
+        self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
 
     def run(self, page: ft.Page):
@@ -44,17 +45,17 @@ class GUI:
                         "ITE",
                         size=24,
                         weight=ft.FontWeight.BOLD,
-                        color=ft.colors.CYAN,
+                        color=ft.Colors.CYAN,
                     ),
                     ft.Text(
                         f"Model: {self.config.model_name}",
                         size=14,
-                        color=ft.colors.GREY,
+                        color=ft.Colors.GREY,
                     ),
                     ft.Text(
                         f"Workspace: {self.config.cwd}",
                         size=14,
-                        color=ft.colors.GREY,
+                        color=ft.Colors.GREY,
                         expand=True,
                         text_align=ft.TextAlign.RIGHT,
                     ),
@@ -62,7 +63,7 @@ class GUI:
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
             padding=15,
-            bgcolor=ft.colors.SURFACE_VARIANT,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
         )
 
         # Chat messages area
@@ -76,11 +77,11 @@ class GUI:
             content=self.messages_column,
             expand=True,
             padding=15,
-            bgcolor=ft.colors.SURFACE,
+            bgcolor=ft.Colors.SURFACE,
         )
 
         # Loading indicator
-        self.loading_indicator = ft.ProgressIndicator(
+        self.loading_indicator = ft.ProgressRing(
             visible=False,
             width=20,
             height=20,
@@ -107,7 +108,7 @@ class GUI:
                 spacing=10,
             ),
             padding=15,
-            bgcolor=ft.colors.SURFACE_VARIANT,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH,
         )
 
         # Main layout
@@ -162,9 +163,9 @@ class GUI:
             return
 
         bg_color = (
-            ft.colors.ERROR_CONTAINER if is_error
-            else ft.colors.SURFACE_VARIANT if role == "user"
-            else ft.colors.SURFACE
+            ft.Colors.ERROR_CONTAINER if is_error
+            else ft.Colors.SURFACE_CONTAINER_HIGH if role == "user"
+            else ft.Colors.SURFACE
         )
         alignment = ft.CrossAxisAlignment.END if role == "user" else ft.CrossAxisAlignment.START
 
@@ -201,15 +202,15 @@ class GUI:
         card = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Text("⏺", color=ft.colors.GREY),
-                    ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.colors.MAGENTA_200),
-                    ft.Text(f"#{call_id[:8]}", color=ft.colors.GREY),
-                    ft.Text("running...", color=ft.colors.GREY, expand=True, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("⏺", color=ft.Colors.GREY),
+                    ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.Colors.PINK_200),
+                    ft.Text(f"#{call_id[:8]}", color=ft.Colors.GREY),
+                    ft.Text("running...", color=ft.Colors.GREY, expand=True, text_align=ft.TextAlign.RIGHT),
                 ]),
                 ft.Divider(height=1),
                 ft.Markdown(args_text, selectable=True),
             ]),
-            border=ft.border.all(1, ft.colors.OUTLINE),
+            border=ft.border.all(1, ft.Colors.OUTLINE),
             border_radius=8,
             padding=12,
             width=700,
@@ -238,7 +239,7 @@ class GUI:
         for i, control in enumerate(self.messages_column.controls):
             if hasattr(control, "call_id") and control.call_id == call_id:
                 status_icon = "✅" if success else "❌"
-                status_color = ft.colors.GREEN if success else ft.colors.RED
+                status_color = ft.Colors.GREEN if success else ft.Colors.RED
 
                 # Build output display
                 output_display = output[:1000] if len(output) > 1000 else output
@@ -251,8 +252,8 @@ class GUI:
                 card_content = ft.Column([
                     ft.Row([
                         ft.Text(status_icon, color=status_color),
-                        ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.colors.MAGENTA_200),
-                        ft.Text(f"#{call_id[:8]}", color=ft.colors.GREY),
+                        ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.Colors.PINK_200),
+                        ft.Text(f"#{call_id[:8]}", color=ft.Colors.GREY),
                         ft.Text(
                             "done" if success else "failed",
                             color=status_color,
@@ -261,13 +262,13 @@ class GUI:
                         ),
                     ]),
                     ft.Divider(height=1),
-                    ft.Markdown(output_display, selectable=True) if output_display else ft.Text("No output", color=ft.colors.GREY),
+                    ft.Markdown(output_display, selectable=True) if output_display else ft.Text("No output", color=ft.Colors.GREY),
                 ])
 
                 # Replace the card
                 new_card = ft.Container(
                     content=card_content,
-                    border=ft.border.all(1, ft.colors.OUTLINE),
+                    border=ft.border.all(1, ft.Colors.OUTLINE),
                     border_radius=8,
                     padding=12,
                     width=700,
@@ -306,12 +307,16 @@ class GUI:
 
         def on_yes(e):
             self.pending_confirmation = True
-            self.page.close_dialog()
+            if self.confirmation_dialog:
+                self.confirmation_dialog.open = False
+            self.page.update()
             self._resume_agent(True)
 
         def on_no(e):
             self.pending_confirmation = False
-            self.page.close_dialog()
+            if self.confirmation_dialog:
+                self.confirmation_dialog.open = False
+            self.page.update()
             self._resume_agent(False)
 
         dialog = ft.AlertDialog(
@@ -324,7 +329,10 @@ class GUI:
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
-        self.page.show_dialog(dialog)
+        self.confirmation_dialog = dialog
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
 
     def _resume_agent(self, approved: bool):
         """Resume agent after confirmation."""
@@ -421,7 +429,7 @@ class GUI:
 
     def _on_send(self, e):
         """Handle send button click or enter key."""
-        if not self.input_field:
+        if not self.input_field or not self.page:
             return
 
         message = self.input_field.value.strip()
@@ -431,8 +439,15 @@ class GUI:
         self.input_field.value = ""
         self.input_field.update()
 
-        # Run agent in background
-        asyncio.create_task(self._run_agent(message))
+        # Run agent on Flet's event loop.
+        try:
+            self.page.run_task(self._run_agent, message)
+        except Exception as ex:
+            self._add_message(
+                "system",
+                f"Error: failed to start agent task: {ex}",
+                is_error=True,
+            )
 
     def _on_close(self, e):
         """Cleanup on page close."""
@@ -454,4 +469,4 @@ def run_gui(config: Config):
         gui = GUI(config)
         gui.run(page)
 
-    flet.run(target=create_page, view=ft.AppView.FLET_APP)
+    flet.run(main=create_page, view=ft.AppView.FLET_APP)
