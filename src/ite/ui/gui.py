@@ -12,6 +12,8 @@ from ite.commands import build_registry, CommandContext
 from rich.console import Console
 from ite.agent.session_manager import SessionManager
 
+UI_BG = "#181818"
+
 
 class GUI:
     def __init__(self, config: Config):
@@ -34,7 +36,7 @@ class GUI:
         page.title = "ITE - Interactive Terminal Environment"
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 0
-        page.bgcolor = ft.Colors.BLACK
+        page.bgcolor = UI_BG
 
         # Cleanup on close
         page.on_close = self._on_close
@@ -49,7 +51,7 @@ class GUI:
                     content=ft.Text("ITE", size=18, weight=ft.FontWeight.W_700, color=ft.Colors.CYAN_200),
                     padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                     border_radius=999,
-                    bgcolor=ft.Colors.with_opacity(0.15, ft.Colors.CYAN_500),
+                    bgcolor=UI_BG,
                     border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.CYAN_200)),
                 ),
                 ft.Text(
@@ -78,7 +80,7 @@ class GUI:
             ),
             padding=ft.Padding.symmetric(horizontal=22, vertical=14),
             border=ft.Border.only(bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.15, ft.Colors.WHITE))),
-            bgcolor=ft.Colors.with_opacity(0.55, ft.Colors.GREY_900),
+            bgcolor=UI_BG,
         )
 
         # Chat messages area
@@ -103,14 +105,7 @@ class GUI:
             ),
             expand=True,
             padding=ft.Padding.symmetric(horizontal=20, vertical=18),
-            gradient=ft.LinearGradient(
-                begin=ft.Alignment(0, -1),
-                end=ft.Alignment(0, 1),
-                colors=[
-                    ft.Colors.with_opacity(0.98, ft.Colors.BLUE_GREY_900),
-                    ft.Colors.with_opacity(0.98, ft.Colors.BLACK),
-                ],
-            ),
+            bgcolor=UI_BG,
         )
 
         # Loading indicator
@@ -130,7 +125,7 @@ class GUI:
             border_radius=14,
             border_color=ft.Colors.with_opacity(0.3, ft.Colors.WHITE),
             focused_border_color=ft.Colors.CYAN_200,
-            bgcolor=ft.Colors.with_opacity(0.45, ft.Colors.BLUE_GREY_900),
+            bgcolor=UI_BG,
             cursor_color=ft.Colors.CYAN_200,
             text_style=ft.TextStyle(size=18, color=ft.Colors.GREY_50),
             hint_style=ft.TextStyle(size=18, color=ft.Colors.GREY_500),
@@ -162,7 +157,7 @@ class GUI:
             ),
             padding=ft.Padding.symmetric(horizontal=20, vertical=16),
             border=ft.Border.only(top=ft.BorderSide(1, ft.Colors.with_opacity(0.16, ft.Colors.WHITE))),
-            bgcolor=ft.Colors.with_opacity(0.6, ft.Colors.GREY_900),
+            bgcolor=UI_BG,
         )
 
         # Main layout
@@ -180,9 +175,7 @@ class GUI:
             return
 
         bg_color = (
-            ft.Colors.ERROR_CONTAINER if is_error
-            else ft.Colors.with_opacity(0.92, ft.Colors.SURFACE_CONTAINER_HIGH) if role == "user"
-            else ft.Colors.with_opacity(0.92, ft.Colors.SURFACE_CONTAINER)
+            UI_BG
         )
         bubble_width = 700 if role != "user" else 620
         border_color = (
@@ -227,7 +220,7 @@ class GUI:
                 tight=True,
                 spacing=8,
             ),
-            bgcolor=ft.Colors.with_opacity(0.9, ft.Colors.SURFACE_CONTAINER),
+            bgcolor=UI_BG,
             border_radius=14,
             padding=14,
             width=760,
@@ -258,7 +251,7 @@ class GUI:
             )
             self.streaming_container = ft.Container(
                 content=self.streaming_markdown,
-                bgcolor=ft.Colors.with_opacity(0.92, ft.Colors.SURFACE_CONTAINER),
+                bgcolor=UI_BG,
                 border_radius=14,
                 padding=14,
                 width=700,
@@ -308,7 +301,7 @@ class GUI:
             border_radius=14,
             padding=14,
             width=700,
-            bgcolor=ft.Colors.with_opacity(0.86, ft.Colors.SURFACE_CONTAINER_LOW),
+            bgcolor=UI_BG,
         )
 
         # Store reference for updates
@@ -371,7 +364,7 @@ class GUI:
                     border_radius=14,
                     padding=14,
                     width=700,
-                    bgcolor=ft.Colors.with_opacity(0.86, ft.Colors.SURFACE_CONTAINER_LOW),
+                    bgcolor=UI_BG,
                 )
                 self.messages_column.controls[i] = new_card
                 self.page.update()
@@ -692,7 +685,7 @@ class GUI:
         if command == "/tools" and self.agent and self.agent.session:
             tools = self.agent.session.tool_registry.get_tools()
             chips = ft.Wrap(
-                controls=[ft.Container(ft.Text(t.name), padding=8, bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH, border_radius=8) for t in tools],
+                controls=[ft.Container(ft.Text(t.name), padding=8, bgcolor=UI_BG, border_radius=8, border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.WHITE))) for t in tools],
                 spacing=8,
                 run_spacing=8,
             )
