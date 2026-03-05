@@ -1,4 +1,5 @@
 import io
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -7,6 +8,7 @@ import flet as ft
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
+from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager
 from ite.commands import CommandContext, build_registry
 from ite.config.config import Config
@@ -69,6 +71,7 @@ class GUI:
         self.streaming_markdown: ft.Markdown | None = None
         self.streaming_container: ft.Container | None = None
         self.streaming_text: str = ""
+        self._tool_call_row_indices: dict[str, int] = {}
 
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
@@ -148,6 +151,7 @@ class GUI:
                         border=ft.Border.all(1, BORDER),
                         border_radius=RADIUS_SM,
                         bgcolor=SURFACE_1,
+                        on_click=lambda e, sid=session["session_id"]: self._on_sidebar_session_click(sid),
                     )
                 )
 
@@ -481,14 +485,15 @@ class GUI:
                 spacing=6,
                 tight=True,
             ),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.from_hex(ACCENT))),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ACCENT)),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             width=760,
             bgcolor=SURFACE_1,
         )
-        card.call_id = call_id
-        self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        row = ft.Row([card], alignment=ft.MainAxisAlignment.START)
+        self.messages_column.controls.append(row)
+        self._tool_call_row_indices[call_id] = len(self.messages_column.controls) - 1
         self.page.update()
         self._scroll_chat_to_bottom()
 
@@ -505,47 +510,47 @@ class GUI:
         if not self.messages_column or not self.page:
             return
 
-        for i, control in enumerate(self.messages_column.controls):
-            if hasattr(control.controls[0], "call_id") and control.controls[0].call_id == call_id:
-                state_text = "done" if success else "failed"
-                state_color = ft.Colors.with_opacity(0.90, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)
-                payload = output or error or "No output"
-                if len(payload) > 1400:
-                    payload = payload[:1400] + "\n... [truncated]"
+        index = self._tool_call_row_indices.get(call_id)
+        if index is None or index >= len(self.messages_column.controls):
+            return
 
-                if diff:
-                    body: ft.Control = ft.Markdown(f"```diff\n{diff}\n```", selectable=True)
-                else:
-                    body = ft.Text(payload, style=MONO_STYLE, selectable=True)
+        state_text = "done" if success else "failed"
+        state_color = ft.Colors.with_opacity(0.90, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)
+        payload = output or error or "No output"
+        if len(payload) > 1400:
+            payload = payload[:1400] + "\n... [truncated]"
 
-                card = ft.Container(
-                    content=ft.Column(
+        if diff:
+            body: ft.Control = ft.Markdown(f"```diff\n{diff}\n```", selectable=True)
+        else:
+            body = ft.Text(payload, style=MONO_STYLE, selectable=True)
+
+        card = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
                         [
-                            ft.Row(
-                                [
-                                    ft.Text("tool", size=11, color=TEXT_MUTED),
-                                    ft.Text(name, size=12, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
-                                    ft.Text(f"#{call_id[:8]}", size=11, color=TEXT_MUTED),
-                                    ft.Text(state_text, size=11, color=state_color, expand=True, text_align=ft.TextAlign.RIGHT),
-                                ]
-                            ),
-                            ft.Divider(height=1, color=BORDER),
-                            body,
-                        ],
-                        spacing=6,
-                        tight=True,
+                            ft.Text("tool", size=11, color=TEXT_MUTED),
+                            ft.Text(name, size=12, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
+                            ft.Text(f"#{call_id[:8]}", size=11, color=TEXT_MUTED),
+                            ft.Text(state_text, size=11, color=state_color, expand=True, text_align=ft.TextAlign.RIGHT),
+                        ]
                     ),
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)),
-                    border_radius=RADIUS_SM,
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                    width=760,
-                    bgcolor=SURFACE_1,
-                )
-                card.call_id = call_id
-                self.messages_column.controls[i] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
-                self.page.update()
-                self._scroll_chat_to_bottom(animate=False)
-                break
+                    ft.Divider(height=1, color=BORDER),
+                    body,
+                ],
+                spacing=6,
+                tight=True,
+            ),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)),
+            border_radius=RADIUS_SM,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            width=760,
+            bgcolor=SURFACE_1,
+        )
+        self.messages_column.controls[index] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
+        self.page.update()
+        self._scroll_chat_to_bottom(animate=False)
 
     def _on_chat_scroll(self, e: ft.OnScrollEvent):
         # Only auto-scroll while user is near the bottom.
@@ -979,6 +984,120 @@ class GUI:
     def _on_new_thread(self):
         if self.page:
             self.page.run_task(self._run_command, "/clear")
+
+    def _on_sidebar_session_click(self, session_id: str):
+        if self.page:
+            self.page.run_task(self._open_session_from_sidebar, session_id)
+
+    async def _open_session_from_sidebar(self, session_id: str):
+        self._set_loading(True)
+        try:
+            snapshot = SessionManager().load_session(session_id)
+            if snapshot is None:
+                self._add_message("system", f"Session not found: {session_id}", is_error=True)
+                return
+
+            await self._ensure_agent()
+            if not self.agent:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return
+
+            await self._resume_agent_session(snapshot)
+            self._hydrate_chat_from_snapshot(snapshot.messages)
+            self._add_assistant_card(
+                "Session Loaded",
+                ft.Text(
+                    f"{snapshot.name or snapshot.session_id} · {snapshot.turn_count} turns",
+                    color=TEXT_SECONDARY,
+                ),
+            )
+        except Exception as e:
+            self._add_message("system", f"Error loading session: {e}", is_error=True)
+        finally:
+            self._set_loading(False)
+
+    async def _resume_agent_session(self, snapshot):
+        if not self.agent or not self.agent.session:
+            return
+
+        resumed = Session(config=self.config)
+        resumed.session_id = snapshot.session_id
+        resumed.name = snapshot.name
+        resumed.created_at = snapshot.created_at
+        resumed.updated_at = snapshot.updated_at
+        resumed.turn_count = snapshot.turn_count
+
+        await self.agent.session.client.close()
+        await self.agent.session.mcp_manager.shutdown()
+        await resumed.initialize()
+
+        resumed.context_manager.set_messages(snapshot.messages)
+        resumed.context_manager.total_usage = snapshot.total_usage
+        resumed.approval_manager.confirmation_callback = self._gui_confirmation_callback
+        self.agent.session = resumed
+
+    def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]):
+        if not self.messages_column or not self.page:
+            return
+
+        self.messages_column.controls.clear()
+        self._tool_call_row_indices.clear()
+        self.streaming_markdown = None
+        self.streaming_container = None
+        self.streaming_text = ""
+
+        tool_call_names: dict[str, str] = {}
+
+        for message in messages:
+            role = message.get("role")
+            content = message.get("content", "")
+
+            if role == "system":
+                # Internal system prompt; omit from UI transcript.
+                continue
+
+            if role == "user":
+                self.messages_column.controls.append(self.build_chat_message("user", content))
+                continue
+
+            if role == "assistant":
+                if content:
+                    self.messages_column.controls.append(
+                        self.build_chat_message("assistant", content)
+                    )
+
+                for tool_call in message.get("tool_calls") or []:
+                    call_id = tool_call.get("id", "")
+                    function = tool_call.get("function", {}) or {}
+                    tool_name = function.get("name", "tool")
+                    raw_args = function.get("arguments", "") or ""
+                    try:
+                        parsed_args = json.loads(raw_args) if raw_args else {}
+                    except Exception:
+                        parsed_args = {"raw": raw_args}
+
+                    tool_call_names[call_id] = tool_name
+                    self._add_tool_call(call_id, tool_name, parsed_args, None)
+                continue
+
+            if role == "tool":
+                call_id = message.get("tool_call_id", "")
+                tool_name = tool_call_names.get(call_id, "tool")
+                output = content if isinstance(content, str) else str(content)
+                success = not output.lstrip().startswith("Error:")
+                self._update_tool_call(
+                    call_id=call_id,
+                    name=tool_name,
+                    success=success,
+                    output=output,
+                    error=None if success else output,
+                    diff=None,
+                    exit_code=None,
+                )
+                continue
+
+        self.page.update()
+        self._scroll_chat_to_bottom(animate=False)
 
     def _on_send(self, e):
         if not self.input_field or not self.page:
