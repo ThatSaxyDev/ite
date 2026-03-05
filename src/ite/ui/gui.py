@@ -1,30 +1,53 @@
-import flet as ft
-from typing import Any
 import io
 import re
 from datetime import datetime
+from typing import Any
 
-from ite.config.config import Config
+import flet as ft
+
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
-from ite.tools.base import ToolConfirmation
-from ite.commands import build_registry, CommandContext
-from rich.console import Console
 from ite.agent.session_manager import SessionManager
+from ite.commands import CommandContext, build_registry
+from ite.config.config import Config
+from ite.tools.base import ToolConfirmation
+from rich.console import Console
 
-UI_BG = "#181818"
-UI_TEXT = ft.Colors.GREY_100
-UI_TEXT_MUTED = ft.Colors.GREY_400
-UI_BORDER_SOFT = ft.Colors.with_opacity(0.16, ft.Colors.WHITE)
-UI_BORDER_ACCENT = ft.Colors.with_opacity(0.28, ft.Colors.CYAN_200)
-UI_SHADOW = [
+# Design tokens
+CANVAS = "#181818"
+SURFACE_1 = "#202020"
+SURFACE_2 = "#222222"
+BORDER = ft.Colors.with_opacity(0.07, ft.Colors.WHITE)
+TEXT_PRIMARY = ft.Colors.with_opacity(0.90, ft.Colors.WHITE)
+TEXT_SECONDARY = ft.Colors.with_opacity(0.62, ft.Colors.WHITE)
+TEXT_MUTED = ft.Colors.with_opacity(0.40, ft.Colors.WHITE)
+ACCENT = "#6EA7FF"
+
+RADIUS_SM = 6
+RADIUS_MD = 8
+SPACE_XS = 6
+SPACE_SM = 8
+SPACE_MD = 12
+SPACE_LG = 16
+SPACE_XL = 20
+
+THREADS_WIDTH = 284
+CHAT_WIDTH = 940
+
+SHADOW_SUBTLE = [
     ft.BoxShadow(
         spread_radius=0,
-        blur_radius=22,
-        color=ft.Colors.with_opacity(0.28, ft.Colors.BLACK),
-        offset=ft.Offset(0, 8),
+        blur_radius=12,
+        color=ft.Colors.with_opacity(0.18, ft.Colors.BLACK),
+        offset=ft.Offset(0, 4),
     )
 ]
+
+MONO_STYLE = ft.TextStyle(
+    font_family="monospace",
+    size=13,
+    color=TEXT_SECONDARY,
+)
 
 
 class GUI:
@@ -32,116 +55,250 @@ class GUI:
         self.config = config
         self.agent: Agent | None = None
         self.page: ft.Page | None = None
+
         self.messages_column: ft.Column | None = None
         self.input_field: ft.TextField | None = None
         self.send_button: ft.Button | None = None
         self.loading_indicator: ft.ProgressRing | None = None
+        self.model_selector: ft.Dropdown | None = None
+        self.header_model_text: ft.Text | None = None
+
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
+
         self.streaming_markdown: ft.Markdown | None = None
         self.streaming_container: ft.Container | None = None
         self.streaming_text: str = ""
+
         self._command_registry = build_registry()
+        self._auto_scroll_enabled = True
 
     def run(self, page: ft.Page):
         self.page = page
         page.title = "ITE - Interactive Terminal Environment"
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 0
-        page.bgcolor = UI_BG
-
-        # Cleanup on close
+        page.bgcolor = CANVAS
         page.on_close = self._on_close
 
         self._build_ui(page)
 
     def _build_ui(self, page: ft.Page):
-        # Header
-        brand = ft.Row(
+        shell = ft.Row(
             [
+                self.build_sidebar(),
+                ft.VerticalDivider(width=1, color=BORDER),
                 ft.Container(
-                    content=ft.Text("ITE", size=18, weight=ft.FontWeight.W_700, color=ft.Colors.CYAN_200),
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-                    border_radius=999,
-                    bgcolor=UI_BG,
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.CYAN_200)),
-                ),
-                ft.Text(
-                    f"Model: {self.config.model_name}",
-                    size=14,
-                    color=UI_TEXT_MUTED,
+                    content=ft.Column(
+                        [
+                            self.build_header(),
+                            self._build_chat_panel(),
+                            self.build_composer(),
+                        ],
+                        expand=True,
+                        spacing=0,
+                    ),
+                    expand=True,
+                    bgcolor=CANVAS,
                 ),
             ],
-            spacing=12,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            expand=True,
+            spacing=0,
+        )
+        page.add(shell)
+
+    def build_sidebar(self) -> ft.Control:
+        sessions = [s for s in SessionManager().list_sessions() if s.get("turn_count", 0) > 0][:12]
+
+        thread_rows: list[ft.Control] = []
+        if not sessions:
+            thread_rows.append(
+                ft.Text("No saved threads", size=12, color=TEXT_MUTED)
+            )
+        else:
+            for session in sessions:
+                updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
+                thread_rows.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            (session.get("name") or session["session_id"])[:30],
+                                            size=13,
+                                            color=TEXT_PRIMARY,
+                                            no_wrap=True,
+                                        ),
+                                        ft.Text(
+                                            f"{session['turn_count']} turns",
+                                            size=11,
+                                            color=TEXT_MUTED,
+                                        ),
+                                    ],
+                                    spacing=2,
+                                    expand=True,
+                                ),
+                                ft.Text(updated, size=11, color=TEXT_MUTED),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                        ),
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                        border=ft.Border.all(1, BORDER),
+                        border_radius=RADIUS_SM,
+                        bgcolor=SURFACE_1,
+                    )
+                )
+
+        status_card = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Tool Status", size=12, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
+                    ft.Row([
+                        ft.Text("Approval", size=11, color=TEXT_MUTED),
+                        ft.Text(self.config.approval.value, size=11, color=TEXT_SECONDARY),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Row([
+                        ft.Text("Hooks", size=11, color=TEXT_MUTED),
+                        ft.Text(str(self.config.hooks_enabled), size=11, color=TEXT_SECONDARY),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ],
+                spacing=SPACE_XS,
+            ),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_SM,
         )
 
-        header = ft.Container(
+        return ft.Container(
+            width=THREADS_WIDTH,
+            bgcolor=SURFACE_1,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=12),
+            content=ft.Column(
+                [
+                    ft.TextButton(
+                        content=ft.Text("+ New thread", size=13, color=TEXT_PRIMARY),
+                        on_click=lambda e: self._on_new_thread(),
+                        style=ft.ButtonStyle(
+                            bgcolor={ft.ControlState.DEFAULT: SURFACE_2},
+                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                            side=ft.BorderSide(1, BORDER),
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                        ),
+                    ),
+                    ft.Divider(height=12, color=BORDER),
+                    ft.Text("Threads", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
+                    ft.Column(thread_rows, spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
+                    ft.Divider(height=12, color=BORDER),
+                    status_card,
+                ],
+                spacing=SPACE_SM,
+                expand=True,
+            ),
+        )
+
+    def build_header(self) -> ft.Control:
+        self.header_model_text = ft.Text(
+            f"Model: {self.config.model_name}",
+            size=13,
+            color=TEXT_SECONDARY,
+        )
+        return ft.Container(
+            bgcolor=CANVAS,
+            padding=ft.Padding.symmetric(horizontal=16, vertical=12),
+            border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
             content=ft.Row(
                 [
-                    brand,
+                    ft.Text("ITE", size=16, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+                    self.header_model_text,
                     ft.Text(
                         f"Workspace: {self.config.cwd}",
-                        size=14,
-                        color=UI_TEXT_MUTED,
+                        size=12,
+                        color=TEXT_MUTED,
                         expand=True,
                         text_align=ft.TextAlign.RIGHT,
+                        no_wrap=True,
                     ),
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.Padding.symmetric(horizontal=22, vertical=14),
-            border=ft.Border.only(bottom=ft.BorderSide(1, UI_BORDER_SOFT)),
-            bgcolor=UI_BG,
         )
 
-        # Chat messages area
+    def _build_chat_panel(self) -> ft.Control:
         self.messages_column = ft.Column(
             scroll=ft.ScrollMode.AUTO,
+            auto_scroll=False,
+            on_scroll=self._on_chat_scroll,
+            spacing=SPACE_LG,
             expand=True,
-            spacing=16,
-            auto_scroll=True,
         )
 
-        messages_container = ft.Container(
+        return ft.Container(
+            expand=True,
+            bgcolor=CANVAS,
+            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
             content=ft.Row(
                 [
                     ft.Container(
-                        content=self.messages_column,
-                        width=960,
+                        width=CHAT_WIDTH,
                         expand=False,
+                        content=self.messages_column,
                     )
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 expand=True,
             ),
-            expand=True,
-            padding=ft.Padding.symmetric(horizontal=20, vertical=18),
-            bgcolor=UI_BG,
         )
 
-        # Loading indicator
+    def build_composer(self) -> ft.Control:
+        model_choices = [
+            "gpt-4o-mini",
+            "gpt-5",
+            "gpt-5-mini",
+            "claude-3.7-sonnet",
+            "minimax-m2.5:cloud",
+        ]
+        if self.config.model_name not in model_choices:
+            model_choices.insert(0, self.config.model_name)
+
+        self.model_selector = ft.Dropdown(
+            value=self.config.model_name,
+            options=[ft.dropdown.Option(m) for m in model_choices],
+            width=220,
+            text_size=12,
+            dense=True,
+            border=ft.InputBorder.OUTLINE,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            bgcolor=SURFACE_1,
+            color=TEXT_PRIMARY,
+            on_select=self._on_model_select,
+        )
+
         self.loading_indicator = ft.ProgressRing(
             visible=False,
-            width=18,
-            height=18,
-            color=ft.Colors.CYAN_200,
+            width=14,
+            height=14,
+            color=ACCENT,
         )
 
-        # Input area
         self.input_field = ft.TextField(
-            hint_text="Type your message...",
+            hint_text="Message the agent...",
             expand=True,
             multiline=False,
             on_submit=self._on_send,
-            border_radius=14,
-            border_color=ft.Colors.with_opacity(0.3, ft.Colors.WHITE),
-            focused_border_color=ft.Colors.CYAN_200,
-            bgcolor=UI_BG,
-            cursor_color=ft.Colors.CYAN_200,
-            text_style=ft.TextStyle(size=17, color=UI_TEXT),
-            hint_style=ft.TextStyle(size=17, color=ft.Colors.GREY_500),
-            content_padding=ft.Padding.symmetric(horizontal=18, vertical=18),
+            border_radius=RADIUS_MD,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            bgcolor=SURFACE_1,
+            cursor_color=ACCENT,
+            text_style=ft.TextStyle(size=15, color=TEXT_PRIMARY),
+            hint_style=ft.TextStyle(size=15, color=TEXT_MUTED),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=12),
         )
 
         self.send_button = ft.FilledButton(
@@ -149,74 +306,89 @@ class GUI:
             on_click=self._on_send,
             disabled=False,
             style=ft.ButtonStyle(
-                bgcolor=ft.Colors.CYAN_200,
-                color=ft.Colors.BLUE_GREY_900,
-                shape=ft.RoundedRectangleBorder(radius=12),
-                padding=ft.Padding.symmetric(horizontal=22, vertical=18),
-                text_style=ft.TextStyle(size=16, weight=ft.FontWeight.W_700),
-                side=ft.BorderSide(1, ft.Colors.with_opacity(0.35, ft.Colors.CYAN_100)),
+                bgcolor=ACCENT,
+                color=ft.Colors.BLACK,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_700),
             ),
         )
 
-        input_container = ft.Container(
+        clear_button = ft.TextButton(
+            "Clear",
+            on_click=lambda e: self.page.run_task(self._run_command, "/clear") if self.page else None,
+            style=ft.ButtonStyle(
+                color=TEXT_SECONDARY,
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.07, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            ),
+        )
+
+        return ft.Container(
+            bgcolor=CANVAS,
+            border=ft.Border.only(top=ft.BorderSide(1, BORDER)),
+            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
             content=ft.Row(
                 [
+                    self.model_selector,
                     ft.Container(content=self.input_field, expand=True),
+                    clear_button,
                     self.loading_indicator,
                     self.send_button,
                 ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=12,
+                spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.Padding.symmetric(horizontal=20, vertical=16),
-            border=ft.Border.only(top=ft.BorderSide(1, UI_BORDER_SOFT)),
-            bgcolor=UI_BG,
         )
 
-        # Main layout
-        page.add(
-            ft.Column(
-                [header, messages_container, input_container],
-                expand=True,
-                spacing=0,
-            )
+    def build_chat_message(self, role: str, content: str, is_error: bool = False) -> ft.Control:
+        bg = SURFACE_1 if role == "assistant" else SURFACE_2
+        border_color = BORDER
+        if is_error:
+            border_color = ft.Colors.with_opacity(0.28, ft.Colors.RED_300)
+
+        bubble = ft.Container(
+            content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
+            bgcolor=bg,
+            border_radius=RADIUS_MD,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border=ft.Border.all(1, border_color),
+            shadow=SHADOW_SUBTLE,
+            width=760 if role != "user" else 640,
         )
+
+        align = ft.MainAxisAlignment.END if role == "user" else ft.MainAxisAlignment.START
+        return ft.Row([bubble], alignment=align)
+
+    def build_system_log_message(self, title: str, content: str, level: str = "info") -> ft.Control:
+        color = TEXT_SECONDARY
+        border = BORDER
+        if level == "error":
+            color = ft.Colors.with_opacity(0.85, ft.Colors.RED_200)
+            border = ft.Colors.with_opacity(0.25, ft.Colors.RED_300)
+
+        card = ft.Container(
+            bgcolor=SURFACE_1,
+            border_radius=RADIUS_SM,
+            border=ft.Border.all(1, border),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            width=760,
+            content=ft.Column(
+                [
+                    ft.Text(title, size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+                    ft.Text(content, style=MONO_STYLE, selectable=True, color=color),
+                ],
+                tight=True,
+                spacing=5,
+            ),
+        )
+        return ft.Row([card], alignment=ft.MainAxisAlignment.START)
 
     def _add_message(self, role: str, content: str, is_error: bool = False):
-        """Add a message to the chat."""
         if not self.messages_column or not self.page:
             return
-
-        bg_color = (
-            UI_BG
-        )
-        bubble_width = 700 if role != "user" else 620
-        border_color = (
-            ft.Colors.with_opacity(0.35, ft.Colors.RED_200)
-            if is_error
-            else UI_BORDER_ACCENT if role == "assistant"
-            else UI_BORDER_SOFT
-        )
-        bubble = ft.Container(
-            content=ft.Markdown(
-                content,
-                selectable=True,
-                extension_set="gitHubFlavored",
-            ),
-            bgcolor=bg_color,
-            border_radius=14,
-            padding=14,
-            width=bubble_width,
-            border=ft.Border.all(1, border_color),
-            shadow=UI_SHADOW,
-        )
-
-        row_alignment = (
-            ft.MainAxisAlignment.END if role == "user" else ft.MainAxisAlignment.START
-        )
-        self.messages_column.controls.append(
-            ft.Row([bubble], alignment=row_alignment)
-        )
+        self.messages_column.controls.append(self.build_chat_message(role, content, is_error=is_error))
         self.page.update()
         self._scroll_chat_to_bottom()
 
@@ -227,19 +399,18 @@ class GUI:
         card = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text(title, weight=ft.FontWeight.BOLD, size=15, color=ft.Colors.CYAN_100),
-                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
+                    ft.Text(title, size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+                    ft.Divider(height=1, color=BORDER),
                     content,
                 ],
+                spacing=6,
                 tight=True,
-                spacing=8,
             ),
-            bgcolor=UI_BG,
-            border_radius=14,
-            padding=14,
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_MD,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             width=760,
-            border=ft.Border.all(1, UI_BORDER_ACCENT),
-            shadow=UI_SHADOW,
         )
         self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         self.page.update()
@@ -253,25 +424,20 @@ class GUI:
         return cleaned.strip()
 
     def _stream_assistant_delta(self, content: str):
-        """Stream assistant text into a single in-progress bubble."""
         if not self.messages_column or not self.page:
             return
 
         if self.streaming_markdown is None or self.streaming_container is None:
             self.streaming_text = ""
-            self.streaming_markdown = ft.Markdown(
-                "",
-                selectable=True,
-                extension_set="gitHubFlavored",
-            )
+            self.streaming_markdown = ft.Markdown("", selectable=True, extension_set="gitHubFlavored")
             self.streaming_container = ft.Container(
                 content=self.streaming_markdown,
-                bgcolor=UI_BG,
-                border_radius=14,
-                padding=14,
-                width=700,
-                border=ft.Border.all(1, UI_BORDER_ACCENT),
-                shadow=UI_SHADOW,
+                bgcolor=SURFACE_1,
+                border_radius=RADIUS_MD,
+                border=ft.Border.all(1, BORDER),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                width=760,
+                shadow=SHADOW_SUBTLE,
             )
             self.messages_column.controls.append(
                 ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
@@ -283,7 +449,6 @@ class GUI:
         self._scroll_chat_to_bottom(animate=False)
 
     def _finalize_streaming_message(self):
-        """Mark the current streamed assistant bubble as complete."""
         self.streaming_markdown = None
         self.streaming_container = None
         self.streaming_text = ""
@@ -293,37 +458,37 @@ class GUI:
         call_id: str,
         name: str,
         arguments: dict[str, Any],
-        tool_kind: str,
+        tool_kind: str | None,
     ):
-        """Add a tool call card to the chat."""
         if not self.messages_column or not self.page:
             return
 
-        # Build args display
-        args_text = "\n".join(f"**{k}:** {v}" for k, v in arguments.items())
-
+        args_text = "\n".join(f"{k}={v}" for k, v in arguments.items()) or "(no args)"
         card = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Text("●", color=ft.Colors.AMBER_300),
-                    ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_100),
-                    ft.Text(f"#{call_id[:8]}", color=UI_TEXT_MUTED),
-                    ft.Text("running...", color=UI_TEXT_MUTED, expand=True, text_align=ft.TextAlign.RIGHT),
-                ]),
-                ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
-                ft.Markdown(args_text, selectable=True),
-            ]),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.AMBER_300)),
-            border_radius=14,
-            padding=14,
-            width=700,
-            bgcolor=UI_BG,
-            shadow=UI_SHADOW,
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text("tool", size=11, color=TEXT_MUTED),
+                            ft.Text(name, size=12, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
+                            ft.Text(f"#{call_id[:8]}", size=11, color=TEXT_MUTED),
+                            ft.Text("running", size=11, color=ACCENT, expand=True, text_align=ft.TextAlign.RIGHT),
+                        ]
+                    ),
+                    ft.Divider(height=1, color=BORDER),
+                    ft.Text(args_text, style=MONO_STYLE, selectable=True),
+                ],
+                spacing=6,
+                tight=True,
+            ),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.from_hex(ACCENT))),
+            border_radius=RADIUS_SM,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            width=760,
+            bgcolor=SURFACE_1,
         )
-
-        # Store reference for updates
         card.call_id = call_id
-        self.messages_column.controls.append(card)
+        self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         self.page.update()
         self._scroll_chat_to_bottom()
 
@@ -337,61 +502,58 @@ class GUI:
         diff: str | None,
         exit_code: int | None,
     ):
-        """Update a tool call card with the result."""
         if not self.messages_column or not self.page:
             return
 
-        # Find the card
         for i, control in enumerate(self.messages_column.controls):
-            if hasattr(control, "call_id") and control.call_id == call_id:
-                status_icon = "●"
-                status_color = ft.Colors.GREEN_300 if success else ft.Colors.RED_300
-
-                # Build output display
-                output_display = output[:1000] if len(output) > 1000 else output
-                if len(output) > 1000:
-                    output_display += "\n... [truncated]"
+            if hasattr(control.controls[0], "call_id") and control.controls[0].call_id == call_id:
+                state_text = "done" if success else "failed"
+                state_color = ft.Colors.with_opacity(0.90, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)
+                payload = output or error or "No output"
+                if len(payload) > 1400:
+                    payload = payload[:1400] + "\n... [truncated]"
 
                 if diff:
-                    output_display = f"```diff\n{diff}\n```"
+                    body: ft.Control = ft.Markdown(f"```diff\n{diff}\n```", selectable=True)
+                else:
+                    body = ft.Text(payload, style=MONO_STYLE, selectable=True)
 
-                card_content = ft.Column([
-                    ft.Row([
-                        ft.Text(status_icon, color=status_color),
-                        ft.Text(name, weight=ft.FontWeight.BOLD, color=ft.Colors.CYAN_100),
-                        ft.Text(f"#{call_id[:8]}", color=UI_TEXT_MUTED),
-                        ft.Text(
-                            "done" if success else "failed",
-                            color=status_color,
-                            expand=True,
-                            text_align=ft.TextAlign.RIGHT,
-                        ),
-                    ]),
-                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE)),
-                    ft.Markdown(output_display, selectable=True) if output_display else ft.Text("No output", color=UI_TEXT_MUTED),
-                ])
-
-                # Replace the card
-                new_card = ft.Container(
-                    content=card_content,
-                    border=ft.Border.all(
-                        1,
-                        ft.Colors.with_opacity(0.35, ft.Colors.GREEN_300 if success else ft.Colors.RED_300),
+                card = ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Row(
+                                [
+                                    ft.Text("tool", size=11, color=TEXT_MUTED),
+                                    ft.Text(name, size=12, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
+                                    ft.Text(f"#{call_id[:8]}", size=11, color=TEXT_MUTED),
+                                    ft.Text(state_text, size=11, color=state_color, expand=True, text_align=ft.TextAlign.RIGHT),
+                                ]
+                            ),
+                            ft.Divider(height=1, color=BORDER),
+                            body,
+                        ],
+                        spacing=6,
+                        tight=True,
                     ),
-                    border_radius=14,
-                    padding=14,
-                    width=700,
-                    bgcolor=UI_BG,
-                    shadow=UI_SHADOW,
+                    border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)),
+                    border_radius=RADIUS_SM,
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                    width=760,
+                    bgcolor=SURFACE_1,
                 )
-                self.messages_column.controls[i] = new_card
+                card.call_id = call_id
+                self.messages_column.controls[i] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
                 self.page.update()
                 self._scroll_chat_to_bottom(animate=False)
                 break
 
+    def _on_chat_scroll(self, e: ft.OnScrollEvent):
+        # Only auto-scroll while user is near the bottom.
+        distance_to_bottom = max(e.max_scroll_extent - e.pixels, 0)
+        self._auto_scroll_enabled = distance_to_bottom <= 96
+
     def _scroll_chat_to_bottom(self, animate: bool = True):
-        """Keep the latest chat content in view."""
-        if not self.messages_column or not self.page:
+        if not self.messages_column or not self.page or not self._auto_scroll_enabled:
             return
         try:
             self.page.run_task(self._scroll_chat_to_bottom_async, animate)
@@ -402,15 +564,11 @@ class GUI:
         if not self.messages_column:
             return
         try:
-            await self.messages_column.scroll_to(
-                offset=-1,
-                duration=180 if animate else 0,
-            )
+            await self.messages_column.scroll_to(offset=-1, duration=160 if animate else 0)
         except Exception:
             pass
 
     def _set_loading(self, loading: bool):
-        """Show or hide loading indicator."""
         if self.loading_indicator:
             self.loading_indicator.visible = loading
         if self.send_button:
@@ -421,7 +579,6 @@ class GUI:
             self.page.update()
 
     def _request_confirmation(self, data: dict[str, Any]):
-        """Show a confirmation dialog."""
         if not self.page:
             return
 
@@ -429,13 +586,12 @@ class GUI:
         description = data.get("description", "")
         diff = data.get("diff")
 
-        content_parts = [
-            ft.Text(f"Tool: {tool_name}", weight=ft.FontWeight.BOLD),
-            ft.Text(description),
+        parts: list[ft.Control] = [
+            ft.Text(f"Tool: {tool_name}", weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
+            ft.Text(description, color=TEXT_SECONDARY),
         ]
-
         if diff:
-            content_parts.append(ft.Markdown(f"```diff\n{diff}\n```"))
+            parts.append(ft.Markdown(f"```diff\n{diff}\n```"))
 
         def on_yes(e):
             self.pending_confirmation = True
@@ -452,8 +608,9 @@ class GUI:
             self._resume_agent(False)
 
         dialog = ft.AlertDialog(
-            title=ft.Text("Approval Required"),
-            content=ft.Column(content_parts, tight=True),
+            bgcolor=SURFACE_1,
+            title=ft.Text("Approval required", color=TEXT_PRIMARY),
+            content=ft.Column(parts, tight=True, spacing=6),
             actions=[
                 ft.TextButton("Deny", on_click=on_no),
                 ft.FilledButton("Approve", on_click=on_yes),
@@ -467,12 +624,10 @@ class GUI:
         self.page.update()
 
     def _resume_agent(self, approved: bool):
-        """Resume agent after confirmation."""
-        # This would need to be handled via a future/async mechanism
+        # TODO: async confirmation resume path
         pass
 
     async def _run_agent(self, message: str):
-        """Run the agent with the given message."""
         try:
             self._set_loading(True)
             self._add_message("user", message)
@@ -500,7 +655,6 @@ class GUI:
         await self.agent.__aenter__()
 
     async def _run_command(self, command_line: str) -> None:
-        """Dispatch slash commands through the same registry as CLI mode."""
         self._set_loading(True)
         self._add_message("user", command_line)
         try:
@@ -542,11 +696,12 @@ class GUI:
             rendered = output.getvalue().strip()
             if rendered:
                 cleaned = self._sanitize_cli_output(rendered)
-                if cleaned:
-                    self._add_assistant_card(
-                        f"Command Result · {command}",
-                        ft.Markdown(cleaned, selectable=True, extension_set="gitHubFlavored"),
+                if cleaned and self.messages_column and self.page:
+                    self.messages_column.controls.append(
+                        self.build_system_log_message(f"command {command}", cleaned)
                     )
+                    self.page.update()
+                    self._scroll_chat_to_bottom()
         except SystemExit:
             self._add_message("system", "Exiting ITE GUI.")
             raise
@@ -572,8 +727,8 @@ class GUI:
                 rows.append(
                     ft.Row(
                         [
-                            ft.Text(cmd.name + aliases, weight=ft.FontWeight.W_600, color=ft.Colors.CYAN_100, width=240),
-                            ft.Text(cmd.description, color=ft.Colors.GREY_300, expand=True),
+                            ft.Text(cmd.name + aliases, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY, width=240),
+                            ft.Text(cmd.description, color=TEXT_SECONDARY, expand=True),
                         ]
                     )
                 )
@@ -583,27 +738,27 @@ class GUI:
         if command == "/sessions":
             sessions = [s for s in SessionManager().list_sessions() if s.get("turn_count", 0) > 0]
             if not sessions:
-                self._add_assistant_card("Sessions", ft.Text("No saved sessions found.", color=ft.Colors.GREY_300))
+                self._add_assistant_card("Sessions", ft.Text("No saved sessions found.", color=TEXT_SECONDARY))
                 return True
 
             headers = ft.Row(
                 [
-                    ft.Text("Session", width=300, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300),
-                    ft.Text("Name", width=220, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300),
-                    ft.Text("Updated", width=140, weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300),
-                    ft.Text("Turns", weight=ft.FontWeight.BOLD, color=ft.Colors.GREY_300),
+                    ft.Text("Session", width=300, weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
+                    ft.Text("Name", width=220, weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
+                    ft.Text("Updated", width=120, weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
+                    ft.Text("Turns", weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
                 ]
             )
-            rows: list[ft.Control] = [headers, ft.Divider(height=1)]
+            rows: list[ft.Control] = [headers, ft.Divider(height=1, color=BORDER)]
             for session in sessions[:20]:
-                updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d · %I:%M %p")
+                updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
                 rows.append(
                     ft.Row(
                         [
-                            ft.Text(session["session_id"], width=300),
-                            ft.Text(session.get("name") or "-", width=220),
-                            ft.Text(updated, width=140),
-                            ft.Text(str(session["turn_count"])),
+                            ft.Text(session["session_id"], width=300, color=TEXT_PRIMARY),
+                            ft.Text(session.get("name") or "-", width=220, color=TEXT_PRIMARY),
+                            ft.Text(updated, width=120, color=TEXT_SECONDARY),
+                            ft.Text(str(session["turn_count"]), color=TEXT_SECONDARY),
                         ]
                     )
                 )
@@ -613,11 +768,11 @@ class GUI:
         if command == "/config":
             rows = ft.Column(
                 [
-                    ft.Row([ft.Text("Model", weight=ft.FontWeight.BOLD, width=120), ft.Text(self.config.model_name)]),
-                    ft.Row([ft.Text("Workspace", weight=ft.FontWeight.BOLD, width=120), ft.Text(str(self.config.cwd), expand=True)]),
-                    ft.Row([ft.Text("Approval", weight=ft.FontWeight.BOLD, width=120), ft.Text(self.config.approval.value)]),
-                    ft.Row([ft.Text("Max Turns", weight=ft.FontWeight.BOLD, width=120), ft.Text(str(self.config.max_turns))]),
-                    ft.Row([ft.Text("Hooks", weight=ft.FontWeight.BOLD, width=120), ft.Text(str(self.config.hooks_enabled))]),
+                    ft.Row([ft.Text("Model", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(self.config.model_name, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Workspace", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.cwd), expand=True, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Approval", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(self.config.approval.value, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Max Turns", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.max_turns), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Hooks", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.hooks_enabled), color=TEXT_PRIMARY)]),
                 ],
                 spacing=6,
                 tight=True,
@@ -629,16 +784,25 @@ class GUI:
             if args:
                 old_model = self.config.model_name
                 self.config.model_name = args[0]
-                self._add_assistant_card("Model Updated", ft.Text(f"{old_model} -> {self.config.model_name}"))
+                if self.header_model_text:
+                    self.header_model_text.value = f"Model: {self.config.model_name}"
+                    self.header_model_text.update()
+                if self.model_selector:
+                    self.model_selector.value = self.config.model_name
+                    self.model_selector.update()
+                self._add_assistant_card("Model Updated", ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_PRIMARY))
             else:
-                self._add_assistant_card("Current Model", ft.Text(self.config.model_name))
+                self._add_assistant_card("Current Model", ft.Text(self.config.model_name, color=TEXT_PRIMARY))
             return True
 
         if command == "/clear":
             if self.agent and self.agent.session:
                 self.agent.session.context_manager.clear()
                 self.agent.session.loop_detector.clear()
-            self._add_assistant_card("Conversation", ft.Text("Cleared session context."))
+            if self.messages_column and self.page:
+                self.messages_column.controls.clear()
+                self.page.update()
+            self._add_assistant_card("Conversation", ft.Text("Cleared session context.", color=TEXT_PRIMARY))
             return True
 
         if command == "/ite":
@@ -652,15 +816,16 @@ class GUI:
         if command == "/approval":
             if args and args[0].lower() != "help":
                 from ite.config.config import ApprovalPolicy
+
                 try:
                     self.config.approval = ApprovalPolicy(args[0].lower())
                     self._add_assistant_card(
                         "Approval Mode",
                         ft.Column(
                             [
-                                ft.Text(f"Set to {self.config.approval.value}"),
-                                ft.Text("Use /approval <mode> to change", color=ft.Colors.GREY_300),
-                                ft.Text("Use /approval help to see all modes", color=ft.Colors.GREY_300),
+                                ft.Text(f"Set to {self.config.approval.value}", color=TEXT_PRIMARY),
+                                ft.Text("Use /approval <mode> to change", color=TEXT_SECONDARY),
+                                ft.Text("Use /approval help to see all modes", color=TEXT_SECONDARY),
                             ],
                             spacing=6,
                             tight=True,
@@ -673,9 +838,9 @@ class GUI:
                     "Approval Mode",
                     ft.Column(
                         [
-                            ft.Text(f"Active: {self.config.approval.value}"),
-                            ft.Text("Use /approval <mode> to change", color=ft.Colors.GREY_300),
-                            ft.Text("Use /approval help to see all modes", color=ft.Colors.GREY_300),
+                            ft.Text(f"Active: {self.config.approval.value}", color=TEXT_PRIMARY),
+                            ft.Text("Use /approval <mode> to change", color=TEXT_SECONDARY),
+                            ft.Text("Use /approval help to see all modes", color=TEXT_SECONDARY),
                         ],
                         spacing=6,
                         tight=True,
@@ -687,12 +852,12 @@ class GUI:
             stats = self.agent.session.get_stats()
             rows = ft.Column(
                 [
-                    ft.Row([ft.Text("Session ID", weight=ft.FontWeight.BOLD, width=140), ft.Text(stats["session_id"])]),
-                    ft.Row([ft.Text("Turn Count", weight=ft.FontWeight.BOLD, width=140), ft.Text(str(stats["turn_count"]))]),
-                    ft.Row([ft.Text("Message Count", weight=ft.FontWeight.BOLD, width=140), ft.Text(str(stats["message_count"]))]),
-                    ft.Row([ft.Text("Token Usage", weight=ft.FontWeight.BOLD, width=140), ft.Text(str(stats["token_usage"]))]),
-                    ft.Row([ft.Text("Tools Enabled", weight=ft.FontWeight.BOLD, width=140), ft.Text(str(stats["tools_enabled"]))]),
-                    ft.Row([ft.Text("MCP Servers", weight=ft.FontWeight.BOLD, width=140), ft.Text(str(stats["mcp_servers"]))]),
+                    ft.Row([ft.Text("Session ID", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(stats["session_id"], color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Turn Count", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["turn_count"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Message Count", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["message_count"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Token Usage", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["token_usage"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Tools Enabled", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["tools_enabled"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("MCP Servers", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["mcp_servers"]), color=TEXT_PRIMARY)]),
                 ],
                 spacing=6,
                 tight=True,
@@ -703,7 +868,16 @@ class GUI:
         if command == "/tools" and self.agent and self.agent.session:
             tools = self.agent.session.tool_registry.get_tools()
             chips = ft.Wrap(
-                controls=[ft.Container(ft.Text(t.name), padding=8, bgcolor=UI_BG, border_radius=8, border=ft.Border.all(1, ft.Colors.with_opacity(0.2, ft.Colors.WHITE))) for t in tools],
+                controls=[
+                    ft.Container(
+                        ft.Text(t.name, size=12, color=TEXT_PRIMARY),
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                        bgcolor=SURFACE_2,
+                        border_radius=RADIUS_SM,
+                        border=ft.Border.all(1, BORDER),
+                    )
+                    for t in tools
+                ],
                 spacing=8,
                 run_spacing=8,
             )
@@ -713,17 +887,17 @@ class GUI:
         if command == "/mcp" and self.agent and self.agent.session:
             servers = self.agent.session.mcp_manager.get_all_servers()
             if not servers:
-                self._add_assistant_card("MCP Servers", ft.Text("No MCP servers configured.", color=ft.Colors.GREY_300))
+                self._add_assistant_card("MCP Servers", ft.Text("No MCP servers configured.", color=TEXT_SECONDARY))
                 return True
             rows = []
             for server in servers:
-                color = ft.Colors.GREEN if server["status"] == "connected" else ft.Colors.RED
+                color = ft.Colors.with_opacity(0.9, ft.Colors.GREEN_300 if server["status"] == "connected" else ft.Colors.RED_300)
                 rows.append(
                     ft.Row(
                         [
-                            ft.Text(server["name"], width=220, weight=ft.FontWeight.BOLD),
+                            ft.Text(server["name"], width=220, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
                             ft.Text(server["status"], color=color, width=120),
-                            ft.Text(f"{server['tools']} tools"),
+                            ft.Text(f"{server['tools']} tools", color=TEXT_SECONDARY),
                         ]
                     )
                 )
@@ -733,7 +907,6 @@ class GUI:
         return False
 
     async def _handle_agent_event(self, event: AgentEvent):
-        """Handle agent events and publish to UI."""
         if not self.page:
             return
 
@@ -776,13 +949,10 @@ class GUI:
             )
 
     def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:
-        """Handle tool confirmation requests from the agent."""
         if not self.page:
             return False
 
-        # Send confirmation request to UI
         diff_text = confirmation.diff.to_diff() if confirmation.diff else None
-
         self._request_confirmation(
             {
                 "tool_name": confirmation.tool_name,
@@ -795,8 +965,22 @@ class GUI:
         # For now, auto-deny in GUI mode - proper async confirmation would need more work
         return False
 
+    def _on_model_select(self, e: ft.Event[ft.Dropdown]):
+        if not self.model_selector:
+            return
+        selected = self.model_selector.value
+        if not selected:
+            return
+        self.config.model_name = selected
+        if self.header_model_text:
+            self.header_model_text.value = f"Model: {selected}"
+            self.header_model_text.update()
+
+    def _on_new_thread(self):
+        if self.page:
+            self.page.run_task(self._run_command, "/clear")
+
     def _on_send(self, e):
-        """Handle send button click or enter key."""
         if not self.input_field or not self.page:
             return
 
@@ -807,7 +991,6 @@ class GUI:
         self.input_field.value = ""
         self.input_field.update()
 
-        # Route slash commands through the command registry.
         try:
             if message.startswith("/"):
                 self.page.run_task(self._run_command, message)
@@ -821,7 +1004,6 @@ class GUI:
             )
 
     def _on_close(self, e):
-        """Cleanup on page close."""
         if self.page and self.agent is not None:
             self.page.run_task(self._shutdown_agent)
 
@@ -835,13 +1017,11 @@ class GUI:
 
 
 def create_gui_app(config: Config):
-    """Create and return the Flet app."""
     gui = GUI(config)
     return gui.run
 
 
 def run_gui(config: Config):
-    """Run the Flet GUI application."""
     import flet
 
     def create_page(page: ft.Page):
