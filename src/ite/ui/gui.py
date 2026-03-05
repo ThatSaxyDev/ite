@@ -600,56 +600,97 @@ class GUI:
             self.page.update()
 
     def _request_confirmation(self, data: dict[str, Any]):
-        if not self.page:
+        if not self.page or not self.messages_column:
             return
 
         tool_name = data.get("tool_name", "Unknown tool")
         description = data.get("description", "")
+        command = data.get("command")
         diff = data.get("diff")
 
         parts: list[ft.Control] = [
+            ft.Text("Approval required", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
             ft.Text(f"Tool: {tool_name}", weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
             ft.Text(description, color=TEXT_SECONDARY),
         ]
+
+        if command:
+            parts.append(
+                ft.Container(
+                    content=ft.Text(command, style=MONO_STYLE, selectable=True),
+                    bgcolor=SURFACE_2,
+                    border=ft.Border.all(1, BORDER),
+                    border_radius=RADIUS_SM,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                )
+            )
+
         if diff:
             parts.append(ft.Markdown(f"```diff\n{diff}\n```"))
 
+        status_text = ft.Text("", size=11, color=TEXT_MUTED)
+
         def on_yes(e):
             self.pending_confirmation = True
-            if self.confirmation_dialog:
-                self.confirmation_dialog.open = False
-            if hasattr(self.page, "show_dialog"):
-                self.page.update()
+            approve_btn.disabled = True
+            deny_btn.disabled = True
+            status_text.value = "Approved"
+            status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.GREEN_300)
+            self.page.update()
             if self._confirmation_future and not self._confirmation_future.done():
                 self._confirmation_future.set_result(True)
 
         def on_no(e):
             self.pending_confirmation = False
-            if self.confirmation_dialog:
-                self.confirmation_dialog.open = False
-            if hasattr(self.page, "show_dialog"):
-                self.page.update()
+            approve_btn.disabled = True
+            deny_btn.disabled = True
+            status_text.value = "Denied"
+            status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.RED_300)
+            self.page.update()
             if self._confirmation_future and not self._confirmation_future.done():
                 self._confirmation_future.set_result(False)
 
-        dialog = ft.AlertDialog(
-            bgcolor=SURFACE_1,
-            title=ft.Text("Approval required", color=TEXT_PRIMARY),
-            content=ft.Column(parts, tight=True, spacing=6),
-            actions=[
-                ft.TextButton("Deny", on_click=on_no),
-                ft.FilledButton("Approve", on_click=on_yes),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
+        deny_btn = ft.TextButton(
+            "Deny",
+            on_click=on_no,
+            style=ft.ButtonStyle(
+                color=TEXT_SECONDARY,
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
         )
 
-        self.confirmation_dialog = dialog
-        if hasattr(self.page, "show_dialog"):
-            self.page.show_dialog(dialog)
-        else:
-            self.page.dialog = dialog
-            dialog.open = True
-            self.page.update()
+        approve_btn = ft.FilledButton(
+            "Approve",
+            on_click=on_yes,
+            style=ft.ButtonStyle(
+                bgcolor=ACCENT,
+                color=ft.Colors.BLACK,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+
+        parts.append(
+            ft.Row(
+                [status_text, ft.Container(expand=True), deny_btn, approve_btn],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+        )
+
+        approval_card = ft.Container(
+            content=ft.Column(parts, tight=True, spacing=8),
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.AMBER_300)),
+            border_radius=RADIUS_SM,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            width=760,
+            shadow=SHADOW_SUBTLE,
+        )
+        self.messages_column.controls.append(
+            ft.Row([approval_card], alignment=ft.MainAxisAlignment.START)
+        )
+        self.page.update()
+        self._scroll_chat_to_bottom(force=True)
 
     def _resume_agent(self, approved: bool):
         # TODO: async confirmation resume path
@@ -994,9 +1035,6 @@ class GUI:
         try:
             return await asyncio.wait_for(self._confirmation_future, timeout=300)
         except asyncio.TimeoutError:
-            if self.confirmation_dialog:
-                self.confirmation_dialog.open = False
-                self.page.update()
             self._add_message(
                 "system",
                 "Approval request timed out after 5 minutes; operation denied.",
