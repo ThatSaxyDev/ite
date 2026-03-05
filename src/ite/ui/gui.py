@@ -1,6 +1,7 @@
 import io
 import json
 import re
+import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -216,7 +217,7 @@ class GUI:
             content=ft.Row(
                 [
                     ft.Text("ITE", size=16, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
-                    self.header_model_text,
+                    # self.header_model_text,
                     ft.Text(
                         f"Workspace: {self.config.cwd}",
                         size=12,
@@ -557,18 +558,22 @@ class GUI:
         distance_to_bottom = max(e.max_scroll_extent - e.pixels, 0)
         self._auto_scroll_enabled = distance_to_bottom <= 96
 
-    def _scroll_chat_to_bottom(self, animate: bool = True):
-        if not self.messages_column or not self.page or not self._auto_scroll_enabled:
+    def _scroll_chat_to_bottom(self, animate: bool = True, force: bool = False):
+        if not self.messages_column or not self.page:
+            return
+        if not force and not self._auto_scroll_enabled:
             return
         try:
-            self.page.run_task(self._scroll_chat_to_bottom_async, animate)
+            self.page.run_task(self._scroll_chat_to_bottom_async, animate, force)
         except Exception:
             pass
 
-    async def _scroll_chat_to_bottom_async(self, animate: bool = True):
+    async def _scroll_chat_to_bottom_async(self, animate: bool = True, force: bool = False):
         if not self.messages_column:
             return
         try:
+            if force:
+                self._auto_scroll_enabled = True
             await self.messages_column.scroll_to(offset=-1, duration=160 if animate else 0)
         except Exception:
             pass
@@ -1011,6 +1016,10 @@ class GUI:
                     color=TEXT_SECONDARY,
                 ),
             )
+            # First-load layout can lag one frame; force a second pass.
+            await self._scroll_chat_to_bottom_async(animate=False, force=True)
+            await asyncio.sleep(0.06)
+            await self._scroll_chat_to_bottom_async(animate=False, force=True)
         except Exception as e:
             self._add_message("system", f"Error loading session: {e}", is_error=True)
         finally:
@@ -1097,7 +1106,7 @@ class GUI:
                 continue
 
         self.page.update()
-        self._scroll_chat_to_bottom(animate=False)
+        self._scroll_chat_to_bottom(animate=False, force=True)
 
     def _on_send(self, e):
         if not self.input_field or not self.page:
