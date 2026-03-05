@@ -10,7 +10,7 @@ from typing import AsyncGenerator
 from ite.agent.session import Session
 from ite.client.response import TokenUsage
 from ite.tools.base import ToolConfirmation
-from typing import Callable
+from typing import Awaitable, Callable
 from ite.prompts.system import create_loop_breaker_prompt
 
 
@@ -18,7 +18,9 @@ class Agent:
     def __init__(
         self,
         config: Config,
-        confirmation_callback: (Callable[[ToolConfirmation], bool] | None) = None,
+        confirmation_callback: (
+            Callable[[ToolConfirmation], bool | Awaitable[bool]] | None
+        ) = None,
     ):
         self.config = config
         self.session: Session | None = Session(self.config)

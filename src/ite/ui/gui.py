@@ -64,10 +64,12 @@ class GUI:
         self.send_button: ft.Button | None = None
         self.loading_indicator: ft.ProgressRing | None = None
         self.model_selector: ft.Dropdown | None = None
-        self.header_model_text: ft.Text | None = None
+        self.header_session_text: ft.Text | None = None
+        self.current_session_title: str = "New Session"
 
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
+        self._confirmation_future: asyncio.Future[bool] | None = None
 
         self.streaming_markdown: ft.Markdown | None = None
         self.streaming_container: ft.Container | None = None
@@ -205,10 +207,13 @@ class GUI:
         )
 
     def build_header(self) -> ft.Control:
-        self.header_model_text = ft.Text(
-            f"Model: {self.config.model_name}",
-            size=13,
-            color=TEXT_SECONDARY,
+        self.header_session_text = ft.Text(
+            self.current_session_title,
+            size=16,
+            weight=ft.FontWeight.W_700,
+            color=TEXT_PRIMARY,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
         return ft.Container(
             bgcolor=CANVAS,
@@ -216,8 +221,7 @@ class GUI:
             border=ft.Border.only(bottom=ft.BorderSide(1, BORDER)),
             content=ft.Row(
                 [
-                    ft.Text("ITE", size=16, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
-                    # self.header_model_text,
+                    self.header_session_text,
                     ft.Text(
                         f"Workspace: {self.config.cwd}",
                         size=12,
@@ -231,6 +235,13 @@ class GUI:
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )
+
+    def _set_current_session_title(self, title: str | None):
+        normalized = (title or "").strip()
+        self.current_session_title = normalized if normalized else "New Session"
+        if self.header_session_text:
+            self.header_session_text.value = self.current_session_title
+            self.header_session_text.update()
 
     def _build_chat_panel(self) -> ft.Control:
         self.messages_column = ft.Column(
@@ -607,15 +618,19 @@ class GUI:
             self.pending_confirmation = True
             if self.confirmation_dialog:
                 self.confirmation_dialog.open = False
-            self.page.update()
-            self._resume_agent(True)
+            if hasattr(self.page, "show_dialog"):
+                self.page.update()
+            if self._confirmation_future and not self._confirmation_future.done():
+                self._confirmation_future.set_result(True)
 
         def on_no(e):
             self.pending_confirmation = False
             if self.confirmation_dialog:
                 self.confirmation_dialog.open = False
-            self.page.update()
-            self._resume_agent(False)
+            if hasattr(self.page, "show_dialog"):
+                self.page.update()
+            if self._confirmation_future and not self._confirmation_future.done():
+                self._confirmation_future.set_result(False)
 
         dialog = ft.AlertDialog(
             bgcolor=SURFACE_1,
@@ -629,9 +644,12 @@ class GUI:
         )
 
         self.confirmation_dialog = dialog
-        self.page.dialog = dialog
-        dialog.open = True
-        self.page.update()
+        if hasattr(self.page, "show_dialog"):
+            self.page.show_dialog(dialog)
+        else:
+            self.page.dialog = dialog
+            dialog.open = True
+            self.page.update()
 
     def _resume_agent(self, approved: bool):
         # TODO: async confirmation resume path
@@ -663,6 +681,8 @@ class GUI:
             confirmation_callback=self._gui_confirmation_callback,
         )
         await self.agent.__aenter__()
+        if self.agent.session:
+            self._set_current_session_title(self.agent.session.name)
 
     async def _run_command(self, command_line: str) -> None:
         self._set_loading(True)
@@ -794,9 +814,6 @@ class GUI:
             if args:
                 old_model = self.config.model_name
                 self.config.model_name = args[0]
-                if self.header_model_text:
-                    self.header_model_text.value = f"Model: {self.config.model_name}"
-                    self.header_model_text.update()
                 if self.model_selector:
                     self.model_selector.value = self.config.model_name
                     self.model_selector.update()
@@ -809,9 +826,11 @@ class GUI:
             if self.agent and self.agent.session:
                 self.agent.session.context_manager.clear()
                 self.agent.session.loop_detector.clear()
+                self.agent.session.name = None
             if self.messages_column and self.page:
                 self.messages_column.controls.clear()
                 self.page.update()
+            self._set_current_session_title(None)
             self._add_assistant_card("Conversation", ft.Text("Cleared session context.", color=TEXT_PRIMARY))
             return True
 
@@ -958,11 +977,12 @@ class GUI:
                 is_error=True,
             )
 
-    def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:
+    async def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:
         if not self.page:
             return False
 
         diff_text = confirmation.diff.to_diff() if confirmation.diff else None
+        self._confirmation_future = asyncio.get_running_loop().create_future()
         self._request_confirmation(
             {
                 "tool_name": confirmation.tool_name,
@@ -971,9 +991,20 @@ class GUI:
                 "diff": diff_text,
             }
         )
-
-        # For now, auto-deny in GUI mode - proper async confirmation would need more work
-        return False
+        try:
+            return await asyncio.wait_for(self._confirmation_future, timeout=300)
+        except asyncio.TimeoutError:
+            if self.confirmation_dialog:
+                self.confirmation_dialog.open = False
+                self.page.update()
+            self._add_message(
+                "system",
+                "Approval request timed out after 5 minutes; operation denied.",
+                is_error=True,
+            )
+            return False
+        finally:
+            self._confirmation_future = None
 
     def _on_model_select(self, e: ft.Event[ft.Dropdown]):
         if not self.model_selector:
@@ -982,9 +1013,6 @@ class GUI:
         if not selected:
             return
         self.config.model_name = selected
-        if self.header_model_text:
-            self.header_model_text.value = f"Model: {selected}"
-            self.header_model_text.update()
 
     def _on_new_thread(self):
         if self.page:
@@ -1008,6 +1036,7 @@ class GUI:
                 return
 
             await self._resume_agent_session(snapshot)
+            self._set_current_session_title(snapshot.name)
             self._hydrate_chat_from_snapshot(snapshot.messages)
             self._add_assistant_card(
                 "Session Loaded",

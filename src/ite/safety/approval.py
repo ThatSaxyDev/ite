@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 import re
-from typing import Any, Callable
+import inspect
+from typing import Any, Awaitable, Callable
 from ite.config.config import ApprovalPolicy
 from ite.tools.base import ToolConfirmation
 
@@ -118,7 +119,9 @@ class ApprovalManager:
         self,
         approval_policy: ApprovalPolicy,
         cwd: Path,
-        confirmation_callback: Callable[[ToolConfirmation], bool] | None = None,
+        confirmation_callback: (
+            Callable[[ToolConfirmation], bool | Awaitable[bool]] | None
+        ) = None,
     ) -> None:
         self.approval_policy = approval_policy
         self.cwd = cwd
@@ -182,9 +185,11 @@ class ApprovalManager:
 
         return ApprovalDecision.NEEDS_CONFIRMATION
 
-    def request_confirmation(self, confirmation: ToolConfirmation) -> bool:
+    async def request_confirmation(self, confirmation: ToolConfirmation) -> bool:
         if self.confirmation_callback:
             result = self.confirmation_callback(confirmation)
+            if inspect.isawaitable(result):
+                result = await result
             return result
 
         return True
