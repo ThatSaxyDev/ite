@@ -3,6 +3,7 @@ import json
 import re
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import flet as ft
@@ -64,7 +65,9 @@ class GUI:
         self.send_button: ft.Button | None = None
         self.loading_indicator: ft.ProgressRing | None = None
         self.model_selector: ft.Dropdown | None = None
+        self.workspace_selector: ft.Dropdown | None = None
         self.header_session_text: ft.Text | None = None
+        self.header_workspace_text: ft.Text | None = None
         self.current_session_title: str = "New Session"
         self.sidebar_threads_column: ft.Column | None = None
 
@@ -202,10 +205,24 @@ class GUI:
             spacing=0,
         )
         page.add(shell)
+        self._refresh_workspace_options()
         self._refresh_sidebar_threads()
 
     def build_sidebar(self) -> ft.Control:
         self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
+        self.workspace_selector = ft.Dropdown(
+            value=str(self.config.cwd.resolve()),
+            options=[],
+            text_size=12,
+            dense=True,
+            border=ft.InputBorder.OUTLINE,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            on_select=self._on_workspace_select,
+        )
 
         status_card = ft.Container(
             content=ft.Column(
@@ -245,6 +262,9 @@ class GUI:
                         ),
                     ),
                     ft.Divider(height=12, color=BORDER),
+                    ft.Text("Workspace", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
+                    self.workspace_selector,
+                    ft.Divider(height=12, color=BORDER),
                     ft.Text("Threads", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
                     self.sidebar_threads_column,
                     ft.Divider(height=12, color=BORDER),
@@ -259,7 +279,14 @@ class GUI:
         if not self.sidebar_threads_column:
             return
 
-        sessions = [s for s in SessionManager().list_sessions() if s.get("turn_count", 0) > 0][:12]
+        sessions = [
+            s
+            for s in SessionManager().list_sessions(
+                workspace_path=self.config.cwd,
+                include_legacy_unscoped=False,
+            )
+            if s.get("turn_count", 0) > 0
+        ][:20]
         controls: list[ft.Control] = []
         if not sessions:
             controls.append(ft.Text("No saved threads", size=12, color=TEXT_MUTED))
@@ -304,6 +331,55 @@ class GUI:
         if self.page:
             self.page.update()
 
+    def _refresh_workspace_options(self):
+        if not self.workspace_selector:
+            return
+        manager = SessionManager()
+        current_workspace = str(self.config.cwd.resolve())
+        known = [p for p in manager.list_workspaces() if p]
+        if current_workspace not in known:
+            known.insert(0, current_workspace)
+        self.workspace_selector.options = [ft.dropdown.Option(p) for p in known]
+        self.workspace_selector.value = current_workspace
+        if self.page:
+            self.page.update()
+
+    def _on_workspace_select(self, e: ft.Event[ft.Dropdown]):
+        if not self.workspace_selector or not self.page:
+            return
+        selected = self.workspace_selector.value
+        if not selected:
+            return
+        self.page.run_task(self._switch_workspace, selected)
+
+    async def _switch_workspace(self, workspace: str):
+        target = Path(workspace).expanduser().resolve()
+        if not target.exists() or not target.is_dir():
+            self._add_message("system", f"Workspace not found: {target}", is_error=True)
+            self._refresh_workspace_options()
+            return
+        if target == self.config.cwd.resolve():
+            return
+        self._set_loading(True)
+        try:
+            self.config.cwd = target
+            if self.header_workspace_text:
+                self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
+            if self.agent is not None:
+                await self._shutdown_agent()
+            if self.messages_column:
+                self.messages_column.controls.clear()
+            self._set_current_session_title(None)
+            self._tool_call_row_indices.clear()
+            self._refresh_workspace_options()
+            self._refresh_sidebar_threads()
+            self._add_assistant_card(
+                "Workspace",
+                ft.Text(f"Switched to {self.config.cwd}", color=TEXT_SECONDARY),
+            )
+        finally:
+            self._set_loading(False)
+
     def build_header(self) -> ft.Control:
         self.header_session_text = ft.Text(
             self.current_session_title,
@@ -313,6 +389,14 @@ class GUI:
             no_wrap=True,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
+        self.header_workspace_text = ft.Text(
+            f"Workspace: {self.config.cwd}",
+            size=12,
+            color=TEXT_MUTED,
+            expand=True,
+            text_align=ft.TextAlign.RIGHT,
+            no_wrap=True,
+        )
         return ft.Container(
             bgcolor=CANVAS,
             padding=ft.Padding.symmetric(horizontal=16, vertical=12),
@@ -320,14 +404,7 @@ class GUI:
             content=ft.Row(
                 [
                     self.header_session_text,
-                    ft.Text(
-                        f"Workspace: {self.config.cwd}",
-                        size=12,
-                        color=TEXT_MUTED,
-                        expand=True,
-                        text_align=ft.TextAlign.RIGHT,
-                        no_wrap=True,
-                    ),
+                    self.header_workspace_text,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -901,6 +978,7 @@ class GUI:
             snapshot = SessionSnapshot(
                 session_id=session.session_id,
                 name=session.name,
+                workspace_path=str(self.config.cwd.resolve()),
                 created_at=session.created_at,
                 updated_at=session.updated_at,
                 turn_count=session.turn_count,
@@ -909,6 +987,7 @@ class GUI:
             )
             SessionManager().save_session(snapshot)
             self._set_current_session_title(session.name)
+            self._refresh_workspace_options()
             self._refresh_sidebar_threads()
         except Exception:
             # Keep GUI responsive; autosave failure should not break chat flow.
@@ -1051,7 +1130,15 @@ class GUI:
             return True
 
         if command == "/sessions":
-            sessions = [s for s in SessionManager().list_sessions() if s.get("turn_count", 0) > 0]
+            show_all = "--all" in args
+            sessions = [
+                s
+                for s in SessionManager().list_sessions(
+                    workspace_path=None if show_all else self.config.cwd,
+                    include_legacy_unscoped=show_all,
+                )
+                if s.get("turn_count", 0) > 0
+            ]
             if not sessions:
                 self._add_assistant_card("Sessions", ft.Text("No saved sessions found.", color=TEXT_SECONDARY))
                 return True
@@ -1335,6 +1422,17 @@ class GUI:
             if snapshot is None:
                 self._add_message("system", f"Session not found: {session_id}", is_error=True)
                 return
+
+            if snapshot.workspace_path:
+                snapshot_workspace = Path(snapshot.workspace_path).resolve()
+                if snapshot_workspace != self.config.cwd.resolve():
+                    self.config.cwd = snapshot_workspace
+                    if self.header_workspace_text:
+                        self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
+                    if self.agent is not None:
+                        await self._shutdown_agent()
+                    self._refresh_workspace_options()
+                    self._refresh_sidebar_threads()
 
             await self._ensure_agent()
             if not self.agent:

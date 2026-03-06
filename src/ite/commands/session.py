@@ -4,6 +4,7 @@ import os
 import sys
 import json
 from datetime import datetime
+from pathlib import Path
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionSnapshot, SessionManager
@@ -183,6 +184,7 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
     session_snapshot = SessionSnapshot(
         session_id=ctx.agent.session.session_id,
         name=ctx.agent.session.name,
+        workspace_path=str(ctx.config.cwd.resolve()),
         created_at=ctx.agent.session.created_at,
         updated_at=ctx.agent.session.updated_at,
         turn_count=ctx.agent.session.turn_count,
@@ -216,7 +218,11 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
 
 async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
     session_manager = SessionManager()
-    sessions = session_manager.list_sessions()
+    all_workspaces = "--all" in args
+    sessions = session_manager.list_sessions(
+        workspace_path=None if all_workspaces else ctx.config.cwd,
+        include_legacy_unscoped=all_workspaces,
+    )
     # Filter out empty sessions (0 turns)
     sessions = [s for s in sessions if s["turn_count"] > 0]
     if not sessions:
@@ -297,6 +303,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
         current_snapshot = SessionSnapshot(
             session_id=ctx.agent.session.session_id,
             name=ctx.agent.session.name,
+            workspace_path=str(ctx.config.cwd.resolve()),
             created_at=ctx.agent.session.created_at,
             updated_at=ctx.agent.session.updated_at,
             turn_count=ctx.agent.session.turn_count,
@@ -304,6 +311,15 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
             total_usage=ctx.agent.session.context_manager.total_usage,
         )
         session_manager.save_checkpoint(current_snapshot)
+
+    if snapshot.workspace_path:
+        target_workspace = Path(snapshot.workspace_path).resolve()
+        if target_workspace != ctx.config.cwd.resolve():
+            ctx.console.print(
+                f"[dim]Switching workspace to {target_workspace} for resumed session.[/dim]"
+            )
+            ctx.config.cwd = target_workspace
+            ctx.tui.cwd = target_workspace
 
     session = Session(config=ctx.config)
     session.session_id = snapshot.session_id
@@ -343,6 +359,7 @@ async def cmd_checkpoint(ctx: CommandContext, args: list[str]) -> None:
     session_snapshot = SessionSnapshot(
         session_id=ctx.agent.session.session_id,
         name=ctx.agent.session.name,
+        workspace_path=str(ctx.config.cwd.resolve()),
         created_at=ctx.agent.session.created_at,
         updated_at=ctx.agent.session.updated_at,
         turn_count=ctx.agent.session.turn_count,
@@ -414,6 +431,15 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
             f"[error]Checkpoint not found:[/error] [bold]{checkpoint_id}[/bold]. [dim]Use [green]/checkpoints[/green] to list available checkpoints.[/dim]"
         )
         return
+
+    if snapshot.workspace_path:
+        target_workspace = Path(snapshot.workspace_path).resolve()
+        if target_workspace != ctx.config.cwd.resolve():
+            ctx.console.print(
+                f"[dim]Switching workspace to {target_workspace} for restored checkpoint.[/dim]"
+            )
+            ctx.config.cwd = target_workspace
+            ctx.tui.cwd = target_workspace
 
     session = Session(config=ctx.config)
     session.session_id = snapshot.session_id

@@ -29,11 +29,13 @@ class SessionSnapshot:
     messages: list[dict[str, Any]]
     total_usage: TokenUsage
     name: str | None = None
+    workspace_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "name": self.name,
+            "workspace_path": self.workspace_path,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
@@ -46,6 +48,7 @@ class SessionSnapshot:
         return cls(
             session_id=data["session_id"],
             name=data.get("name"),
+            workspace_path=data.get("workspace_path"),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
             turn_count=data["turn_count"],
@@ -141,17 +144,34 @@ class SessionManager:
         file_path = self.sessions_dir / f"{snapShot.session_id}.json"
         self._atomic_write_json(file_path, snapShot.to_dict())
 
-    def list_sessions(self) -> list[dict[str, Any]]:
+    def list_sessions(
+        self,
+        *,
+        workspace_path: str | Path | None = None,
+        include_legacy_unscoped: bool = True,
+    ) -> list[dict[str, Any]]:
+        target_workspace = (
+            str(Path(workspace_path).resolve()) if workspace_path is not None else None
+        )
         sessions = []
         for file_path in self.sessions_dir.glob("*.json"):
             data = self._load_session_json(file_path)
             if not data:
                 continue
 
+            stored_workspace = data.get("workspace_path")
+            if target_workspace is not None:
+                if stored_workspace:
+                    if str(Path(stored_workspace).resolve()) != target_workspace:
+                        continue
+                elif not include_legacy_unscoped:
+                    continue
+
             sessions.append(
                 {
                     "session_id": data["session_id"],
                     "name": data.get("name"),
+                    "workspace_path": stored_workspace,
                     "created_at": data["created_at"],
                     "updated_at": data["updated_at"],
                     "turn_count": data["turn_count"],
@@ -160,6 +180,17 @@ class SessionManager:
 
         sessions.sort(key=lambda x: x["updated_at"], reverse=True)
         return sessions
+
+    def list_workspaces(self) -> list[str]:
+        workspaces: set[str] = set()
+        for file_path in self.sessions_dir.glob("*.json"):
+            data = self._load_session_json(file_path)
+            if not data:
+                continue
+            workspace = data.get("workspace_path")
+            if workspace:
+                workspaces.add(str(Path(workspace).resolve()))
+        return sorted(workspaces)
 
     def load_session(self, session_id: str) -> SessionSnapshot | None:
         file_path = self.sessions_dir / f"{session_id}.json"

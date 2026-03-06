@@ -116,6 +116,7 @@ class CLI:
             snapshot = SessionSnapshot(
                 session_id=session.session_id,
                 name=session.name,
+                workspace_path=str(self.config.cwd.resolve()),
                 created_at=session.created_at,
                 updated_at=session.updated_at,
                 turn_count=session.turn_count,
@@ -148,6 +149,7 @@ class CLI:
             snapshot = SessionSnapshot(
                 session_id=session.session_id,
                 name=session.name,
+                workspace_path=str(self.config.cwd.resolve()),
                 created_at=session.created_at,
                 updated_at=session.updated_at,
                 turn_count=session.turn_count,
