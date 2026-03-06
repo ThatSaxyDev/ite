@@ -1,4 +1,4 @@
-"""General commands: /ite, /exit, /quit, /help, /clear."""
+"""General commands: /ite, /exit, /quit, /help, /clear, /new."""
 
 import sys
 from ite.commands import Command, CommandContext, CommandRegistry
@@ -102,6 +102,59 @@ async def cmd_clear(ctx: CommandContext, args: list[str]) -> None:
     )
 
 
+async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
+    # If the active UI has a richer new-thread flow, delegate to it.
+    start_new_thread = getattr(ctx.tui, "_start_new_thread", None)
+    if callable(start_new_thread):
+        await start_new_thread()
+        return
+
+    from ite.agent.session import Session
+    from ite.agent.session_manager import SessionSnapshot, SessionManager
+
+    previous = ctx.agent.session
+
+    # Save current session before switching if it has real turns.
+    if previous.turn_count > 0:
+        session_manager = SessionManager()
+        snapshot = SessionSnapshot(
+            session_id=previous.session_id,
+            name=previous.name,
+            workspace_path=str(ctx.config.cwd.resolve()),
+            created_at=previous.created_at,
+            updated_at=previous.updated_at,
+            turn_count=previous.turn_count,
+            messages=previous.context_manager.get_messages(),
+            total_usage=previous.context_manager.total_usage,
+        )
+        session_manager.save_session(snapshot)
+
+    old_callback = previous.approval_manager.confirmation_callback
+    await previous.client.close()
+    await previous.mcp_manager.shutdown()
+
+    fresh = Session(config=ctx.config)
+    await fresh.initialize()
+    fresh.approval_manager.confirmation_callback = old_callback
+    ctx.agent.session = fresh
+
+    title = Text.assemble(("✨  ", ""), ("New Session", "bold bright_white"))
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Text.assemble(
+                ("Started a fresh thread ", "bold cyan"),
+                (f"({fresh.session_id[:8]}…)", "dim"),
+            ),
+            title=title,
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/ite", description="Show welcome screen", handler=cmd_ite,
@@ -116,6 +169,10 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/clear", description="Clear conversation history",
         handler=cmd_clear,
+    ))
+    registry.register(Command(
+        name="/new", description="Start a new thread/session",
+        handler=cmd_new,
     ))
     registry.register(
         Command(
