@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from ite.client.response import TokenUsage
 from ite.tools.base import Tool
@@ -39,6 +40,7 @@ class MessageItem:
 class ContextManager:
     PRUNE_PROTECT_TOKENS = 40_000
     PRUNE_MINIMUM_TOKENS = 10_000
+    COMPACTION_MIN_MESSAGES = 8
 
     def __init__(
         self,
@@ -159,8 +161,10 @@ class ContextManager:
         return messages
 
     def needs_compression(self) -> bool:
+        if self.message_count < self.COMPACTION_MIN_MESSAGES:
+            return False
         context_limit = self.config.model.context_window
-        current_tokens = self._latest_usage.total_tokens
+        current_tokens = self.estimate_current_context_tokens()
         return current_tokens > (context_limit * 0.8)
 
     def set_latest_usage(self, usage: TokenUsage) -> None:
@@ -168,6 +172,17 @@ class ContextManager:
 
     def add_usage(self, usage: TokenUsage) -> None:
         self._total_usage += usage
+
+    def estimate_current_context_tokens(self) -> int:
+        """Best-effort token count for the current message context sent to the model."""
+        messages = self.get_messages()
+        total = 0
+        for msg in messages:
+            total += count_tokens(
+                json.dumps(msg, ensure_ascii=False),
+                self._model_name,
+            )
+        return total
 
     def replace_with_summary(self, summary: str) -> None:
         self._messages = []

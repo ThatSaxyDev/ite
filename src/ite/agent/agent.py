@@ -53,7 +53,7 @@ class Agent:
             response_text = ""
 
             if self.session.context_manager.needs_compression():
-                trigger_tokens = self.session.context_manager.latest_usage.total_tokens
+                trigger_tokens = self.session.context_manager.estimate_current_context_tokens()
                 context_window = self.config.model.context_window
                 summary, usage = await self.session.chat_compactor.compact(
                     self.session.context_manager
@@ -61,7 +61,18 @@ class Agent:
 
                 if summary:
                     self.session.context_manager.replace_with_summary(summary)
-                    self.session.context_manager.set_latest_usage(usage)
+                    compacted_tokens = (
+                        self.session.context_manager.estimate_current_context_tokens()
+                    )
+                    # Reset latest context pressure to the compacted prompt size.
+                    self.session.context_manager.set_latest_usage(
+                        TokenUsage(
+                            prompt_tokens=compacted_tokens,
+                            completion_tokens=0,
+                            total_tokens=compacted_tokens,
+                            cached_tokens=0,
+                        )
+                    )
                     self.session.context_manager.add_usage(usage)
                     yield AgentEvent.context_compacted(
                         trigger_tokens=trigger_tokens,

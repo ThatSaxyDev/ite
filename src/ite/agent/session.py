@@ -83,7 +83,8 @@ class Session:
         latest = self.context_manager.latest_usage
         total = self.context_manager.total_usage
         context_window = self.config.model.context_window
-        used_pct = (latest.total_tokens / context_window * 100) if context_window else 0.0
+        context_tokens = self.context_manager.estimate_current_context_tokens()
+        used_pct = (context_tokens / context_window * 100) if context_window else 0.0
         left_pct = max(0.0, 100.0 - used_pct)
 
         return {
@@ -93,7 +94,7 @@ class Session:
             "message_count": self.context_manager.message_count,
             "token_usage": total,
             "context_window": context_window,
-            "latest_tokens": latest.total_tokens,
+            "latest_tokens": context_tokens,
             "latest_cached_tokens": latest.cached_tokens,
             "context_used_pct": round(used_pct, 1),
             "context_left_pct": round(left_pct, 1),
