@@ -20,6 +20,11 @@ class WorkspaceControllerMixin:
             if s.get("turn_count", 0) > 0
         ][:20]
         controls: list[ft.Control] = []
+        if self.sidebar_collapsed:
+            self.sidebar_threads_column.controls = controls
+            if self.page:
+                self.page.update()
+            return
         if not sessions:
             if not self.sidebar_collapsed:
                 controls.append(ft.Text("No saved threads", size=11, color=TEXT_MUTED))
@@ -28,32 +33,6 @@ class WorkspaceControllerMixin:
                 updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
                 is_active = session["session_id"] == self.active_session_id
                 session_name = (session.get("name") or session["session_id"]).strip()
-
-                if self.sidebar_collapsed:
-                    compact_label = (
-                        (session_name[0].upper() if session_name else "•")
-                        if session_name
-                        else "•"
-                    )
-                    controls.append(
-                        ft.Container(
-                            content=ft.Text(
-                                compact_label,
-                                size=12,
-                                weight=ft.FontWeight.W_700,
-                                color=ACCENT if is_active else TEXT_PRIMARY,
-                                text_align=ft.TextAlign.CENTER,
-                            ),
-                            alignment=ft.alignment.center,
-                            height=34,
-                            border=ft.Border.all(1, ACCENT if is_active else BORDER),
-                            border_radius=RADIUS_SM,
-                            bgcolor=ACCENT_SOFT if is_active else SURFACE_1,
-                            tooltip=f"{session_name} · {session['turn_count']} turns",
-                            on_click=lambda e, sid=session["session_id"]: self._on_sidebar_session_click(sid),
-                        )
-                    )
-                    continue
 
                 controls.append(
                     ft.Container(

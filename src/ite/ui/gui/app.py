@@ -44,6 +44,9 @@ class GUIApp(
         self.current_session_title: str = "New Session"
         self.sidebar_threads_column: ft.Column | None = None
         self.sidebar_root: ft.Container | None = None
+        self.sidebar_top_row: ft.Row | None = None
+        self.sidebar_new_thread_container: ft.Container | None = None
+        self.sidebar_body: ft.Column | None = None
         self.sidebar_toggle_button: ft.IconButton | None = None
         self.sidebar_new_thread_button: ft.TextButton | None = None
         self.sidebar_new_thread_compact: ft.IconButton | None = None

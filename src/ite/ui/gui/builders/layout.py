@@ -169,27 +169,41 @@ class LayoutBuilderMixin:
             weight=ft.FontWeight.W_500,
         )
 
+        self.sidebar_new_thread_container = ft.Container(
+            self.sidebar_new_thread_button,
+            expand=True,
+        )
+        self.sidebar_top_row = ft.Row(
+            [
+                self.sidebar_new_thread_container,
+                self.sidebar_new_thread_compact,
+                self.sidebar_toggle_button,
+            ],
+            spacing=6,
+        )
+
+        self.sidebar_body = ft.Column(
+            [
+                ft.Divider(height=12, color=BORDER),
+                self.sidebar_workspace_block,
+                ft.Divider(height=12, color=BORDER),
+                self.sidebar_threads_label,
+                self.sidebar_threads_column,
+                ft.Divider(height=12, color=BORDER),
+                self.sidebar_status_card,
+            ],
+            spacing=SPACE_SM,
+            expand=True,
+        )
+
         sidebar = ft.Container(
             width=THREADS_WIDTH,
             bgcolor=SURFACE_1,
             padding=ft.Padding.symmetric(horizontal=12, vertical=12),
             content=ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Container(self.sidebar_new_thread_button, expand=True),
-                            self.sidebar_new_thread_compact,
-                            self.sidebar_toggle_button,
-                        ],
-                        spacing=6,
-                    ),
-                    ft.Divider(height=12, color=BORDER),
-                    self.sidebar_workspace_block,
-                    ft.Divider(height=12, color=BORDER),
-                    self.sidebar_threads_label,
-                    self.sidebar_threads_column,
-                    ft.Divider(height=12, color=BORDER),
-                    self.sidebar_status_card,
+                    self.sidebar_top_row,
+                    self.sidebar_body,
                 ],
                 spacing=SPACE_SM,
                 expand=True,
@@ -206,6 +220,11 @@ class LayoutBuilderMixin:
             return
         collapsed = self.sidebar_collapsed
         self.sidebar_root.width = THREADS_WIDTH_COLLAPSED if collapsed else THREADS_WIDTH
+        self.sidebar_root.padding = (
+            ft.Padding.symmetric(horizontal=8, vertical=8)
+            if collapsed
+            else ft.Padding.symmetric(horizontal=12, vertical=12)
+        )
 
         if self.sidebar_toggle_button:
             self.sidebar_toggle_button.icon = (
@@ -216,10 +235,20 @@ class LayoutBuilderMixin:
             self.sidebar_toggle_button.tooltip = (
                 "Expand sidebar" if collapsed else "Collapse sidebar"
             )
+        if self.sidebar_top_row:
+            self.sidebar_top_row.alignment = (
+                ft.MainAxisAlignment.CENTER
+                if collapsed
+                else ft.MainAxisAlignment.START
+            )
+        if self.sidebar_new_thread_container:
+            self.sidebar_new_thread_container.visible = not collapsed
         if self.sidebar_new_thread_button:
             self.sidebar_new_thread_button.visible = not collapsed
         if self.sidebar_new_thread_compact:
-            self.sidebar_new_thread_compact.visible = collapsed
+            self.sidebar_new_thread_compact.visible = False
+        if self.sidebar_body:
+            self.sidebar_body.visible = not collapsed
         if self.sidebar_workspace_block:
             self.sidebar_workspace_block.visible = not collapsed
         if self.sidebar_threads_label:
