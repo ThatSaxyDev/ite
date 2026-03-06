@@ -339,7 +339,21 @@ class GUI:
         known = [p for p in manager.list_workspaces() if p]
         if current_workspace not in known:
             known.insert(0, current_workspace)
-        self.workspace_selector.options = [ft.dropdown.Option(p) for p in known]
+        self.workspace_selector.options = [
+            ft.dropdown.Option(
+                key=p,
+                text=(Path(p).name or p),
+                content=ft.Column(
+                    [
+                        ft.Text(Path(p).name or p, size=13, color=TEXT_PRIMARY),
+                        ft.Text(p, size=11, color=TEXT_MUTED, no_wrap=True),
+                    ],
+                    tight=True,
+                    spacing=1,
+                ),
+            )
+            for p in known
+        ]
         self.workspace_selector.value = current_workspace
         if self.page:
             self.page.update()
