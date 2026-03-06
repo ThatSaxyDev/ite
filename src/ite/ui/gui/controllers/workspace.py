@@ -145,7 +145,7 @@ class WorkspaceControllerMixin:
 
     def _on_new_thread(self):
         if self.page:
-            self.page.run_task(self._run_command, "/clear")
+            self.page.run_task(self._start_new_thread)
 
     def _on_sidebar_session_click(self, session_id: str):
         if self.page:

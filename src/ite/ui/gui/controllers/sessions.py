@@ -10,6 +10,49 @@ from ..tokens import *
 
 
 class SessionControllerMixin:
+    async def _start_new_thread(self):
+        """Start a fresh agent session instead of clearing the current one."""
+        self._set_loading(True)
+        try:
+            await self._ensure_agent()
+            if not self.agent or not self.agent.session:
+                return
+
+            # Persist current thread before switching if it has real turns.
+            if self.agent.session.turn_count > 0:
+                await self._auto_save()
+
+            previous = self.agent.session
+            fresh = Session(config=self.config)
+
+            # Close resources bound to the old live session before replacing it.
+            await previous.client.close()
+            await previous.mcp_manager.shutdown()
+            await fresh.initialize()
+            fresh.approval_manager.confirmation_callback = self._gui_confirmation_callback
+            self.agent.session = fresh
+
+            self.active_session_id = None
+            self._set_current_session_title(None)
+
+            if self.messages_column and self.page:
+                self.messages_column.controls.clear()
+                self.page.update()
+
+            self._tool_call_row_indices.clear()
+            self.streaming_markdown = None
+            self.streaming_container = None
+            self.streaming_text = ""
+            self._refresh_sidebar_threads()
+            self._add_assistant_card(
+                "New Thread",
+                ft.Text("Started a fresh session.", color=TEXT_SECONDARY),
+            )
+        except Exception as e:
+            self._add_message("system", f"Error starting new thread: {e}", is_error=True)
+        finally:
+            self._set_loading(False)
+
     async def _auto_save(self):
         if not self.agent or not self.agent.session:
             return
