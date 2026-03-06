@@ -10,7 +10,7 @@ import flet as ft
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
-from ite.agent.session_manager import SessionManager
+from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.commands import CommandContext, build_registry
 from ite.config.config import Config
 from ite.tools.base import ToolConfirmation
@@ -66,6 +66,7 @@ class GUI:
         self.model_selector: ft.Dropdown | None = None
         self.header_session_text: ft.Text | None = None
         self.current_session_title: str = "New Session"
+        self.sidebar_threads_column: ft.Column | None = None
 
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
@@ -200,19 +201,71 @@ class GUI:
             spacing=0,
         )
         page.add(shell)
+        self._refresh_sidebar_threads()
 
     def build_sidebar(self) -> ft.Control:
-        sessions = [s for s in SessionManager().list_sessions() if s.get("turn_count", 0) > 0][:12]
+        self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
 
-        thread_rows: list[ft.Control] = []
+        status_card = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Status", size=12, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
+                    ft.Row([
+                        ft.Text("Approval", size=11, color=TEXT_MUTED),
+                        ft.Text(self.config.approval.value, size=11, color=TEXT_SECONDARY),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    # ft.Row([
+                    #     ft.Text("Hooks", size=11, color=TEXT_MUTED),
+                    #     ft.Text(str(self.config.hooks_enabled), size=11, color=TEXT_SECONDARY),
+                    # ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ],
+                spacing=SPACE_XS,
+            ),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_SM,
+        )
+
+        return ft.Container(
+            width=THREADS_WIDTH,
+            bgcolor=SURFACE_1,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=12),
+            content=ft.Column(
+                [
+                    ft.TextButton(
+                        content=ft.Text("+ New thread", size=13, color=TEXT_PRIMARY),
+                        on_click=lambda e: self._on_new_thread(),
+                        style=ft.ButtonStyle(
+                            bgcolor={ft.ControlState.DEFAULT: SURFACE_2},
+                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                            side=ft.BorderSide(1, BORDER),
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                        ),
+                    ),
+                    ft.Divider(height=12, color=BORDER),
+                    ft.Text("Threads", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
+                    self.sidebar_threads_column,
+                    ft.Divider(height=12, color=BORDER),
+                    status_card,
+                ],
+                spacing=SPACE_SM,
+                expand=True,
+            ),
+        )
+
+    def _refresh_sidebar_threads(self):
+        if not self.sidebar_threads_column:
+            return
+
+        sessions = [s for s in SessionManager().list_sessions() if s.get("turn_count", 0) > 0][:12]
+        controls: list[ft.Control] = []
         if not sessions:
-            thread_rows.append(
-                ft.Text("No saved threads", size=12, color=TEXT_MUTED)
-            )
+            controls.append(ft.Text("No saved threads", size=12, color=TEXT_MUTED))
         else:
             for session in sessions:
                 updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
-                thread_rows.append(
+                controls.append(
                     ft.Container(
                         content=ft.Row(
                             [
@@ -246,53 +299,9 @@ class GUI:
                     )
                 )
 
-        status_card = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text("Tool Status", size=12, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
-                    ft.Row([
-                        ft.Text("Approval", size=11, color=TEXT_MUTED),
-                        ft.Text(self.config.approval.value, size=11, color=TEXT_SECONDARY),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Row([
-                        ft.Text("Hooks", size=11, color=TEXT_MUTED),
-                        ft.Text(str(self.config.hooks_enabled), size=11, color=TEXT_SECONDARY),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ],
-                spacing=SPACE_XS,
-            ),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
-            bgcolor=SURFACE_1,
-            border=ft.Border.all(1, BORDER),
-            border_radius=RADIUS_SM,
-        )
-
-        return ft.Container(
-            width=THREADS_WIDTH,
-            bgcolor=SURFACE_1,
-            padding=ft.Padding.symmetric(horizontal=12, vertical=12),
-            content=ft.Column(
-                [
-                    ft.TextButton(
-                        content=ft.Text("+ New thread", size=13, color=TEXT_PRIMARY),
-                        on_click=lambda e: self._on_new_thread(),
-                        style=ft.ButtonStyle(
-                            bgcolor={ft.ControlState.DEFAULT: SURFACE_2},
-                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                            side=ft.BorderSide(1, BORDER),
-                            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                        ),
-                    ),
-                    ft.Divider(height=12, color=BORDER),
-                    ft.Text("Threads", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
-                    ft.Column(thread_rows, spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
-                    ft.Divider(height=12, color=BORDER),
-                    status_card,
-                ],
-                spacing=SPACE_SM,
-                expand=True,
-            ),
-        )
+        self.sidebar_threads_column.controls = controls
+        if self.page:
+            self.page.update()
 
     def build_header(self) -> ft.Control:
         self.header_session_text = ft.Text(
@@ -844,10 +853,81 @@ class GUI:
 
             async for event in self.agent.run(message):
                 await self._handle_agent_event(event)
+            await self._auto_save()
         except Exception as e:
             self._add_message("system", f"Error: {str(e)}", is_error=True)
         finally:
             self._set_loading(False)
+
+    async def _auto_save(self):
+        if not self.agent or not self.agent.session:
+            return
+        if self.agent.session.turn_count == 0:
+            return
+
+        session = self.agent.session
+        try:
+            if session.name is None:
+                session.name = await self._generate_session_name(session)
+
+            snapshot = SessionSnapshot(
+                session_id=session.session_id,
+                name=session.name,
+                created_at=session.created_at,
+                updated_at=session.updated_at,
+                turn_count=session.turn_count,
+                messages=session.context_manager.get_messages(),
+                total_usage=session.context_manager.total_usage,
+            )
+            SessionManager().save_session(snapshot)
+            self._set_current_session_title(session.name)
+            self._refresh_sidebar_threads()
+        except Exception:
+            # Keep GUI responsive; autosave failure should not break chat flow.
+            return
+
+    async def _generate_session_name(self, session: Session) -> str:
+        first_user = ""
+        try:
+            messages = session.context_manager.get_messages()
+            first_assistant = ""
+            for msg in messages:
+                if msg.get("role") == "user" and not first_user:
+                    first_user = msg.get("content", "")[:200]
+                elif msg.get("role") == "assistant" and first_user and not first_assistant:
+                    first_assistant = msg.get("content", "")[:200]
+                    break
+
+            if not first_user:
+                return "New Session"
+
+            naming_messages = [
+                {
+                    "role": "user",
+                    "content": (
+                        "Generate a concise 3-6 word title for this conversation. "
+                        "Reply with ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n"
+                        f"User: {first_user}\n"
+                        + (f"Assistant: {first_assistant}" if first_assistant else "")
+                    ),
+                }
+            ]
+
+            title = ""
+            async for event in session.client.chat_completion(
+                naming_messages, tools=None, stream=True
+            ):
+                if event.text_delta and event.text_delta.content:
+                    title += event.text_delta.content
+
+            title = title.strip()[:60]
+            if title:
+                return title
+        except Exception:
+            pass
+
+        fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
+        return fallback.strip() or "New Session"
 
     async def _ensure_agent(self) -> None:
         if self.agent is not None:
