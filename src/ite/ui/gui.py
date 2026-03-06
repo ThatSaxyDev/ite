@@ -69,7 +69,6 @@ class GUI:
 
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
-        self._confirmation_future: asyncio.Future[bool] | None = None
 
         self.streaming_markdown: ft.Markdown | None = None
         self.streaming_container: ft.Container | None = None
@@ -599,7 +598,11 @@ class GUI:
         if self.page:
             self.page.update()
 
-    def _request_confirmation(self, data: dict[str, Any]):
+    def _request_confirmation(
+        self,
+        data: dict[str, Any],
+        confirmation_future: asyncio.Future[bool],
+    ):
         if not self.page or not self.messages_column:
             return
 
@@ -637,8 +640,8 @@ class GUI:
             status_text.value = "Approved"
             status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.GREEN_300)
             self.page.update()
-            if self._confirmation_future and not self._confirmation_future.done():
-                self._confirmation_future.set_result(True)
+            if not confirmation_future.done():
+                confirmation_future.set_result(True)
 
         def on_no(e):
             self.pending_confirmation = False
@@ -647,8 +650,8 @@ class GUI:
             status_text.value = "Denied"
             status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.RED_300)
             self.page.update()
-            if self._confirmation_future and not self._confirmation_future.done():
-                self._confirmation_future.set_result(False)
+            if not confirmation_future.done():
+                confirmation_future.set_result(False)
 
         deny_btn = ft.TextButton(
             "Deny",
@@ -1023,17 +1026,18 @@ class GUI:
             return False
 
         diff_text = confirmation.diff.to_diff() if confirmation.diff else None
-        self._confirmation_future = asyncio.get_running_loop().create_future()
+        confirmation_future = asyncio.get_running_loop().create_future()
         self._request_confirmation(
             {
                 "tool_name": confirmation.tool_name,
                 "description": confirmation.description,
                 "command": confirmation.command,
                 "diff": diff_text,
-            }
+            },
+            confirmation_future,
         )
         try:
-            return await asyncio.wait_for(self._confirmation_future, timeout=300)
+            return await asyncio.wait_for(confirmation_future, timeout=300)
         except asyncio.TimeoutError:
             self._add_message(
                 "system",
@@ -1041,8 +1045,6 @@ class GUI:
                 is_error=True,
             )
             return False
-        finally:
-            self._confirmation_future = None
 
     def _on_model_select(self, e: ft.Event[ft.Dropdown]):
         if not self.model_selector:

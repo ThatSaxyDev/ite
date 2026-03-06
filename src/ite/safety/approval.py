@@ -73,6 +73,11 @@ SAFE_PATTERNS = [
     r"^(ps|top|htop|pgrep)(\s|$)",
 ]
 
+# Low-risk mutating tools that are safe to auto-approve in interactive policies.
+LOW_RISK_MUTATING_TOOLS = {
+    "todos",
+}
+
 
 def _split_compound_command(command: str) -> list[str]:
     """Split a compound command into individual sub-commands.
@@ -155,6 +160,13 @@ class ApprovalManager:
 
     async def check_approval(self, context: ApprovalContext) -> ApprovalDecision:
         if not context.is_mutating:
+            return ApprovalDecision.APPROVED
+
+        # Auto-approve low-risk in-session state updates, except under NEVER.
+        if (
+            context.tool_name in LOW_RISK_MUTATING_TOOLS
+            and self.approval_policy != ApprovalPolicy.NEVER
+        ):
             return ApprovalDecision.APPROVED
 
         if context.command:
