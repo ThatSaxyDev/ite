@@ -1,5 +1,7 @@
 """Session commands: /save, /sessions, /resume, /checkpoint, /checkpoints, /restore."""
 
+import os
+import sys
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.agent.session import Session
@@ -8,6 +10,87 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich import box
+
+
+def _format_picker_row(session: dict[str, str | int]) -> str:
+    updated = datetime.fromisoformat(str(session["updated_at"])).strftime("%b %d · %I:%M %p")
+    sid = str(session["session_id"])
+    sid_short = f"{sid[:8]}...{sid[-6:]}" if len(sid) > 18 else sid
+    name = str(session.get("name") or "—").strip()
+    if len(name) > 38:
+        name = name[:35] + "..."
+    turns = int(session["turn_count"])
+    return f"{sid_short:<18}  {name:<38}  {updated:<18}  {turns:>3}"
+
+
+def _pick_session_with_curses(sessions: list[dict]) -> str | None:
+    import curses
+
+    selected_id: str | None = None
+
+    def _run(stdscr):
+        nonlocal selected_id
+        selected_idx = 0
+        top_idx = 0
+
+        curses.curs_set(0)
+        stdscr.keypad(True)
+
+        while True:
+            height, width = stdscr.getmaxyx()
+            visible_rows = max(height - 4, 1)
+            if selected_idx < top_idx:
+                top_idx = selected_idx
+            elif selected_idx >= top_idx + visible_rows:
+                top_idx = selected_idx - visible_rows + 1
+
+            stdscr.erase()
+            header = "Available Sessions"
+            stdscr.addnstr(0, 0, header, width - 1, curses.A_BOLD)
+
+            for row, idx in enumerate(range(top_idx, min(len(sessions), top_idx + visible_rows)), start=1):
+                marker = "▶ " if idx == selected_idx else "  "
+                line = marker + _format_picker_row(sessions[idx])
+                attr = curses.A_REVERSE if idx == selected_idx else curses.A_NORMAL
+                stdscr.addnstr(row, 0, line, width - 1, attr)
+
+            help_text = "↑/↓ or j/k to move, Enter/Space to resume, Esc/q to cancel"
+            stdscr.addnstr(height - 1, 0, help_text, width - 1, curses.A_DIM)
+            stdscr.refresh()
+
+            key = stdscr.getch()
+            if key in (curses.KEY_UP, ord("k"), ord("K")):
+                selected_idx = (selected_idx - 1) % len(sessions)
+            elif key in (curses.KEY_DOWN, ord("j"), ord("J")):
+                selected_idx = (selected_idx + 1) % len(sessions)
+            elif key in (10, 13, 32):
+                selected_id = str(sessions[selected_idx]["session_id"])
+                return
+            elif key in (27, ord("q"), ord("Q")):
+                selected_id = None
+                return
+
+    curses.wrapper(_run)
+    return selected_id
+
+
+async def _pick_session_to_resume(
+    ctx: CommandContext,
+    sessions: list[dict],
+) -> str | None:
+    if not sessions:
+        return None
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return None
+
+    selected_idx = 0
+    try:
+        if os.name == "nt":
+            return None
+        return _pick_session_with_curses(sessions)
+    except (KeyboardInterrupt, EOFError):
+        return None
+    return None
 
 
 async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
@@ -54,6 +137,32 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
         ctx.console.print("[dim]No sessions found.[/dim]")
         return
 
+    # Non-interactive or explicit list mode: show static table only.
+    if "--list" in args:
+        table = Table(title="Available Sessions", box=box.SIMPLE)
+        table.add_column("Session ID", style="bold cyan")
+        table.add_column("Name", style="bold white")
+        table.add_column("Updated At")
+        table.add_column("Turns", justify="right")
+
+        for session in sessions:
+            updated = datetime.fromisoformat(session["updated_at"])
+            name = session.get("name") or "[dim]—[/dim]"
+            table.add_row(
+                session["session_id"],
+                name,
+                updated.strftime("%b %d · %I:%M %p"),
+                str(session["turn_count"]),
+            )
+        ctx.console.print(table)
+        return
+
+    selected_session_id = await _pick_session_to_resume(ctx, sessions)
+    if selected_session_id:
+        await cmd_resume(ctx, [selected_session_id])
+        return
+
+    # Fallback: show static listing and usage hint.
     table = Table(title="Available Sessions", box=box.SIMPLE)
     table.add_column("Session ID", style="bold cyan")
     table.add_column("Name", style="bold white")
@@ -71,6 +180,10 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
         )
 
     ctx.console.print(table)
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        ctx.console.print(
+            "[dim]Tip: press ↑/↓ then Enter in /sessions interactive picker, or run /sessions --list for table only.[/dim]"
+        )
 
 
 async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
