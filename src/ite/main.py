@@ -180,7 +180,7 @@ class CLI:
                     break
 
             if not first_user:
-                return "New Session"
+                return "New thread"
 
             naming_messages = [
                 {
@@ -210,7 +210,7 @@ class CLI:
 
         # Fallback: first sentence of user message, max 60 chars
         first_sentence = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
-        return first_sentence.strip() or "New Session"
+        return first_sentence.strip() or "New thread"
 
     def _get_tool_kind(self, tool_name: str) -> str | None:
         tool = self.agent.session.tool_registry.get(tool_name)

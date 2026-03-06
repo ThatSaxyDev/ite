@@ -52,7 +52,7 @@ class SessionControllerMixin:
                     break
 
             if not first_user:
-                return "New Session"
+                return "New thread"
 
             naming_messages = [
                 {
@@ -80,7 +80,7 @@ class SessionControllerMixin:
             pass
 
         fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
-        return fallback.strip() or "New Session"
+        return fallback.strip() or "New thread"
 
     async def _open_session_from_sidebar(self, session_id: str):
         self._set_loading(True)

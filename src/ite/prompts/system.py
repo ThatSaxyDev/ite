@@ -344,7 +344,7 @@ You have access to the following tools to accomplish your tasks:
 
 
 def get_compaction_prompt() -> str:
-    return """Provide a detailed continuation prompt for resuming this work. The new session will NOT have access to our conversation history.
+    return """Provide a detailed continuation prompt for resuming this work. The New thread will NOT have access to our conversation history.
 
 IMPORTANT: Structure your response EXACTLY as follows:
 

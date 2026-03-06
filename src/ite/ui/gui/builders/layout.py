@@ -293,7 +293,7 @@ class LayoutBuilderMixin:
 
     def _set_current_session_title(self, title: str | None):
         normalized = (title or "").strip()
-        self.current_session_title = normalized if normalized else "New Session"
+        self.current_session_title = normalized if normalized else "New thread"
         if self.header_session_text:
             self.header_session_text.value = self.current_session_title
             self.header_session_text.update()
