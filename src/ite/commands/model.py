@@ -95,6 +95,7 @@ async def cmd_config(ctx: CommandContext, args: list[str]) -> None:
 
 async def cmd_approval(ctx: CommandContext, args: list[str]) -> None:
     from ite.config.config import ApprovalPolicy
+    from ite.config.loader import save_global_approval_mode
 
     valid_modes = [p.value for p in ApprovalPolicy]
 
@@ -141,7 +142,11 @@ async def cmd_approval(ctx: CommandContext, args: list[str]) -> None:
             return
 
         old_approval = ctx.config.approval.value
-        ctx.config.approval = ApprovalPolicy(new_approval)
+        selected_policy = ApprovalPolicy(new_approval)
+        ctx.config.approval = selected_policy
+        if ctx.agent and ctx.agent.session:
+            ctx.agent.session.approval_manager.approval_policy = selected_policy
+        save_global_approval_mode(selected_policy)
         title = Text.assemble(("🛡 ", ""), ("Approval Changed", "bold bright_white"))
         ctx.console.print()
         ctx.console.print(

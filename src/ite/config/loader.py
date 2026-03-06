@@ -2,6 +2,7 @@ from platformdirs import user_data_dir
 import logging
 from typing import Any
 from ite.utils.errors import ConfigError
+from ite.config.config import ApprovalPolicy
 import tomli
 from ite.config.config import Config
 from pathlib import Path
@@ -128,10 +129,12 @@ def load_config(
     system_path = get_system_config_path()
 
     config_dict: dict[str, Any] = {}
+    system_config_dict: dict[str, Any] = {}
 
     if system_path.is_file():
         try:
-            config_dict = _parse_toml(system_path)
+            system_config_dict = _parse_toml(system_path)
+            config_dict = system_config_dict.copy()
         except ConfigError:
             logger.warning(f"Skipping invalid system config: {system_path}")
 
@@ -143,6 +146,11 @@ def load_config(
             config_dict = _merge_dicts(config_dict, project_config_dict)
         except ConfigError:
             logger.warning(f"Skipping invalid project config: {project_path}")
+
+    # Approval policy is global user preference and should be consistent
+    # across projects/sessions.
+    if "approval" in system_config_dict:
+        config_dict["approval"] = system_config_dict["approval"]
 
     if "cwd" not in config_dict:
         config_dict["cwd"] = cwd
@@ -181,4 +189,37 @@ def save_system_config(
 
     config_path.write_text("\n".join(lines), encoding="utf-8")
     logger.info("Saved system config to %s", config_path)
+    return config_path
+
+
+def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
+    """Persist global approval mode in system config.toml."""
+    value = mode.value if isinstance(mode, ApprovalPolicy) else str(mode).strip()
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    if not config_path.exists():
+        config_path.write_text(f'approval = "{value}"\n', encoding="utf-8")
+        return config_path
+
+    original = config_path.read_text(encoding="utf-8")
+    lines = original.splitlines()
+    replaced = False
+    out_lines: list[str] = []
+    for line in lines:
+        if line.strip().startswith("approval") and "=" in line and not line.strip().startswith("#"):
+            out_lines.append(f'approval = "{value}"')
+            replaced = True
+        else:
+            out_lines.append(line)
+
+    if not replaced:
+        # Keep it top-level and near the top for discoverability.
+        insert_at = 0
+        while insert_at < len(out_lines) and out_lines[insert_at].strip().startswith("#"):
+            insert_at += 1
+        out_lines.insert(insert_at, f'approval = "{value}"')
+
+    config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     return config_path

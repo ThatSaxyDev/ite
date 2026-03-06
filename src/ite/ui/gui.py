@@ -14,6 +14,8 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.commands import CommandContext, build_registry
 from ite.config.config import Config
+from ite.config.config import ApprovalPolicy
+from ite.config.loader import save_global_approval_mode
 from ite.tools.base import ToolConfirmation
 from rich.console import Console
 
@@ -66,6 +68,7 @@ class GUI:
         self.loading_indicator: ft.ProgressRing | None = None
         self.model_selector: ft.Dropdown | None = None
         self.workspace_selector: ft.Dropdown | None = None
+        self.approval_selector: ft.Dropdown | None = None
         self.header_session_text: ft.Text | None = None
         self.header_workspace_text: ft.Text | None = None
         self.current_session_title: str = "New Session"
@@ -223,6 +226,20 @@ class GUI:
             color=TEXT_PRIMARY,
             on_select=self._on_workspace_select,
         )
+        self.approval_selector = ft.Dropdown(
+            value=self.config.approval.value,
+            options=[ft.dropdown.Option(p.value) for p in ApprovalPolicy],
+            width=160,
+            text_size=11,
+            dense=True,
+            border=ft.InputBorder.OUTLINE,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            content_padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            on_select=self._on_approval_select,
+        )
 
         status_card = ft.Container(
             content=ft.Column(
@@ -230,7 +247,7 @@ class GUI:
                     ft.Text("Status", size=12, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
                     ft.Row([
                         ft.Text("Approval", size=11, color=TEXT_MUTED),
-                        ft.Text(self.config.approval.value, size=11, color=TEXT_SECONDARY),
+                        self.approval_selector,
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     # ft.Row([
                     #     ft.Text("Hooks", size=11, color=TEXT_MUTED),
@@ -365,6 +382,39 @@ class GUI:
         if not selected:
             return
         self.page.run_task(self._switch_workspace, selected)
+
+    def _set_approval_mode(self, mode: str):
+        normalized = mode.strip().lower()
+        policy = ApprovalPolicy(normalized)
+        self.config.approval = policy
+        save_global_approval_mode(policy)
+        if self.agent and self.agent.session:
+            self.agent.session.approval_manager.approval_policy = policy
+        if self.approval_selector:
+            self.approval_selector.value = policy.value
+            self.approval_selector.update()
+
+    def _on_approval_select(self, e: ft.Event[ft.Dropdown]):
+        if not self.approval_selector:
+            return
+        value = self.approval_selector.value
+        if not value:
+            return
+        try:
+            self._set_approval_mode(value)
+            self._add_assistant_card(
+                "Approval Mode",
+                ft.Text(
+                    f"Global approval mode set to {value}",
+                    color=TEXT_SECONDARY,
+                ),
+            )
+        except Exception as ex:
+            self._add_message(
+                "system",
+                f"Failed to set approval mode: {ex}",
+                is_error=True,
+            )
 
     async def _switch_workspace(self, workspace: str):
         target = Path(workspace).expanduser().resolve()
@@ -1230,10 +1280,8 @@ class GUI:
 
         if command == "/approval":
             if args and args[0].lower() != "help":
-                from ite.config.config import ApprovalPolicy
-
                 try:
-                    self.config.approval = ApprovalPolicy(args[0].lower())
+                    self._set_approval_mode(args[0].lower())
                     self._add_assistant_card(
                         "Approval Mode",
                         ft.Column(
