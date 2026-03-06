@@ -170,10 +170,6 @@ class ApprovalControllerMixin:
         self.page.update()
         self._scroll_chat_to_bottom(force=True)
 
-    def _resume_agent(self, approved: bool):
-        # TODO: async confirmation resume path
-        pass
-
     async def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:
         if not self.page:
             return False
@@ -198,4 +194,3 @@ class ApprovalControllerMixin:
                 is_error=True,
             )
             return False
-

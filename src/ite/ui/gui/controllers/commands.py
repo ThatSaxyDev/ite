@@ -2,10 +2,6 @@ from __future__ import annotations
 import io
 from datetime import datetime
 import flet as ft
-from rich.console import Console
-from ite.commands import build_registry
-from ite.commands import CommandContext
-from ite.config.config import ApprovalPolicy
 from ..adapters.registry import build_command_context
 from ..tokens import *
 
@@ -40,17 +36,11 @@ class CommandControllerMixin:
                 return
 
             output = io.StringIO()
-            command_console = Console(
-                file=output,
-                force_terminal=False,
-                color_system=None,
-                width=110,
-            )
-            ctx = CommandContext(
+            ctx = build_command_context(
                 config=self.config,
                 agent=self.agent,
                 tui=self,
-                console=command_console,
+                output_stream=output,
             )
             await self._command_registry.dispatch(command, args, ctx)
 
@@ -254,4 +244,3 @@ class CommandControllerMixin:
         if not selected:
             return
         self.config.model_name = selected
-
