@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import flet as ft
+from urllib.parse import urlparse
 
 from ite.agent.agent import Agent
 from ite.commands import build_registry
 from ite.config.config import Config
+from ite.config.loader import save_system_config
 from ite.tools.base import ToolConfirmation
 
 from .builders.layout import LayoutBuilderMixin
@@ -55,6 +57,13 @@ class GUIApp(
         self.sidebar_status_card: ft.Container | None = None
         self.sidebar_collapsed: bool = False
         self.active_session_id: str | None = None
+        self.app_mode: str = "setup" if self.config.needs_setup else "chat"
+        self.chat_shell: ft.Row | None = None
+        self.setup_view: ft.Container | None = None
+        self.setup_error_text: ft.Text | None = None
+        self.setup_base_url_field: ft.TextField | None = None
+        self.setup_api_key_field: ft.TextField | None = None
+        self.setup_model_field: ft.TextField | None = None
 
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
@@ -129,6 +138,97 @@ class GUIApp(
     def _on_close(self, e):
         if self.page and self.agent is not None:
             self.page.run_task(self._shutdown_agent)
+
+    def _is_valid_base_url(self, base_url: str) -> bool:
+        parsed = urlparse(base_url)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+    async def _open_setup_view(self):
+        if self.setup_base_url_field:
+            self.setup_base_url_field.value = self.config.base_url or "https://openrouter.ai/api/v1"
+        if self.setup_api_key_field:
+            self.setup_api_key_field.value = self.config.api_key or ""
+        if self.setup_model_field:
+            self.setup_model_field.value = self.config.model_name
+        if self.setup_error_text:
+            self.setup_error_text.value = ""
+            self.setup_error_text.visible = False
+        self.app_mode = "setup"
+        self._apply_app_mode()
+
+    async def _cancel_setup_view(self):
+        if self.config.needs_setup:
+            await self._close_gui_window()
+            return
+        self.app_mode = "chat"
+        self._apply_app_mode()
+
+    async def _submit_setup_view(self):
+        if not self.setup_base_url_field or not self.setup_api_key_field or not self.setup_model_field:
+            return
+        base_url = self.setup_base_url_field.value.strip() or "https://openrouter.ai/api/v1"
+        api_key = self.setup_api_key_field.value.strip()
+        model_name = self.setup_model_field.value.strip() or self.config.model.name
+
+        if not api_key:
+            if self.setup_error_text:
+                self.setup_error_text.value = "API key is required."
+                self.setup_error_text.visible = True
+            if self.page:
+                self.page.update()
+            return
+
+        if not self._is_valid_base_url(base_url):
+            if self.setup_error_text:
+                self.setup_error_text.value = "Base URL must be a valid http/https URL."
+                self.setup_error_text.visible = True
+            if self.page:
+                self.page.update()
+            return
+
+        try:
+            save_system_config(
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+            )
+        except Exception as exc:
+            if self.setup_error_text:
+                self.setup_error_text.value = f"Failed to save setup: {exc}"
+                self.setup_error_text.visible = True
+            if self.page:
+                self.page.update()
+            return
+
+        self.config.api_key = api_key
+        self.config.base_url = base_url
+        self.config.model.name = model_name
+        if self.model_selector:
+            self.model_selector.value = self.config.model_name
+            self.model_selector.update()
+
+        if self.agent is not None:
+            await self._shutdown_agent()
+
+        if self.header_workspace_text:
+            self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
+            self.header_workspace_text.update()
+
+        self.app_mode = "chat"
+        self._apply_app_mode()
+        self._add_assistant_card(
+            "Setup Complete",
+            ft.Text("Credentials saved and applied.", color=ft.Colors.with_opacity(0.8, ft.Colors.GREEN_300)),
+        )
+
+    def _apply_app_mode(self):
+        if not self.page:
+            return
+        if self.chat_shell:
+            self.chat_shell.visible = self.app_mode == "chat"
+        if self.setup_view:
+            self.setup_view.visible = self.app_mode == "setup"
+        self.page.update()
 
     async def _shutdown_agent(self):
         if self.agent is None:

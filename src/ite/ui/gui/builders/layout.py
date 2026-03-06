@@ -18,7 +18,7 @@ class LayoutBuilderMixin:
 
     def _build_ui(self, page: ft.Page):
         self.sidebar_root = self.build_sidebar()
-        shell = ft.Row(
+        self.chat_shell = ft.Row(
             [
                 self.sidebar_root,
                 ft.VerticalDivider(width=1, color=BORDER),
@@ -39,10 +39,118 @@ class LayoutBuilderMixin:
             expand=True,
             spacing=0,
         )
-        page.add(shell)
+        self.setup_view = self.build_setup_view()
+        page.add(
+            ft.Stack(
+                [
+                    self.chat_shell,
+                    self.setup_view,
+                ],
+                expand=True,
+            )
+        )
         self._refresh_workspace_options()
         self._refresh_sidebar_threads()
         self._apply_sidebar_state(update=False)
+        self._apply_app_mode()
+
+    def build_setup_view(self) -> ft.Control:
+        self.setup_error_text = ft.Text(
+            "",
+            size=11,
+            color=ft.Colors.with_opacity(0.9, ft.Colors.RED_300),
+            visible=False,
+        )
+        self.setup_base_url_field = ft.TextField(
+            label="Base URL",
+            value=self.config.base_url or "https://openrouter.ai/api/v1",
+            border_radius=RADIUS_SM,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            text_size=12,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+        self.setup_api_key_field = ft.TextField(
+            label="API Key",
+            password=True,
+            can_reveal_password=True,
+            value=self.config.api_key or "",
+            border_radius=RADIUS_SM,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            text_size=12,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+        self.setup_model_field = ft.TextField(
+            label="Model",
+            value=self.config.model_name,
+            border_radius=RADIUS_SM,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            text_size=12,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+        )
+
+        card = ft.Container(
+            width=520,
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, BORDER_STRONG),
+            border_radius=RADIUS_MD,
+            padding=ft.Padding.symmetric(horizontal=18, vertical=16),
+            content=ft.Column(
+                [
+                    ft.Text("Setup ITE", size=20, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+                    ft.Text(
+                        "Connect your provider credentials to start using the GUI.",
+                        size=12,
+                        color=TEXT_SECONDARY,
+                    ),
+                    ft.Divider(height=10, color=BORDER),
+                    self.setup_base_url_field,
+                    self.setup_api_key_field,
+                    self.setup_model_field,
+                    self.setup_error_text,
+                    ft.Row(
+                        [
+                            ft.OutlinedButton(
+                                "Cancel",
+                                on_click=lambda e: self.page.run_task(self._cancel_setup_view) if self.page else None,
+                                style=ft.ButtonStyle(
+                                    side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
+                                    color=TEXT_SECONDARY,
+                                    shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                                ),
+                            ),
+                            ft.Container(expand=True),
+                            ft.FilledButton(
+                                "Continue",
+                                on_click=lambda e: self.page.run_task(self._submit_setup_view) if self.page else None,
+                                style=ft.ButtonStyle(
+                                    bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
+                                    color=ft.Colors.BLACK,
+                                    shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                                ),
+                            ),
+                        ]
+                    ),
+                ],
+                spacing=10,
+                tight=True,
+            ),
+        )
+        return ft.Container(
+            visible=False,
+            expand=True,
+            bgcolor=CANVAS,
+            alignment=ft.Alignment(0, 0),
+            content=card,
+        )
 
     def build_sidebar(self) -> ft.Control:
         self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -112,6 +220,17 @@ class LayoutBuilderMixin:
                         ft.Text("Approval", size=10, color=TEXT_MUTED),
                         self.approval_selector,
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.OutlinedButton(
+                        "Setup",
+                        on_click=lambda e: self.page.run_task(self._open_setup_view) if self.page else None,
+                        style=ft.ButtonStyle(
+                            side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
+                            color=TEXT_SECONDARY,
+                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                            text_style=ft.TextStyle(size=11, weight=ft.FontWeight.W_600),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                        ),
+                    ),
                 ],
                 spacing=SPACE_XS,
             ),

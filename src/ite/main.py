@@ -343,16 +343,22 @@ def main(
     if model:
         config.model.name = model
 
-    # If credentials are still missing, run the setup wizard
-    if config.needs_setup:
+    # Setup routing:
+    # - TUI: keep terminal wizard behavior.
+    # - GUI: launch GUI setup view instead of forcing terminal wizard first.
+    if not gui and config.needs_setup:
         from ite.config.setup import run_setup_wizard
 
         config = run_setup_wizard(console, config)
 
     errors = config.validate()
     if errors:
-        # Filter out the api_key error since wizard should have handled it
-        real_errors = [e for e in errors if e != "missing_api_key"]
+        # In GUI mode missing_api_key is handled by the in-app setup flow.
+        if gui:
+            real_errors = [e for e in errors if e != "missing_api_key"]
+        else:
+            # For TUI the wizard should have already handled missing_api_key.
+            real_errors = [e for e in errors if e != "missing_api_key"]
         if real_errors:
             for error in real_errors:
                 console.print(f"[error]{error}[/error]")

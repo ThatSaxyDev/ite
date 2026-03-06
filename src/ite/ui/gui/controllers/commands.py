@@ -24,7 +24,7 @@ class CommandControllerMixin:
                 self._add_message("system", "Error: agent not initialized", is_error=True)
                 return
 
-            if command == "/setup" or (command == "/subagent" and args and args[0] == "create"):
+            if command == "/subagent" and args and args[0] == "create":
                 self._add_message(
                     "system",
                     "This command is interactive and currently supported in TUI only.",
@@ -134,6 +134,10 @@ class CommandControllerMixin:
                 self._add_assistant_card("Model Updated", ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_PRIMARY))
             else:
                 self._add_assistant_card("Current Model", ft.Text(self.config.model_name, color=TEXT_PRIMARY))
+            return True
+
+        if command == "/setup":
+            await self._open_setup_view()
             return True
 
         if command == "/clear":
