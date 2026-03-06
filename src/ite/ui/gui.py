@@ -213,6 +213,17 @@ class GUI:
 
     def build_sidebar(self) -> ft.Control:
         self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
+        def _format_approval_label(value: str) -> str:
+            return value.replace("_", " ").title()
+
+        approval_descriptions = {
+            "on_request": "Ask before each mutating action",
+            "on_failure": "Auto-run; only ask after failure",
+            "auto": "Auto-approve safe operations",
+            "auto_edit": "Auto-edit in workspace; ask otherwise",
+            "never": "Reject unsafe operations automatically",
+            "yolo": "Approve everything with no guardrails",
+        }
         self.workspace_selector = ft.Dropdown(
             value=str(self.config.cwd.resolve()),
             options=[],
@@ -228,7 +239,26 @@ class GUI:
         )
         self.approval_selector = ft.Dropdown(
             value=self.config.approval.value,
-            options=[ft.dropdown.Option(p.value) for p in ApprovalPolicy],
+            options=[
+                ft.dropdown.Option(
+                    key=p.value,
+                    text=_format_approval_label(p.value),
+                    content=ft.Column(
+                        [
+                            ft.Text(_format_approval_label(p.value), size=13, color=TEXT_PRIMARY),
+                            ft.Text(
+                                approval_descriptions.get(p.value, ""),
+                                size=11,
+                                color=TEXT_MUTED,
+                                no_wrap=True,
+                            ),
+                        ],
+                        tight=True,
+                        spacing=1,
+                    ),
+                )
+                for p in ApprovalPolicy
+            ],
             width=160,
             text_size=11,
             dense=True,
@@ -1116,14 +1146,18 @@ class GUI:
         self._set_loading(True)
         self._add_message("user", command_line)
         try:
+            parts = command_line.split()
+            command = parts[0].lower()
+            args = parts[1:]
+
+            if command in {"/exit", "/quit"}:
+                await self._close_gui_window()
+                return
+
             await self._ensure_agent()
             if not self.agent:
                 self._add_message("system", "Error: agent not initialized", is_error=True)
                 return
-
-            parts = command_line.split()
-            command = parts[0].lower()
-            args = parts[1:]
 
             if command == "/setup" or (command == "/subagent" and args and args[0] == "create"):
                 self._add_message(
@@ -1167,6 +1201,19 @@ class GUI:
             self._add_message("system", f"Error: {e}", is_error=True)
         finally:
             self._set_loading(False)
+
+    async def _close_gui_window(self):
+        if self.agent is not None:
+            await self._shutdown_agent()
+        if not self.page:
+            return
+        try:
+            self.page.window.close()
+        except Exception:
+            try:
+                self.page.window.destroy()
+            except Exception:
+                pass
 
     def print_welcome(self, model: str, cwd, commands: list[str] | None = None):
         command_text = ""
