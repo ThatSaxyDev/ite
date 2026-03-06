@@ -78,6 +78,95 @@ class GUI:
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
 
+    def _truncate_content(
+        self,
+        content: str,
+        *,
+        max_chars: int = 700,
+        max_lines: int = 8,
+    ) -> tuple[str, bool]:
+        lines = content.splitlines()
+        clipped_lines = lines[:max_lines]
+        clipped = "\n".join(clipped_lines)
+        if len(clipped) > max_chars:
+            clipped = clipped[:max_chars]
+        is_truncated = len(lines) > max_lines or len(content) > max_chars
+        return clipped, is_truncated
+
+    def _build_expandable_block(
+        self,
+        content: str,
+        *,
+        as_markdown: bool = False,
+        max_chars: int = 700,
+        max_lines: int = 8,
+    ) -> ft.Control:
+        preview, is_truncated = self._truncate_content(
+            content,
+            max_chars=max_chars,
+            max_lines=max_lines,
+        )
+
+        if as_markdown:
+            body: ft.Control = ft.Markdown(
+                preview if is_truncated else content,
+                selectable=True,
+                extension_set="gitHubFlavored",
+            )
+        else:
+            body = ft.Text(
+                preview if is_truncated else content,
+                style=MONO_STYLE,
+                selectable=True,
+            )
+
+        if not is_truncated:
+            return body
+
+        expanded = {"value": False}
+        state_label = ft.Text("", size=11, color=TEXT_MUTED)
+        toggle = ft.IconButton(
+            icon=ft.Icons.KEYBOARD_ARROW_DOWN,
+            icon_size=18,
+            tooltip="Expand",
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.07, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+
+        def on_toggle(e):
+            expanded["value"] = not expanded["value"]
+            new_text = content if expanded["value"] else preview
+            if isinstance(body, ft.Markdown):
+                body.value = new_text
+            else:
+                body.value = new_text
+            toggle.icon = (
+                ft.Icons.KEYBOARD_ARROW_UP
+                if expanded["value"]
+                else ft.Icons.KEYBOARD_ARROW_DOWN
+            )
+            toggle.tooltip = "Collapse" if expanded["value"] else "Expand"
+            state_label.value = "" if expanded["value"] else ""
+            if self.page:
+                self.page.update()
+                self._scroll_chat_to_bottom(animate=False)
+
+        toggle.on_click = on_toggle
+
+        return ft.Column(
+            [
+                ft.Row(
+                    [state_label, ft.Container(expand=True), toggle],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                body,
+            ],
+            tight=True,
+            spacing=4,
+        )
+
     def run(self, page: ft.Page):
         self.page = page
         page.title = "ITE - Interactive Terminal Environment"
@@ -491,7 +580,12 @@ class GUI:
                         ]
                     ),
                     ft.Divider(height=1, color=BORDER),
-                    ft.Text(args_text, style=MONO_STYLE, selectable=True),
+                    self._build_expandable_block(
+                        args_text,
+                        as_markdown=False,
+                        max_chars=500,
+                        max_lines=5,
+                    ),
                 ],
                 spacing=6,
                 tight=True,
@@ -528,13 +622,21 @@ class GUI:
         state_text = "done" if success else "failed"
         state_color = ft.Colors.with_opacity(0.90, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)
         payload = output or error or "No output"
-        if len(payload) > 1400:
-            payload = payload[:1400] + "\n... [truncated]"
 
         if diff:
-            body: ft.Control = ft.Markdown(f"```diff\n{diff}\n```", selectable=True)
+            body: ft.Control = self._build_expandable_block(
+                f"```diff\n{diff}\n```",
+                as_markdown=True,
+                max_chars=900,
+                max_lines=8,
+            )
         else:
-            body = ft.Text(payload, style=MONO_STYLE, selectable=True)
+            body = self._build_expandable_block(
+                payload,
+                as_markdown=False,
+                max_chars=700,
+                max_lines=7,
+            )
 
         card = ft.Container(
             content=ft.Column(
@@ -620,7 +722,12 @@ class GUI:
         if command:
             parts.append(
                 ft.Container(
-                    content=ft.Text(command, style=MONO_STYLE, selectable=True),
+                    content=self._build_expandable_block(
+                        command,
+                        as_markdown=False,
+                        max_chars=450,
+                        max_lines=4,
+                    ),
                     bgcolor=SURFACE_2,
                     border=ft.Border.all(1, BORDER),
                     border_radius=RADIUS_SM,
@@ -629,16 +736,36 @@ class GUI:
             )
 
         if diff:
-            parts.append(ft.Markdown(f"```diff\n{diff}\n```"))
+            parts.append(
+                self._build_expandable_block(
+                    f"```diff\n{diff}\n```",
+                    as_markdown=True,
+                    max_chars=850,
+                    max_lines=8,
+                )
+            )
 
-        status_text = ft.Text("", size=11, color=TEXT_MUTED)
+        status_text = ft.Text(
+            "Pending approval",
+            size=11,
+            color=ft.Colors.with_opacity(0.9, ft.Colors.AMBER_300),
+            weight=ft.FontWeight.W_600,
+        )
+        buttons_row: ft.Row | None = None
+        approval_card: ft.Container | None = None
 
         def on_yes(e):
             self.pending_confirmation = True
             approve_btn.disabled = True
             deny_btn.disabled = True
+            if buttons_row:
+                buttons_row.visible = False
             status_text.value = "Approved"
             status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.GREEN_300)
+            if approval_card:
+                approval_card.border = ft.Border.all(
+                    1, ft.Colors.with_opacity(0.35, ft.Colors.GREEN_300)
+                )
             self.page.update()
             if not confirmation_future.done():
                 confirmation_future.set_result(True)
@@ -647,8 +774,14 @@ class GUI:
             self.pending_confirmation = False
             approve_btn.disabled = True
             deny_btn.disabled = True
+            if buttons_row:
+                buttons_row.visible = False
             status_text.value = "Denied"
             status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.RED_300)
+            if approval_card:
+                approval_card.border = ft.Border.all(
+                    1, ft.Colors.with_opacity(0.35, ft.Colors.RED_300)
+                )
             self.page.update()
             if not confirmation_future.done():
                 confirmation_future.set_result(False)
@@ -673,12 +806,12 @@ class GUI:
             ),
         )
 
-        parts.append(
-            ft.Row(
-                [status_text, ft.Container(expand=True), deny_btn, approve_btn],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            )
+        buttons_row = ft.Row(
+            [ft.Container(expand=True), deny_btn, approve_btn],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
+        parts.append(status_text)
+        parts.append(buttons_row)
 
         approval_card = ft.Container(
             content=ft.Column(parts, tight=True, spacing=8),
