@@ -43,6 +43,15 @@ class GUIApp(
         self.header_workspace_text: ft.Text | None = None
         self.current_session_title: str = "New Session"
         self.sidebar_threads_column: ft.Column | None = None
+        self.sidebar_root: ft.Container | None = None
+        self.sidebar_toggle_button: ft.IconButton | None = None
+        self.sidebar_new_thread_button: ft.TextButton | None = None
+        self.sidebar_new_thread_compact: ft.IconButton | None = None
+        self.sidebar_workspace_block: ft.Column | None = None
+        self.sidebar_threads_label: ft.Text | None = None
+        self.sidebar_status_card: ft.Container | None = None
+        self.sidebar_collapsed: bool = False
+        self.active_session_id: str | None = None
 
         self.confirmation_dialog: ft.AlertDialog | None = None
         self.pending_confirmation: ToolConfirmation | None = None
@@ -84,6 +93,7 @@ class GUIApp(
         )
         await self.agent.__aenter__()
         if self.agent.session:
+            self.active_session_id = self.agent.session.session_id
             self._set_current_session_title(self.agent.session.name)
 
     def _on_send(self, e):

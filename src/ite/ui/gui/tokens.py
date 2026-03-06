@@ -3,14 +3,24 @@ import flet as ft
 CANVAS = "#181818"
 SURFACE_1 = "#202020"
 SURFACE_2 = "#222222"
+SURFACE_3 = "#262626"
 BORDER = ft.Colors.with_opacity(0.07, ft.Colors.WHITE)
+BORDER_STRONG = ft.Colors.with_opacity(0.14, ft.Colors.WHITE)
 TEXT_PRIMARY = ft.Colors.with_opacity(0.90, ft.Colors.WHITE)
 TEXT_SECONDARY = ft.Colors.with_opacity(0.62, ft.Colors.WHITE)
 TEXT_MUTED = ft.Colors.with_opacity(0.40, ft.Colors.WHITE)
 ACCENT = "#6EA7FF"
+ACCENT_SOFT = ft.Colors.with_opacity(0.18, ACCENT)
+SUCCESS = ft.Colors.with_opacity(0.90, ft.Colors.GREEN_300)
+SUCCESS_SOFT = ft.Colors.with_opacity(0.22, ft.Colors.GREEN_300)
+DANGER = ft.Colors.with_opacity(0.90, ft.Colors.RED_300)
+DANGER_SOFT = ft.Colors.with_opacity(0.22, ft.Colors.RED_300)
+WARNING = ft.Colors.with_opacity(0.90, ft.Colors.AMBER_300)
+WARNING_SOFT = ft.Colors.with_opacity(0.22, ft.Colors.AMBER_300)
 
 RADIUS_SM = 6
 RADIUS_MD = 8
+RADIUS_LG = 10
 SPACE_XS = 6
 SPACE_SM = 8
 SPACE_MD = 12
@@ -18,7 +28,10 @@ SPACE_LG = 16
 SPACE_XL = 20
 
 THREADS_WIDTH = 284
+THREADS_WIDTH_COLLAPSED = 68
 CHAT_WIDTH = 940
+FONT_UI = "IBM Plex Sans"
+FONT_MONO = "IBM Plex Mono"
 
 SHADOW_SUBTLE = [
     ft.BoxShadow(
@@ -30,7 +43,7 @@ SHADOW_SUBTLE = [
 ]
 
 MONO_STYLE = ft.TextStyle(
-    font_family="monospace",
-    size=13,
+    font_family=FONT_MONO,
+    size=12,
     color=TEXT_SECONDARY,
 )

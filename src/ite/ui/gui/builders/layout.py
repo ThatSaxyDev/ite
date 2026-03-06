@@ -9,6 +9,7 @@ class LayoutBuilderMixin:
         self.page = page
         page.title = "ITE - Interactive Terminal Environment"
         page.theme_mode = ft.ThemeMode.DARK
+        page.theme = ft.Theme(font_family=FONT_UI)
         page.padding = 0
         page.bgcolor = CANVAS
         page.on_close = self._on_close
@@ -16,9 +17,10 @@ class LayoutBuilderMixin:
         self._build_ui(page)
 
     def _build_ui(self, page: ft.Page):
+        self.sidebar_root = self.build_sidebar()
         shell = ft.Row(
             [
-                self.build_sidebar(),
+                self.sidebar_root,
                 ft.VerticalDivider(width=1, color=BORDER),
                 ft.Container(
                     content=ft.Column(
@@ -40,6 +42,7 @@ class LayoutBuilderMixin:
         page.add(shell)
         self._refresh_workspace_options()
         self._refresh_sidebar_threads()
+        self._apply_sidebar_state(update=False)
 
     def build_sidebar(self) -> ft.Control:
         self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
@@ -57,12 +60,12 @@ class LayoutBuilderMixin:
         self.workspace_selector = ft.Dropdown(
             value=str(self.config.cwd.resolve()),
             options=[],
-            text_size=12,
+            text_size=11,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
             focused_border_color=ACCENT,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             on_select=self._on_workspace_select,
@@ -78,7 +81,7 @@ class LayoutBuilderMixin:
                             ft.Text(_format_approval_label(p.value), size=13, color=TEXT_PRIMARY),
                             ft.Text(
                                 approval_descriptions.get(p.value, ""),
-                                size=11,
+                                size=10,
                                 color=TEXT_MUTED,
                                 no_wrap=True,
                             ),
@@ -89,73 +92,149 @@ class LayoutBuilderMixin:
                 )
                 for p in ApprovalPolicy
             ],
-            width=160,
-            text_size=11,
+            width=158,
+            text_size=10,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
             focused_border_color=ACCENT,
-            content_padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            content_padding=ft.Padding.symmetric(horizontal=8, vertical=5),
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             on_select=self._on_approval_select,
         )
 
-        status_card = ft.Container(
+        self.sidebar_status_card = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text("Status", size=12, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
+                    ft.Text("Status", size=11, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
                     ft.Row([
-                        ft.Text("Approval", size=11, color=TEXT_MUTED),
+                        ft.Text("Approval", size=10, color=TEXT_MUTED),
                         self.approval_selector,
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    # ft.Row([
-                    #     ft.Text("Hooks", size=11, color=TEXT_MUTED),
-                    #     ft.Text(str(self.config.hooks_enabled), size=11, color=TEXT_SECONDARY),
-                    # ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ],
                 spacing=SPACE_XS,
             ),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=9),
             bgcolor=SURFACE_1,
             border=ft.Border.all(1, BORDER),
             border_radius=RADIUS_SM,
         )
 
-        return ft.Container(
+        self.sidebar_new_thread_button = ft.TextButton(
+            content=ft.Text("+ New thread", size=12, color=TEXT_PRIMARY, weight=ft.FontWeight.W_600),
+            on_click=lambda e: self._on_new_thread(),
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: SURFACE_2, ft.ControlState.HOVERED: SURFACE_3},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                side=ft.BorderSide(1, BORDER_STRONG),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+            ),
+        )
+        self.sidebar_new_thread_compact = ft.IconButton(
+            icon=ft.Icons.ADD,
+            tooltip="New thread",
+            on_click=lambda e: self._on_new_thread(),
+            icon_color=TEXT_PRIMARY,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: SURFACE_2, ft.ControlState.HOVERED: SURFACE_3},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                side=ft.BorderSide(1, BORDER_STRONG),
+            ),
+        )
+        self.sidebar_toggle_button = ft.IconButton(
+            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT,
+            tooltip="Collapse sidebar",
+            on_click=lambda e: self._toggle_sidebar(),
+            icon_size=16,
+            icon_color=TEXT_SECONDARY,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+
+        self.sidebar_workspace_block = ft.Column(
+            [
+                ft.Text("Workspace", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
+                self.workspace_selector,
+            ],
+            spacing=6,
+            tight=True,
+        )
+        self.sidebar_threads_label = ft.Text(
+            "Threads",
+            size=11,
+            color=TEXT_MUTED,
+            weight=ft.FontWeight.W_500,
+        )
+
+        sidebar = ft.Container(
             width=THREADS_WIDTH,
             bgcolor=SURFACE_1,
             padding=ft.Padding.symmetric(horizontal=12, vertical=12),
             content=ft.Column(
                 [
-                    ft.TextButton(
-                        content=ft.Text("+ New thread", size=13, color=TEXT_PRIMARY),
-                        on_click=lambda e: self._on_new_thread(),
-                        style=ft.ButtonStyle(
-                            bgcolor={ft.ControlState.DEFAULT: SURFACE_2},
-                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                            side=ft.BorderSide(1, BORDER),
-                            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                        ),
+                    ft.Row(
+                        [
+                            ft.Container(self.sidebar_new_thread_button, expand=True),
+                            self.sidebar_new_thread_compact,
+                            self.sidebar_toggle_button,
+                        ],
+                        spacing=6,
                     ),
                     ft.Divider(height=12, color=BORDER),
-                    ft.Text("Workspace", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
-                    self.workspace_selector,
+                    self.sidebar_workspace_block,
                     ft.Divider(height=12, color=BORDER),
-                    ft.Text("Threads", size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
+                    self.sidebar_threads_label,
                     self.sidebar_threads_column,
                     ft.Divider(height=12, color=BORDER),
-                    status_card,
+                    self.sidebar_status_card,
                 ],
                 spacing=SPACE_SM,
                 expand=True,
             ),
         )
+        return sidebar
+
+    def _toggle_sidebar(self):
+        self.sidebar_collapsed = not self.sidebar_collapsed
+        self._apply_sidebar_state()
+
+    def _apply_sidebar_state(self, update: bool = True):
+        if not self.sidebar_root:
+            return
+        collapsed = self.sidebar_collapsed
+        self.sidebar_root.width = THREADS_WIDTH_COLLAPSED if collapsed else THREADS_WIDTH
+
+        if self.sidebar_toggle_button:
+            self.sidebar_toggle_button.icon = (
+                ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT
+                if collapsed
+                else ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT
+            )
+            self.sidebar_toggle_button.tooltip = (
+                "Expand sidebar" if collapsed else "Collapse sidebar"
+            )
+        if self.sidebar_new_thread_button:
+            self.sidebar_new_thread_button.visible = not collapsed
+        if self.sidebar_new_thread_compact:
+            self.sidebar_new_thread_compact.visible = collapsed
+        if self.sidebar_workspace_block:
+            self.sidebar_workspace_block.visible = not collapsed
+        if self.sidebar_threads_label:
+            self.sidebar_threads_label.visible = not collapsed
+        if self.sidebar_status_card:
+            self.sidebar_status_card.visible = not collapsed
+
+        self._refresh_sidebar_threads()
+        if update and self.page:
+            self.page.update()
 
     def build_header(self) -> ft.Control:
         self.header_session_text = ft.Text(
             self.current_session_title,
-            size=16,
+            size=15,
             weight=ft.FontWeight.W_700,
             color=TEXT_PRIMARY,
             no_wrap=True,
@@ -163,7 +242,7 @@ class LayoutBuilderMixin:
         )
         self.header_workspace_text = ft.Text(
             f"Workspace: {self.config.cwd}",
-            size=12,
+            size=11,
             color=TEXT_MUTED,
             expand=True,
             text_align=ft.TextAlign.RIGHT,
@@ -230,13 +309,13 @@ class LayoutBuilderMixin:
         self.model_selector = ft.Dropdown(
             value=self.config.model_name,
             options=[ft.dropdown.Option(m) for m in model_choices],
-            width=220,
-            text_size=12,
+            width=210,
+            text_size=11,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
             focused_border_color=ACCENT,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=7),
             bgcolor=SURFACE_1,
             color=TEXT_PRIMARY,
             on_select=self._on_model_select,
@@ -259,9 +338,9 @@ class LayoutBuilderMixin:
             focused_border_color=ACCENT,
             bgcolor=SURFACE_1,
             cursor_color=ACCENT,
-            text_style=ft.TextStyle(size=15, color=TEXT_PRIMARY),
-            hint_style=ft.TextStyle(size=15, color=TEXT_MUTED),
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=12),
+            text_style=ft.TextStyle(size=14, color=TEXT_PRIMARY),
+            hint_style=ft.TextStyle(size=14, color=TEXT_MUTED),
+            content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
         )
 
         self.send_button = ft.FilledButton(
@@ -269,22 +348,24 @@ class LayoutBuilderMixin:
             on_click=self._on_send,
             disabled=False,
             style=ft.ButtonStyle(
-                bgcolor=ACCENT,
+                bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
                 color=ft.Colors.BLACK,
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                padding=ft.Padding.symmetric(horizontal=14, vertical=12),
-                text_style=ft.TextStyle(size=13, weight=ft.FontWeight.W_700),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
+                padding=ft.Padding.symmetric(horizontal=13, vertical=10),
+                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_700),
             ),
         )
 
-        clear_button = ft.TextButton(
+        clear_button = ft.OutlinedButton(
             "Clear",
             on_click=lambda e: self.page.run_task(self._run_command, "/clear") if self.page else None,
             style=ft.ButtonStyle(
                 color=TEXT_SECONDARY,
-                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.07, ft.Colors.WHITE)},
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.05, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
             ),
         )
 
@@ -300,7 +381,7 @@ class LayoutBuilderMixin:
                     self.loading_indicator,
                     self.send_button,
                 ],
-                spacing=10,
+                spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         )

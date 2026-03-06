@@ -21,40 +21,77 @@ class WorkspaceControllerMixin:
         ][:20]
         controls: list[ft.Control] = []
         if not sessions:
-            controls.append(ft.Text("No saved threads", size=12, color=TEXT_MUTED))
+            if not self.sidebar_collapsed:
+                controls.append(ft.Text("No saved threads", size=11, color=TEXT_MUTED))
         else:
             for session in sessions:
                 updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
+                is_active = session["session_id"] == self.active_session_id
+                session_name = (session.get("name") or session["session_id"]).strip()
+
+                if self.sidebar_collapsed:
+                    compact_label = (
+                        (session_name[0].upper() if session_name else "•")
+                        if session_name
+                        else "•"
+                    )
+                    controls.append(
+                        ft.Container(
+                            content=ft.Text(
+                                compact_label,
+                                size=12,
+                                weight=ft.FontWeight.W_700,
+                                color=ACCENT if is_active else TEXT_PRIMARY,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            alignment=ft.alignment.center,
+                            height=34,
+                            border=ft.Border.all(1, ACCENT if is_active else BORDER),
+                            border_radius=RADIUS_SM,
+                            bgcolor=ACCENT_SOFT if is_active else SURFACE_1,
+                            tooltip=f"{session_name} · {session['turn_count']} turns",
+                            on_click=lambda e, sid=session["session_id"]: self._on_sidebar_session_click(sid),
+                        )
+                    )
+                    continue
+
                 controls.append(
                     ft.Container(
                         content=ft.Row(
                             [
+                                ft.Container(
+                                    width=2,
+                                    height=28,
+                                    border_radius=RADIUS_SM,
+                                    bgcolor=ACCENT if is_active else ft.Colors.TRANSPARENT,
+                                ),
                                 ft.Column(
                                     [
                                         ft.Text(
-                                            (session.get("name") or session["session_id"])[:30],
-                                            size=13,
+                                            session_name[:32],
+                                            size=12,
                                             color=TEXT_PRIMARY,
+                                            weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
                                             no_wrap=True,
                                         ),
                                         ft.Text(
                                             f"{session['turn_count']} turns",
-                                            size=11,
+                                            size=10,
                                             color=TEXT_MUTED,
                                         ),
                                     ],
                                     spacing=2,
                                     expand=True,
                                 ),
-                                ft.Text(updated, size=11, color=TEXT_MUTED),
+                                ft.Text(updated, size=10, color=TEXT_MUTED),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.START,
                         ),
-                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-                        border=ft.Border.all(1, BORDER),
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=7),
+                        border=ft.Border.all(1, ACCENT if is_active else BORDER),
                         border_radius=RADIUS_SM,
-                        bgcolor=SURFACE_1,
+                        bgcolor=ACCENT_SOFT if is_active else SURFACE_1,
                         on_click=lambda e, sid=session["session_id"]: self._on_sidebar_session_click(sid),
                     )
                 )
@@ -77,8 +114,8 @@ class WorkspaceControllerMixin:
                 text=(Path(p).name or p),
                 content=ft.Column(
                     [
-                        ft.Text(Path(p).name or p, size=13, color=TEXT_PRIMARY),
-                        ft.Text(p, size=11, color=TEXT_MUTED, no_wrap=True),
+                        ft.Text(Path(p).name or p, size=12, color=TEXT_PRIMARY),
+                        ft.Text(p, size=10, color=TEXT_MUTED, no_wrap=True),
                     ],
                     tight=True,
                     spacing=1,
@@ -116,6 +153,7 @@ class WorkspaceControllerMixin:
             if self.messages_column:
                 self.messages_column.controls.clear()
             self._set_current_session_title(None)
+            self.active_session_id = None
             self._tool_call_row_indices.clear()
             self._refresh_workspace_options()
             self._refresh_sidebar_threads()
@@ -133,4 +171,3 @@ class WorkspaceControllerMixin:
     def _on_sidebar_session_click(self, session_id: str):
         if self.page:
             self.page.run_task(self._open_session_from_sidebar, session_id)
-

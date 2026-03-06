@@ -105,7 +105,7 @@ class MessageBuilderMixin:
             content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
             bgcolor=bg,
             border_radius=RADIUS_MD,
-            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=9),
             border=ft.Border.all(1, border_color),
             shadow=SHADOW_SUBTLE,
             width=760 if role != "user" else 640,
@@ -166,7 +166,7 @@ class MessageBuilderMixin:
                 tight=True,
             ),
             bgcolor=SURFACE_1,
-            border=ft.Border.all(1, BORDER),
+            border=ft.Border.all(1, BORDER_STRONG),
             border_radius=RADIUS_MD,
             padding=ft.Padding.symmetric(horizontal=12, vertical=10),
             width=760,
@@ -229,9 +229,16 @@ class MessageBuilderMixin:
                     ft.Row(
                         [
                             ft.Text("tool", size=11, color=TEXT_MUTED),
-                            ft.Text(name, size=12, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
-                            ft.Text(f"#{call_id[:8]}", size=11, color=TEXT_MUTED),
-                            ft.Text("running", size=11, color=ACCENT, expand=True, text_align=ft.TextAlign.RIGHT),
+                            ft.Text(name, size=12, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+                            ft.Text(f"#{call_id[:8]}", size=10, color=TEXT_MUTED),
+                            ft.Container(expand=True),
+                            ft.Container(
+                                content=ft.Text("running", size=10, color=ACCENT),
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                border=ft.Border.all(1, ACCENT_SOFT),
+                                border_radius=RADIUS_LG,
+                                bgcolor=ft.Colors.with_opacity(0.1, ACCENT),
+                            ),
                         ]
                     ),
                     ft.Divider(height=1, color=BORDER),
@@ -245,7 +252,7 @@ class MessageBuilderMixin:
                 spacing=6,
                 tight=True,
             ),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ACCENT)),
+            border=ft.Border.all(1, ACCENT_SOFT),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             width=760,
@@ -275,7 +282,7 @@ class MessageBuilderMixin:
             return
 
         state_text = "done" if success else "failed"
-        state_color = ft.Colors.with_opacity(0.90, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)
+        state_color = SUCCESS if success else DANGER
         payload = output or error or "No output"
 
         if diff:
@@ -299,9 +306,18 @@ class MessageBuilderMixin:
                     ft.Row(
                         [
                             ft.Text("tool", size=11, color=TEXT_MUTED),
-                            ft.Text(name, size=12, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
-                            ft.Text(f"#{call_id[:8]}", size=11, color=TEXT_MUTED),
-                            ft.Text(state_text, size=11, color=state_color, expand=True, text_align=ft.TextAlign.RIGHT),
+                            ft.Text(name, size=12, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+                            ft.Text(f"#{call_id[:8]}", size=10, color=TEXT_MUTED),
+                            ft.Container(expand=True),
+                            ft.Container(
+                                content=ft.Text(state_text, size=10, color=state_color),
+                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                border=ft.Border.all(1, SUCCESS_SOFT if success else DANGER_SOFT),
+                                border_radius=RADIUS_LG,
+                                bgcolor=ft.Colors.with_opacity(
+                                    0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+                                ),
+                            ),
                         ]
                     ),
                     ft.Divider(height=1, color=BORDER),
@@ -310,7 +326,7 @@ class MessageBuilderMixin:
                 spacing=6,
                 tight=True,
             ),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.22, ft.Colors.GREEN_300 if success else ft.Colors.RED_300)),
+            border=ft.Border.all(1, SUCCESS_SOFT if success else DANGER_SOFT),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             width=760,
@@ -319,4 +335,3 @@ class MessageBuilderMixin:
         self.messages_column.controls[index] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
         self.page.update()
         self._scroll_chat_to_bottom(animate=False, force=True)
-

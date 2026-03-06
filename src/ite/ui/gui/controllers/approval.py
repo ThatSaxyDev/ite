@@ -89,8 +89,8 @@ class ApprovalControllerMixin:
 
         status_text = ft.Text(
             "Pending approval",
-            size=11,
-            color=ft.Colors.with_opacity(0.9, ft.Colors.AMBER_300),
+            size=10,
+            color=WARNING,
             weight=ft.FontWeight.W_600,
         )
         buttons_row: ft.Row | None = None
@@ -103,10 +103,10 @@ class ApprovalControllerMixin:
             if buttons_row:
                 buttons_row.visible = False
             status_text.value = "Approved"
-            status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.GREEN_300)
+            status_text.color = SUCCESS
             if approval_card:
                 approval_card.border = ft.Border.all(
-                    1, ft.Colors.with_opacity(0.35, ft.Colors.GREEN_300)
+                    1, SUCCESS_SOFT
                 )
             self.page.update()
             if not confirmation_future.done():
@@ -119,22 +119,28 @@ class ApprovalControllerMixin:
             if buttons_row:
                 buttons_row.visible = False
             status_text.value = "Denied"
-            status_text.color = ft.Colors.with_opacity(0.9, ft.Colors.RED_300)
+            status_text.color = DANGER
             if approval_card:
                 approval_card.border = ft.Border.all(
-                    1, ft.Colors.with_opacity(0.35, ft.Colors.RED_300)
+                    1, DANGER_SOFT
                 )
             self.page.update()
             if not confirmation_future.done():
                 confirmation_future.set_result(False)
 
-        deny_btn = ft.TextButton(
+        deny_btn = ft.OutlinedButton(
             "Deny",
             on_click=on_no,
             style=ft.ButtonStyle(
-                color=TEXT_SECONDARY,
-                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                color=DANGER,
+                side={ft.ControlState.DEFAULT: ft.BorderSide(1, DANGER_SOFT)},
+                bgcolor={
+                    ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT,
+                    ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.RED_300),
+                },
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
+                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             ),
         )
 
@@ -142,9 +148,11 @@ class ApprovalControllerMixin:
             "Approve",
             on_click=on_yes,
             style=ft.ButtonStyle(
-                bgcolor=ACCENT,
+                bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
                 color=ft.Colors.BLACK,
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
+                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_700),
+                padding=ft.Padding.symmetric(horizontal=14, vertical=8),
             ),
         )
 
@@ -158,7 +166,7 @@ class ApprovalControllerMixin:
         approval_card = ft.Container(
             content=ft.Column(parts, tight=True, spacing=8),
             bgcolor=SURFACE_1,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, ft.Colors.AMBER_300)),
+            border=ft.Border.all(1, WARNING_SOFT),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             width=760,

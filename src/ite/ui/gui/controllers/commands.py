@@ -141,9 +141,11 @@ class CommandControllerMixin:
                 self.agent.session.context_manager.clear()
                 self.agent.session.loop_detector.clear()
                 self.agent.session.name = None
+            self.active_session_id = None
             if self.messages_column and self.page:
                 self.messages_column.controls.clear()
                 self.page.update()
+            self._refresh_sidebar_threads()
             self._set_current_session_title(None)
             self._add_assistant_card("Conversation", ft.Text("Cleared session context.", color=TEXT_PRIMARY))
             return True
