@@ -256,7 +256,7 @@ async def cmd_approval(ctx: CommandContext, args: list[str]) -> None:
                         (old_approval, "dim strikethrough"),
                         (" → ", "muted"),
                         (selected, "bold cyan"),
-                        ("\n\nSelected via interactive picker", "green"),
+                        ("\n\nApproval changed successfully", "green"),
                     ),
                     title=title,
                     title_align="left",
