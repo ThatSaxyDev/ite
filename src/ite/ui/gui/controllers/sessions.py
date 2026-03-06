@@ -151,6 +151,7 @@ class SessionControllerMixin:
 
             await self._resume_agent_session(snapshot)
             self.active_session_id = snapshot.session_id
+            self._refresh_sidebar_threads()
             self._set_current_session_title(snapshot.name)
             self._hydrate_chat_from_snapshot(snapshot.messages)
             self._add_assistant_card(
