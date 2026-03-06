@@ -1194,41 +1194,13 @@ class GUI:
             return True
 
         if command == "/sessions":
-            show_all = "--all" in args
-            sessions = [
-                s
-                for s in SessionManager().list_sessions(
-                    workspace_path=None if show_all else self.config.cwd,
-                    include_legacy_unscoped=show_all,
-                )
-                if s.get("turn_count", 0) > 0
-            ]
-            if not sessions:
-                self._add_assistant_card("Sessions", ft.Text("No saved sessions found.", color=TEXT_SECONDARY))
-                return True
-
-            headers = ft.Row(
-                [
-                    ft.Text("Session", width=300, weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
-                    ft.Text("Name", width=220, weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
-                    ft.Text("Updated", width=120, weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
-                    ft.Text("Turns", weight=ft.FontWeight.BOLD, color=TEXT_SECONDARY),
-                ]
+            self._add_assistant_card(
+                "Command Disabled in GUI",
+                ft.Text(
+                    "Use the Threads list in the left sidebar to browse and open sessions.",
+                    color=TEXT_SECONDARY,
+                ),
             )
-            rows: list[ft.Control] = [headers, ft.Divider(height=1, color=BORDER)]
-            for session in sessions[:20]:
-                updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
-                rows.append(
-                    ft.Row(
-                        [
-                            ft.Text(session["session_id"], width=300, color=TEXT_PRIMARY),
-                            ft.Text(session.get("name") or "-", width=220, color=TEXT_PRIMARY),
-                            ft.Text(updated, width=120, color=TEXT_SECONDARY),
-                            ft.Text(str(session["turn_count"]), color=TEXT_SECONDARY),
-                        ]
-                    )
-                )
-            self._add_assistant_card("Saved Sessions", ft.Column(rows, spacing=4, tight=True))
             return True
 
         if command == "/config":
@@ -1279,36 +1251,13 @@ class GUI:
             return True
 
         if command == "/approval":
-            if args and args[0].lower() != "help":
-                try:
-                    self._set_approval_mode(args[0].lower())
-                    self._add_assistant_card(
-                        "Approval Mode",
-                        ft.Column(
-                            [
-                                ft.Text(f"Set to {self.config.approval.value}", color=TEXT_PRIMARY),
-                                ft.Text("Use /approval <mode> to change", color=TEXT_SECONDARY),
-                                ft.Text("Use /approval help to see all modes", color=TEXT_SECONDARY),
-                            ],
-                            spacing=6,
-                            tight=True,
-                        ),
-                    )
-                except ValueError:
-                    self._add_message("system", "Invalid approval mode.", is_error=True)
-            else:
-                self._add_assistant_card(
-                    "Approval Mode",
-                    ft.Column(
-                        [
-                            ft.Text(f"Active: {self.config.approval.value}", color=TEXT_PRIMARY),
-                            ft.Text("Use /approval <mode> to change", color=TEXT_SECONDARY),
-                            ft.Text("Use /approval help to see all modes", color=TEXT_SECONDARY),
-                        ],
-                        spacing=6,
-                        tight=True,
-                    ),
-                )
+            self._add_assistant_card(
+                "Command Disabled in GUI",
+                ft.Text(
+                    "Use the Approval dropdown in the sidebar Status card.",
+                    color=TEXT_SECONDARY,
+                ),
+            )
             return True
 
         if command == "/stats" and self.agent and self.agent.session:
