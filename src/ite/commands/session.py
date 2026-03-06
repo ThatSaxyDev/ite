@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.agent.session import Session
@@ -10,6 +11,90 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich import box
+
+
+def _tool_kind_for_name(ctx: CommandContext, tool_name: str) -> str | None:
+    if not ctx.agent or not ctx.agent.session:
+        return None
+    tool = ctx.agent.session.tool_registry.get(tool_name)
+    if not tool:
+        return None
+    return tool.kind.value
+
+
+def _render_resumed_transcript(ctx: CommandContext, messages: list[dict]) -> None:
+    if not messages:
+        return
+
+    tool_call_names: dict[str, str] = {}
+
+    ctx.console.print()
+    ctx.console.print("[dim]Restored conversation:[/dim]")
+
+    for message in messages:
+        role = message.get("role")
+        content = message.get("content", "")
+
+        if role == "system":
+            # Internal system prompt; keep hidden.
+            continue
+
+        if role == "user":
+            ctx.console.print()
+            ctx.console.print(f"[user]>[/user] {content}")
+            continue
+
+        if role == "assistant":
+            if content:
+                title = Text.assemble(("⏺ ", "muted"), ("ite", "bold bright_white"))
+                ctx.console.print()
+                ctx.console.print(
+                    Panel(
+                        content,
+                        title=title,
+                        title_align="left",
+                        border_style="bright_white",
+                        box=box.HEAVY,
+                        padding=(1, 2),
+                    )
+                )
+
+            for tool_call in message.get("tool_calls") or []:
+                call_id = tool_call.get("id", "")
+                function = tool_call.get("function", {}) or {}
+                tool_name = function.get("name", "tool")
+                raw_args = function.get("arguments", "") or ""
+                try:
+                    parsed_args = json.loads(raw_args) if raw_args else {}
+                except Exception:
+                    parsed_args = {"raw": raw_args}
+
+                tool_call_names[call_id] = tool_name
+                ctx.tui.tool_call_start(
+                    call_id=call_id,
+                    name=tool_name,
+                    tool_kind=_tool_kind_for_name(ctx, tool_name),
+                    arguments=parsed_args,
+                )
+            continue
+
+        if role == "tool":
+            call_id = message.get("tool_call_id", "")
+            tool_name = tool_call_names.get(call_id, "tool")
+            output = content if isinstance(content, str) else str(content)
+            success = not output.lstrip().startswith("Error:")
+            ctx.tui.tool_call_complete(
+                call_id=call_id,
+                name=tool_name,
+                tool_kind=_tool_kind_for_name(ctx, tool_name),
+                success=success,
+                output=output,
+                error=None if success else output,
+                metadata={},
+                diff=None,
+                truncated=False,
+                exit_code=None,
+            )
 
 
 def _format_picker_row(session: dict[str, str | int]) -> str:
@@ -97,6 +182,7 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
     session_manager = SessionManager()
     session_snapshot = SessionSnapshot(
         session_id=ctx.agent.session.session_id,
+        name=ctx.agent.session.name,
         created_at=ctx.agent.session.created_at,
         updated_at=ctx.agent.session.updated_at,
         turn_count=ctx.agent.session.turn_count,
@@ -210,6 +296,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     ):
         current_snapshot = SessionSnapshot(
             session_id=ctx.agent.session.session_id,
+            name=ctx.agent.session.name,
             created_at=ctx.agent.session.created_at,
             updated_at=ctx.agent.session.updated_at,
             turn_count=ctx.agent.session.turn_count,
@@ -220,6 +307,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
 
     session = Session(config=ctx.config)
     session.session_id = snapshot.session_id
+    session.name = snapshot.name
     session.created_at = snapshot.created_at
     session.updated_at = snapshot.updated_at
     session.turn_count = snapshot.turn_count
@@ -247,12 +335,14 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
             padding=(1, 2),
         )
     )
+    _render_resumed_transcript(ctx, snapshot.messages)
 
 
 async def cmd_checkpoint(ctx: CommandContext, args: list[str]) -> None:
     session_manager = SessionManager()
     session_snapshot = SessionSnapshot(
         session_id=ctx.agent.session.session_id,
+        name=ctx.agent.session.name,
         created_at=ctx.agent.session.created_at,
         updated_at=ctx.agent.session.updated_at,
         turn_count=ctx.agent.session.turn_count,
@@ -327,6 +417,7 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
 
     session = Session(config=ctx.config)
     session.session_id = snapshot.session_id
+    session.name = snapshot.name
     session.created_at = snapshot.created_at
     session.updated_at = snapshot.updated_at
     session.turn_count = snapshot.turn_count
