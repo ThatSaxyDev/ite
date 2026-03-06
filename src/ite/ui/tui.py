@@ -829,10 +829,6 @@ class TUI:
 - `/stats` - Show session statistics
 - `/tools` - List available tools
 - `/mcp` - Show MCP server status
-- `/save` - Save current session
-- `/checkpoint [name]` - Create a checkpoint
-- `/checkpoints` - List available checkpoints
-- `/restore <checkpoint_id>` - Restore a checkpoint
 - `/sessions` - List saved sessions
 - `/resume <session_id>` - Resume a saved session
 

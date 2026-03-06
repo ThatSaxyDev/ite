@@ -1,4 +1,4 @@
-"""Session commands: /save, /sessions, /resume, /checkpoint, /checkpoints, /restore."""
+"""Session commands: /save, /sessions, /resume (checkpointing remains internal)."""
 
 import os
 import sys
@@ -485,15 +485,5 @@ def register(registry: CommandRegistry) -> None:
         name="/resume", description="Resume a saved session",
         handler=cmd_resume,
     ))
-    # registry.register(Command(
-    #     name="/checkpoint", description="Create a checkpoint",
-    #     handler=cmd_checkpoint,
-    # ))
-    registry.register(Command(
-        name="/checkpoints", description="List available checkpoints",
-        handler=cmd_checkpoints,
-    ))
-    registry.register(Command(
-        name="/restore", description="Restore a checkpoint",
-        handler=cmd_restore,
-    ))
+    # Checkpoint commands intentionally not registered for user-facing CLI.
+    # Internal auto-checkpoint flow remains active.
