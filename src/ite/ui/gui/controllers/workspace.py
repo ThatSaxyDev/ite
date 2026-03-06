@@ -1,0 +1,136 @@
+from __future__ import annotations
+from pathlib import Path
+import flet as ft
+from datetime import datetime
+from ite.agent.session_manager import SessionManager
+from ..tokens import *
+
+
+class WorkspaceControllerMixin:
+    def _refresh_sidebar_threads(self):
+        if not self.sidebar_threads_column:
+            return
+
+        sessions = [
+            s
+            for s in SessionManager().list_sessions(
+                workspace_path=self.config.cwd,
+                include_legacy_unscoped=False,
+            )
+            if s.get("turn_count", 0) > 0
+        ][:20]
+        controls: list[ft.Control] = []
+        if not sessions:
+            controls.append(ft.Text("No saved threads", size=12, color=TEXT_MUTED))
+        else:
+            for session in sessions:
+                updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
+                controls.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            (session.get("name") or session["session_id"])[:30],
+                                            size=13,
+                                            color=TEXT_PRIMARY,
+                                            no_wrap=True,
+                                        ),
+                                        ft.Text(
+                                            f"{session['turn_count']} turns",
+                                            size=11,
+                                            color=TEXT_MUTED,
+                                        ),
+                                    ],
+                                    spacing=2,
+                                    expand=True,
+                                ),
+                                ft.Text(updated, size=11, color=TEXT_MUTED),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                        ),
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                        border=ft.Border.all(1, BORDER),
+                        border_radius=RADIUS_SM,
+                        bgcolor=SURFACE_1,
+                        on_click=lambda e, sid=session["session_id"]: self._on_sidebar_session_click(sid),
+                    )
+                )
+
+        self.sidebar_threads_column.controls = controls
+        if self.page:
+            self.page.update()
+
+    def _refresh_workspace_options(self):
+        if not self.workspace_selector:
+            return
+        manager = SessionManager()
+        current_workspace = str(self.config.cwd.resolve())
+        known = [p for p in manager.list_workspaces() if p]
+        if current_workspace not in known:
+            known.insert(0, current_workspace)
+        self.workspace_selector.options = [
+            ft.dropdown.Option(
+                key=p,
+                text=(Path(p).name or p),
+                content=ft.Column(
+                    [
+                        ft.Text(Path(p).name or p, size=13, color=TEXT_PRIMARY),
+                        ft.Text(p, size=11, color=TEXT_MUTED, no_wrap=True),
+                    ],
+                    tight=True,
+                    spacing=1,
+                ),
+            )
+            for p in known
+        ]
+        self.workspace_selector.value = current_workspace
+        if self.page:
+            self.page.update()
+
+    def _on_workspace_select(self, e: ft.Event[ft.Dropdown]):
+        if not self.workspace_selector or not self.page:
+            return
+        selected = self.workspace_selector.value
+        if not selected:
+            return
+        self.page.run_task(self._switch_workspace, selected)
+
+    async def _switch_workspace(self, workspace: str):
+        target = Path(workspace).expanduser().resolve()
+        if not target.exists() or not target.is_dir():
+            self._add_message("system", f"Workspace not found: {target}", is_error=True)
+            self._refresh_workspace_options()
+            return
+        if target == self.config.cwd.resolve():
+            return
+        self._set_loading(True)
+        try:
+            self.config.cwd = target
+            if self.header_workspace_text:
+                self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
+            if self.agent is not None:
+                await self._shutdown_agent()
+            if self.messages_column:
+                self.messages_column.controls.clear()
+            self._set_current_session_title(None)
+            self._tool_call_row_indices.clear()
+            self._refresh_workspace_options()
+            self._refresh_sidebar_threads()
+            self._add_assistant_card(
+                "Workspace",
+                ft.Text(f"Switched to {self.config.cwd}", color=TEXT_SECONDARY),
+            )
+        finally:
+            self._set_loading(False)
+
+    def _on_new_thread(self):
+        if self.page:
+            self.page.run_task(self._run_command, "/clear")
+
+    def _on_sidebar_session_click(self, session_id: str):
+        if self.page:
+            self.page.run_task(self._open_session_from_sidebar, session_id)
+
