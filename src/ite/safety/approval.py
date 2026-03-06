@@ -78,6 +78,12 @@ LOW_RISK_MUTATING_TOOLS = {
     "todos",
 }
 
+# In on_request mode, allow low-risk file creation/overwrite inside cwd
+# without prompting every time.
+AUTO_APPROVE_ON_REQUEST_IN_CWD_TOOLS = {
+    "write_file",
+}
+
 
 def _split_compound_command(command: str) -> list[str]:
     """Split a compound command into individual sub-commands.
@@ -186,6 +192,15 @@ class ApprovalManager:
 
         if self.approval_policy == ApprovalPolicy.AUTO_EDIT:
             # Auto-approve edits inside cwd, ask for outside
+            for path in context.affected_paths:
+                if not path.is_relative_to(self.cwd):
+                    return ApprovalDecision.NEEDS_CONFIRMATION
+            return ApprovalDecision.APPROVED
+
+        if (
+            self.approval_policy == ApprovalPolicy.ON_REQUEST
+            and context.tool_name in AUTO_APPROVE_ON_REQUEST_IN_CWD_TOOLS
+        ):
             for path in context.affected_paths:
                 if not path.is_relative_to(self.cwd):
                     return ApprovalDecision.NEEDS_CONFIRMATION

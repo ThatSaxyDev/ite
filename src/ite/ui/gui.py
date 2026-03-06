@@ -78,6 +78,7 @@ class GUI:
 
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
+        self._scroll_request_id = 0
 
     def _truncate_content(
         self,
@@ -498,12 +499,18 @@ class GUI:
         )
         return ft.Row([card], alignment=ft.MainAxisAlignment.START)
 
-    def _add_message(self, role: str, content: str, is_error: bool = False):
+    def _add_message(
+        self,
+        role: str,
+        content: str,
+        is_error: bool = False,
+        force_scroll: bool = True,
+    ):
         if not self.messages_column or not self.page:
             return
         self.messages_column.controls.append(self.build_chat_message(role, content, is_error=is_error))
         self.page.update()
-        self._scroll_chat_to_bottom()
+        self._scroll_chat_to_bottom(force=force_scroll)
 
     def _add_assistant_card(self, title: str, content: ft.Control):
         if not self.messages_column or not self.page:
@@ -527,7 +534,7 @@ class GUI:
         )
         self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         self.page.update()
-        self._scroll_chat_to_bottom()
+        self._scroll_chat_to_bottom(force=True)
 
     def _sanitize_cli_output(self, text: str) -> str:
         cleaned = re.sub(r"\x1b\[[0-9;]*m", "", text)
@@ -559,7 +566,7 @@ class GUI:
         self.streaming_text += content
         self.streaming_markdown.value = self.streaming_text
         self.page.update()
-        self._scroll_chat_to_bottom(animate=False)
+        self._scroll_chat_to_bottom(animate=True, force=True)
 
     def _finalize_streaming_message(self):
         self.streaming_markdown = None
@@ -609,7 +616,7 @@ class GUI:
         self.messages_column.controls.append(row)
         self._tool_call_row_indices[call_id] = len(self.messages_column.controls) - 1
         self.page.update()
-        self._scroll_chat_to_bottom()
+        self._scroll_chat_to_bottom(force=True)
 
     def _update_tool_call(
         self,
@@ -672,7 +679,7 @@ class GUI:
         )
         self.messages_column.controls[index] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
         self.page.update()
-        self._scroll_chat_to_bottom(animate=False)
+        self._scroll_chat_to_bottom(animate=False, force=True)
 
     def _on_chat_scroll(self, e: ft.OnScrollEvent):
         # Only auto-scroll while user is near the bottom.
@@ -685,17 +692,38 @@ class GUI:
         if not force and not self._auto_scroll_enabled:
             return
         try:
-            self.page.run_task(self._scroll_chat_to_bottom_async, animate, force)
+            self._scroll_request_id += 1
+            request_id = self._scroll_request_id
+            self.page.run_task(self._scroll_chat_to_bottom_async, animate, force, request_id)
         except Exception:
             pass
 
-    async def _scroll_chat_to_bottom_async(self, animate: bool = True, force: bool = False):
+    async def _scroll_chat_to_bottom_async(
+        self,
+        animate: bool = True,
+        force: bool = False,
+        request_id: int = 0,
+    ):
         if not self.messages_column:
             return
         try:
             if force:
                 self._auto_scroll_enabled = True
-            await self.messages_column.scroll_to(offset=-1, duration=160 if animate else 0)
+            duration = 120 if animate else 0
+            # Multi-pass snap: handles layout lag when new controls are added.
+            for delay in (0.0, 0.03, 0.08):
+                if request_id != self._scroll_request_id:
+                    return
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                try:
+                    await self.messages_column.scroll_to(
+                        offset=-1,
+                        duration=duration,
+                        curve=ft.AnimationCurve.EASE_OUT_CUBIC,
+                    )
+                except TypeError:
+                    await self.messages_column.scroll_to(offset=-1, duration=duration)
         except Exception:
             pass
 
@@ -988,7 +1016,7 @@ class GUI:
                         self.build_system_log_message(f"command {command}", cleaned)
                     )
                     self.page.update()
-                    self._scroll_chat_to_bottom()
+                    self._scroll_chat_to_bottom(force=True)
         except SystemExit:
             self._add_message("system", "Exiting ITE GUI.")
             raise
@@ -1388,7 +1416,7 @@ class GUI:
                 continue
 
         self.page.update()
-        self._scroll_chat_to_bottom(animate=False, force=True)
+        self._scroll_chat_to_bottom(animate=True, force=True)
 
     def _on_send(self, e):
         if not self.input_field or not self.page:
@@ -1397,6 +1425,10 @@ class GUI:
         message = self.input_field.value.strip()
         if not message:
             return
+
+        # A new send should always anchor the viewport at the latest chat content.
+        self._auto_scroll_enabled = True
+        self._scroll_chat_to_bottom(animate=False, force=True)
 
         self.input_field.value = ""
         self.input_field.update()
