@@ -90,12 +90,11 @@ def run_setup_wizard(console: Console, config: Config) -> Config:
 
     # ── API Key ──
     console.print()
-    api_key = console.input("  [bold cyan]❯[/bold cyan] API key: ").strip()
-
-    if not api_key:
-        console.print()
-        console.print("  [bold red]✗[/bold red] API key is required.")
-        raise SystemExit(1)
+    api_key = ""
+    while not api_key:
+        api_key = console.input("  [bold cyan]❯[/bold cyan] API key: ").strip()
+        if not api_key:
+            console.print("  [bold red]✗[/bold red] API key is required. Please try again.")
 
     # ── Model ──
     console.print()
