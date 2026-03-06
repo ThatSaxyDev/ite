@@ -286,6 +286,16 @@ class CLI:
                 )
                 self.tui.start_spinner("Recovering...")
 
+            elif event.type == AgentEventType.CONTEXT_COMPACTED:
+                self.tui.stop_spinner()
+                trigger_tokens = int(event.data.get("trigger_tokens", 0))
+                context_window = int(event.data.get("context_window", 0))
+                used_pct = (trigger_tokens / context_window * 100) if context_window else 0
+                console.print(
+                    f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
+                )
+                self.tui.start_spinner("Running...")
+
         self.tui.stop_spinner()
         return final_response
 

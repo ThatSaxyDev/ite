@@ -53,6 +53,8 @@ class Agent:
             response_text = ""
 
             if self.session.context_manager.needs_compression():
+                trigger_tokens = self.session.context_manager.latest_usage.total_tokens
+                context_window = self.config.model.context_window
                 summary, usage = await self.session.chat_compactor.compact(
                     self.session.context_manager
                 )
@@ -61,6 +63,11 @@ class Agent:
                     self.session.context_manager.replace_with_summary(summary)
                     self.session.context_manager.set_latest_usage(usage)
                     self.session.context_manager.add_usage(usage)
+                    yield AgentEvent.context_compacted(
+                        trigger_tokens=trigger_tokens,
+                        context_window=context_window,
+                        summary_chars=len(summary),
+                    )
 
             tool_schemas = self.session.tool_registry.get_schemas()
 

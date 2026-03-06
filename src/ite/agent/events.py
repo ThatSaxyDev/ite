@@ -23,6 +23,7 @@ class AgentEventType(str, Enum):
 
     # loop detection
     LOOP_DETECTED = "loop_detected"
+    CONTEXT_COMPACTED = "context_compacted"
 
 
 @dataclass
@@ -119,4 +120,20 @@ class AgentEvent:
         return cls(
             type=AgentEventType.LOOP_DETECTED,
             data={"message": message},
+        )
+
+    @classmethod
+    def context_compacted(
+        cls,
+        trigger_tokens: int,
+        context_window: int,
+        summary_chars: int,
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.CONTEXT_COMPACTED,
+            data={
+                "trigger_tokens": trigger_tokens,
+                "context_window": context_window,
+                "summary_chars": summary_chars,
+            },
         )

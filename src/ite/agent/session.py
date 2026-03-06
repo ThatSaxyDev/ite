@@ -27,7 +27,7 @@ class Session:
             self.tool_registry,
         )
         self.mcp_manager = MCPManager(self.config)
-        self.chat_compactor = ChatCompactor(self.config)
+        self.chat_compactor = ChatCompactor(self.client)
         self.approval_manager = ApprovalManager(
             self.config.approval,
             self.config.cwd,
@@ -80,12 +80,30 @@ class Session:
         return self._turn_count
 
     def get_stats(self) -> dict[str, Any]:
+        latest = self.context_manager.latest_usage
+        total = self.context_manager.total_usage
+        context_window = self.config.model.context_window
+        used_pct = (latest.total_tokens / context_window * 100) if context_window else 0.0
+        left_pct = max(0.0, 100.0 - used_pct)
+
         return {
             "session_id": self.session_id,
             "created_at": self.created_at.isoformat(),
             "turn_count": self._turn_count,
             "message_count": self.context_manager.message_count,
-            "token_usage": self.context_manager.total_usage,
+            "token_usage": total,
+            "context_window": context_window,
+            "latest_tokens": latest.total_tokens,
+            "latest_cached_tokens": latest.cached_tokens,
+            "context_used_pct": round(used_pct, 1),
+            "context_left_pct": round(left_pct, 1),
+            "compaction_count": self.context_manager.compaction_count,
+            "last_compacted_at": (
+                self.context_manager.last_compacted_at.isoformat()
+                if self.context_manager.last_compacted_at
+                else None
+            ),
+            "pruned_tool_msgs": self.context_manager.pruned_tool_msgs,
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
         }

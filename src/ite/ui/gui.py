@@ -1164,12 +1164,25 @@ class GUI:
 
         if command == "/stats" and self.agent and self.agent.session:
             stats = self.agent.session.get_stats()
+            last_compacted = stats.get("last_compacted_at")
+            last_compacted_display = (
+                datetime.fromisoformat(last_compacted).strftime("%b %d · %I:%M %p")
+                if last_compacted
+                else "never"
+            )
             rows = ft.Column(
                 [
                     ft.Row([ft.Text("Session ID", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(stats["session_id"], color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Turn Count", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["turn_count"]), color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Message Count", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["message_count"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Context Window", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["context_window"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Context Usage", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(f'{stats["context_used_pct"]}% used ({stats["context_left_pct"]}% left)', color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Latest Tokens", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["latest_tokens"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Cached Tokens", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["latest_cached_tokens"]), color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Token Usage", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["token_usage"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Compactions", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["compaction_count"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Last Compacted", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(last_compacted_display, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Pruned Tools", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["pruned_tool_msgs"]), color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Tools Enabled", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["tools_enabled"]), color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("MCP Servers", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["mcp_servers"]), color=TEXT_PRIMARY)]),
                 ],
@@ -1260,6 +1273,18 @@ class GUI:
                 "system",
                 f"Error: {event.data.get('error', 'Unknown error')}",
                 is_error=True,
+            )
+
+        elif event.type == AgentEventType.CONTEXT_COMPACTED:
+            trigger_tokens = int(event.data.get("trigger_tokens", 0))
+            context_window = int(event.data.get("context_window", 0))
+            used_pct = (trigger_tokens / context_window * 100) if context_window else 0
+            self._add_assistant_card(
+                "Context",
+                ft.Text(
+                    f"Context compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used).",
+                    color=TEXT_SECONDARY,
+                ),
             )
 
     async def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:

@@ -7,7 +7,7 @@ from ite.client.llm_client import LLMClient
 
 
 class ChatCompactor:
-    def __init__(self, client=LLMClient):
+    def __init__(self, client: LLMClient):
         self.client = client
 
     def _format_history_for_compaction(self, messages: list[dict[str, Any]]) -> str:
@@ -92,7 +92,8 @@ class ChatCompactor:
             ):
                 if event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
-                    summary += event.text_delta.content
+                    if event.text_delta and event.text_delta.content:
+                        summary += event.text_delta.content
 
             if not summary or not usage:
                 return None, None

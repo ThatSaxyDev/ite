@@ -53,6 +53,9 @@ class ContextManager:
         self._messages: list(MessageItem) = []
         self._latest_usage = TokenUsage()
         self._total_usage = TokenUsage()
+        self._compaction_count = 0
+        self._last_compacted_at: datetime | None = None
+        self._pruned_tool_msgs = 0
 
     @property
     def message_count(self) -> int:
@@ -61,6 +64,22 @@ class ContextManager:
     @property
     def total_usage(self) -> TokenUsage:
         return self._total_usage
+
+    @property
+    def latest_usage(self) -> TokenUsage:
+        return self._latest_usage
+
+    @property
+    def compaction_count(self) -> int:
+        return self._compaction_count
+
+    @property
+    def last_compacted_at(self) -> datetime | None:
+        return self._last_compacted_at
+
+    @property
+    def pruned_tool_msgs(self) -> int:
+        return self._pruned_tool_msgs
 
     @total_usage.setter
     def total_usage(self, value: TokenUsage) -> None:
@@ -152,6 +171,8 @@ class ContextManager:
 
     def replace_with_summary(self, summary: str) -> None:
         self._messages = []
+        self._compaction_count += 1
+        self._last_compacted_at = datetime.now()
 
         continuation_content = f"""# Context Restoration (Previous Session Compacted)
 
@@ -233,6 +254,7 @@ I'll continue with the REMAINING tasks only, starting from where we left off."""
             msg.pruned_at = datetime.now()
             pruned_count += 1
 
+        self._pruned_tool_msgs += pruned_count
         return pruned_count
 
     def clear(self) -> None:
