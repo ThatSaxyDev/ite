@@ -45,7 +45,7 @@ class BranchControllerMixin:
         self.branch_selector.options = [
             ft.dropdown.Option(
                 key=b.name,
-                text=("✓ " + b.name) if b.is_current else b.name,
+                text=b.name,
             )
             for b in branches
         ]

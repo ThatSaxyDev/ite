@@ -466,14 +466,14 @@ class LayoutBuilderMixin:
         self.model_selector = ft.Dropdown(
             value=self.config.model_name,
             options=[ft.dropdown.Option(m) for m in model_choices],
-            width=220,
+            width=196,
             height=32,
             text_size=TYPE_BODY,
             dense=True,
             border=ft.InputBorder.NONE,
             border_color=ft.Colors.TRANSPARENT,
             focused_border_color=ft.Colors.TRANSPARENT,
-            content_padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+            content_padding=ft.Padding.symmetric(horizontal=0, vertical=2),
             bgcolor=ft.Colors.TRANSPARENT,
             color=TEXT_PRIMARY,
             on_select=self._on_model_select,
@@ -481,14 +481,14 @@ class LayoutBuilderMixin:
         self.branch_selector = ft.Dropdown(
             value=None,
             options=[],
-            width=190,
+            width=154,
             height=32,
             text_size=TYPE_BODY,
             dense=True,
             border=ft.InputBorder.NONE,
             border_color=ft.Colors.TRANSPARENT,
             focused_border_color=ft.Colors.TRANSPARENT,
-            content_padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+            content_padding=ft.Padding.symmetric(horizontal=0, vertical=2),
             bgcolor=ft.Colors.TRANSPARENT,
             color=TEXT_SECONDARY,
             on_select=self._on_branch_select,
@@ -508,10 +508,11 @@ class LayoutBuilderMixin:
         )
         self.branch_controls_row = ft.Row(
             [
+                ft.Icon(ft.Icons.ACCOUNT_TREE_OUTLINED, size=14, color=TEXT_MUTED),
                 self.branch_selector,
                 self.branch_create_button,
             ],
-            spacing=4,
+            spacing=3,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             visible=False,
         )
