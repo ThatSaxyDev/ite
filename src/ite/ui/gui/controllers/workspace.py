@@ -149,7 +149,7 @@ class WorkspaceControllerMixin:
             if self.agent is not None:
                 await self._shutdown_agent()
             if self.messages_column:
-                self.messages_column.controls.clear()
+                self._clear_chat_controls()
             self._set_current_session_title(None)
             self.active_session_id = None
             self._tool_call_row_indices.clear()

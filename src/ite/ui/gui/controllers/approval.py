@@ -172,7 +172,7 @@ class ApprovalControllerMixin:
             width=SPECIAL_CARD_WIDTH,
             shadow=SHADOW_SUBTLE,
         )
-        self.messages_column.controls.append(
+        self._append_chat_control(
             self._wrap_in_lane(ft.Row([approval_card], alignment=ft.MainAxisAlignment.START))
         )
         self.page.update()

@@ -442,6 +442,7 @@ class LayoutBuilderMixin:
             spacing=CHAT_ITEM_GAP,
             expand=True,
         )
+        self._ensure_chat_bottom_spacer()
 
         return ft.Container(
             expand=True,

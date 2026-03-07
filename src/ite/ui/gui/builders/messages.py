@@ -172,7 +172,7 @@ class MessageBuilderMixin:
     ):
         if not self.messages_column or not self.page:
             return
-        self.messages_column.controls.append(self.build_chat_message(role, content, is_error=is_error))
+        self._append_chat_control(self.build_chat_message(role, content, is_error=is_error))
         self.page.update()
         self._scroll_chat_to_bottom(force=force_scroll)
 
@@ -196,7 +196,7 @@ class MessageBuilderMixin:
             padding=ft.Padding.symmetric(horizontal=CARD_PAD_X + 2, vertical=CARD_PAD_Y + 1),
             width=SPECIAL_CARD_WIDTH,
         )
-        self.messages_column.controls.append(
+        self._append_chat_control(
             self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         )
         self.page.update()
@@ -222,7 +222,7 @@ class MessageBuilderMixin:
                 padding=ft.Padding.symmetric(horizontal=6, vertical=4),
                 width=ASSISTANT_MESSAGE_WIDTH - 20,
             )
-            self.messages_column.controls.append(
+            self._append_chat_control(
                 self._wrap_in_lane(
                     ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
                 )
@@ -284,8 +284,9 @@ class MessageBuilderMixin:
             bgcolor=SURFACE_ELEVATED,
         )
         row = self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
-        self.messages_column.controls.append(row)
-        self._tool_call_row_indices[call_id] = len(self.messages_column.controls) - 1
+        row_index = self._append_chat_control(row)
+        if row_index is not None:
+            self._tool_call_row_indices[call_id] = row_index
         self.page.update()
         self._scroll_chat_to_bottom(force=True)
 

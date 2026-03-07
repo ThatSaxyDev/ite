@@ -48,7 +48,7 @@ class CommandControllerMixin:
             if rendered:
                 cleaned = self._sanitize_cli_output(rendered)
                 if cleaned and self.messages_column and self.page:
-                    self.messages_column.controls.append(
+                    self._append_chat_control(
                         self.build_system_log_message(f"command {command}", cleaned)
                     )
                     self.page.update()
@@ -147,7 +147,7 @@ class CommandControllerMixin:
                 self.agent.session.name = None
             self.active_session_id = None
             if self.messages_column and self.page:
-                self.messages_column.controls.clear()
+                self._clear_chat_controls()
                 self.page.update()
             self._refresh_sidebar_threads()
             self._set_current_session_title(None)

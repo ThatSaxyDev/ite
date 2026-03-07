@@ -36,7 +36,7 @@ class SessionControllerMixin:
             self._set_current_session_title(None)
 
             if self.messages_column and self.page:
-                self.messages_column.controls.clear()
+                self._clear_chat_controls()
                 self.page.update()
 
             self._tool_call_row_indices.clear()
@@ -196,7 +196,7 @@ class SessionControllerMixin:
         if not self.messages_column or not self.page:
             return
 
-        self.messages_column.controls.clear()
+        self._clear_chat_controls()
         self._tool_call_row_indices.clear()
         self.streaming_markdown = None
         self.streaming_container = None
@@ -213,12 +213,12 @@ class SessionControllerMixin:
                 continue
 
             if role == "user":
-                self.messages_column.controls.append(self.build_chat_message("user", content))
+                self._append_chat_control(self.build_chat_message("user", content))
                 continue
 
             if role == "assistant":
                 if content:
-                    self.messages_column.controls.append(
+                    self._append_chat_control(
                         self.build_chat_message("assistant", content)
                     )
 

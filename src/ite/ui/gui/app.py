@@ -37,6 +37,7 @@ class GUIApp(
         self.page: ft.Page | None = None
 
         self.messages_column: ft.Column | None = None
+        self.chat_bottom_spacer: ft.Container | None = None
         self.input_field: ft.TextField | None = None
         self.send_button: ft.IconButton | None = None
         self.loading_indicator: ft.ProgressRing | None = None
@@ -87,6 +88,41 @@ class GUIApp(
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
         self._scroll_request_id = 0
+
+    def _ensure_chat_bottom_spacer(self):
+        if not self.messages_column:
+            return
+        if self.chat_bottom_spacer is None:
+            self.chat_bottom_spacer = ft.Container(height=16)
+        controls = self.messages_column.controls
+        if self.chat_bottom_spacer in controls:
+            controls.remove(self.chat_bottom_spacer)
+        controls.append(self.chat_bottom_spacer)
+
+    def _append_chat_control(self, control: ft.Control) -> int | None:
+        if not self.messages_column:
+            return None
+        self._ensure_chat_bottom_spacer()
+        controls = self.messages_column.controls
+        if controls and controls[-1] is self.chat_bottom_spacer:
+            controls.insert(len(controls) - 1, control)
+            return len(controls) - 2
+        controls.append(control)
+        self._ensure_chat_bottom_spacer()
+        return len(self.messages_column.controls) - 2
+
+    def _clear_chat_controls(self):
+        if not self.messages_column:
+            return
+        self.messages_column.controls.clear()
+        self._ensure_chat_bottom_spacer()
+
+    def _remove_chat_control(self, control: ft.Control):
+        if not self.messages_column:
+            return
+        if control in self.messages_column.controls:
+            self.messages_column.controls.remove(control)
+        self._ensure_chat_bottom_spacer()
 
     async def _run_agent(self, message: str):
         try:
@@ -202,7 +238,7 @@ class GUIApp(
         )
         self.thinking_row = ft.Row([bubble], alignment=ft.MainAxisAlignment.START)
         self.thinking_row = self._wrap_in_lane(self.thinking_row)
-        self.messages_column.controls.append(self.thinking_row)
+        self._append_chat_control(self.thinking_row)
         self.page.update()
         self._scroll_chat_to_bottom(animate=False, force=True)
         self._thinking_task = self.page.run_task(self._animate_thinking_text)
@@ -232,8 +268,7 @@ class GUIApp(
             return
 
         try:
-            if self.thinking_row in self.messages_column.controls:
-                self.messages_column.controls.remove(self.thinking_row)
+            self._remove_chat_control(self.thinking_row)
         except Exception:
             pass
         self.thinking_row = None
