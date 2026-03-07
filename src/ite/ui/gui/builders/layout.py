@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import flet as ft
 from ..tokens import *
 from ite.config.config import ApprovalPolicy
@@ -7,7 +8,7 @@ from ite.config.config import ApprovalPolicy
 class LayoutBuilderMixin:
     def run(self, page: ft.Page):
         self.page = page
-        page.title = "ITE - Interactive Terminal Environment"
+        page.title = "iTE"
         page.theme_mode = ft.ThemeMode.DARK
         page.theme = ft.Theme(font_family=FONT_UI)
         page.padding = 0
@@ -16,9 +17,16 @@ class LayoutBuilderMixin:
         page.window.height = 980
         page.window.min_width = 1180
         page.window.min_height = 760
+        page.run_task(self._center_window)
         page.on_close = self._on_close
 
         self._build_ui(page)
+
+    async def _center_window(self):
+        if not self.page:
+            return
+        await asyncio.sleep(0)
+        await self.page.window.center()
 
     def _build_ui(self, page: ft.Page):
         self.sidebar_root = self.build_sidebar()
