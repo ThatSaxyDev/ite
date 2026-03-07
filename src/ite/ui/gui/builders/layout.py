@@ -392,7 +392,7 @@ class LayoutBuilderMixin:
         if self.sidebar_footer:
             self.sidebar_footer.visible = not collapsed
 
-        self._refresh_sidebar_threads()
+        self._render_sidebar_threads()
         if update and self.page:
             self.page.update()
 
@@ -506,7 +506,7 @@ class LayoutBuilderMixin:
             icon_color=ft.Colors.BLACK,
             icon_size=18,
             style=ft.ButtonStyle(
-                bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
+                bgcolor={ft.ControlState.DEFAULT: TEXT_PRIMARY, ft.ControlState.HOVERED: "#FFFFFF"},
                 shape=ft.CircleBorder(),
             ),
         )
@@ -548,9 +548,9 @@ class LayoutBuilderMixin:
         if self._is_turn_running:
             self.send_button.icon = ft.Icons.STOP_ROUNDED
             self.send_button.tooltip = "Stop"
-            self.send_button.icon_color = ft.Colors.WHITE
+            self.send_button.icon_color = ft.Colors.BLACK
             self.send_button.style = ft.ButtonStyle(
-                bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.85, ft.Colors.RED_400)},
+                bgcolor={ft.ControlState.DEFAULT: ft.Colors.WHITE},
                 shape=ft.CircleBorder(),
             )
         else:
@@ -558,7 +558,7 @@ class LayoutBuilderMixin:
             self.send_button.tooltip = "Send"
             self.send_button.icon_color = ft.Colors.BLACK
             self.send_button.style = ft.ButtonStyle(
-                bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
+                bgcolor={ft.ControlState.DEFAULT: TEXT_PRIMARY, ft.ControlState.HOVERED: "#FFFFFF"},
                 shape=ft.CircleBorder(),
             )
         if self.page:
