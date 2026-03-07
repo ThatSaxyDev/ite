@@ -74,15 +74,30 @@ async def cmd_sandbox(ctx: CommandContext, args: list[str]) -> None:
             "yellow",
         )
 
+    elif sub_cmd == "list":
+        allowed = [str(p) for p in ctx.config.sandbox.allowed_paths]
+        info = Text()
+        info.append("Project cwd: ", style="code")
+        info.append(str(ctx.config.cwd), style="bold cyan")
+        info.append("\n\nAllowed paths:\n", style="code")
+        if allowed:
+            for idx, path in enumerate(allowed, start=1):
+                info.append(f"  {idx}. ", style="dim")
+                info.append(path, style="bold cyan")
+                info.append("\n")
+        else:
+            info.append("  (none)\n", style="dim")
+        _print_panel(ctx, "🔒", "Allowed Sandbox Paths", info, "cyan")
+
     elif sub_cmd in ("git", "diff", "accept", "reject"):
         ctx.console.print(
             "[error]Git sandbox commands are no longer supported.[/error]\n"
-            "[dim]Available: /sandbox on|off|fs|allow|remove|clear[/dim]"
+            "[dim]Available: /sandbox on|off|fs|allow|remove|clear|list[/dim]"
         )
 
     else:
         ctx.console.print(
-            "[error]Usage: /sandbox [on|off|fs|allow|remove|clear][/error]"
+            "[error]Usage: /sandbox [on|off|fs|allow|remove|clear|list][/error]"
         )
 
 
@@ -110,7 +125,9 @@ def _show_status(ctx: CommandContext) -> None:
     info.append("  /sandbox remove <path>", style="green")
     info.append("Remove an allowed path\n", style="dim")
     info.append("  /sandbox clear        ", style="green")
-    info.append("Clear all allowed paths", style="dim")
+    info.append("Clear all allowed paths\n", style="dim")
+    info.append("  /sandbox list         ", style="green")
+    info.append("List allowed paths", style="dim")
 
     _print_panel(ctx, "🔒", "Sandbox Status", info, "cyan")
 
