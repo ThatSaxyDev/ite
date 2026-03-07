@@ -477,6 +477,7 @@ class LayoutBuilderMixin:
             bgcolor=ft.Colors.TRANSPARENT,
             color=TEXT_PRIMARY,
             on_select=self._on_model_select,
+            border_radius=RADIUS_LG,
         )
         self.branch_selector = ft.Dropdown(
             value=None,
@@ -492,6 +493,7 @@ class LayoutBuilderMixin:
             bgcolor=ft.Colors.TRANSPARENT,
             color=TEXT_SECONDARY,
             on_select=self._on_branch_select,
+            border_radius=RADIUS_LG,
         )
         self.branch_create_button = ft.IconButton(
             icon=ft.Icons.ADD,
