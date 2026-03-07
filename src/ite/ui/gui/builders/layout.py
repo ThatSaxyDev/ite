@@ -555,6 +555,7 @@ class LayoutBuilderMixin:
             hint_text="Message the agent...",
             expand=True,
             multiline=True,
+            shift_enter=True,
             min_lines=1,
             max_lines=8,
             on_submit=self._on_send,
