@@ -56,7 +56,7 @@ class ApprovalControllerMixin:
         diff = data.get("diff")
 
         parts: list[ft.Control] = [
-            ft.Text("Approval required", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+            ft.Text("Approval required", size=10, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
             ft.Text(f"Tool: {tool_name}", weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
             ft.Text(description, color=TEXT_SECONDARY),
         ]
@@ -71,7 +71,7 @@ class ApprovalControllerMixin:
                         max_lines=4,
                     ),
                     bgcolor=SURFACE_2,
-                    border=ft.Border.all(1, BORDER),
+                    border=ft.Border.all(1, HAIRLINE),
                     border_radius=RADIUS_SM,
                     padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                 )
@@ -165,11 +165,11 @@ class ApprovalControllerMixin:
 
         approval_card = ft.Container(
             content=ft.Column(parts, tight=True, spacing=8),
-            bgcolor=SURFACE_1,
+            bgcolor=SURFACE_ELEVATED,
             border=ft.Border.all(1, WARNING_SOFT),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            width=760,
+            width=SPECIAL_CARD_WIDTH,
             shadow=SHADOW_SUBTLE,
         )
         self.messages_column.controls.append(

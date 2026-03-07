@@ -18,7 +18,7 @@ from .controllers.approval import ApprovalControllerMixin
 from .controllers.sessions import SessionControllerMixin
 from .controllers.commands import CommandControllerMixin
 from .controllers.agent_events import AgentEventControllerMixin
-from .tokens import BORDER, RADIUS_SM, SURFACE_1, TEXT_MUTED
+from .tokens import RADIUS_SM, SURFACE_ELEVATED, TEXT_MUTED
 
 
 class GUIApp(
@@ -192,8 +192,7 @@ class GUIApp(
                 spacing=8,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            bgcolor=SURFACE_1,
-            border=ft.Border.all(1, BORDER),
+            bgcolor=SURFACE_ELEVATED,
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             width=160,

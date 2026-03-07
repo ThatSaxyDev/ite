@@ -39,8 +39,8 @@ class WorkspaceControllerMixin:
                         content=ft.Row(
                             [
                                 ft.Container(
-                                    width=2,
-                                    height=28,
+                                    width=3,
+                                    height=24,
                                     border_radius=RADIUS_SM,
                                     bgcolor=ACCENT if is_active else ft.Colors.TRANSPARENT,
                                 ),
@@ -48,7 +48,7 @@ class WorkspaceControllerMixin:
                                     [
                                         ft.Text(
                                             session_name[:32],
-                                            size=12,
+                                            size=11,
                                             color=TEXT_PRIMARY,
                                             weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
                                             no_wrap=True,
@@ -62,10 +62,10 @@ class WorkspaceControllerMixin:
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.START,
                         ),
-                        padding=ft.Padding.symmetric(horizontal=8, vertical=7),
-                        border=ft.Border.all(1, ACCENT if is_active else BORDER),
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                        border=ft.Border.all(1, ACCENT_SOFT if is_active else ft.Colors.TRANSPARENT),
                         border_radius=RADIUS_SM,
-                        bgcolor=ACCENT_SOFT if is_active else SURFACE_1,
+                        bgcolor=ft.Colors.with_opacity(0.12, ACCENT) if is_active else ft.Colors.TRANSPARENT,
                         on_click=lambda e, sid=session["session_id"]: self._on_sidebar_session_click(sid),
                     )
                 )

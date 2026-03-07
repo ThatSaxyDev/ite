@@ -427,18 +427,18 @@ class LayoutBuilderMixin:
             scroll=ft.ScrollMode.AUTO,
             auto_scroll=False,
             on_scroll=self._on_chat_scroll,
-            spacing=SPACE_LG,
+            spacing=SPACE_MD,
             expand=True,
         )
 
         return ft.Container(
             expand=True,
             bgcolor=CANVAS,
-            padding=ft.Padding.symmetric(horizontal=18, vertical=14),
+            padding=ft.Padding.symmetric(horizontal=20, vertical=16),
             content=ft.Row(
                 [
                     ft.Container(
-                        width=CHAT_WIDTH,
+                        width=CONTENT_LANE_WIDTH,
                         expand=False,
                         content=self.messages_column,
                     )
@@ -462,14 +462,14 @@ class LayoutBuilderMixin:
         self.model_selector = ft.Dropdown(
             value=self.config.model_name,
             options=[ft.dropdown.Option(m) for m in model_choices],
-            width=230,
-            text_size=11,
+            width=210,
+            text_size=12,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
             focused_border_color=ACCENT,
-            content_padding=ft.Padding.symmetric(horizontal=11, vertical=8),
-            bgcolor=SURFACE_1,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             on_select=self._on_model_select,
         )
@@ -482,11 +482,11 @@ class LayoutBuilderMixin:
             border_radius=RADIUS_MD,
             border_color=BORDER,
             focused_border_color=ACCENT,
-            bgcolor=SURFACE_1,
+            bgcolor=SURFACE_2,
             cursor_color=ACCENT,
-            text_style=ft.TextStyle(size=14, color=TEXT_PRIMARY),
-            hint_style=ft.TextStyle(size=14, color=TEXT_MUTED),
-            content_padding=ft.Padding.symmetric(horizontal=14, vertical=11),
+            text_style=ft.TextStyle(size=13, color=TEXT_PRIMARY),
+            hint_style=ft.TextStyle(size=13, color=TEXT_MUTED),
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         )
 
         self.send_button = ft.IconButton(
@@ -500,19 +500,27 @@ class LayoutBuilderMixin:
                 shape=ft.CircleBorder(),
             ),
         )
-        return ft.Container(
-            bgcolor=CANVAS,
-            border=ft.Border.only(top=ft.BorderSide(1, BORDER)),
-            padding=ft.Padding.symmetric(horizontal=16, vertical=10),
+        composer_lane = ft.Container(
+            width=CONTENT_LANE_WIDTH,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_MD,
+            bgcolor=SURFACE_1,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
             content=ft.Row(
                 [
                     self.model_selector,
                     ft.Container(content=self.input_field, expand=True),
                     self.send_button,
                 ],
-                spacing=8,
+                spacing=10,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
+        )
+        return ft.Container(
+            bgcolor=CANVAS,
+            border=ft.Border.only(top=ft.BorderSide(1, HAIRLINE)),
+            padding=ft.Padding.symmetric(horizontal=20, vertical=10),
+            content=ft.Row([composer_lane], alignment=ft.MainAxisAlignment.CENTER),
         )
 
     def _refresh_action_button(self):

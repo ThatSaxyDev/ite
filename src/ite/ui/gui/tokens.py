@@ -4,8 +4,10 @@ CANVAS = "#181818"
 SURFACE_1 = "#202020"
 SURFACE_2 = "#222222"
 SURFACE_3 = "#262626"
+SURFACE_ELEVATED = "#1D1D1D"
 BORDER = ft.Colors.with_opacity(0.07, ft.Colors.WHITE)
 BORDER_STRONG = ft.Colors.with_opacity(0.14, ft.Colors.WHITE)
+HAIRLINE = ft.Colors.with_opacity(0.05, ft.Colors.WHITE)
 TEXT_PRIMARY = ft.Colors.with_opacity(0.90, ft.Colors.WHITE)
 TEXT_SECONDARY = ft.Colors.with_opacity(0.62, ft.Colors.WHITE)
 TEXT_MUTED = ft.Colors.with_opacity(0.40, ft.Colors.WHITE)
@@ -29,7 +31,11 @@ SPACE_XL = 20
 
 THREADS_WIDTH = 284
 THREADS_WIDTH_COLLAPSED = 68
-CHAT_WIDTH = 940
+CONTENT_LANE_WIDTH = 940
+CHAT_WIDTH = CONTENT_LANE_WIDTH
+ASSISTANT_MESSAGE_WIDTH = 820
+USER_MESSAGE_WIDTH = 640
+SPECIAL_CARD_WIDTH = 820
 FONT_UI = "IBM Plex Sans"
 FONT_MONO = "IBM Plex Mono"
 
@@ -44,6 +50,6 @@ SHADOW_SUBTLE = [
 
 MONO_STYLE = ft.TextStyle(
     font_family=FONT_MONO,
-    size=12,
+    size=11,
     color=TEXT_SECONDARY,
 )

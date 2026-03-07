@@ -6,6 +6,15 @@ from ..tokens import *
 
 
 class MessageBuilderMixin:
+    def _build_status_chip(self, text: str, color: str, border: str, bg: str) -> ft.Container:
+        return ft.Container(
+            content=ft.Text(text, size=10, color=color, weight=ft.FontWeight.W_600),
+            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+            border=ft.Border.all(1, border),
+            border_radius=RADIUS_LG,
+            bgcolor=bg,
+        )
+
     def _truncate_content(
         self,
         content: str,
@@ -96,20 +105,25 @@ class MessageBuilderMixin:
         )
 
     def build_chat_message(self, role: str, content: str, is_error: bool = False) -> ft.Control:
-        bg = SURFACE_1 if role == "assistant" else SURFACE_2
-        border_color = BORDER
-        if is_error:
-            border_color = ft.Colors.with_opacity(0.28, ft.Colors.RED_300)
-
-        bubble = ft.Container(
-            content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
-            bgcolor=bg,
-            border_radius=RADIUS_MD,
-            padding=ft.Padding.symmetric(horizontal=12, vertical=9),
-            border=ft.Border.all(1, border_color),
-            shadow=SHADOW_SUBTLE,
-            width=760 if role != "user" else 640,
-        )
+        if role == "assistant" and not is_error:
+            bubble = ft.Container(
+                content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
+                border_radius=RADIUS_SM,
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                width=ASSISTANT_MESSAGE_WIDTH,
+            )
+        else:
+            bg = SURFACE_2 if role == "user" else SURFACE_1
+            border_color = BORDER if not is_error else ft.Colors.with_opacity(0.28, ft.Colors.RED_300)
+            bubble = ft.Container(
+                content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
+                bgcolor=bg,
+                border_radius=RADIUS_MD,
+                padding=ft.Padding.symmetric(horizontal=12, vertical=9),
+                border=ft.Border.all(1, border_color),
+                shadow=SHADOW_SUBTLE if is_error else None,
+                width=USER_MESSAGE_WIDTH if role == "user" else ASSISTANT_MESSAGE_WIDTH,
+            )
 
         align = ft.MainAxisAlignment.END if role == "user" else ft.MainAxisAlignment.START
         return ft.Row([bubble], alignment=align)
@@ -122,14 +136,14 @@ class MessageBuilderMixin:
             border = ft.Colors.with_opacity(0.25, ft.Colors.RED_300)
 
         card = ft.Container(
-            bgcolor=SURFACE_1,
+            bgcolor=SURFACE_ELEVATED,
             border_radius=RADIUS_SM,
-            border=ft.Border.all(1, border),
+            border=ft.Border.all(1, border if level == "error" else HAIRLINE),
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            width=760,
+            width=SPECIAL_CARD_WIDTH,
             content=ft.Column(
                 [
-                    ft.Text(title, size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+                    ft.Text(title, size=10, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
                     ft.Text(content, style=MONO_STYLE, selectable=True, color=color),
                 ],
                 tight=True,
@@ -158,18 +172,18 @@ class MessageBuilderMixin:
         card = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text(title, size=12, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
-                    ft.Divider(height=1, color=BORDER),
+                    ft.Text(title, size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+                    ft.Divider(height=1, color=HAIRLINE),
                     content,
                 ],
-                spacing=6,
+                spacing=5,
                 tight=True,
             ),
-            bgcolor=SURFACE_1,
-            border=ft.Border.all(1, BORDER_STRONG),
+            bgcolor=SURFACE_ELEVATED,
+            border=ft.Border.all(1, HAIRLINE),
             border_radius=RADIUS_MD,
-            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-            width=760,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=9),
+            width=SPECIAL_CARD_WIDTH,
         )
         self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         self.page.update()
@@ -191,12 +205,9 @@ class MessageBuilderMixin:
             self.streaming_markdown = ft.Markdown("", selectable=True, extension_set="gitHubFlavored")
             self.streaming_container = ft.Container(
                 content=self.streaming_markdown,
-                bgcolor=SURFACE_1,
-                border_radius=RADIUS_MD,
-                border=ft.Border.all(1, BORDER),
-                padding=ft.Padding.symmetric(horizontal=12, vertical=10),
-                width=760,
-                shadow=SHADOW_SUBTLE,
+                border_radius=RADIUS_SM,
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                width=ASSISTANT_MESSAGE_WIDTH,
             )
             self.messages_column.controls.append(
                 ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
@@ -228,20 +239,19 @@ class MessageBuilderMixin:
                 [
                     ft.Row(
                         [
-                            ft.Text("tool", size=11, color=TEXT_MUTED),
+                            ft.Text("tool", size=10, color=TEXT_MUTED),
                             ft.Text(name, size=12, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
                             ft.Text(f"#{call_id[:8]}", size=10, color=TEXT_MUTED),
                             ft.Container(expand=True),
-                            ft.Container(
-                                content=ft.Text("running", size=10, color=ACCENT),
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                                border=ft.Border.all(1, ACCENT_SOFT),
-                                border_radius=RADIUS_LG,
-                                bgcolor=ft.Colors.with_opacity(0.1, ACCENT),
+                            self._build_status_chip(
+                                "running",
+                                ACCENT,
+                                ACCENT_SOFT,
+                                ft.Colors.with_opacity(0.1, ACCENT),
                             ),
                         ]
                     ),
-                    ft.Divider(height=1, color=BORDER),
+                    ft.Divider(height=1, color=HAIRLINE),
                     self._build_expandable_block(
                         args_text,
                         as_markdown=False,
@@ -255,8 +265,8 @@ class MessageBuilderMixin:
             border=ft.Border.all(1, ACCENT_SOFT),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            width=760,
-            bgcolor=SURFACE_1,
+            width=SPECIAL_CARD_WIDTH,
+            bgcolor=SURFACE_ELEVATED,
         )
         row = ft.Row([card], alignment=ft.MainAxisAlignment.START)
         self.messages_column.controls.append(row)
@@ -305,22 +315,21 @@ class MessageBuilderMixin:
                 [
                     ft.Row(
                         [
-                            ft.Text("tool", size=11, color=TEXT_MUTED),
+                            ft.Text("tool", size=10, color=TEXT_MUTED),
                             ft.Text(name, size=12, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
                             ft.Text(f"#{call_id[:8]}", size=10, color=TEXT_MUTED),
                             ft.Container(expand=True),
-                            ft.Container(
-                                content=ft.Text(state_text, size=10, color=state_color),
-                                padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                                border=ft.Border.all(1, SUCCESS_SOFT if success else DANGER_SOFT),
-                                border_radius=RADIUS_LG,
-                                bgcolor=ft.Colors.with_opacity(
+                            self._build_status_chip(
+                                state_text,
+                                state_color,
+                                SUCCESS_SOFT if success else DANGER_SOFT,
+                                ft.Colors.with_opacity(
                                     0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
                                 ),
                             ),
                         ]
                     ),
-                    ft.Divider(height=1, color=BORDER),
+                    ft.Divider(height=1, color=HAIRLINE),
                     body,
                 ],
                 spacing=6,
@@ -329,8 +338,8 @@ class MessageBuilderMixin:
             border=ft.Border.all(1, SUCCESS_SOFT if success else DANGER_SOFT),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            width=760,
-            bgcolor=SURFACE_1,
+            width=SPECIAL_CARD_WIDTH,
+            bgcolor=SURFACE_ELEVATED,
         )
         self.messages_column.controls[index] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
         self.page.update()
