@@ -553,7 +553,7 @@ class LayoutBuilderMixin:
             border=ft.Border.all(1, BORDER),
             border_radius=RADIUS_LG,
             bgcolor=SURFACE_ELEVATED,
-            padding=ft.Padding.symmetric(horizontal=14, vertical=8),
+            padding=ft.Padding.only(left=14, right=14, bottom=10),
             content=ft.Column(
                 [
                     ft.Container(

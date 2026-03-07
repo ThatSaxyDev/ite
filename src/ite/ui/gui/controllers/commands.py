@@ -111,6 +111,16 @@ class CommandControllerMixin:
             )
             return True
 
+        if command == "/branch":
+            self._add_assistant_card(
+                "Command Disabled in GUI",
+                ft.Text(
+                    "Use the Branch selector in the composer controls to switch or create branches.",
+                    color=TEXT_SECONDARY,
+                ),
+            )
+            return True
+
         if command == "/config":
             rows = ft.Column(
                 [
