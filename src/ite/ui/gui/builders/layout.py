@@ -463,37 +463,58 @@ class LayoutBuilderMixin:
         if self.config.model_name not in model_choices:
             model_choices.insert(0, self.config.model_name)
 
-        self.model_selector = ft.Dropdown(
-            value=self.config.model_name,
-            options=[ft.dropdown.Option(m) for m in model_choices],
-            width=196,
-            height=32,
-            text_size=TYPE_BODY,
-            dense=True,
-            border=ft.InputBorder.NONE,
-            border_color=ft.Colors.TRANSPARENT,
-            focused_border_color=ft.Colors.TRANSPARENT,
-            content_padding=ft.Padding.symmetric(horizontal=0, vertical=2),
-            bgcolor=ft.Colors.TRANSPARENT,
+        self.model_items = model_choices
+        self.model_selector_text = ft.Text(
+            self.config.model_name,
+            size=TYPE_BODY,
             color=TEXT_PRIMARY,
-            on_select=self._on_model_select,
-            border_radius=RADIUS_LG,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
         )
-        self.branch_selector = ft.Dropdown(
-            value=None,
-            options=[],
-            width=154,
-            height=32,
-            text_size=TYPE_BODY,
-            dense=True,
-            border=ft.InputBorder.NONE,
-            border_color=ft.Colors.TRANSPARENT,
-            focused_border_color=ft.Colors.TRANSPARENT,
-            content_padding=ft.Padding.symmetric(horizontal=0, vertical=2),
-            bgcolor=ft.Colors.TRANSPARENT,
+        self.model_selector = ft.TextButton(
+            content=ft.Row(
+                [   
+                    ft.Container(width=2),
+                    self.model_selector_text,
+                    ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, size=14, color=TEXT_MUTED),
+                    ft.Container(width=2),
+                ],
+                spacing=3,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+            on_click=self._open_model_picker_dialog,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_MD),
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.06, ft.Colors.WHITE), ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT},
+            ),
+        )
+        self.branch_selector_text = ft.Text(
+            "branch",
+            size=TYPE_BODY,
             color=TEXT_SECONDARY,
-            on_select=self._on_branch_select,
-            border_radius=RADIUS_LG,
+            no_wrap=True,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        self.branch_selector = ft.TextButton(
+            content=ft.Row(
+                [
+                    ft.Container(width=2),
+                    self.branch_selector_text,
+                    ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, size=14, color=TEXT_MUTED),
+                    ft.Container(width=2),
+                ],
+                spacing=3,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+            on_click=self._open_branch_picker_dialog,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_MD),
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.06, ft.Colors.WHITE), ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT},
+            ),
         )
         self.branch_create_button = ft.IconButton(
             icon=ft.Icons.ADD,
@@ -512,11 +533,11 @@ class LayoutBuilderMixin:
             [                   
                 ft.Container(
                     content=ft.Icon(ft.Icons.ACCOUNT_TREE, size=18, color=TEXT_MUTED),
-                    padding=ft.Padding.only(top=18),
+                    # padding=ft.Padding.only(top=6),
                 ),
                 ft.Container(
                     content=self.branch_create_button,
-                    padding=ft.Padding.only(top=18),
+                    # padding=ft.Padding.only(top=6),
                 ),
                 self.branch_selector,    
                                              

@@ -136,17 +136,17 @@ class CommandControllerMixin:
             self._add_assistant_card("Configuration", rows)
             return True
 
-        if command == "/model":
-            if args:
-                old_model = self.config.model_name
-                self.config.model_name = args[0]
-                if self.model_selector:
-                    self.model_selector.value = self.config.model_name
-                    self.model_selector.update()
-                self._add_assistant_card("Model Updated", ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_PRIMARY))
-            else:
-                self._add_assistant_card("Current Model", ft.Text(self.config.model_name, color=TEXT_PRIMARY))
-            return True
+            if command == "/model":
+                if args:
+                    old_model = self.config.model_name
+                    self.config.model_name = args[0]
+                    if self.model_selector_text:
+                        self.model_selector_text.value = self.config.model_name
+                        self.model_selector_text.update()
+                    self._add_assistant_card("Model Updated", ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_PRIMARY))
+                else:
+                    self._add_assistant_card("Current Model", ft.Text(self.config.model_name, color=TEXT_PRIMARY))
+                return True
 
         if command == "/setup":
             await self._open_setup_view()
@@ -249,16 +249,80 @@ class CommandControllerMixin:
 
         return False
 
-    def _on_model_select(self, e: ft.Event[ft.Dropdown]):
-        if not self.model_selector:
+    def _open_model_picker_dialog(self, e=None):
+        if not self.page:
             return
-        selected = self.model_selector.value
-        if not selected:
+        options = list(self.model_items or [])
+        if self.config.model_name not in options:
+            options.insert(0, self.config.model_name)
+
+        items: list[ft.Control] = []
+        for model in options:
+            is_current = model == self.config.model_name
+            items.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=8),
+                    border_radius=RADIUS_SM,
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE) if is_current else ft.Colors.TRANSPARENT,
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.MODEL_TRAINING_OUTLINED, size=13, color=TEXT_MUTED),
+                            ft.Text(model, size=TYPE_BODY, color=TEXT_PRIMARY, expand=True, no_wrap=True),
+                            ft.Container(
+                                visible=is_current,
+                                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                border_radius=999,
+                                bgcolor=ft.Colors.with_opacity(0.12, ACCENT),
+                                content=ft.Text("current", size=TYPE_XS, color=ACCENT, weight=WEIGHT_SEMIBOLD),
+                            ),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    on_click=lambda _, m=model: self._on_model_pick(m),
+                )
+            )
+
+        self.model_picker_dialog = ft.AlertDialog(
+            modal=True,
+            bgcolor=SURFACE_1,
+            title=ft.Row(
+                [
+                    ft.Icon(ft.Icons.MODEL_TRAINING, size=16, color=TEXT_MUTED),
+                    ft.Text("Select model", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
+                ],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            content=ft.Container(
+                width=460,
+                height=320,
+                content=ft.Column(
+                    [ft.Column(items, spacing=3, scroll=ft.ScrollMode.AUTO, expand=True)],
+                    spacing=0,
+                    expand=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            actions_padding=ft.Padding.only(right=8, bottom=8),
+            content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        )
+        self.page.show_dialog(self.model_picker_dialog)
+
+    def _on_model_pick(self, selected: str):
+        if not self.page:
             return
+        self.page.pop_dialog()
         if selected == self.config.model_name:
             return
         old_model = self.config.model_name
         self.config.model_name = selected
+        if self.model_selector_text:
+            self.model_selector_text.value = self.config.model_name
+            self.model_selector_text.update()
         self._add_assistant_card(
             "Model Updated",
             ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_SECONDARY),

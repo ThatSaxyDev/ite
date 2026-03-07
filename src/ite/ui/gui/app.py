@@ -43,13 +43,21 @@ class GUIApp(
         self.input_field: ft.TextField | None = None
         self.send_button: ft.IconButton | None = None
         self.loading_indicator: ft.ProgressRing | None = None
-        self.model_selector: ft.Dropdown | None = None
+        self.model_selector: ft.Control | None = None
+        self.model_selector_text: ft.Text | None = None
+        self.model_items: list[str] = []
+        self.model_picker_dialog: ft.AlertDialog | None = None
         self.workspace_selector: ft.Dropdown | None = None
-        self.branch_selector: ft.Dropdown | None = None
+        self.branch_selector: ft.Control | None = None
+        self.branch_selector_text: ft.Text | None = None
         self.branch_controls_row: ft.Row | None = None
         self.branch_create_button: ft.IconButton | None = None
         self.branch_dialog: ft.AlertDialog | None = None
         self.branch_name_input: ft.TextField | None = None
+        self.branch_picker_dialog: ft.AlertDialog | None = None
+        self.branch_picker_search: ft.TextField | None = None
+        self.branch_picker_list: ft.Column | None = None
+        self.branch_items: list = []
         self.current_branch_name: str | None = None
         self.branch_loading: bool = False
         self._branch_workspace_key: str | None = None
@@ -357,9 +365,11 @@ class GUIApp(
         self.config.api_key = api_key
         self.config.base_url = base_url
         self.config.model.name = model_name
-        if self.model_selector:
-            self.model_selector.value = self.config.model_name
-            self.model_selector.update()
+        if self.model_selector_text:
+            self.model_selector_text.value = self.config.model_name
+            self.model_selector_text.update()
+        if self.config.model_name not in self.model_items:
+            self.model_items.insert(0, self.config.model_name)
 
         if self.agent is not None:
             await self._shutdown_agent()

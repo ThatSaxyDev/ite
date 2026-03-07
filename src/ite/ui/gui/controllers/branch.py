@@ -25,13 +25,13 @@ class BranchControllerMixin:
         if self._branch_workspace_key != cwd_key:
             return
 
-        if not self.branch_controls_row or not self.branch_selector:
+        if not self.branch_controls_row or not self.branch_selector_text:
             return
 
         if not in_repo:
             self.current_branch_name = None
-            self.branch_selector.options = []
-            self.branch_selector.value = None
+            self.branch_items = []
+            self.branch_selector_text.value = "branch"
             self.branch_controls_row.visible = False
             self.page.update()
             return
@@ -42,14 +42,8 @@ class BranchControllerMixin:
             return
 
         self.current_branch_name = current
-        self.branch_selector.options = [
-            ft.dropdown.Option(
-                key=b.name,
-                text=b.name,
-            )
-            for b in branches
-        ]
-        self.branch_selector.value = current if any(b.name == current for b in branches) else None
+        self.branch_items = branches
+        self.branch_selector_text.value = current
         self.branch_controls_row.visible = True
         self.page.update()
 
@@ -62,17 +56,131 @@ class BranchControllerMixin:
         if self.page:
             self.page.update()
 
-    def _on_branch_select(self, e: ft.Event[ft.Dropdown]):
-        if not self.page or not self.branch_selector:
+    def _open_branch_picker_dialog(self, e=None):
+        if not self.page or self.branch_loading:
             return
-        selected = self.branch_selector.value
-        if not selected or selected == self.current_branch_name or self.branch_loading:
+        self.branch_picker_search = ft.TextField(
+            hint_text="Search branches...",
+            autofocus=True,
+            prefix_icon=ft.Icons.SEARCH,
+            border_radius=RADIUS_SM,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            text_size=TYPE_BODY,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            on_change=self._on_branch_picker_search_change,
+        )
+        self.branch_picker_list = ft.Column(
+            [],
+            spacing=3,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+        self._render_branch_picker_items("")
+        self.branch_picker_dialog = ft.AlertDialog(
+            modal=True,
+            bgcolor=SURFACE_1,
+            title=ft.Row(
+                [
+                    ft.Icon(ft.Icons.ACCOUNT_TREE, size=16, color=TEXT_MUTED),
+                    ft.Text("Switch branch", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
+                ],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            content=ft.Container(
+                width=480,
+                height=320,
+                content=ft.Column(
+                    [
+                        self.branch_picker_search,
+                        ft.Text(
+                            "Type to filter local branches",
+                            size=TYPE_XS,
+                            color=TEXT_MUTED,
+                        ),
+                        ft.Divider(height=8, color=HAIRLINE),
+                        self.branch_picker_list,
+                    ],
+                    spacing=6,
+                    expand=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            actions_padding=ft.Padding.only(right=8, bottom=8),
+            content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        )
+        self.page.show_dialog(self.branch_picker_dialog)
+
+    def _on_branch_picker_search_change(self, e: ft.Event[ft.TextField]):
+        text = ""
+        if self.branch_picker_search and self.branch_picker_search.value:
+            text = self.branch_picker_search.value
+        self._render_branch_picker_items(text)
+
+    def _render_branch_picker_items(self, query: str):
+        if not self.branch_picker_list:
             return
-        self.page.run_task(self._checkout_branch_from_gui, selected)
+        q = query.strip().lower()
+        controls: list[ft.Control] = []
+        for item in self.branch_items:
+            if q and q not in item.name.lower():
+                continue
+            is_current = item.name == self.current_branch_name
+            row = ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.ACCOUNT_TREE_OUTLINED,
+                            size=13,
+                            color=TEXT_MUTED,
+                        ),
+                        ft.Text(item.name, size=TYPE_BODY, color=TEXT_PRIMARY, no_wrap=True, expand=True),
+                        ft.Container(
+                            visible=is_current,
+                            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                            border_radius=999,
+                            bgcolor=ft.Colors.with_opacity(0.12, ACCENT),
+                            content=ft.Text("current", size=TYPE_XS, color=ACCENT, weight=WEIGHT_SEMIBOLD),
+                        ),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=8),
+                border_radius=RADIUS_SM,
+                bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE)
+                if is_current
+                else ft.Colors.TRANSPARENT,
+                on_click=lambda _, name=item.name: self._on_branch_picker_choose(name),
+            )
+            controls.append(row)
+        if not controls:
+            controls.append(
+                ft.Container(
+                    padding=ft.Padding.only(top=6, left=4),
+                    content=ft.Text("No branches found", size=TYPE_SM, color=TEXT_MUTED),
+                )
+            )
+        self.branch_picker_list.controls = controls
+        if self.page:
+            self.page.update()
+
+    def _on_branch_picker_choose(self, branch: str):
+        if not self.page or self.branch_loading:
+            return
+        self.page.pop_dialog()
+        if branch == self.current_branch_name:
+            return
+        self.page.run_task(self._checkout_branch_from_gui, branch)
 
     async def _checkout_branch_from_gui(self, branch: str):
         self._set_branch_loading(True)
-        previous = self.current_branch_name
         try:
             cwd = Path(self.config.cwd).resolve()
             result = await asyncio.to_thread(checkout_branch, cwd, branch)
@@ -80,8 +188,6 @@ class BranchControllerMixin:
                 self._add_assistant_card("Branch", ft.Text(result.message, color=TEXT_SECONDARY))
             else:
                 self._add_message("system", f"Branch switch failed: {result.message}", is_error=True)
-                if self.branch_selector:
-                    self.branch_selector.value = previous
             await self._refresh_branch_options_async()
         finally:
             self._set_branch_loading(False)
