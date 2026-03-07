@@ -82,29 +82,25 @@ class BranchControllerMixin:
         self.branch_picker_dialog = ft.AlertDialog(
             modal=True,
             bgcolor=SURFACE_1,
-            title=ft.Row(
-                [
-                    ft.Icon(ft.Icons.ACCOUNT_TREE, size=16, color=TEXT_MUTED),
-                    ft.Text("Switch branch", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
-                ],
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
+            title=ft.Text("Switch branch", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
             content=ft.Container(
-                width=480,
-                height=320,
+                width=420,
+                height=360,
                 content=ft.Column(
                     [
-                        self.branch_picker_search,
+                        ft.Container(
+                            content=self.branch_picker_search,
+                            padding=ft.Padding.only(top=2),
+                        ),
                         ft.Text(
                             "Type to filter local branches",
                             size=TYPE_XS,
                             color=TEXT_MUTED,
                         ),
-                        ft.Divider(height=8, color=HAIRLINE),
+                        ft.Divider(height=6, color=HAIRLINE),
                         self.branch_picker_list,
                     ],
-                    spacing=6,
+                    spacing=8,
                     expand=True,
                 ),
             ),
@@ -112,8 +108,8 @@ class BranchControllerMixin:
                 ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
-            actions_padding=ft.Padding.only(right=8, bottom=8),
-            content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            actions_padding=ft.Padding.only(right=16, bottom=12),
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         )
         self.page.show_dialog(self.branch_picker_dialog)
 
@@ -152,7 +148,7 @@ class BranchControllerMixin:
                     spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                padding=ft.Padding.symmetric(horizontal=8, vertical=8),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
                 border_radius=RADIUS_SM,
                 bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE)
                 if is_current
@@ -196,7 +192,6 @@ class BranchControllerMixin:
         if not self.page:
             return
         self.branch_name_input = ft.TextField(
-            label="New branch name",
             autofocus=True,
             hint_text="feature/my-branch",
             border_radius=RADIUS_SM,
@@ -205,6 +200,7 @@ class BranchControllerMixin:
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             text_size=TYPE_MD,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=10),
         )
 
         def on_cancel(_):
@@ -220,12 +216,43 @@ class BranchControllerMixin:
             modal=True,
             bgcolor=SURFACE_1,
             title=ft.Text("Create branch", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
-            content=self.branch_name_input,
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    [
+                        ft.Text("Enter a new local branch name.", size=TYPE_SM, color=TEXT_MUTED),
+                        ft.Container(
+                            bgcolor=SURFACE_2,
+                            border=ft.Border.all(1, BORDER),
+                            border_radius=RADIUS_SM,
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                            content=ft.Row(
+                                [
+                                    ft.Text(
+                                        "git checkout -b",
+                                        size=TYPE_SM,
+                                        color=TEXT_MUTED,
+                                        no_wrap=True,
+                                    ),
+                                    ft.Container(width=1, height=18, bgcolor=HAIRLINE),
+                                    ft.Container(self.branch_name_input, expand=True),
+                                ],
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                        ),
+                    ],
+                    spacing=8,
+                    tight=True,
+                ),
+            ),
             actions=[
                 ft.TextButton("Cancel", on_click=on_cancel),
                 ft.FilledButton("Create", on_click=on_create),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
+            actions_padding=ft.Padding.only(right=16, bottom=12),
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         )
         self.page.show_dialog(self.branch_dialog)
 

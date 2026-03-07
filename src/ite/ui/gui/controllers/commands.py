@@ -286,19 +286,12 @@ class CommandControllerMixin:
         self.model_picker_dialog = ft.AlertDialog(
             modal=True,
             bgcolor=SURFACE_1,
-            title=ft.Row(
-                [
-                    ft.Icon(ft.Icons.MODEL_TRAINING, size=16, color=TEXT_MUTED),
-                    ft.Text("Select model", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
-                ],
-                spacing=8,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
+            title=ft.Text("Select model", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
             content=ft.Container(
-                width=460,
-                height=320,
+                width=420,
+                height=360,
                 content=ft.Column(
-                    [ft.Column(items, spacing=3, scroll=ft.ScrollMode.AUTO, expand=True)],
+                    [ft.Column(items, spacing=4, scroll=ft.ScrollMode.AUTO, expand=True)],
                     spacing=0,
                     expand=True,
                 ),
@@ -307,8 +300,8 @@ class CommandControllerMixin:
                 ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
-            actions_padding=ft.Padding.only(right=8, bottom=8),
-            content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+            actions_padding=ft.Padding.only(right=16, bottom=12),
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         )
         self.page.show_dialog(self.model_picker_dialog)
 
