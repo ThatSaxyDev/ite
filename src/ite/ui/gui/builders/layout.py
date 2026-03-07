@@ -508,7 +508,7 @@ class LayoutBuilderMixin:
         )
         self.branch_controls_row = ft.Row(
             [
-                ft.Icon(ft.Icons.ACCOUNT_TREE_OUTLINED, size=14, color=TEXT_MUTED),
+                ft.Icon(ft.Icons.ACCOUNT_TREE, size=14, color=TEXT_MUTED),
                 self.branch_selector,
                 self.branch_create_button,
             ],
