@@ -508,8 +508,14 @@ class LayoutBuilderMixin:
         )
         self.branch_controls_row = ft.Row(
             [                   
-                ft.Icon(ft.Icons.ACCOUNT_TREE, size=18, color=TEXT_MUTED),
-                self.branch_create_button, 
+                ft.Container(
+                    content=ft.Icon(ft.Icons.ACCOUNT_TREE, size=18, color=TEXT_MUTED),
+                    padding=ft.Padding.only(top=18),
+                ),
+                ft.Container(
+                    content=self.branch_create_button,
+                    padding=ft.Padding.only(top=18),
+                ),
                 self.branch_selector,    
                                              
             ],
@@ -555,7 +561,7 @@ class LayoutBuilderMixin:
             border=ft.Border.all(1, BORDER),
             border_radius=RADIUS_LG,
             bgcolor=SURFACE_ELEVATED,
-            padding=ft.Padding.only(left=14, right=14, bottom=10),
+            padding=ft.Padding.only(left=14, right=14, bottom=7),
             content=ft.Column(
                 [
                     ft.Container(
