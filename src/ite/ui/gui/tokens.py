@@ -39,6 +39,23 @@ SPECIAL_CARD_WIDTH = 820
 FONT_UI = "IBM Plex Sans"
 FONT_MONO = "IBM Plex Mono"
 
+TYPE_XS = 10
+TYPE_SM = 11
+TYPE_MD = 12
+TYPE_BODY = 13
+TYPE_TITLE = 14
+TYPE_H1 = 18
+
+WEIGHT_REGULAR = ft.FontWeight.W_400
+WEIGHT_MEDIUM = ft.FontWeight.W_500
+WEIGHT_SEMIBOLD = ft.FontWeight.W_600
+WEIGHT_BOLD = ft.FontWeight.W_700
+
+CHAT_ITEM_GAP = 10
+CHAT_BLOCK_GAP = 6
+CARD_PAD_X = 10
+CARD_PAD_Y = 8
+
 SHADOW_SUBTLE = [
     ft.BoxShadow(
         spread_radius=0,
@@ -50,6 +67,6 @@ SHADOW_SUBTLE = [
 
 MONO_STYLE = ft.TextStyle(
     font_family=FONT_MONO,
-    size=11,
+    size=TYPE_SM,
     color=TEXT_SECONDARY,
 )

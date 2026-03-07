@@ -18,7 +18,7 @@ from .controllers.approval import ApprovalControllerMixin
 from .controllers.sessions import SessionControllerMixin
 from .controllers.commands import CommandControllerMixin
 from .controllers.agent_events import AgentEventControllerMixin
-from .tokens import RADIUS_SM, SURFACE_ELEVATED, TEXT_MUTED
+from .tokens import RADIUS_SM, SURFACE_ELEVATED, TEXT_MUTED, TYPE_SM
 
 
 class GUIApp(
@@ -185,7 +185,7 @@ class GUIApp(
             stroke_width=1,
             color=TEXT_MUTED,
         )
-        self.thinking_text = ft.Text("Thinking", size=11, color=TEXT_MUTED)
+        self.thinking_text = ft.Text("Thinking", size=TYPE_SM, color=TEXT_MUTED)
         bubble = ft.Container(
             content=ft.Row(
                 [self.thinking_spinner, self.thinking_text],

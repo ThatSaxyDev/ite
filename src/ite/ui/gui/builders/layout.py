@@ -68,7 +68,7 @@ class LayoutBuilderMixin:
         }
         self.setup_error_text = ft.Text(
             "",
-            size=11,
+            size=TYPE_SM,
             color=ft.Colors.with_opacity(0.9, ft.Colors.RED_300),
             visible=False,
         )
@@ -80,7 +80,7 @@ class LayoutBuilderMixin:
             focused_border_color=ACCENT,
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
-            text_size=12,
+            text_size=TYPE_MD,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         )
         self.setup_api_key_field = ft.TextField(
@@ -93,7 +93,7 @@ class LayoutBuilderMixin:
             focused_border_color=ACCENT,
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
-            text_size=12,
+            text_size=TYPE_MD,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         )
         self.setup_model_field = ft.TextField(
@@ -104,7 +104,7 @@ class LayoutBuilderMixin:
             focused_border_color=ACCENT,
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
-            text_size=12,
+            text_size=TYPE_MD,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         )
         self.approval_selector = ft.Dropdown(
@@ -115,10 +115,10 @@ class LayoutBuilderMixin:
                     text=_format_approval_label(p.value),
                     content=ft.Column(
                         [
-                            ft.Text(_format_approval_label(p.value), size=12, color=TEXT_PRIMARY),
+                            ft.Text(_format_approval_label(p.value), size=TYPE_MD, color=TEXT_PRIMARY),
                             ft.Text(
                                 approval_descriptions.get(p.value, ""),
-                                size=10,
+                                size=TYPE_XS,
                                 color=TEXT_MUTED,
                                 no_wrap=True,
                             ),
@@ -129,7 +129,7 @@ class LayoutBuilderMixin:
                 )
                 for p in ApprovalPolicy
             ],
-            text_size=11,
+            text_size=TYPE_SM,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
@@ -150,8 +150,8 @@ class LayoutBuilderMixin:
                 [
                     ft.Text(
                         "Settings" if not self.config.needs_setup else "Setup ITE",
-                        size=20,
-                        weight=ft.FontWeight.W_700,
+                        size=TYPE_H1,
+                        weight=WEIGHT_BOLD,
                         color=TEXT_PRIMARY,
                     ),
                     ft.Text(
@@ -160,14 +160,14 @@ class LayoutBuilderMixin:
                             if self.config.needs_setup
                             else "Update provider and approval settings."
                         ),
-                        size=12,
+                        size=TYPE_MD,
                         color=TEXT_SECONDARY,
                     ),
                     ft.Divider(height=10, color=BORDER),
                     self.setup_base_url_field,
                     self.setup_api_key_field,
                     self.setup_model_field,
-                    ft.Text("Approval mode", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+                    ft.Text("Approval mode", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
                     self.approval_selector,
                     self.setup_error_text,
                     ft.Row(
@@ -194,7 +194,7 @@ class LayoutBuilderMixin:
                         ]
                     ),
                 ],
-                spacing=10,
+                spacing=SPACE_SM,
                 tight=True,
             ),
         )
@@ -211,7 +211,7 @@ class LayoutBuilderMixin:
         self.workspace_selector = ft.Dropdown(
             value=str(self.config.cwd.resolve()),
             options=[],
-            text_size=11,
+            text_size=TYPE_SM,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
@@ -223,13 +223,13 @@ class LayoutBuilderMixin:
         )
 
         self.sidebar_new_thread_button = ft.TextButton(
-            content=ft.Text("+ New thread", size=12, color=TEXT_PRIMARY, weight=ft.FontWeight.W_600),
+            content=ft.Text("+ New thread", size=TYPE_MD, color=TEXT_PRIMARY, weight=WEIGHT_SEMIBOLD),
             on_click=lambda e: self._on_new_thread(),
             style=ft.ButtonStyle(
                 bgcolor={ft.ControlState.DEFAULT: SURFACE_2, ft.ControlState.HOVERED: SURFACE_3},
                 shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
                 side=ft.BorderSide(1, BORDER_STRONG),
-                padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=6),
             ),
         )
         self.sidebar_new_thread_compact = ft.IconButton(
@@ -257,17 +257,17 @@ class LayoutBuilderMixin:
 
         self.sidebar_workspace_block = ft.Column(
             [
-                ft.Text("Workspace", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_500),
+                ft.Text("Workspace", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_MEDIUM),
                 self.workspace_selector,
             ],
-            spacing=6,
+            spacing=SPACE_XS,
             tight=True,
         )
         self.sidebar_threads_label = ft.Text(
             "Threads",
-            size=11,
+            size=TYPE_SM,
             color=TEXT_MUTED,
-            weight=ft.FontWeight.W_500,
+            weight=WEIGHT_MEDIUM,
         )
 
         self.sidebar_new_thread_container = ft.Container(
@@ -284,14 +284,14 @@ class LayoutBuilderMixin:
         )
 
         self.sidebar_body = ft.Column(
-            [
-                ft.Divider(height=12, color=BORDER),
-                self.sidebar_workspace_block,
-                ft.Divider(height=12, color=BORDER),
-                self.sidebar_threads_label,
-                self.sidebar_threads_column,
-            ],
-            spacing=SPACE_SM,
+                [
+                    ft.Divider(height=12, color=BORDER),
+                    self.sidebar_workspace_block,
+                    ft.Divider(height=12, color=BORDER),
+                    self.sidebar_threads_label,
+                    self.sidebar_threads_column,
+                ],
+            spacing=SPACE_XS,
             expand=True,
         )
         self.sidebar_footer = ft.Container(
@@ -302,9 +302,9 @@ class LayoutBuilderMixin:
                         content=ft.Row(
                             [
                                 ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=16, color=TEXT_SECONDARY),
-                                ft.Text("Settings", size=12, color=TEXT_SECONDARY, weight=ft.FontWeight.W_600),
+                                ft.Text("Settings", size=TYPE_MD, color=TEXT_SECONDARY, weight=WEIGHT_SEMIBOLD),
                             ],
-                            spacing=8,
+                            spacing=6,
                         ),
                         on_click=lambda e: self.page.run_task(self._open_setup_view) if self.page else None,
                         style=ft.ButtonStyle(
@@ -387,15 +387,15 @@ class LayoutBuilderMixin:
     def build_header(self) -> ft.Control:
         self.header_session_text = ft.Text(
             self.current_session_title,
-            size=15,
-            weight=ft.FontWeight.W_700,
+            size=TYPE_TITLE,
+            weight=WEIGHT_BOLD,
             color=TEXT_PRIMARY,
             no_wrap=True,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
         self.header_workspace_text = ft.Text(
             f"Workspace: {self.config.cwd}",
-            size=11,
+            size=TYPE_SM,
             color=TEXT_MUTED,
             expand=True,
             text_align=ft.TextAlign.RIGHT,
@@ -427,7 +427,7 @@ class LayoutBuilderMixin:
             scroll=ft.ScrollMode.AUTO,
             auto_scroll=False,
             on_scroll=self._on_chat_scroll,
-            spacing=SPACE_MD,
+            spacing=CHAT_ITEM_GAP,
             expand=True,
         )
 
@@ -453,7 +453,7 @@ class LayoutBuilderMixin:
             value=self.config.model_name,
             options=[ft.dropdown.Option(m) for m in model_choices],
             width=210,
-            text_size=12,
+            text_size=TYPE_MD,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
@@ -475,7 +475,8 @@ class LayoutBuilderMixin:
             bgcolor=SURFACE_2,
             cursor_color=ACCENT,
             text_style=ft.TextStyle(size=13, color=TEXT_PRIMARY),
-            hint_style=ft.TextStyle(size=13, color=TEXT_MUTED),
+            hint_style=ft.TextStyle(size=TYPE_BODY, color=TEXT_MUTED),
+            text_size=TYPE_BODY,
             content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
         )
 

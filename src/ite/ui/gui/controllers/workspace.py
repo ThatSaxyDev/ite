@@ -27,7 +27,7 @@ class WorkspaceControllerMixin:
             return
         if not sessions:
             if not self.sidebar_collapsed:
-                controls.append(ft.Text("No saved threads", size=11, color=TEXT_MUTED))
+                controls.append(ft.Text("No saved threads", size=TYPE_SM, color=TEXT_MUTED))
         else:
             for session in sessions:
                 updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
@@ -48,16 +48,16 @@ class WorkspaceControllerMixin:
                                     [
                                         ft.Text(
                                             session_name[:32],
-                                            size=11,
+                                            size=TYPE_SM,
                                             color=TEXT_PRIMARY,
-                                            weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
+                                            weight=WEIGHT_SEMIBOLD if is_active else WEIGHT_MEDIUM,
                                             no_wrap=True,
                                         ),
                                     ],
-                                    spacing=2,
+                                    spacing=1,
                                     expand=True,
                                 ),
-                                ft.Text(updated, size=10, color=TEXT_MUTED),
+                                ft.Text(updated, size=TYPE_XS, color=TEXT_MUTED),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.START,
@@ -88,8 +88,8 @@ class WorkspaceControllerMixin:
                 text=(Path(p).name or p),
                 content=ft.Column(
                     [
-                        ft.Text(Path(p).name or p, size=12, color=TEXT_PRIMARY),
-                        ft.Text(p, size=10, color=TEXT_MUTED, no_wrap=True),
+                        ft.Text(Path(p).name or p, size=TYPE_MD, color=TEXT_PRIMARY),
+                        ft.Text(p, size=TYPE_XS, color=TEXT_MUTED, no_wrap=True),
                     ],
                     tight=True,
                     spacing=1,

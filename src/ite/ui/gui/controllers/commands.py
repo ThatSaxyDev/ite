@@ -91,12 +91,12 @@ class CommandControllerMixin:
                 rows.append(
                     ft.Row(
                         [
-                            ft.Text(cmd.name + aliases, weight=ft.FontWeight.W_600, color=TEXT_PRIMARY, width=240),
-                            ft.Text(cmd.description, color=TEXT_SECONDARY, expand=True),
+                            ft.Text(cmd.name + aliases, size=TYPE_MD, weight=WEIGHT_SEMIBOLD, color=TEXT_PRIMARY, width=240),
+                            ft.Text(cmd.description, size=TYPE_MD, color=TEXT_SECONDARY, expand=True),
                         ]
                     )
                 )
-            self._add_assistant_card("Available Commands", ft.Column(rows, tight=True, spacing=6))
+            self._add_assistant_card("Available Commands", ft.Column(rows, tight=True, spacing=CHAT_BLOCK_GAP))
             return True
 
         if command == "/sessions":
@@ -112,13 +112,13 @@ class CommandControllerMixin:
         if command == "/config":
             rows = ft.Column(
                 [
-                    ft.Row([ft.Text("Model", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(self.config.model_name, color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Workspace", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.cwd), expand=True, color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Approval", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(self.config.approval.value, color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Max Turns", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.max_turns), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Hooks", weight=ft.FontWeight.BOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.hooks_enabled), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Model", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=120, color=TEXT_SECONDARY), ft.Text(self.config.model_name, size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Workspace", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.cwd), size=TYPE_MD, expand=True, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Approval", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=120, color=TEXT_SECONDARY), ft.Text(self.config.approval.value, size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Max Turns", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.max_turns), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Hooks", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=120, color=TEXT_SECONDARY), ft.Text(str(self.config.hooks_enabled), size=TYPE_MD, color=TEXT_PRIMARY)]),
                 ],
-                spacing=6,
+                spacing=CHAT_BLOCK_GAP,
                 tight=True,
             )
             self._add_assistant_card("Configuration", rows)
@@ -176,21 +176,21 @@ class CommandControllerMixin:
             )
             rows = ft.Column(
                 [
-                    ft.Row([ft.Text("Session ID", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(stats["session_id"], color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Turn Count", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["turn_count"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Message Count", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["message_count"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Context Window", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["context_window"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Context Usage", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(f'{stats["context_used_pct"]}% used ({stats["context_left_pct"]}% left)', color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Latest Tokens", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["latest_tokens"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Cached Tokens", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["latest_cached_tokens"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Token Usage", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["token_usage"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Compactions", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["compaction_count"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Last Compacted", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(last_compacted_display, color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Pruned Tools", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["pruned_tool_msgs"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("Tools Enabled", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["tools_enabled"]), color=TEXT_PRIMARY)]),
-                    ft.Row([ft.Text("MCP Servers", weight=ft.FontWeight.BOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["mcp_servers"]), color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Session ID", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(stats["session_id"], size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Turn Count", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["turn_count"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Message Count", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["message_count"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Context Window", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["context_window"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Context Usage", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(f'{stats["context_used_pct"]}% used ({stats["context_left_pct"]}% left)', size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Latest Tokens", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["latest_tokens"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Cached Tokens", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["latest_cached_tokens"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Token Usage", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["token_usage"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Compactions", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["compaction_count"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Last Compacted", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(last_compacted_display, size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Pruned Tools", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["pruned_tool_msgs"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Tools Enabled", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["tools_enabled"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("MCP Servers", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["mcp_servers"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
                 ],
-                spacing=6,
+                spacing=CHAT_BLOCK_GAP,
                 tight=True,
             )
             self._add_assistant_card("Session Stats", rows)
@@ -201,7 +201,7 @@ class CommandControllerMixin:
             chips = ft.Wrap(
                 controls=[
                     ft.Container(
-                        ft.Text(t.name, size=12, color=TEXT_PRIMARY),
+                        ft.Text(t.name, size=TYPE_MD, color=TEXT_PRIMARY),
                         padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                         bgcolor=SURFACE_2,
                         border_radius=RADIUS_SM,
@@ -209,8 +209,8 @@ class CommandControllerMixin:
                     )
                     for t in tools
                 ],
-                spacing=8,
-                run_spacing=8,
+                spacing=SPACE_XS,
+                run_spacing=SPACE_XS,
             )
             self._add_assistant_card(f"Tools ({len(tools)})", chips)
             return True
@@ -226,13 +226,13 @@ class CommandControllerMixin:
                 rows.append(
                     ft.Row(
                         [
-                            ft.Text(server["name"], width=220, weight=ft.FontWeight.BOLD, color=TEXT_PRIMARY),
-                            ft.Text(server["status"], color=color, width=120),
-                            ft.Text(f"{server['tools']} tools", color=TEXT_SECONDARY),
+                            ft.Text(server["name"], size=TYPE_MD, width=220, weight=WEIGHT_SEMIBOLD, color=TEXT_PRIMARY),
+                            ft.Text(server["status"], size=TYPE_MD, color=color, width=120),
+                            ft.Text(f"{server['tools']} tools", size=TYPE_MD, color=TEXT_SECONDARY),
                         ]
                     )
                 )
-            self._add_assistant_card("MCP Servers", ft.Column(rows, spacing=6, tight=True))
+            self._add_assistant_card("MCP Servers", ft.Column(rows, spacing=CHAT_BLOCK_GAP, tight=True))
             return True
 
         return False

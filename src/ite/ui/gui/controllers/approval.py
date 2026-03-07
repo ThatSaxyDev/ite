@@ -56,9 +56,9 @@ class ApprovalControllerMixin:
         diff = data.get("diff")
 
         parts: list[ft.Control] = [
-            ft.Text("Approval required", size=10, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
-            ft.Text(f"Tool: {tool_name}", weight=ft.FontWeight.W_600, color=TEXT_PRIMARY),
-            ft.Text(description, color=TEXT_SECONDARY),
+            ft.Text("Approval required", size=TYPE_XS, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
+            ft.Text(f"Tool: {tool_name}", size=TYPE_TITLE, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
+            ft.Text(description, size=TYPE_BODY, color=TEXT_SECONDARY),
         ]
 
         if command:
@@ -89,9 +89,9 @@ class ApprovalControllerMixin:
 
         status_text = ft.Text(
             "Pending approval",
-            size=10,
+            size=TYPE_XS,
             color=WARNING,
-            weight=ft.FontWeight.W_600,
+            weight=WEIGHT_SEMIBOLD,
         )
         buttons_row: ft.Row | None = None
         approval_card: ft.Container | None = None
@@ -139,7 +139,7 @@ class ApprovalControllerMixin:
                     ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.RED_300),
                 },
                 shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
-                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
+                text_style=ft.TextStyle(size=TYPE_MD, weight=WEIGHT_SEMIBOLD),
                 padding=ft.Padding.symmetric(horizontal=12, vertical=8),
             ),
         )
@@ -151,7 +151,7 @@ class ApprovalControllerMixin:
                 bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
                 color=ft.Colors.BLACK,
                 shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
-                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_700),
+                text_style=ft.TextStyle(size=TYPE_MD, weight=WEIGHT_BOLD),
                 padding=ft.Padding.symmetric(horizontal=14, vertical=8),
             ),
         )
@@ -164,11 +164,11 @@ class ApprovalControllerMixin:
         parts.append(buttons_row)
 
         approval_card = ft.Container(
-            content=ft.Column(parts, tight=True, spacing=8),
+            content=ft.Column(parts, tight=True, spacing=CHAT_BLOCK_GAP),
             bgcolor=SURFACE_ELEVATED,
             border=ft.Border.all(1, WARNING_SOFT),
             border_radius=RADIUS_SM,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            padding=ft.Padding.symmetric(horizontal=CARD_PAD_X, vertical=CARD_PAD_Y),
             width=SPECIAL_CARD_WIDTH,
             shadow=SHADOW_SUBTLE,
         )
