@@ -168,6 +168,8 @@ class SessionControllerMixin:
         except Exception as e:
             self._add_message("system", f"Error loading session: {e}", is_error=True)
         finally:
+            self.loading_session_id = None
+            self._refresh_sidebar_threads()
             self._set_loading(False)
 
     async def _resume_agent_session(self, snapshot):

@@ -59,6 +59,9 @@ class GUIApp(
         self.sidebar_footer: ft.Container | None = None
         self.sidebar_collapsed: bool = False
         self.active_session_id: str | None = None
+        self.loading_session_id: str | None = None
+        self.sidebar_sessions_cache: list[dict] = []
+        self.sidebar_sessions_by_id: dict[str, dict] = {}
         self.app_mode: str = "setup" if self.config.needs_setup else "chat"
         self.chat_shell: ft.Row | None = None
         self.setup_view: ft.Container | None = None

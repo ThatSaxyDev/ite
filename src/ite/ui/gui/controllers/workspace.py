@@ -19,6 +19,19 @@ class WorkspaceControllerMixin:
             )
             if s.get("turn_count", 0) > 0
         ][:20]
+        self.sidebar_sessions_cache = sessions
+        self.sidebar_sessions_by_id = {
+            s.get("session_id", ""): s for s in sessions if s.get("session_id")
+        }
+        self._render_sidebar_threads(sessions)
+
+    def _render_sidebar_threads(self, sessions: list[dict] | None = None):
+        if not self.sidebar_threads_column:
+            return
+
+        if sessions is None:
+            sessions = self.sidebar_sessions_cache or []
+
         controls: list[ft.Control] = []
         if self.sidebar_collapsed:
             self.sidebar_threads_column.controls = controls
@@ -32,6 +45,7 @@ class WorkspaceControllerMixin:
             for session in sessions:
                 updated = datetime.fromisoformat(session["updated_at"]).strftime("%b %d")
                 is_active = session["session_id"] == self.active_session_id
+                is_loading = session["session_id"] == self.loading_session_id
                 session_name = (session.get("name") or session["session_id"]).strip()
 
                 controls.append(
@@ -57,7 +71,17 @@ class WorkspaceControllerMixin:
                                     spacing=1,
                                     expand=True,
                                 ),
-                                ft.Text(updated, size=TYPE_XS, color=TEXT_MUTED),
+                                (
+                                    ft.Container(
+                                        content=ft.Text("loading", size=TYPE_XS, color=ACCENT),
+                                        padding=ft.Padding.symmetric(horizontal=7, vertical=2),
+                                        border=ft.Border.all(1, ACCENT_SOFT),
+                                        border_radius=RADIUS_LG,
+                                        bgcolor=ft.Colors.with_opacity(0.10, ACCENT),
+                                    )
+                                    if is_loading
+                                    else ft.Text(updated, size=TYPE_XS, color=TEXT_MUTED)
+                                ),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -143,5 +167,14 @@ class WorkspaceControllerMixin:
             self.page.run_task(self._start_new_thread)
 
     def _on_sidebar_session_click(self, session_id: str):
-        if self.page:
-            self.page.run_task(self._open_session_from_sidebar, session_id)
+        if not self.page:
+            return
+        if self.loading_session_id == session_id:
+            return
+        self.loading_session_id = session_id
+        self.active_session_id = session_id
+        session = self.sidebar_sessions_by_id.get(session_id)
+        if session:
+            self._set_current_session_title(session.get("name") or "New thread")
+        self._render_sidebar_threads()
+        self.page.run_task(self._open_session_from_sidebar, session_id)
