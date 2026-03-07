@@ -78,6 +78,7 @@ class GUIApp(
         self._is_turn_running: bool = False
         self.thinking_row: ft.Row | None = None
         self.thinking_text: ft.Text | None = None
+        self.thinking_spinner: ft.ProgressRing | None = None
         self._thinking_task: asyncio.Task | None = None
 
         self._command_registry = build_registry()
@@ -178,14 +179,24 @@ class GUIApp(
         if self.thinking_row:
             return
 
+        self.thinking_spinner = ft.ProgressRing(
+            width=8,
+            height=8,
+            stroke_width=1,
+            color=TEXT_MUTED,
+        )
         self.thinking_text = ft.Text("Thinking", size=11, color=TEXT_MUTED)
         bubble = ft.Container(
-            content=self.thinking_text,
+            content=ft.Row(
+                [self.thinking_spinner, self.thinking_text],
+                spacing=8,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
             bgcolor=SURFACE_1,
             border=ft.Border.all(1, BORDER),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            width=140,
+            width=160,
         )
         self.thinking_row = ft.Row([bubble], alignment=ft.MainAxisAlignment.START)
         self.messages_column.controls.append(self.thinking_row)
@@ -201,7 +212,7 @@ class GUIApp(
                 self.thinking_text.value = phases[i % len(phases)]
                 self.thinking_text.update()
                 i += 1
-                await asyncio.sleep(0.45)
+                await asyncio.sleep(0.36)
         except asyncio.CancelledError:
             return
 
@@ -214,6 +225,7 @@ class GUIApp(
         if not self.messages_column or not self.thinking_row:
             self.thinking_row = None
             self.thinking_text = None
+            self.thinking_spinner = None
             return
 
         try:
@@ -223,6 +235,7 @@ class GUIApp(
             pass
         self.thinking_row = None
         self.thinking_text = None
+        self.thinking_spinner = None
         if self.page:
             self.page.update()
 
