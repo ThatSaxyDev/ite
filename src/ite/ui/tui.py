@@ -198,6 +198,8 @@ class TUI:
         tool_kind: str | None,
         arguments: dict[str, Any],
     ) -> None:
+        if name == "memory":
+            return
         self._tool_args_by_call_id[call_id] = arguments
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
@@ -382,6 +384,8 @@ class TUI:
         truncated: bool,
         exit_code: int | None,
     ) -> None:
+        if name == "memory":
+            return
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
         status_icon = "✅" if success else "❌"

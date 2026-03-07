@@ -228,6 +228,8 @@ class SessionControllerMixin:
                     call_id = tool_call.get("id", "")
                     function = tool_call.get("function", {}) or {}
                     tool_name = function.get("name", "tool")
+                    if tool_name == "memory":
+                        continue
                     raw_args = function.get("arguments", "") or ""
                     try:
                         parsed_args = json.loads(raw_args) if raw_args else {}
@@ -241,6 +243,8 @@ class SessionControllerMixin:
             if role == "tool":
                 call_id = message.get("tool_call_id", "")
                 tool_name = tool_call_names.get(call_id, "tool")
+                if tool_name == "memory":
+                    continue
                 output = content if isinstance(content, str) else str(content)
                 success = not output.lstrip().startswith("Error:")
                 self._update_tool_call(

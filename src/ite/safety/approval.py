@@ -76,6 +76,7 @@ SAFE_PATTERNS = [
 # Low-risk mutating tools that are safe to auto-approve in interactive policies.
 LOW_RISK_MUTATING_TOOLS = {
     "todos",
+    "memory",
 }
 
 # In on_request mode, allow low-risk file creation/overwrite inside cwd

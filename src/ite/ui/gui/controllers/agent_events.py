@@ -27,6 +27,8 @@ class AgentEventControllerMixin:
                 self._show_thinking_indicator()
 
         elif event.type == AgentEventType.TOOL_CALL_START:
+            if event.data.get("name") == "memory":
+                return
             self._hide_thinking_indicator()
             self._add_tool_call(
                 event.data.get("call_id", ""),
@@ -36,6 +38,10 @@ class AgentEventControllerMixin:
             )
 
         elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+            if event.data.get("name") == "memory":
+                if self._is_turn_running:
+                    self._show_thinking_indicator()
+                return
             self._update_tool_call(
                 event.data.get("call_id", ""),
                 event.data.get("name", ""),

@@ -148,7 +148,7 @@ class ApprovalControllerMixin:
             "Approve",
             on_click=on_yes,
             style=ft.ButtonStyle(
-                bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
+                bgcolor={ft.ControlState.DEFAULT: TEXT_PRIMARY, ft.ControlState.HOVERED: "#FFFFFF"},
                 color=ft.Colors.BLACK,
                 shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
                 text_style=ft.TextStyle(size=TYPE_MD, weight=WEIGHT_BOLD),
