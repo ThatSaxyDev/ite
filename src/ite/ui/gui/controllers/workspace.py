@@ -62,7 +62,7 @@ class WorkspaceControllerMixin:
                                     [
                                         ft.Text(
                                             session_name[:32],
-                                            size=TYPE_SM,
+                                            size=TYPE_MD,
                                             color=TEXT_PRIMARY,
                                             weight=WEIGHT_SEMIBOLD if is_active else WEIGHT_MEDIUM,
                                             no_wrap=True,
