@@ -1,25 +1,10 @@
-"""Sandbox commands: /sandbox — manage filesystem and git sandboxing."""
+"""Sandbox commands: /sandbox — manage filesystem sandboxing."""
 
-from rich.syntax import Syntax
 from pathlib import Path
 from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
-
-
-# Module-level git sandbox instance (persists across command invocations)
-_git_sandbox = None
-
-
-def _get_git_sandbox(ctx: CommandContext):
-    """Lazily create and return the GitSandbox instance."""
-    global _git_sandbox
-    if _git_sandbox is None:
-        from ite.safety.git_sandbox import GitSandbox
-
-        _git_sandbox = GitSandbox(ctx.config.cwd)
-    return _git_sandbox
 
 
 async def cmd_sandbox(ctx: CommandContext, args: list[str]) -> None:
@@ -89,85 +74,20 @@ async def cmd_sandbox(ctx: CommandContext, args: list[str]) -> None:
             "yellow",
         )
 
-    elif sub_cmd == "git":
-        if len(args) > 1 and args[1].lower() == "on":
-            gs = _get_git_sandbox(ctx)
-            try:
-                branch = gs.start()
-                ctx.config.sandbox.git_sandbox = True
-                _print_panel(
-                    ctx, "🌿", "Git Sandbox Started", f"Branch: {branch}", "green"
-                )
-            except Exception as e:
-                ctx.console.print(f"[error]{e}[/error]")
-        elif len(args) > 1 and args[1].lower() == "off":
-            ctx.config.sandbox.git_sandbox = False
-            _print_panel(ctx, "🌿", "Git Sandbox", "Git sandbox disabled", "yellow")
-        else:
-            gs = _get_git_sandbox(ctx)
-            status = gs.status()
-            info = f"Active: {status['active']}"
-            if status["sandbox_branch"]:
-                info += f"\nBranch: {status['sandbox_branch']}"
-            if status["original_branch"]:
-                info += f"\nOriginal: {status['original_branch']}"
-            # Check for recovery
-            recovery = gs.check_recovery()
-            if recovery:
-                info += f"\n\n⚠️  {recovery['message']}"
-            _print_panel(ctx, "🌿", "Git Sandbox", info, "cyan")
-
-    elif sub_cmd == "diff":
-        gs = _get_git_sandbox(ctx)
-        try:
-            diff = gs.diff()
-            if diff:
-                ctx.console.print()
-                ctx.console.print(
-                    Panel(
-                        Syntax(
-                            diff,
-                            "diff",
-                            theme="monokai",
-                            word_wrap=True,
-                        ),
-                        title="🌿 Sandbox Diff",
-                        title_align="left",
-                        border_style="cyan",
-                        box=box.ROUNDED,
-                        padding=(1, 2),
-                    )
-                )
-            else:
-                ctx.console.print("[dim]No changes in sandbox.[/dim]")
-        except Exception as e:
-            ctx.console.print(f"[error]{e}[/error]")
-
-    elif sub_cmd == "accept":
-        gs = _get_git_sandbox(ctx)
-        try:
-            result = gs.accept()
-            _print_panel(ctx, "✅", "Sandbox Accepted", result, "green")
-        except Exception as e:
-            ctx.console.print(f"[error]{e}[/error]")
-
-    elif sub_cmd == "reject":
-        gs = _get_git_sandbox(ctx)
-        try:
-            result = gs.reject()
-            _print_panel(ctx, "❌", "Sandbox Rejected", result, "yellow")
-        except Exception as e:
-            ctx.console.print(f"[error]{e}[/error]")
+    elif sub_cmd in ("git", "diff", "accept", "reject"):
+        ctx.console.print(
+            "[error]Git sandbox commands are no longer supported.[/error]\n"
+            "[dim]Available: /sandbox on|off|fs|allow|remove|clear[/dim]"
+        )
 
     else:
         ctx.console.print(
-            "[error]Usage: /sandbox [on|off|fs|git|allow|diff|accept|reject][/error]"
+            "[error]Usage: /sandbox [on|off|fs|allow|remove|clear][/error]"
         )
 
 
 def _show_status(ctx: CommandContext) -> None:
     fs_state = "enabled" if ctx.config.sandbox.enabled else "disabled"
-    git_state = "enabled" if ctx.config.sandbox.git_sandbox else "disabled"
     allowed = [str(p) for p in ctx.config.sandbox.allowed_paths]
 
     info = Text()
@@ -176,26 +96,10 @@ def _show_status(ctx: CommandContext) -> None:
         fs_state, style="green bold" if ctx.config.sandbox.enabled else "yellow bold"
     )
     info.append("\n")
-    info.append("Git Sandbox: ", style="code")
-    info.append(
-        git_state,
-        style="green bold" if ctx.config.sandbox.git_sandbox else "yellow bold",
-    )
     if allowed:
         info.append("\n")
         info.append("Allowed Paths: ", style="code")
         info.append(", ".join(allowed), style="dim")
-
-    # Check for orphan/active sandbox recovery
-    try:
-        gs = _get_git_sandbox(ctx)
-        recovery = gs.check_recovery()
-        if recovery:
-            info.append("\n\n")
-            info.append("⚠️  ", style="bold yellow")
-            info.append(recovery["message"], style="yellow")
-    except Exception:
-        pass
 
     info.append("\n\n")
     info.append("Commands:\n", style="bold")
@@ -206,15 +110,7 @@ def _show_status(ctx: CommandContext) -> None:
     info.append("  /sandbox remove <path>", style="green")
     info.append("Remove an allowed path\n", style="dim")
     info.append("  /sandbox clear        ", style="green")
-    info.append("Clear all allowed paths\n", style="dim")
-    info.append("  /sandbox git on|off   ", style="green")
-    info.append("Toggle git sandbox\n", style="dim")
-    info.append("  /sandbox diff         ", style="green")
-    info.append("Show sandbox changes\n", style="dim")
-    info.append("  /sandbox accept       ", style="green")
-    info.append("Merge sandbox changes\n", style="dim")
-    info.append("  /sandbox reject       ", style="green")
-    info.append("Discard sandbox changes", style="dim")
+    info.append("Clear all allowed paths", style="dim")
 
     _print_panel(ctx, "🔒", "Sandbox Status", info, "cyan")
 
@@ -241,7 +137,7 @@ def register(registry: CommandRegistry) -> None:
     registry.register(
         Command(
             name="/sandbox",
-            description="Manage filesystem and git sandboxing",
+            description="Manage filesystem sandboxing",
             handler=cmd_sandbox,
         )
     )
