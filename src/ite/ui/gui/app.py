@@ -18,6 +18,7 @@ from .controllers.approval import ApprovalControllerMixin
 from .controllers.sessions import SessionControllerMixin
 from .controllers.commands import CommandControllerMixin
 from .controllers.agent_events import AgentEventControllerMixin
+from .tokens import BORDER, RADIUS_SM, SURFACE_1, TEXT_MUTED
 
 
 class GUIApp(
@@ -75,6 +76,9 @@ class GUIApp(
         self._tool_call_row_indices: dict[str, int] = {}
         self._active_turn_task: asyncio.Task | None = None
         self._is_turn_running: bool = False
+        self.thinking_row: ft.Row | None = None
+        self.thinking_text: ft.Text | None = None
+        self._thinking_task: asyncio.Task | None = None
 
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
@@ -85,6 +89,7 @@ class GUIApp(
             self._is_turn_running = True
             self._set_loading(True)
             self._add_message("user", message)
+            self._show_thinking_indicator()
             await self._ensure_agent()
 
             if not self.agent:
@@ -104,6 +109,7 @@ class GUIApp(
         finally:
             self._is_turn_running = False
             self._active_turn_task = None
+            self._hide_thinking_indicator()
             self._set_loading(False)
 
     async def _ensure_agent(self) -> None:
@@ -165,6 +171,60 @@ class GUIApp(
                 f"Error stopping turn: {ex}",
                 is_error=True,
             )
+
+    def _show_thinking_indicator(self):
+        if not self.messages_column or not self.page:
+            return
+        if self.thinking_row:
+            return
+
+        self.thinking_text = ft.Text("Thinking", size=11, color=TEXT_MUTED)
+        bubble = ft.Container(
+            content=self.thinking_text,
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_SM,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            width=140,
+        )
+        self.thinking_row = ft.Row([bubble], alignment=ft.MainAxisAlignment.START)
+        self.messages_column.controls.append(self.thinking_row)
+        self.page.update()
+        self._scroll_chat_to_bottom(animate=False, force=True)
+        self._thinking_task = self.page.run_task(self._animate_thinking_text)
+
+    async def _animate_thinking_text(self):
+        phases = ["Thinking", "Thinking.", "Thinking..", "Thinking..."]
+        i = 0
+        try:
+            while self._is_turn_running and self.thinking_text and self.page:
+                self.thinking_text.value = phases[i % len(phases)]
+                self.thinking_text.update()
+                i += 1
+                await asyncio.sleep(0.45)
+        except asyncio.CancelledError:
+            return
+
+    def _hide_thinking_indicator(self):
+        if self._thinking_task and hasattr(self._thinking_task, "done"):
+            if not self._thinking_task.done():
+                self._thinking_task.cancel()
+        self._thinking_task = None
+
+        if not self.messages_column or not self.thinking_row:
+            self.thinking_row = None
+            self.thinking_text = None
+            return
+
+        try:
+            if self.thinking_row in self.messages_column.controls:
+                self.messages_column.controls.remove(self.thinking_row)
+        except Exception:
+            pass
+        self.thinking_row = None
+        self.thinking_text = None
+        if self.page:
+            self.page.update()
 
     def _on_close(self, e):
         if self.page and self.agent is not None:

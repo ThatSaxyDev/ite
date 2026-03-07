@@ -12,16 +12,19 @@ class AgentEventControllerMixin:
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
+                self._hide_thinking_indicator()
                 self._stream_assistant_delta(content)
 
         elif event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
+            self._hide_thinking_indicator()
             if self.streaming_markdown is not None:
                 self._finalize_streaming_message()
             elif content:
                 self._add_message("assistant", content)
 
         elif event.type == AgentEventType.TOOL_CALL_START:
+            self._hide_thinking_indicator()
             self._add_tool_call(
                 event.data.get("call_id", ""),
                 event.data.get("name", ""),
@@ -58,4 +61,3 @@ class AgentEventControllerMixin:
                     color=TEXT_SECONDARY,
                 ),
             )
-

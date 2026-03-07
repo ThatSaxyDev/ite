@@ -474,13 +474,6 @@ class LayoutBuilderMixin:
             on_select=self._on_model_select,
         )
 
-        self.loading_indicator = ft.ProgressRing(
-            visible=False,
-            width=14,
-            height=14,
-            color=ACCENT,
-        )
-
         self.input_field = ft.TextField(
             hint_text="Message the agent...",
             expand=True,
@@ -515,7 +508,6 @@ class LayoutBuilderMixin:
                 [
                     self.model_selector,
                     ft.Container(content=self.input_field, expand=True),
-                    self.loading_indicator,
                     self.send_button,
                 ],
                 spacing=8,
@@ -546,8 +538,6 @@ class LayoutBuilderMixin:
             self.send_button.update()
 
     def _set_loading(self, loading: bool):
-        if self.loading_indicator:
-            self.loading_indicator.visible = loading
         if self.input_field:
             self.input_field.disabled = self._is_turn_running
         self._refresh_action_button()
