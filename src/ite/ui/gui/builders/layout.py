@@ -573,8 +573,8 @@ class LayoutBuilderMixin:
 
         self.send_button = ft.IconButton(
             icon=ft.Icons.ARROW_UPWARD_ROUNDED,
-            width=42,
-            height=42,
+            width=38,
+            height=38,
             tooltip="Send",
             on_click=self._on_send,
             icon_color=ft.Colors.BLACK,

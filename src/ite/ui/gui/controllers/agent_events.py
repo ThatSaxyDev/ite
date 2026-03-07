@@ -22,6 +22,9 @@ class AgentEventControllerMixin:
                 self._finalize_streaming_message()
             elif content:
                 self._add_message("assistant", content)
+            # If the turn is still running after this text block, show activity again.
+            if self._is_turn_running:
+                self._show_thinking_indicator()
 
         elif event.type == AgentEventType.TOOL_CALL_START:
             self._hide_thinking_indicator()
@@ -42,8 +45,12 @@ class AgentEventControllerMixin:
                 event.data.get("diff"),
                 event.data.get("exit_code"),
             )
+            # Tool finished but the turn may continue with more reasoning/calls.
+            if self._is_turn_running:
+                self._show_thinking_indicator()
 
         elif event.type == AgentEventType.AGENT_ERROR:
+            self._hide_thinking_indicator()
             self._add_message(
                 "system",
                 f"Error: {event.data.get('error', 'Unknown error')}",
