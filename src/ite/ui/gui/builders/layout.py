@@ -446,16 +446,16 @@ class LayoutBuilderMixin:
         return ft.Container(
             expand=True,
             bgcolor=CANVAS,
-            padding=ft.Padding.symmetric(horizontal=20, vertical=16),
+            padding=ft.Padding.only(right=20, left=20, top=16),
             content=self.messages_column,
         )
 
     def build_composer(self) -> ft.Control:
         model_choices = [
-            "gpt-4o-mini",
-            "gpt-5",
-            "gpt-5-mini",
-            "claude-3.7-sonnet",
+            # "gpt-4o-mini",
+            # "gpt-5",
+            # "gpt-5-mini",
+            # "claude-3.7-sonnet",
             "minimax-m2.5:cloud",
         ]
         if self.config.model_name not in model_choices:
@@ -531,13 +531,13 @@ class LayoutBuilderMixin:
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ],
-                spacing=4,
+                spacing=0,
             ),
         )
         return ft.Container(
             bgcolor=CANVAS,
-            border=ft.Border.only(top=ft.BorderSide(1, HAIRLINE)),
-            padding=ft.Padding.symmetric(horizontal=20, vertical=10),
+            # border=ft.Border.only(top=ft.BorderSide(1, HAIRLINE)),
+            padding=ft.Padding.only(left=20, bottom=10, right=20),
             content=ft.Row([composer_lane], alignment=ft.MainAxisAlignment.CENTER),
         )
 
