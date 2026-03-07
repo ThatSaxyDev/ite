@@ -286,7 +286,7 @@ class CommandControllerMixin:
         self.model_picker_dialog = ft.AlertDialog(
             modal=True,
             bgcolor=SURFACE_1,
-            title=ft.Text("Select model", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
+            title=ft.Text("Select model", color=TEXT_PRIMARY, size=TYPE_H1, weight=WEIGHT_SEMIBOLD),
             content=ft.Container(
                 width=420,
                 height=360,
@@ -297,7 +297,7 @@ class CommandControllerMixin:
                 ),
             ),
             actions=[
-                ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None),
+                ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None, style=ft.ButtonStyle(color=ft.Colors.WHITE)),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
             actions_padding=ft.Padding.only(right=16, bottom=12),

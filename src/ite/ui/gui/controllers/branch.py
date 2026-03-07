@@ -64,8 +64,8 @@ class BranchControllerMixin:
             autofocus=True,
             prefix_icon=ft.Icons.SEARCH,
             border_radius=RADIUS_SM,
-            border_color=BORDER,
-            focused_border_color=ACCENT,
+            border_color=BORDER_STRONG,
+            focused_border_color=BORDER_STRONG,
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             text_size=TYPE_BODY,
@@ -82,7 +82,7 @@ class BranchControllerMixin:
         self.branch_picker_dialog = ft.AlertDialog(
             modal=True,
             bgcolor=SURFACE_1,
-            title=ft.Text("Switch branch", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
+            title=ft.Text("Switch branch", color=TEXT_PRIMARY, size=TYPE_H1, weight=WEIGHT_SEMIBOLD),
             content=ft.Container(
                 width=420,
                 height=360,
@@ -94,7 +94,7 @@ class BranchControllerMixin:
                         ),
                         ft.Text(
                             "Type to filter local branches",
-                            size=TYPE_XS,
+                            size=TYPE_MD,
                             color=TEXT_MUTED,
                         ),
                         ft.Divider(height=6, color=HAIRLINE),
@@ -105,7 +105,7 @@ class BranchControllerMixin:
                 ),
             ),
             actions=[
-                ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None),
+                ft.TextButton("Close", on_click=lambda _: self.page.pop_dialog() if self.page else None, style=ft.ButtonStyle(color=ft.Colors.WHITE)),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
             actions_padding=ft.Padding.only(right=16, bottom=12),
@@ -195,8 +195,8 @@ class BranchControllerMixin:
             autofocus=True,
             hint_text="feature/my-branch",
             border_radius=RADIUS_SM,
-            border_color=BORDER,
-            focused_border_color=ACCENT,
+            border_color=ft.Colors.TRANSPARENT,
+            focused_border_color=ft.Colors.TRANSPARENT,
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             text_size=TYPE_MD,
@@ -215,12 +215,12 @@ class BranchControllerMixin:
         self.branch_dialog = ft.AlertDialog(
             modal=True,
             bgcolor=SURFACE_1,
-            title=ft.Text("Create branch", color=TEXT_PRIMARY, size=TYPE_TITLE, weight=WEIGHT_SEMIBOLD),
+            title=ft.Text("Create branch", color=TEXT_PRIMARY, size=TYPE_H1, weight=WEIGHT_SEMIBOLD),
             content=ft.Container(
                 width=420,
                 content=ft.Column(
                     [
-                        ft.Text("Enter a new local branch name.", size=TYPE_SM, color=TEXT_MUTED),
+                        ft.Text("Enter a new local branch name.", size=TYPE_MD, color=TEXT_MUTED),
                         ft.Container(
                             bgcolor=SURFACE_2,
                             border=ft.Border.all(1, BORDER),
@@ -230,7 +230,7 @@ class BranchControllerMixin:
                                 [
                                     ft.Text(
                                         "git checkout -b",
-                                        size=TYPE_SM,
+                                        size=TYPE_MD,
                                         color=TEXT_MUTED,
                                         no_wrap=True,
                                     ),
@@ -247,8 +247,8 @@ class BranchControllerMixin:
                 ),
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=on_cancel),
-                ft.FilledButton("Create", on_click=on_create),
+                ft.TextButton("Cancel", on_click=on_cancel, style=ft.ButtonStyle(color=ft.Colors.WHITE)),
+                ft.FilledButton("Create", on_click=on_create, bgcolor=ft.Colors.WHITE, color=ft.Colors.BLACK),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
             actions_padding=ft.Padding.only(right=16, bottom=12),
