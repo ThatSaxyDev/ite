@@ -64,6 +64,7 @@ class LayoutBuilderMixin:
         self._refresh_workspace_options()
         self._refresh_sidebar_threads()
         page.run_task(self._refresh_branch_options_async)
+        self._start_branch_sync_watcher()
         self._apply_sidebar_state(update=False)
         self._apply_app_mode()
 
@@ -310,21 +311,24 @@ class LayoutBuilderMixin:
         self.sidebar_footer = ft.Container(
             content=ft.Column(
                 [
-                    ft.Divider(height=12, color=BORDER),
-                    ft.TextButton(
-                        content=ft.Row(
-                            [
-                                ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=16, color=TEXT_SECONDARY),
-                                ft.Text("Settings", size=TYPE_MD, color=TEXT_SECONDARY, weight=WEIGHT_SEMIBOLD),
-                            ],
-                            spacing=6,
-                        ),
-                        on_click=lambda e: self.page.run_task(self._open_setup_view) if self.page else None,
-                        style=ft.ButtonStyle(
-                            bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.06, ft.Colors.WHITE)},
-                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=7),
-                        ),
+                    ft.Row(
+                        [
+                            ft.TextButton(
+                                content=ft.Row(
+                                    [
+                                        ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=16, color=TEXT_SECONDARY),
+                                        ft.Text("Settings", size=TYPE_MD, color=TEXT_SECONDARY, weight=WEIGHT_SEMIBOLD),
+                                    ],
+                                    spacing=6,
+                                ),
+                                on_click=lambda e: self.page.run_task(self._open_setup_view) if self.page else None,
+                                style=ft.ButtonStyle(
+                                    bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.06, ft.Colors.WHITE), ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT},
+                                    shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                                    padding=ft.Padding.symmetric(horizontal=8, vertical=7),
+                                ),
+                            ),
+                        ],
                     ),
                 ],
                 spacing=6,

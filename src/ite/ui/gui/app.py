@@ -61,6 +61,8 @@ class GUIApp(
         self.current_branch_name: str | None = None
         self.branch_loading: bool = False
         self._branch_workspace_key: str | None = None
+        self._branch_sync_task: asyncio.Task | None = None
+        self._branch_sync_running: bool = False
         self.approval_selector: ft.Dropdown | None = None
         self.header_session_text: ft.Text | None = None
         self.header_workspace_text: ft.Text | None = None
@@ -296,6 +298,7 @@ class GUIApp(
             self.page.update()
 
     def _on_close(self, e):
+        self._stop_branch_sync_watcher()
         if self.page and self.agent is not None:
             self.page.run_task(self._shutdown_agent)
 

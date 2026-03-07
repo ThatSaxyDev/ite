@@ -15,6 +15,42 @@ from ..tokens import *
 
 
 class BranchControllerMixin:
+    def _start_branch_sync_watcher(self):
+        if not self.page:
+            return
+        if self._branch_sync_task and hasattr(self._branch_sync_task, "done"):
+            if not self._branch_sync_task.done():
+                return
+        self._branch_sync_running = True
+        self._branch_sync_task = self.page.run_task(self._watch_external_branch_changes)
+
+    def _stop_branch_sync_watcher(self):
+        self._branch_sync_running = False
+        if self._branch_sync_task and hasattr(self._branch_sync_task, "done"):
+            if not self._branch_sync_task.done() and hasattr(self._branch_sync_task, "cancel"):
+                self._branch_sync_task.cancel()
+        self._branch_sync_task = None
+
+    async def _watch_external_branch_changes(self):
+        try:
+            while self._branch_sync_running and self.page:
+                await asyncio.sleep(1.2)
+                if self.app_mode != "chat" or self.branch_loading:
+                    continue
+                cwd = Path(self.config.cwd).resolve()
+                in_repo = await asyncio.to_thread(is_git_repo, cwd)
+                if not in_repo:
+                    if self.current_branch_name is not None or (
+                        self.branch_controls_row and self.branch_controls_row.visible
+                    ):
+                        await self._refresh_branch_options_async()
+                    continue
+                latest = await asyncio.to_thread(current_branch, cwd)
+                if latest != self.current_branch_name:
+                    await self._refresh_branch_options_async()
+        except asyncio.CancelledError:
+            return
+
     async def _refresh_branch_options_async(self):
         if not self.page:
             return
