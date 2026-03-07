@@ -609,3 +609,7 @@
 [HOOK] {"timestamp": "2026-03-07T01:30:35.718008", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "glob", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-03-07T01:30:38.783526", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "read_file", "user_message": null, "error": null, "response": null}
 [HOOK] {"timestamp": "2026-03-07T01:31:03.126426", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "write_file", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-07T01:50:31.793026", "trigger": "before_agent", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": null, "user_message": "where were we?", "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-07T01:50:36.029659", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "memory", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-07T01:50:41.927934", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "memory", "user_message": null, "error": null, "response": null}
+[HOOK] {"timestamp": "2026-03-07T01:52:59.702470", "trigger": "before_tool", "cwd": "/Users/kiishidavid/Documents/Dev/Projects/ite", "tool_name": "memory", "user_message": null, "error": null, "response": null}

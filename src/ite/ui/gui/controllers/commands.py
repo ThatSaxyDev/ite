@@ -243,4 +243,11 @@ class CommandControllerMixin:
         selected = self.model_selector.value
         if not selected:
             return
+        if selected == self.config.model_name:
+            return
+        old_model = self.config.model_name
         self.config.model_name = selected
+        self._add_assistant_card(
+            "Model Updated",
+            ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_SECONDARY),
+        )

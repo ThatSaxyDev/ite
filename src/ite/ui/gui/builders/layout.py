@@ -462,13 +462,13 @@ class LayoutBuilderMixin:
         self.model_selector = ft.Dropdown(
             value=self.config.model_name,
             options=[ft.dropdown.Option(m) for m in model_choices],
-            width=210,
+            width=230,
             text_size=11,
             dense=True,
             border=ft.InputBorder.OUTLINE,
             border_color=BORDER,
             focused_border_color=ACCENT,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=7),
+            content_padding=ft.Padding.symmetric(horizontal=11, vertical=8),
             bgcolor=SURFACE_1,
             color=TEXT_PRIMARY,
             on_select=self._on_model_select,
@@ -493,35 +493,20 @@ class LayoutBuilderMixin:
             cursor_color=ACCENT,
             text_style=ft.TextStyle(size=14, color=TEXT_PRIMARY),
             hint_style=ft.TextStyle(size=14, color=TEXT_MUTED),
-            content_padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=11),
         )
 
-        self.send_button = ft.FilledButton(
-            "Send",
+        self.send_button = ft.IconButton(
+            icon=ft.Icons.ARROW_UPWARD_ROUNDED,
+            tooltip="Send",
             on_click=self._on_send,
-            disabled=False,
+            icon_color=ft.Colors.BLACK,
+            icon_size=18,
             style=ft.ButtonStyle(
                 bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
-                color=ft.Colors.BLACK,
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
-                padding=ft.Padding.symmetric(horizontal=13, vertical=10),
-                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_700),
+                shape=ft.CircleBorder(),
             ),
         )
-
-        clear_button = ft.OutlinedButton(
-            "Clear",
-            on_click=lambda e: self.page.run_task(self._run_command, "/clear") if self.page else None,
-            style=ft.ButtonStyle(
-                color=TEXT_SECONDARY,
-                side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
-                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.05, ft.Colors.WHITE)},
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_LG),
-                padding=ft.Padding.symmetric(horizontal=10, vertical=7),
-                text_style=ft.TextStyle(size=12, weight=ft.FontWeight.W_600),
-            ),
-        )
-
         return ft.Container(
             bgcolor=CANVAS,
             border=ft.Border.only(top=ft.BorderSide(1, BORDER)),
@@ -530,7 +515,6 @@ class LayoutBuilderMixin:
                 [
                     self.model_selector,
                     ft.Container(content=self.input_field, expand=True),
-                    clear_button,
                     self.loading_indicator,
                     self.send_button,
                 ],
@@ -539,12 +523,33 @@ class LayoutBuilderMixin:
             ),
         )
 
+    def _refresh_action_button(self):
+        if not self.send_button:
+            return
+        if self._is_turn_running:
+            self.send_button.icon = ft.Icons.STOP_ROUNDED
+            self.send_button.tooltip = "Stop"
+            self.send_button.icon_color = ft.Colors.WHITE
+            self.send_button.style = ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.85, ft.Colors.RED_400)},
+                shape=ft.CircleBorder(),
+            )
+        else:
+            self.send_button.icon = ft.Icons.ARROW_UPWARD_ROUNDED
+            self.send_button.tooltip = "Send"
+            self.send_button.icon_color = ft.Colors.BLACK
+            self.send_button.style = ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: ACCENT, ft.ControlState.HOVERED: "#8BB9FF"},
+                shape=ft.CircleBorder(),
+            )
+        if self.page:
+            self.send_button.update()
+
     def _set_loading(self, loading: bool):
         if self.loading_indicator:
             self.loading_indicator.visible = loading
-        if self.send_button:
-            self.send_button.disabled = loading
         if self.input_field:
-            self.input_field.disabled = loading
+            self.input_field.disabled = self._is_turn_running
+        self._refresh_action_button()
         if self.page:
             self.page.update()

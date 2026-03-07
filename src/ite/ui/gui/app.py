@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import flet as ft
 from urllib.parse import urlparse
 
@@ -36,7 +37,7 @@ class GUIApp(
 
         self.messages_column: ft.Column | None = None
         self.input_field: ft.TextField | None = None
-        self.send_button: ft.Button | None = None
+        self.send_button: ft.IconButton | None = None
         self.loading_indicator: ft.ProgressRing | None = None
         self.model_selector: ft.Dropdown | None = None
         self.workspace_selector: ft.Dropdown | None = None
@@ -72,6 +73,8 @@ class GUIApp(
         self.streaming_container: ft.Container | None = None
         self.streaming_text: str = ""
         self._tool_call_row_indices: dict[str, int] = {}
+        self._active_turn_task: asyncio.Task | None = None
+        self._is_turn_running: bool = False
 
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
@@ -79,6 +82,7 @@ class GUIApp(
 
     async def _run_agent(self, message: str):
         try:
+            self._is_turn_running = True
             self._set_loading(True)
             self._add_message("user", message)
             await self._ensure_agent()
@@ -90,9 +94,16 @@ class GUIApp(
             async for event in self.agent.run(message):
                 await self._handle_agent_event(event)
             await self._auto_save()
+        except asyncio.CancelledError:
+            self._add_assistant_card(
+                "Interrupted",
+                ft.Text("Stopped current turn.", color=ft.Colors.with_opacity(0.85, ft.Colors.AMBER_300)),
+            )
         except Exception as e:
             self._add_message("system", f"Error: {str(e)}", is_error=True)
         finally:
+            self._is_turn_running = False
+            self._active_turn_task = None
             self._set_loading(False)
 
     async def _ensure_agent(self) -> None:
@@ -109,6 +120,11 @@ class GUIApp(
             self._set_current_session_title(self.agent.session.name)
 
     def _on_send(self, e):
+        if self._is_turn_running:
+            if self.page:
+                self.page.run_task(self._stop_active_turn)
+            return
+
         if not self.input_field or not self.page:
             return
 
@@ -127,11 +143,26 @@ class GUIApp(
             if message.startswith("/"):
                 self.page.run_task(self._run_command, message)
             else:
-                self.page.run_task(self._run_agent, message)
+                self._active_turn_task = self.page.run_task(self._run_agent, message)
         except Exception as ex:
             self._add_message(
                 "system",
                 f"Error: failed to start agent task: {ex}",
+                is_error=True,
+            )
+
+    async def _stop_active_turn(self):
+        task = self._active_turn_task
+        if not task:
+            return
+        try:
+            if hasattr(task, "done") and hasattr(task, "cancel"):
+                if not task.done():
+                    task.cancel()
+        except Exception as ex:
+            self._add_message(
+                "system",
+                f"Error stopping turn: {ex}",
                 is_error=True,
             )
 
