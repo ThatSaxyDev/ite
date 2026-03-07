@@ -55,6 +55,17 @@ class LayoutBuilderMixin:
         self._apply_app_mode()
 
     def build_setup_view(self) -> ft.Control:
+        def _format_approval_label(value: str) -> str:
+            return value.replace("_", " ").title()
+
+        approval_descriptions = {
+            "on_request": "Ask before each mutating action",
+            "on_failure": "Auto-run; only ask after failure",
+            "auto": "Auto-approve safe operations",
+            "auto_edit": "Auto-edit in workspace; ask otherwise",
+            "never": "Reject unsafe operations automatically",
+            "yolo": "Approve everything with no guardrails",
+        }
         self.setup_error_text = ft.Text(
             "",
             size=11,
@@ -96,6 +107,38 @@ class LayoutBuilderMixin:
             text_size=12,
             content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
         )
+        self.approval_selector = ft.Dropdown(
+            value=self.config.approval.value,
+            options=[
+                ft.dropdown.Option(
+                    key=p.value,
+                    text=_format_approval_label(p.value),
+                    content=ft.Column(
+                        [
+                            ft.Text(_format_approval_label(p.value), size=12, color=TEXT_PRIMARY),
+                            ft.Text(
+                                approval_descriptions.get(p.value, ""),
+                                size=10,
+                                color=TEXT_MUTED,
+                                no_wrap=True,
+                            ),
+                        ],
+                        tight=True,
+                        spacing=1,
+                    ),
+                )
+                for p in ApprovalPolicy
+            ],
+            text_size=11,
+            dense=True,
+            border=ft.InputBorder.OUTLINE,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            on_select=self._on_approval_select,
+        )
 
         card = ft.Container(
             width=520,
@@ -105,9 +148,18 @@ class LayoutBuilderMixin:
             padding=ft.Padding.symmetric(horizontal=18, vertical=16),
             content=ft.Column(
                 [
-                    ft.Text("Setup ITE", size=20, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
                     ft.Text(
-                        "Connect your provider credentials to start using the GUI.",
+                        "Settings" if not self.config.needs_setup else "Setup ITE",
+                        size=20,
+                        weight=ft.FontWeight.W_700,
+                        color=TEXT_PRIMARY,
+                    ),
+                    ft.Text(
+                        (
+                            "Connect your provider credentials to start using the GUI."
+                            if self.config.needs_setup
+                            else "Update provider and approval settings."
+                        ),
                         size=12,
                         color=TEXT_SECONDARY,
                     ),
@@ -115,6 +167,8 @@ class LayoutBuilderMixin:
                     self.setup_base_url_field,
                     self.setup_api_key_field,
                     self.setup_model_field,
+                    ft.Text("Approval mode", size=11, color=TEXT_MUTED, weight=ft.FontWeight.W_600),
+                    self.approval_selector,
                     self.setup_error_text,
                     ft.Row(
                         [
@@ -154,17 +208,6 @@ class LayoutBuilderMixin:
 
     def build_sidebar(self) -> ft.Control:
         self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
-        def _format_approval_label(value: str) -> str:
-            return value.replace("_", " ").title()
-
-        approval_descriptions = {
-            "on_request": "Ask before each mutating action",
-            "on_failure": "Auto-run; only ask after failure",
-            "auto": "Auto-approve safe operations",
-            "auto_edit": "Auto-edit in workspace; ask otherwise",
-            "never": "Reject unsafe operations automatically",
-            "yolo": "Approve everything with no guardrails",
-        }
         self.workspace_selector = ft.Dropdown(
             value=str(self.config.cwd.resolve()),
             options=[],
@@ -177,67 +220,6 @@ class LayoutBuilderMixin:
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
             on_select=self._on_workspace_select,
-        )
-        self.approval_selector = ft.Dropdown(
-            value=self.config.approval.value,
-            options=[
-                ft.dropdown.Option(
-                    key=p.value,
-                    text=_format_approval_label(p.value),
-                    content=ft.Column(
-                        [
-                            ft.Text(_format_approval_label(p.value), size=13, color=TEXT_PRIMARY),
-                            ft.Text(
-                                approval_descriptions.get(p.value, ""),
-                                size=10,
-                                color=TEXT_MUTED,
-                                no_wrap=True,
-                            ),
-                        ],
-                        tight=True,
-                        spacing=1,
-                    ),
-                )
-                for p in ApprovalPolicy
-            ],
-            width=158,
-            text_size=10,
-            dense=True,
-            border=ft.InputBorder.OUTLINE,
-            border_color=BORDER,
-            focused_border_color=ACCENT,
-            content_padding=ft.Padding.symmetric(horizontal=8, vertical=5),
-            bgcolor=SURFACE_2,
-            color=TEXT_PRIMARY,
-            on_select=self._on_approval_select,
-        )
-
-        self.sidebar_status_card = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text("Status", size=11, weight=ft.FontWeight.W_600, color=TEXT_SECONDARY),
-                    ft.Row([
-                        ft.Text("Approval", size=10, color=TEXT_MUTED),
-                        self.approval_selector,
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.OutlinedButton(
-                        "Setup",
-                        on_click=lambda e: self.page.run_task(self._open_setup_view) if self.page else None,
-                        style=ft.ButtonStyle(
-                            side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
-                            color=TEXT_SECONDARY,
-                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                            text_style=ft.TextStyle(size=11, weight=ft.FontWeight.W_600),
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
-                        ),
-                    ),
-                ],
-                spacing=SPACE_XS,
-            ),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=9),
-            bgcolor=SURFACE_1,
-            border=ft.Border.all(1, BORDER),
-            border_radius=RADIUS_SM,
         )
 
         self.sidebar_new_thread_button = ft.TextButton(
@@ -308,11 +290,33 @@ class LayoutBuilderMixin:
                 ft.Divider(height=12, color=BORDER),
                 self.sidebar_threads_label,
                 self.sidebar_threads_column,
-                ft.Divider(height=12, color=BORDER),
-                self.sidebar_status_card,
             ],
             spacing=SPACE_SM,
             expand=True,
+        )
+        self.sidebar_footer = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Divider(height=12, color=BORDER),
+                    ft.TextButton(
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.SETTINGS_OUTLINED, size=16, color=TEXT_SECONDARY),
+                                ft.Text("Settings", size=12, color=TEXT_SECONDARY, weight=ft.FontWeight.W_600),
+                            ],
+                            spacing=8,
+                        ),
+                        on_click=lambda e: self.page.run_task(self._open_setup_view) if self.page else None,
+                        style=ft.ButtonStyle(
+                            bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.06, ft.Colors.WHITE)},
+                            shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=7),
+                        ),
+                    ),
+                ],
+                spacing=6,
+                tight=True,
+            )
         )
 
         sidebar = ft.Container(
@@ -323,6 +327,7 @@ class LayoutBuilderMixin:
                 [
                     self.sidebar_top_row,
                     self.sidebar_body,
+                    self.sidebar_footer,
                 ],
                 spacing=SPACE_SM,
                 expand=True,
@@ -372,8 +377,8 @@ class LayoutBuilderMixin:
             self.sidebar_workspace_block.visible = not collapsed
         if self.sidebar_threads_label:
             self.sidebar_threads_label.visible = not collapsed
-        if self.sidebar_status_card:
-            self.sidebar_status_card.visible = not collapsed
+        if self.sidebar_footer:
+            self.sidebar_footer.visible = not collapsed
 
         self._refresh_sidebar_threads()
         if update and self.page:

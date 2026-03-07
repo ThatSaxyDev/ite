@@ -53,11 +53,6 @@ class WorkspaceControllerMixin:
                                             weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_500,
                                             no_wrap=True,
                                         ),
-                                        ft.Text(
-                                            f"{session['turn_count']} turns",
-                                            size=10,
-                                            color=TEXT_MUTED,
-                                        ),
                                     ],
                                     spacing=2,
                                     expand=True,

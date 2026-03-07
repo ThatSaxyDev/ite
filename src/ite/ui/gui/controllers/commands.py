@@ -163,13 +163,7 @@ class CommandControllerMixin:
             return True
 
         if command == "/approval":
-            self._add_assistant_card(
-                "Command Disabled in GUI",
-                ft.Text(
-                    "Use the Approval dropdown in the sidebar Status card.",
-                    color=TEXT_SECONDARY,
-                ),
-            )
+            await self._open_setup_view()
             return True
 
         if command == "/stats" and self.agent and self.agent.session:

@@ -105,8 +105,7 @@ def _format_picker_row(session: dict[str, str | int]) -> str:
     name = str(session.get("name") or "—").strip()
     if len(name) > 38:
         name = name[:35] + "..."
-    turns = int(session["turn_count"])
-    return f"{sid_short:<18}  {name:<38}  {updated:<18}  {turns:>3}"
+    return f"{sid_short:<18}  {name:<38}  {updated:<18}"
 
 
 def _pick_session_with_curses(sessions: list[dict]) -> str | None:
@@ -235,7 +234,6 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
         table.add_column("Session ID", style="bold cyan")
         table.add_column("Name", style="bold white")
         table.add_column("Updated At")
-        table.add_column("Turns", justify="right")
 
         for session in sessions:
             updated = datetime.fromisoformat(session["updated_at"])
@@ -244,7 +242,6 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
                 session["session_id"],
                 name,
                 updated.strftime("%b %d · %I:%M %p"),
-                str(session["turn_count"]),
             )
         ctx.console.print(table)
         return
@@ -259,7 +256,6 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
     table.add_column("Session ID", style="bold cyan")
     table.add_column("Name", style="bold white")
     table.add_column("Updated At")
-    table.add_column("Turns", justify="right")
 
     for session in sessions:
         updated = datetime.fromisoformat(session["updated_at"])
@@ -268,7 +264,6 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
             session["session_id"],
             name,
             updated.strftime("%b %d · %I:%M %p"),
-            str(session["turn_count"]),
         )
 
     ctx.console.print(table)

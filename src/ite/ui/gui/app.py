@@ -54,7 +54,7 @@ class GUIApp(
         self.sidebar_new_thread_compact: ft.IconButton | None = None
         self.sidebar_workspace_block: ft.Column | None = None
         self.sidebar_threads_label: ft.Text | None = None
-        self.sidebar_status_card: ft.Container | None = None
+        self.sidebar_footer: ft.Container | None = None
         self.sidebar_collapsed: bool = False
         self.active_session_id: str | None = None
         self.app_mode: str = "setup" if self.config.needs_setup else "chat"
@@ -150,6 +150,8 @@ class GUIApp(
             self.setup_api_key_field.value = self.config.api_key or ""
         if self.setup_model_field:
             self.setup_model_field.value = self.config.model_name
+        if self.approval_selector:
+            self.approval_selector.value = self.config.approval.value
         if self.setup_error_text:
             self.setup_error_text.value = ""
             self.setup_error_text.visible = False
