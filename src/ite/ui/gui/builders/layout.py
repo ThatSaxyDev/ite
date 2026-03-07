@@ -12,6 +12,10 @@ class LayoutBuilderMixin:
         page.theme = ft.Theme(font_family=FONT_UI)
         page.padding = 0
         page.bgcolor = CANVAS
+        page.window.width = 1500
+        page.window.height = 980
+        page.window.min_width = 1180
+        page.window.min_height = 760
         page.on_close = self._on_close
 
         self._build_ui(page)
