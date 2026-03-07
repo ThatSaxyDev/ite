@@ -26,7 +26,7 @@ class CLI:
         self.tui.print_welcome(
             model=self.config.model_name,
             cwd=self.config.cwd,
-            commands=["/help", "/subagent", "/config", "/model", "/exit"],
+            commands=["/help", "/subagent", "/config", "/model", "/branch", "/exit"],
         )
         async with Agent(
             config=self.config,

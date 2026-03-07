@@ -63,6 +63,7 @@ class LayoutBuilderMixin:
         )
         self._refresh_workspace_options()
         self._refresh_sidebar_threads()
+        page.run_task(self._refresh_branch_options_async)
         self._apply_sidebar_state(update=False)
         self._apply_app_mode()
 
@@ -477,6 +478,43 @@ class LayoutBuilderMixin:
             color=TEXT_PRIMARY,
             on_select=self._on_model_select,
         )
+        self.branch_selector = ft.Dropdown(
+            value=None,
+            options=[],
+            width=190,
+            height=32,
+            text_size=TYPE_BODY,
+            dense=True,
+            border=ft.InputBorder.NONE,
+            border_color=ft.Colors.TRANSPARENT,
+            focused_border_color=ft.Colors.TRANSPARENT,
+            content_padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+            bgcolor=ft.Colors.TRANSPARENT,
+            color=TEXT_SECONDARY,
+            on_select=self._on_branch_select,
+        )
+        self.branch_create_button = ft.IconButton(
+            icon=ft.Icons.ADD,
+            tooltip="Create branch",
+            width=28,
+            height=28,
+            icon_size=14,
+            icon_color=TEXT_SECONDARY,
+            on_click=self._open_create_branch_dialog,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+        self.branch_controls_row = ft.Row(
+            [
+                self.branch_selector,
+                self.branch_create_button,
+            ],
+            spacing=4,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            visible=False,
+        )
 
         self.input_field = ft.TextField(
             hint_text="Message the agent...",
@@ -526,6 +564,7 @@ class LayoutBuilderMixin:
                         [
                             self.model_selector,
                             ft.Container(expand=True),
+                            self.branch_controls_row,
                             self.send_button,
                         ],
                         spacing=10,

@@ -143,6 +143,8 @@ class SessionControllerMixin:
                         await self._shutdown_agent()
                     self._refresh_workspace_options()
                     self._refresh_sidebar_threads()
+                    if self.page:
+                        self.page.run_task(self._refresh_branch_options_async)
 
             await self._ensure_agent()
             if not self.agent:

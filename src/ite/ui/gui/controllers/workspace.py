@@ -155,6 +155,8 @@ class WorkspaceControllerMixin:
             self._tool_call_row_indices.clear()
             self._refresh_workspace_options()
             self._refresh_sidebar_threads()
+            if self.page:
+                self.page.run_task(self._refresh_branch_options_async)
             self._add_assistant_card(
                 "Workspace",
                 ft.Text(f"Switched to {self.config.cwd}", color=TEXT_SECONDARY),

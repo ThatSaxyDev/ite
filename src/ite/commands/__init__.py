@@ -73,6 +73,7 @@ class CommandRegistry:
 def build_registry() -> CommandRegistry:
     """Build and return the full command registry with all commands."""
     from ite.commands.general import register as register_general
+    from ite.commands.branch import register as register_branch
     from ite.commands.model import register as register_model
     from ite.commands.info import register as register_info
     from ite.commands.session import register as register_session
@@ -81,6 +82,7 @@ def build_registry() -> CommandRegistry:
 
     registry = CommandRegistry()
     register_general(registry)
+    register_branch(registry)
     register_model(registry)
     register_info(registry)
     register_session(registry)

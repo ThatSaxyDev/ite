@@ -43,6 +43,8 @@ class CommandControllerMixin:
                 output_stream=output,
             )
             await self._command_registry.dispatch(command, args, ctx)
+            if command == "/branch" and self.page:
+                self.page.run_task(self._refresh_branch_options_async)
 
             rendered = output.getvalue().strip()
             if rendered:
@@ -158,7 +160,7 @@ class CommandControllerMixin:
             self.print_welcome(
                 model=self.config.model_name,
                 cwd=self.config.cwd,
-                commands=["/help", "/sessions", "/config", "/model", "/approval", "/tools", "/stats", "/mcp"],
+                commands=["/help", "/sessions", "/config", "/model", "/branch", "/approval", "/tools", "/stats", "/mcp"],
             )
             return True
 

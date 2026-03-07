@@ -14,6 +14,7 @@ from .builders.layout import LayoutBuilderMixin
 from .builders.messages import MessageBuilderMixin
 from .controllers.scroll import ScrollControllerMixin
 from .controllers.workspace import WorkspaceControllerMixin
+from .controllers.branch import BranchControllerMixin
 from .controllers.approval import ApprovalControllerMixin
 from .controllers.sessions import SessionControllerMixin
 from .controllers.commands import CommandControllerMixin
@@ -26,6 +27,7 @@ class GUIApp(
     MessageBuilderMixin,
     ScrollControllerMixin,
     WorkspaceControllerMixin,
+    BranchControllerMixin,
     ApprovalControllerMixin,
     SessionControllerMixin,
     CommandControllerMixin,
@@ -43,6 +45,14 @@ class GUIApp(
         self.loading_indicator: ft.ProgressRing | None = None
         self.model_selector: ft.Dropdown | None = None
         self.workspace_selector: ft.Dropdown | None = None
+        self.branch_selector: ft.Dropdown | None = None
+        self.branch_controls_row: ft.Row | None = None
+        self.branch_create_button: ft.IconButton | None = None
+        self.branch_dialog: ft.AlertDialog | None = None
+        self.branch_name_input: ft.TextField | None = None
+        self.current_branch_name: str | None = None
+        self.branch_loading: bool = False
+        self._branch_workspace_key: str | None = None
         self.approval_selector: ft.Dropdown | None = None
         self.header_session_text: ft.Text | None = None
         self.header_workspace_text: ft.Text | None = None
