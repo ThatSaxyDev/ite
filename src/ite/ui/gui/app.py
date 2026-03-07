@@ -198,6 +198,7 @@ class GUIApp(
             width=160,
         )
         self.thinking_row = ft.Row([bubble], alignment=ft.MainAxisAlignment.START)
+        self.thinking_row = self._wrap_in_lane(self.thinking_row)
         self.messages_column.controls.append(self.thinking_row)
         self.page.update()
         self._scroll_chat_to_bottom(animate=False, force=True)

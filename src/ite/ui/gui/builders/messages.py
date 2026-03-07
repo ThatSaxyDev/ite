@@ -6,6 +6,17 @@ from ..tokens import *
 
 
 class MessageBuilderMixin:
+    def _wrap_in_lane(self, content: ft.Control) -> ft.Control:
+        return ft.Row(
+            [
+                ft.Container(
+                    width=CONTENT_LANE_WIDTH,
+                    content=content,
+                )
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+
     def _build_status_chip(self, text: str, color: str, border: str, bg: str) -> ft.Container:
         return ft.Container(
             content=ft.Text(text, size=10, color=color, weight=ft.FontWeight.W_600),
@@ -126,7 +137,7 @@ class MessageBuilderMixin:
             )
 
         align = ft.MainAxisAlignment.END if role == "user" else ft.MainAxisAlignment.START
-        return ft.Row([bubble], alignment=align)
+        return self._wrap_in_lane(ft.Row([bubble], alignment=align))
 
     def build_system_log_message(self, title: str, content: str, level: str = "info") -> ft.Control:
         color = TEXT_SECONDARY
@@ -150,7 +161,7 @@ class MessageBuilderMixin:
                 spacing=5,
             ),
         )
-        return ft.Row([card], alignment=ft.MainAxisAlignment.START)
+        return self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
 
     def _add_message(
         self,
@@ -185,7 +196,9 @@ class MessageBuilderMixin:
             padding=ft.Padding.symmetric(horizontal=12, vertical=9),
             width=SPECIAL_CARD_WIDTH,
         )
-        self.messages_column.controls.append(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        self.messages_column.controls.append(
+            self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        )
         self.page.update()
         self._scroll_chat_to_bottom(force=True)
 
@@ -210,7 +223,9 @@ class MessageBuilderMixin:
                 width=ASSISTANT_MESSAGE_WIDTH,
             )
             self.messages_column.controls.append(
-                ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
+                self._wrap_in_lane(
+                    ft.Row([self.streaming_container], alignment=ft.MainAxisAlignment.START)
+                )
             )
 
         self.streaming_text += content
@@ -268,7 +283,7 @@ class MessageBuilderMixin:
             width=SPECIAL_CARD_WIDTH,
             bgcolor=SURFACE_ELEVATED,
         )
-        row = ft.Row([card], alignment=ft.MainAxisAlignment.START)
+        row = self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         self.messages_column.controls.append(row)
         self._tool_call_row_indices[call_id] = len(self.messages_column.controls) - 1
         self.page.update()
@@ -341,6 +356,8 @@ class MessageBuilderMixin:
             width=SPECIAL_CARD_WIDTH,
             bgcolor=SURFACE_ELEVATED,
         )
-        self.messages_column.controls[index] = ft.Row([card], alignment=ft.MainAxisAlignment.START)
+        self.messages_column.controls[index] = self._wrap_in_lane(
+            ft.Row([card], alignment=ft.MainAxisAlignment.START)
+        )
         self.page.update()
         self._scroll_chat_to_bottom(animate=False, force=True)

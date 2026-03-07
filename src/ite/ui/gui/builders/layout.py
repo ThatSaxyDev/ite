@@ -435,17 +435,7 @@ class LayoutBuilderMixin:
             expand=True,
             bgcolor=CANVAS,
             padding=ft.Padding.symmetric(horizontal=20, vertical=16),
-            content=ft.Row(
-                [
-                    ft.Container(
-                        width=CONTENT_LANE_WIDTH,
-                        expand=False,
-                        content=self.messages_column,
-                    )
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                expand=True,
-            ),
+            content=self.messages_column,
         )
 
     def build_composer(self) -> ft.Control:

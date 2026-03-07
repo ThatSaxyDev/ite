@@ -173,7 +173,7 @@ class ApprovalControllerMixin:
             shadow=SHADOW_SUBTLE,
         )
         self.messages_column.controls.append(
-            ft.Row([approval_card], alignment=ft.MainAxisAlignment.START)
+            self._wrap_in_lane(ft.Row([approval_card], alignment=ft.MainAxisAlignment.START))
         )
         self.page.update()
         self._scroll_chat_to_bottom(force=True)
