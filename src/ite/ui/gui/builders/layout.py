@@ -503,14 +503,15 @@ class LayoutBuilderMixin:
             on_click=self._open_create_branch_dialog,
             style=ft.ButtonStyle(
                 bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
-                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_MD),
             ),
         )
         self.branch_controls_row = ft.Row(
-            [
-                ft.Icon(ft.Icons.ACCOUNT_TREE, size=14, color=TEXT_MUTED),
-                self.branch_selector,
-                self.branch_create_button,
+            [                   
+                ft.Icon(ft.Icons.ACCOUNT_TREE, size=18, color=TEXT_MUTED),
+                self.branch_create_button, 
+                self.branch_selector,    
+                                             
             ],
             spacing=3,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
