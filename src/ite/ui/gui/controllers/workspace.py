@@ -40,7 +40,7 @@ class WorkspaceControllerMixin:
                             [
                                 ft.Container(
                                     width=3,
-                                    height=24,
+                                    height=26,
                                     border_radius=RADIUS_SM,
                                     bgcolor=ACCENT if is_active else ft.Colors.TRANSPARENT,
                                 ),
@@ -60,9 +60,9 @@ class WorkspaceControllerMixin:
                                 ft.Text(updated, size=TYPE_XS, color=TEXT_MUTED),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            vertical_alignment=ft.CrossAxisAlignment.START,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                        padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                        padding=ft.Padding.symmetric(horizontal=9, vertical=7),
                         border=ft.Border.all(1, ACCENT_SOFT if is_active else ft.Colors.TRANSPARENT),
                         border_radius=RADIUS_SM,
                         bgcolor=ft.Colors.with_opacity(0.12, ACCENT) if is_active else ft.Colors.TRANSPARENT,

@@ -207,7 +207,7 @@ class LayoutBuilderMixin:
         )
 
     def build_sidebar(self) -> ft.Control:
-        self.sidebar_threads_column = ft.Column([], spacing=6, scroll=ft.ScrollMode.AUTO, expand=True)
+        self.sidebar_threads_column = ft.Column([], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)
         self.workspace_selector = ft.Dropdown(
             value=str(self.config.cwd.resolve()),
             options=[],
@@ -453,6 +453,7 @@ class LayoutBuilderMixin:
             value=self.config.model_name,
             options=[ft.dropdown.Option(m) for m in model_choices],
             width=210,
+            height=COMPOSER_CONTROL_HEIGHT,
             text_size=TYPE_MD,
             dense=True,
             border=ft.InputBorder.OUTLINE,
@@ -467,6 +468,7 @@ class LayoutBuilderMixin:
         self.input_field = ft.TextField(
             hint_text="Message the agent...",
             expand=True,
+            height=COMPOSER_CONTROL_HEIGHT,
             multiline=False,
             on_submit=self._on_send,
             border_radius=RADIUS_MD,
@@ -482,6 +484,8 @@ class LayoutBuilderMixin:
 
         self.send_button = ft.IconButton(
             icon=ft.Icons.ARROW_UPWARD_ROUNDED,
+            width=COMPOSER_CONTROL_HEIGHT,
+            height=COMPOSER_CONTROL_HEIGHT,
             tooltip="Send",
             on_click=self._on_send,
             icon_color=ft.Colors.BLACK,

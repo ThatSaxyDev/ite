@@ -120,8 +120,8 @@ class MessageBuilderMixin:
             bubble = ft.Container(
                 content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
                 border_radius=RADIUS_SM,
-                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                width=ASSISTANT_MESSAGE_WIDTH,
+                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                width=ASSISTANT_MESSAGE_WIDTH - 20,
             )
         else:
             bg = SURFACE_2 if role == "user" else SURFACE_1
@@ -219,8 +219,8 @@ class MessageBuilderMixin:
             self.streaming_container = ft.Container(
                 content=self.streaming_markdown,
                 border_radius=RADIUS_SM,
-                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                width=ASSISTANT_MESSAGE_WIDTH,
+                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                width=ASSISTANT_MESSAGE_WIDTH - 20,
             )
             self.messages_column.controls.append(
                 self._wrap_in_lane(
