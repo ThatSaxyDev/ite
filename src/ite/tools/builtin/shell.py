@@ -1,5 +1,5 @@
 from ite.tools.base import ToolConfirmation
-from signal import signal
+import signal
 import asyncio
 import sys
 import fnmatch

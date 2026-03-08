@@ -28,7 +28,7 @@ dependencies = [
     "tiktoken",
     "html2text",
     "beautifulsoup4",
-    "duckduckgo-search",
+    "ddgs",
     "tomli",
     "platformdirs",
     "fastmcp",

@@ -1,5 +1,6 @@
 from platformdirs import user_data_dir
 import logging
+import os
 from typing import Any
 from ite.utils.errors import ConfigError
 from ite.config.config import ApprovalPolicy
@@ -7,6 +8,7 @@ import tomli
 from ite.config.config import Config
 from pathlib import Path
 from platformdirs import user_config_dir
+from pydantic import ValidationError
 
 CONFIG_FILE_NAME = "config.toml"
 AGENT_MD_FILE = "AGENT.MD"
@@ -51,11 +53,11 @@ def _parse_toml(path: Path):
             return tomli.load(f)
     except tomli.TOMLDecodeError as e:
         raise ConfigError(
-            "Invalid TOML file in {path}: {e}", config_file=str(path)
+            f"Invalid TOML file in {path}: {e}", config_file=str(path)
         ) from e
     except (OSError, IOError) as e:
         raise ConfigError(
-            "Failed to read TOML file in {path}: {e}", config_file=str(path)
+            f"Failed to read TOML file in {path}: {e}", config_file=str(path)
         ) from e
 
 
@@ -162,6 +164,8 @@ def load_config(
 
     try:
         config = Config(**config_dict)
+    except ValidationError as e:
+        raise ConfigError(f"Invalid configuration: {e}") from e
     except ConfigError as e:
         raise ConfigError(f"Invalid configuration: {e}") from e
 
@@ -188,6 +192,7 @@ def save_system_config(
     lines.append("")
 
     config_path.write_text("\n".join(lines), encoding="utf-8")
+    os.chmod(config_path, 0o600)
     logger.info("Saved system config to %s", config_path)
     return config_path
 
@@ -201,6 +206,7 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
 
     if not config_path.exists():
         config_path.write_text(f'approval = "{value}"\n', encoding="utf-8")
+        os.chmod(config_path, 0o600)
         return config_path
 
     original = config_path.read_text(encoding="utf-8")
@@ -222,4 +228,5 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
         out_lines.insert(insert_at, f'approval = "{value}"')
 
     config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
     return config_path

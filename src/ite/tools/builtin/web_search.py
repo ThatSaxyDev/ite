@@ -1,6 +1,9 @@
 from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
 from pydantic import BaseModel, Field
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except Exception:  # pragma: no cover - fallback for older installs
+    from duckduckgo_search import DDGS
 
 
 class WebSearchParams(BaseModel):
@@ -30,6 +33,7 @@ class WebSearchTool(Tool):
                 timelimit="y",
                 page=1,
                 backend="auto",
+                max_results=params.max_results,
             )
 
         except Exception as e:
@@ -46,7 +50,7 @@ class WebSearchTool(Tool):
 
         output_lines = [f"Search results for: {params.query}"]
 
-        for i, result in enumerate(results, start=1):
+        for i, result in enumerate(results[: params.max_results], start=1):
             output_lines.append(f"{i}. Title: {result['title']}")
             output_lines.append(f"  URL: {result['href']}")
             if result.get("body"):
@@ -57,6 +61,6 @@ class WebSearchTool(Tool):
             "\n".join(output_lines),
             metadata={
                 "query": params.query,
-                "results": len(results),
+                "results": min(len(results), params.max_results),
             },
         )

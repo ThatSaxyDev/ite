@@ -12,8 +12,14 @@ class LoopDetector:
         output = [action_type]
 
         if action_type == "tool_call":
-            output.append(details.get("tool_name", ""))
+            tool_name = details.get("tool_name", "")
+            output.append(tool_name)
             args = details.get("args", {})
+
+            # Network calls often vary args (different URLs/queries) while still
+            # being semantically repetitive. Normalize these to catch loops early.
+            if tool_name in {"web_search", "web_fetch"}:
+                args = {}
 
             if isinstance(args, dict):
                 for k in sorted(args.keys()):
