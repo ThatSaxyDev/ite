@@ -677,21 +677,38 @@ class GUIApp(
         await self._ensure_agent()
         if not self.agent or not self.agent.session:
             return
+
         if approved:
-            self.agent.session.set_plan_phase("executing")
-            status_text.value = "Approved"
+            # Approving exits plan mode and starts execution.
+            self.agent.session.set_plan_mode(False)
+            self.agent.session.set_plan_phase("idle")
+            self.agent.session.plan_questions_asked = 0
+            self._plan_question_count = 0
+            self._sync_plan_toggle_ui()
+            status_text.value = "Approved · Plan mode off"
             status_text.color = SUCCESS
             if self.page:
                 self.page.update()
+            self._add_assistant_card(
+                "Plan Mode",
+                ft.Text("Plan mode disabled. Starting implementation.", color=TEXT_SECONDARY),
+            )
             self._active_turn_task = self.page.run_task(
                 self._run_agent,
                 "Implement the approved plan now. Execute the planned changes.",
             )
             return
 
-        self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
-        status_text.value = "Stayed in plan mode"
+        # Declining keeps plan mode enabled for iterative refinement.
+        self.agent.session.set_plan_mode(True)
+        self.agent.session.set_plan_phase("asking_questions")
+        self._sync_plan_toggle_ui()
+        status_text.value = "Not implemented · Plan mode still on"
         status_text.color = TEXT_MUTED
+        self._add_assistant_card(
+            "Plan Mode",
+            ft.Text("Plan mode remains enabled. Refine the plan with follow-up prompts.", color=TEXT_SECONDARY),
+        )
         if self.page:
             self.page.update()
 

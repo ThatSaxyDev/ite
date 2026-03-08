@@ -62,10 +62,11 @@ class LLMClient:
         stream: bool = True,
     ) -> AsyncGenerator[StreamEvent, None]:
         client = self.get_client()
+        safe_messages = self._sanitize_messages(messages)
 
         kwargs = {
             "model": self.config.model_name,
-            "messages": messages,
+            "messages": safe_messages,
             "stream": stream,
         }
 
@@ -111,6 +112,56 @@ class LLMClient:
                     error=f"API error: {e}",
                 )
                 return
+
+    def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Normalize outbound messages so providers never receive null content."""
+        sanitized: list[dict[str, Any]] = []
+        for raw in messages or []:
+            role = str(raw.get("role") or "").strip()
+            if not role:
+                continue
+
+            msg: dict[str, Any] = {"role": role}
+            content = raw.get("content")
+
+            # OpenAI-compatible providers can reject missing/null content.
+            # Keep content consistently string-typed for all roles.
+            msg["content"] = "" if content is None else str(content)
+
+            tool_call_id = raw.get("tool_call_id")
+            if tool_call_id is not None:
+                msg["tool_call_id"] = str(tool_call_id)
+
+            tool_calls = raw.get("tool_calls")
+            if isinstance(tool_calls, list) and tool_calls:
+                cleaned_calls: list[dict[str, Any]] = []
+                for call in tool_calls:
+                    if not isinstance(call, dict):
+                        continue
+                    call_id = str(call.get("id") or "")
+                    call_type = str(call.get("type") or "function")
+                    fn = call.get("function") or {}
+                    if not isinstance(fn, dict):
+                        fn = {}
+                    fn_name = str(fn.get("name") or "")
+                    fn_args = fn.get("arguments")
+                    if fn_args is None:
+                        fn_args = "{}"
+                    cleaned_calls.append(
+                        {
+                            "id": call_id,
+                            "type": call_type,
+                            "function": {
+                                "name": fn_name,
+                                "arguments": str(fn_args),
+                            },
+                        }
+                    )
+                if cleaned_calls:
+                    msg["tool_calls"] = cleaned_calls
+
+            sanitized.append(msg)
+        return sanitized
 
     async def _stream_response(
         self,
