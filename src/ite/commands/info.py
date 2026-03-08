@@ -52,6 +52,8 @@ async def cmd_stats(ctx: CommandContext, args: list[str]) -> None:
                 (str(stats.get("plan_phase", "idle")), "bold cyan"),
                 ("\nPlan Questions Asked: ", "code"),
                 (str(stats.get("plan_questions_asked", 0)), "bold cyan"),
+                ("\nPlan Question Target: ", "code"),
+                (str(stats.get("plan_target_questions", 3)), "bold cyan"),
                 ("\nTools Enabled: ", "code"),
                 (str(stats["tools_enabled"]), "bold cyan"),
                 ("\nMCP Servers: ", "code"),

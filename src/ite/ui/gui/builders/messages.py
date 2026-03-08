@@ -205,11 +205,11 @@ class MessageBuilderMixin:
     def _add_plan_card(self, plan_text: str):
         if not self.messages_column or not self.page:
             return
-        plan_body = self._build_expandable_block(
+        # Plans are primary artifacts; render full content without preview clipping.
+        plan_body = ft.Markdown(
             plan_text,
-            as_markdown=True,
-            max_chars=3600,
-            max_lines=30,
+            selectable=True,
+            extension_set="gitHubFlavored",
         )
         self._add_assistant_card("Plan", plan_body)
 

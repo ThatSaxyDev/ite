@@ -41,6 +41,7 @@ class Session:
         self.plan_mode_enabled: bool = False
         self.plan_phase: str = "idle"
         self.plan_questions_asked: int = 0
+        self.plan_target_questions: int = 3
 
         self._turn_count = 0
 
@@ -88,11 +89,13 @@ class Session:
         if enabled:
             # Enabling plan mode always starts a fresh planning cycle.
             self.plan_questions_asked = 0
+            self.plan_target_questions = 3
             if self.plan_phase == "executing":
                 self.plan_phase = "idle"
         else:
             self.plan_phase = "idle"
             self.plan_questions_asked = 0
+            self.plan_target_questions = 3
         if self.context_manager:
             self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
@@ -133,6 +136,7 @@ class Session:
             "plan_mode_enabled": self.plan_mode_enabled,
             "plan_phase": self.plan_phase,
             "plan_questions_asked": self.plan_questions_asked,
+            "plan_target_questions": self.plan_target_questions,
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
         }

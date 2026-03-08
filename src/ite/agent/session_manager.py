@@ -33,6 +33,7 @@ class SessionSnapshot:
     plan_mode_enabled: bool = False
     plan_phase: str = "idle"
     plan_questions_asked: int = 0
+    plan_target_questions: int = 3
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -47,6 +48,7 @@ class SessionSnapshot:
             "plan_mode_enabled": self.plan_mode_enabled,
             "plan_phase": self.plan_phase,
             "plan_questions_asked": self.plan_questions_asked,
+            "plan_target_questions": self.plan_target_questions,
         }
 
     @classmethod
@@ -63,6 +65,7 @@ class SessionSnapshot:
             plan_mode_enabled=bool(data.get("plan_mode_enabled", False)),
             plan_phase=str(data.get("plan_phase", "idle")),
             plan_questions_asked=int(data.get("plan_questions_asked", 0)),
+            plan_target_questions=int(data.get("plan_target_questions", 3)),
         )
 
 

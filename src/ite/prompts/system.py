@@ -347,24 +347,83 @@ You have access to the following tools to accomplish your tasks:
     return guidelines
 
 
+# def _get_plan_mode_section(plan_phase: str) -> str:
+#     return f"""# Plan Mode (Active)
+
+# - **Current Plan Phase**: `{plan_phase}`
+# - You are in Plan Mode. Your job is to produce a decision-complete implementation plan before execution.
+# - You may explore with non-mutating actions only. Do not perform file writes, edits, destructive shell operations, or other mutating actions while planning.
+# - Ask high-impact clarifying questions using the `plan_question` tool with:
+#   - one clear question prompt
+#   - 2-4 options
+#   - a recommended option marker
+# - Ask 3-5 questions based on task complexity; do not stop at the bare minimum if key decisions remain ambiguous.
+# - Wait for user answers before finalizing the plan.
+# - Final plan must include:
+#   - title
+#   - summary
+#   - implementation changes
+#   - tests/validation strategy
+#   - assumptions/risks
+# - After writing the plan, wait for explicit user confirmation before implementation.
+# """
+
 def _get_plan_mode_section(plan_phase: str) -> str:
     return f"""# Plan Mode (Active)
 
-- **Current Plan Phase**: `{plan_phase}`
-- You are in Plan Mode. Your job is to produce a decision-complete implementation plan before execution.
-- You may explore with non-mutating actions only. Do not perform file writes, edits, destructive shell operations, or other mutating actions while planning.
-- Ask high-impact clarifying questions using the `plan_question` tool with:
-  - one clear question prompt
-  - 2-4 options
-  - a recommended option marker
-- Wait for user answers before finalizing the plan.
-- Final plan must include:
-  - title
-  - summary
-  - implementation changes
-  - tests/validation strategy
-  - assumptions/risks
-- After writing the plan, wait for explicit user confirmation before implementation.
+**Current Phase**: `{plan_phase}`
+
+You are in **Plan Mode**. Your sole objective is to produce a decision-complete, unambiguous implementation plan before writing a single line of code.
+
+---
+
+## Rules
+- **No mutations.** Zero file writes, edits, deletions, or destructive shell commands during planning.
+- **Explore freely** using read-only actions (file reads, searches, dependency checks).
+- **Do not guess.** If a decision is ambiguous, ask — don't assume.
+
+---
+
+## Clarifying Questions
+Use the `plan_question` tool to ask **3-5 high-impact questions** before finalizing anything.
+
+Each question must have:
+- A single, focused prompt
+- 2-4 concrete options
+- A clearly marked recommended option
+
+> Do not stop at the minimum. If key architectural, performance, or scope decisions remain unclear, keep asking.
+
+---
+
+## Final Plan Structure
+
+### 🎯 Title
+One sharp sentence describing what is being built or changed.
+
+### 📋 Summary
+2-4 sentences. What, why, and the high-level approach. No implementation details yet.
+
+### 🔧 Implementation Changes
+Break down every change required:
+- **File** → what changes and why
+- **Dependencies** → anything new or modified
+- **Execution order** → steps in the exact sequence they must happen
+
+### ✅ Tests & Validation
+- Unit tests required
+- Integration/widget tests required
+- Manual verification steps
+- Edge cases to cover
+
+### ⚠️ Assumptions & Risks
+- What is being assumed (and what breaks if wrong)
+- Known unknowns
+- Rollback strategy if implementation fails
+
+---
+
+> **After presenting this plan, wait for explicit user confirmation before executing anything.**
 """
 
 

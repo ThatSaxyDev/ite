@@ -12,10 +12,12 @@ from ite.client.response import TokenUsage
 from ite.tools.base import ToolConfirmation
 from typing import Awaitable, Callable
 from ite.prompts.system import create_loop_breaker_prompt
+import re
 
 
 class Agent:
-    PLAN_MIN_QUESTIONS = 2
+    PLAN_MIN_QUESTIONS = 3
+    PLAN_MAX_QUESTIONS = 5
     PLAN_EXECUTE_PROMPT = "Implement the approved plan now. Execute the planned changes."
 
     def __init__(
@@ -41,6 +43,9 @@ class Agent:
         if self.session.plan_mode_enabled and not is_execution_handoff:
             # Each new planning request starts a fresh question cycle.
             self.session.plan_questions_asked = 0
+            self.session.plan_target_questions = self._determine_plan_question_target(
+                message
+            )
             self.session.set_plan_phase("asking_questions")
         final_response: str | None = None
 
@@ -131,6 +136,26 @@ class Agent:
                     first_call = plan_calls[0]
                     non_plan_calls = [tc for tc in tool_calls if tc.name != "plan_question"]
                     tool_calls = non_plan_calls + [first_call]
+                target_questions = max(
+                    self.PLAN_MIN_QUESTIONS,
+                    min(
+                        self.PLAN_MAX_QUESTIONS,
+                        int(getattr(self.session, "plan_target_questions", self.PLAN_MIN_QUESTIONS)),
+                    ),
+                )
+                self.session.plan_target_questions = target_questions
+                # Once enough questions are asked, transition to deterministic writing phase:
+                # no extra tool calls should run before final plan output.
+                if (
+                    self.session.plan_questions_asked >= target_questions
+                    and tool_calls
+                ):
+                    self.session.set_plan_phase("writing_plan")
+                    self.session.context_manager.add_user_message(
+                        "Question phase is complete. Do not call more tools now. "
+                        "Write the final implementation plan directly with all required sections."
+                    )
+                    continue
 
             self.session.context_manager.add_assistant_message(
                 response_text,
@@ -157,13 +182,20 @@ class Agent:
                 self.session.context_manager.prune_tool_outputs()
                 if self.session.plan_mode_enabled:
                     if self.session.plan_phase != "executing":
-                        if self.session.plan_questions_asked < self.PLAN_MIN_QUESTIONS:
-                            remaining = self.PLAN_MIN_QUESTIONS - self.session.plan_questions_asked
+                        target_questions = max(
+                            self.PLAN_MIN_QUESTIONS,
+                            min(
+                                self.PLAN_MAX_QUESTIONS,
+                                int(getattr(self.session, "plan_target_questions", self.PLAN_MIN_QUESTIONS)),
+                            ),
+                        )
+                        if self.session.plan_questions_asked < target_questions:
+                            remaining = target_questions - self.session.plan_questions_asked
                             self.session.set_plan_phase("asking_questions")
                             self.session.context_manager.add_user_message(
                                 "Plan mode requirement: ask structured clarifying questions "
                                 f"with the plan_question tool before finalizing the plan. "
-                                f"At least {self.PLAN_MIN_QUESTIONS} total questions are required; "
+                                f"Target {target_questions} total questions for this request; "
                                 f"ask {remaining} more now."
                             )
                             continue
@@ -177,12 +209,13 @@ class Agent:
                         self.session.set_plan_phase(
                             "awaiting_implementation_confirmation"
                         )
-                        if response_text.strip():
-                            yield AgentEvent.text_complete(response_text)
+                        plan_text = self._select_plan_text(response_text)
+                        if plan_text.strip():
+                            yield AgentEvent.text_complete(plan_text)
                             self.session.loop_detector.record_action(
-                                "response", text=response_text
+                                "response", text=plan_text
                             )
-                            yield AgentEvent.plan_ready(response_text)
+                            yield AgentEvent.plan_ready(plan_text)
                     else:
                         if response_text:
                             yield AgentEvent.text_complete(response_text)
@@ -207,8 +240,23 @@ class Agent:
                 self.session.loop_detector.record_action("response", text=response_text)
 
             tool_call_results: list[ToolResultMessage] = []
+            skipped_plan_validation_errors: list[str] = []
 
             for tool_call in tool_calls:
+                if (
+                    self.session.plan_mode_enabled
+                    and self.session.plan_phase != "executing"
+                    and tool_call.name != "plan_question"
+                ):
+                    tool = self.session.tool_registry.get(tool_call.name)
+                    if tool is not None:
+                        validation_errors = tool.validate_params(tool_call.arguments)
+                        if validation_errors:
+                            skipped_plan_validation_errors.append(
+                                f"{tool_call.name}: {'; '.join(validation_errors)}"
+                            )
+                            continue
+
                 yield AgentEvent.tool_call_start(
                     tool_call.call_id,
                     tool_call.name,
@@ -257,6 +305,13 @@ class Agent:
                     tool_result.content,
                 )
 
+            if skipped_plan_validation_errors:
+                self.session.context_manager.add_user_message(
+                    "The previous planning tool call had missing required parameters and was ignored: "
+                    + " | ".join(skipped_plan_validation_errors)
+                    + ". Retry with complete required arguments before continuing."
+                )
+
             loop_message = self.session.loop_detector.check_for_loop()
             if loop_message:
                 yield AgentEvent.loop_detected(loop_message)
@@ -270,6 +325,103 @@ class Agent:
             self.session.context_manager.prune_tool_outputs()
 
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
+
+    def _determine_plan_question_target(self, message: str) -> int:
+        text = (message or "").strip().lower()
+        if not text:
+            return self.PLAN_MIN_QUESTIONS
+
+        score = 0
+        length = len(text)
+        if length >= 120:
+            score += 1
+        if length >= 220:
+            score += 1
+
+        high_complexity_terms = (
+            "architecture",
+            "refactor",
+            "migration",
+            "rollout",
+            "security",
+            "auth",
+            "multi-workspace",
+            "backward-compatible",
+            "integration",
+            "end-to-end",
+            "cross-platform",
+            "persistence",
+            "schema",
+            "api",
+            "performance",
+            "test plan",
+        )
+        low_complexity_terms = ("quick", "small", "simple", "minor", "tiny")
+
+        matches = sum(1 for term in high_complexity_terms if term in text)
+        if matches >= 2:
+            score += 1
+        if matches >= 4:
+            score += 1
+        if any(term in text for term in low_complexity_terms):
+            score -= 1
+
+        target = self.PLAN_MIN_QUESTIONS + score
+        return max(self.PLAN_MIN_QUESTIONS, min(self.PLAN_MAX_QUESTIONS, target))
+
+    def _select_plan_text(self, current_text: str) -> str:
+        def _score(candidate: str) -> int:
+            text = (candidate or "").strip()
+            if not text:
+                return -1
+            lowered = text.lower()
+            score = min(len(text) // 120, 60)
+            markers = (
+                "title",
+                "summary",
+                "implementation",
+                "test",
+                "assumption",
+            )
+            score += sum(5 for m in markers if m in lowered)
+            if "implementation changes" in lowered:
+                score += 20
+            if "tests/validation" in lowered or "validation strategy" in lowered:
+                score += 12
+            if "assumptions/risks" in lowered or "assumptions & risks" in lowered:
+                score += 10
+            markdown_headers = re.findall(r"(?m)^#{1,3}\s+[^\n]+", text)
+            score += min(len(markdown_headers) * 4, 40)
+            if "i've created a comprehensive implementation plan" in lowered:
+                score -= 20
+            if "the plan includes" in lowered:
+                score -= 20
+            if "please review and let me know" in lowered:
+                score -= 10
+            return score
+
+        candidates: list[str] = []
+        if current_text and current_text.strip():
+            candidates.append(current_text.strip())
+
+        messages = self.session.context_manager.get_messages()
+        for msg in reversed(messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            if content in candidates:
+                continue
+            candidates.append(content)
+            if len(candidates) >= 20:
+                break
+
+        if not candidates:
+            return current_text
+
+        best = max(candidates, key=lambda c: (_score(c), len(c)))
+        return best
 
     async def __aenter__(self) -> Agent:
         await self.session.initialize()

@@ -78,6 +78,7 @@ class SessionControllerMixin:
                 plan_mode_enabled=session.plan_mode_enabled,
                 plan_phase=session.plan_phase,
                 plan_questions_asked=session.plan_questions_asked,
+                plan_target_questions=session.plan_target_questions,
             )
             SessionManager().save_session(snapshot)
             self._set_current_session_title(session.name)
@@ -192,6 +193,7 @@ class SessionControllerMixin:
         resumed.plan_mode_enabled = snapshot.plan_mode_enabled
         resumed.plan_phase = snapshot.plan_phase
         resumed.plan_questions_asked = snapshot.plan_questions_asked
+        resumed.plan_target_questions = snapshot.plan_target_questions
 
         await self.agent.session.client.close()
         await self.agent.session.mcp_manager.shutdown()

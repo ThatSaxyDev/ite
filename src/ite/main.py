@@ -126,6 +126,7 @@ class CLI:
                 plan_mode_enabled=session.plan_mode_enabled,
                 plan_phase=session.plan_phase,
                 plan_questions_asked=session.plan_questions_asked,
+                plan_target_questions=session.plan_target_questions,
             )
             session_manager.save_session(snapshot)
             # console.print(
@@ -162,6 +163,7 @@ class CLI:
                 plan_mode_enabled=session.plan_mode_enabled,
                 plan_phase=session.plan_phase,
                 plan_questions_asked=session.plan_questions_asked,
+                plan_target_questions=session.plan_target_questions,
             )
             session_manager.save_session(snapshot)
         except Exception:

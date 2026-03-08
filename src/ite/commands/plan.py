@@ -21,6 +21,8 @@ def _render_status(ctx: CommandContext) -> None:
         (session.plan_phase, "bold cyan"),
         ("\nQuestions asked: ", "code"),
         (str(session.plan_questions_asked), "bold cyan"),
+        ("\nQuestion target: ", "code"),
+        (str(getattr(session, "plan_target_questions", 3)), "bold cyan"),
         ("\n\nUse ", "code"),
         ("/plan on", "green bold"),
         (" or ", "code"),
