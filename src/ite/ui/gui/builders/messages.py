@@ -94,6 +94,98 @@ class MessageBuilderMixin:
             ".dart": "dart",
         }.get(suffix, "text")
 
+    def _highlight_code_line(self, line: str, language: str) -> ft.Text:
+        keyword_set = {
+            "python": {
+                "def", "class", "import", "from", "return", "if", "elif", "else",
+                "for", "while", "try", "except", "with", "as", "async", "await",
+                "True", "False", "None", "in", "and", "or", "not", "lambda", "pass",
+            },
+            "javascript": {
+                "function", "const", "let", "var", "return", "if", "else", "for",
+                "while", "try", "catch", "class", "import", "from", "export", "async",
+                "await", "true", "false", "null",
+            },
+            "typescript": {
+                "function", "const", "let", "var", "return", "if", "else", "for",
+                "while", "try", "catch", "class", "import", "from", "export", "async",
+                "await", "true", "false", "null", "interface", "type",
+            },
+        }
+        language_key = language if language in keyword_set else "python"
+        keywords = keyword_set[language_key]
+        token_pattern = re.compile(
+            r"(#.*$|//.*$|\"(?:\\.|[^\"])*\"|'(?:\\.|[^'])*'|\b\d+(?:\.\d+)?\b|\b[A-Za-z_]\w*\b)"
+        )
+
+        spans: list[ft.TextSpan] = []
+        cursor = 0
+        for match in token_pattern.finditer(line):
+            start, end = match.span()
+            if start > cursor:
+                spans.append(ft.TextSpan(line[cursor:start], style=ft.TextStyle(font_family=FONT_MONO, color=TEXT_PRIMARY, size=TYPE_BODY)))
+            token = match.group(0)
+            color = TEXT_PRIMARY
+            if token.startswith("#") or token.startswith("//"):
+                color = ft.Colors.with_opacity(0.65, ft.Colors.GREEN_300)
+            elif token.startswith('"') or token.startswith("'"):
+                color = ft.Colors.with_opacity(0.95, ft.Colors.AMBER_200)
+            elif token in keywords:
+                color = ft.Colors.with_opacity(0.95, ft.Colors.CYAN_200)
+            elif token.replace(".", "", 1).isdigit():
+                color = ft.Colors.with_opacity(0.95, ft.Colors.PINK_200)
+            spans.append(ft.TextSpan(token, style=ft.TextStyle(font_family=FONT_MONO, color=color, size=TYPE_BODY)))
+            cursor = end
+        if cursor < len(line):
+            spans.append(ft.TextSpan(line[cursor:], style=ft.TextStyle(font_family=FONT_MONO, color=TEXT_PRIMARY, size=TYPE_BODY)))
+        return ft.Text(spans=spans, selectable=True)
+
+    def _build_colored_code_view(self, content: str, language: str) -> ft.Control:
+        rows: list[ft.Control] = []
+        lines = content.splitlines()
+        clipped = lines[:160]
+        for idx, line in enumerate(clipped, start=1):
+            rows.append(
+                ft.Row(
+                    [
+                        ft.Text(f"{idx:>4}", style=ft.TextStyle(font_family=FONT_MONO, color=TEXT_MUTED, size=TYPE_BODY)),
+                        ft.Container(width=10),
+                        self._highlight_code_line(line, language),
+                    ],
+                    spacing=0,
+                )
+            )
+        if len(lines) > len(clipped):
+            rows.append(
+                ft.Text(
+                    f"... {len(lines) - len(clipped)} more lines",
+                    size=TYPE_SM,
+                    color=TEXT_MUTED,
+                )
+            )
+        return ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO)
+
+    def _build_diff_view(self, diff_text: str) -> ft.Control:
+        rows: list[ft.Control] = []
+        for line in diff_text.splitlines():
+            color = TEXT_PRIMARY
+            if line.startswith("+"):
+                color = ft.Colors.with_opacity(0.95, ft.Colors.GREEN_300)
+            elif line.startswith("-"):
+                color = ft.Colors.with_opacity(0.95, ft.Colors.RED_300)
+            elif line.startswith("@@"):
+                color = ft.Colors.with_opacity(0.95, ft.Colors.CYAN_200)
+            elif line.startswith(("---", "+++")):
+                color = ft.Colors.with_opacity(0.9, ft.Colors.AMBER_200)
+            rows.append(
+                ft.Text(
+                    line,
+                    style=ft.TextStyle(font_family=FONT_MONO, color=color, size=TYPE_BODY),
+                    selectable=True,
+                )
+            )
+        return ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO)
+
     def _truncate_content(
         self,
         content: str,
@@ -424,28 +516,21 @@ class MessageBuilderMixin:
         )
 
         code_mode = False
+        language = self._guess_language(
+            metadata.get("path") if isinstance(metadata, dict) else None
+        )
+        code_content = payload
         if self._looks_like_source_excerpt(payload):
-            language = self._guess_language(
-                metadata.get("path") if isinstance(metadata, dict) else None
+            code_content = "\n".join(
+                re.sub(r"^\s*\d+\|", "", line) for line in payload.splitlines()
             )
-            payload = self._to_code_block(payload, language=language)
             code_mode = True
 
         if diff:
-            payload_block: ft.Control = self._build_expandable_block(
-                f"```diff\n{diff}\n```",
-                as_markdown=True,
-                max_chars=900,
-                max_lines=8,
-            )
+            payload_block: ft.Control = self._build_diff_view(diff)
             code_mode = True
-        elif payload.startswith("```"):
-            payload_block = self._build_expandable_block(
-                payload,
-                as_markdown=True,
-                max_chars=1100,
-                max_lines=14,
-            )
+        elif code_mode:
+            payload_block = self._build_colored_code_view(code_content, language)
             code_mode = True
         else:
             payload_block = self._build_expandable_block(
