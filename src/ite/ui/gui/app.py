@@ -453,7 +453,10 @@ class GUIApp(
             return
         session = self.agent.session
         session.set_plan_mode(not session.plan_mode_enabled)
-        if not session.plan_mode_enabled:
+        if session.plan_mode_enabled:
+            session.set_plan_phase("idle")
+            self._plan_question_count = 0
+        else:
             session.plan_questions_asked = 0
             self._plan_question_count = 0
         self._sync_plan_toggle_ui()

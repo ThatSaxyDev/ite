@@ -16,6 +16,7 @@ from ite.prompts.system import create_loop_breaker_prompt
 
 class Agent:
     PLAN_MIN_QUESTIONS = 2
+    PLAN_EXECUTE_PROMPT = "Implement the approved plan now. Execute the planned changes."
 
     def __init__(
         self,
@@ -36,7 +37,10 @@ class Agent:
         await self.session.hook_system.trigger_before_agent(user_message=message)
         yield AgentEvent.agent_start(message)
         self.session.context_manager.add_user_message(message)
-        if self.session.plan_mode_enabled and self.session.plan_phase != "executing":
+        is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
+        if self.session.plan_mode_enabled and not is_execution_handoff:
+            # Each new planning request starts a fresh question cycle.
+            self.session.plan_questions_asked = 0
             self.session.set_plan_phase("asking_questions")
         final_response: str | None = None
 
@@ -102,7 +106,14 @@ class Agent:
                     if event.text_delta:
                         content = event.text_delta.content
                         response_text += content
-                        yield AgentEvent.text_delta(content)
+                        # In plan mode (pre-execution), suppress live text streaming.
+                        # This prevents partial/final plan text from rendering before
+                        # question flow is complete.
+                        if not (
+                            self.session.plan_mode_enabled
+                            and self.session.plan_phase != "executing"
+                        ):
+                            yield AgentEvent.text_delta(content)
                 elif event.type == StreamEventType.TOOL_CALL_COMPLETE:
                     if event.tool_call:
                         tool_calls.append(event.tool_call)
@@ -112,6 +123,14 @@ class Agent:
                     )
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
+
+            if self.session.plan_mode_enabled and self.session.plan_phase != "executing":
+                # Deterministic planner UX: process at most one structured question per turn.
+                plan_calls = [tc for tc in tool_calls if tc.name == "plan_question"]
+                if len(plan_calls) > 1:
+                    first_call = plan_calls[0]
+                    non_plan_calls = [tc for tc in tool_calls if tc.name != "plan_question"]
+                    tool_calls = non_plan_calls + [first_call]
 
             self.session.context_manager.add_assistant_message(
                 response_text,
@@ -129,10 +148,6 @@ class Agent:
                 if tool_calls
                 else None,
             )
-
-            if response_text:
-                yield AgentEvent.text_complete(response_text)
-                self.session.loop_detector.record_action("response", text=response_text)
 
             if not tool_calls:
                 if usage:
@@ -152,14 +167,44 @@ class Agent:
                                 f"ask {remaining} more now."
                             )
                             continue
+                        if not response_text.strip():
+                            self.session.set_plan_phase("writing_plan")
+                            self.session.context_manager.add_user_message(
+                                "Now write the complete final implementation plan with the required "
+                                "sections. Do not ask more questions in this turn."
+                            )
+                            continue
                         self.session.set_plan_phase(
                             "awaiting_implementation_confirmation"
                         )
                         if response_text.strip():
+                            yield AgentEvent.text_complete(response_text)
+                            self.session.loop_detector.record_action(
+                                "response", text=response_text
+                            )
                             yield AgentEvent.plan_ready(response_text)
                     else:
+                        if response_text:
+                            yield AgentEvent.text_complete(response_text)
+                            self.session.loop_detector.record_action(
+                                "response", text=response_text
+                            )
                         self.session.set_plan_phase("idle")
+                elif response_text:
+                    yield AgentEvent.text_complete(response_text)
+                    self.session.loop_detector.record_action(
+                        "response", text=response_text
+                    )
                 return
+
+            if response_text:
+                in_plan_questioning = (
+                    self.session.plan_mode_enabled
+                    and self.session.plan_phase != "executing"
+                )
+                if not in_plan_questioning:
+                    yield AgentEvent.text_complete(response_text)
+                self.session.loop_detector.record_action("response", text=response_text)
 
             tool_call_results: list[ToolResultMessage] = []
 

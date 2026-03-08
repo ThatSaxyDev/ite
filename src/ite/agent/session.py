@@ -85,8 +85,14 @@ class Session:
 
     def set_plan_mode(self, enabled: bool) -> None:
         self.plan_mode_enabled = enabled
-        if not enabled:
+        if enabled:
+            # Enabling plan mode always starts a fresh planning cycle.
+            self.plan_questions_asked = 0
+            if self.plan_phase == "executing":
+                self.plan_phase = "idle"
+        else:
             self.plan_phase = "idle"
+            self.plan_questions_asked = 0
         if self.context_manager:
             self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 

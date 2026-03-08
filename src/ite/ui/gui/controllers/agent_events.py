@@ -33,8 +33,8 @@ class AgentEventControllerMixin:
                 self._finalize_streaming_message()
             elif content and not (plan_only_phase and content.strip()):
                 self._add_message("assistant", content)
-            elif content and plan_only_phase:
-                self._add_plan_card(content)
+            # In plan-only phases, final plan rendering is handled exclusively
+            # by PLAN_READY to avoid duplicate plan cards.
             # If the turn is still running after this text block, show activity again.
             if self._is_turn_running:
                 self._show_thinking_indicator()
@@ -96,4 +96,7 @@ class AgentEventControllerMixin:
                 ),
             )
         elif event.type == AgentEventType.PLAN_READY:
+            plan_text = event.data.get("plan_text", "")
+            if isinstance(plan_text, str) and plan_text.strip():
+                self._add_plan_card(plan_text)
             await self._render_plan_ready_prompt()

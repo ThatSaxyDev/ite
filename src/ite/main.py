@@ -260,9 +260,16 @@ class CLI:
 
             elif event.type == AgentEventType.TEXT_COMPLETE:
                 final_response = event.data.get("content")
+                self.tui.stop_spinner()
                 if assistant_streaming:
                     self.tui.end_assistant()
                     assistant_streaming = False
+                elif final_response:
+                    # Plan mode may suppress text deltas before final output.
+                    # Render complete assistant output in one shot.
+                    self.tui.begin_assistant()
+                    self.tui.stream_assistant_delta(final_response)
+                    self.tui.end_assistant()
 
             elif event.type == AgentEventType.AGENT_ERROR:
                 self.tui.stop_spinner()
@@ -300,6 +307,15 @@ class CLI:
                     and self.agent.session.plan_phase != "executing"
                 )
                 if tool_name in {"memory", "plan_question", "todos"}:
+                    self.tui.start_spinner("Running...")
+                    continue
+                if (
+                    plan_only_phase
+                    and not event.data.get("success", False)
+                    and str(event.data.get("error") or "").startswith("Invalid parameters:")
+                ):
+                    # In planning phase, model may probe tool schemas with partial calls.
+                    # Keep this out of user transcript to reduce noise.
                     self.tui.start_spinner("Running...")
                     continue
                 if plan_only_phase and event.data.get("success", False):
@@ -341,6 +357,14 @@ class CLI:
 
             elif event.type == AgentEventType.PLAN_READY:
                 self.tui.stop_spinner()
+                plan_text = event.data.get("plan_text", "")
+                if not isinstance(plan_text, str) or not plan_text.strip():
+                    if self.agent and self.agent.session:
+                        self.agent.session.set_plan_phase("writing_plan")
+                    await self._process_message(
+                        "Write the complete final implementation plan now before asking for implementation approval."
+                    )
+                    continue
                 asked = (
                     self.agent.session.plan_questions_asked
                     if self.agent and self.agent.session
