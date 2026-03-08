@@ -9,6 +9,8 @@ def get_system_prompt(
     config: Config,
     user_memory: dict | None = None,
     tools: list[Tool] | None = None,
+    plan_mode_enabled: bool = False,
+    plan_phase: str = "idle",
 ) -> str:
     parts = []
 
@@ -34,6 +36,8 @@ def get_system_prompt(
 
     if user_memory:
         parts.append(_get_memory_section(user_memory))
+    if plan_mode_enabled:
+        parts.append(_get_plan_mode_section(plan_phase))
     # Operational guidelines
     parts.append(_get_operational_section())
 
@@ -341,6 +345,27 @@ You have access to the following tools to accomplish your tasks:
    - Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis"""
 
     return guidelines
+
+
+def _get_plan_mode_section(plan_phase: str) -> str:
+    return f"""# Plan Mode (Active)
+
+- **Current Plan Phase**: `{plan_phase}`
+- You are in Plan Mode. Your job is to produce a decision-complete implementation plan before execution.
+- You may explore with non-mutating actions only. Do not perform file writes, edits, destructive shell operations, or other mutating actions while planning.
+- Ask high-impact clarifying questions using the `plan_question` tool with:
+  - one clear question prompt
+  - 2-4 options
+  - a recommended option marker
+- Wait for user answers before finalizing the plan.
+- Final plan must include:
+  - title
+  - summary
+  - implementation changes
+  - tests/validation strategy
+  - assumptions/risks
+- After writing the plan, wait for explicit user confirmation before implementation.
+"""
 
 
 def get_compaction_prompt() -> str:

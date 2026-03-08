@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import flet as ft
 from urllib.parse import urlparse
+from typing import Any
 
 from ite.agent.agent import Agent
 from ite.commands import build_registry
@@ -19,7 +20,7 @@ from .controllers.approval import ApprovalControllerMixin
 from .controllers.sessions import SessionControllerMixin
 from .controllers.commands import CommandControllerMixin
 from .controllers.agent_events import AgentEventControllerMixin
-from .tokens import RADIUS_SM, SURFACE_ELEVATED, TEXT_MUTED, TYPE_SM
+from .tokens import *
 
 
 class GUIApp(
@@ -60,6 +61,11 @@ class GUIApp(
         self.branch_items: list = []
         self.current_branch_name: str | None = None
         self.branch_loading: bool = False
+        self.plan_toggle_button: ft.TextButton | None = None
+        self.plan_mode_badge: ft.Text | None = None
+        self._plan_question_future: asyncio.Future | None = None
+        self._plan_confirm_future: asyncio.Future | None = None
+        self._plan_question_count: int = 0
         self._branch_workspace_key: str | None = None
         self._branch_sync_task: asyncio.Task | None = None
         self._branch_sync_running: bool = False
@@ -179,11 +185,13 @@ class GUIApp(
         self.agent = Agent(
             config=self.config,
             confirmation_callback=self._gui_confirmation_callback,
+            plan_question_callback=self._gui_plan_question_callback,
         )
         await self.agent.__aenter__()
         if self.agent.session:
             self.active_session_id = self.agent.session.session_id
             self._set_current_session_title(self.agent.session.name)
+            self._sync_plan_toggle_ui()
 
     def _on_send(self, e):
         if self._is_turn_running:
@@ -404,6 +412,241 @@ class GUIApp(
             await self.agent.__aexit__(None, None, None)
         finally:
             self.agent = None
+
+    def _sync_plan_toggle_ui(self):
+        enabled = bool(
+            self.agent and self.agent.session and self.agent.session.plan_mode_enabled
+        )
+        if self.plan_toggle_button:
+            label = "✓ Plan" if enabled else "Plan"
+            self.plan_toggle_button.content = ft.Row(
+                [
+                    ft.Icon(
+                        ft.Icons.TUNE if enabled else ft.Icons.TUNE_OUTLINED,
+                        size=13,
+                        color="#8FC3FF" if enabled else TEXT_MUTED,
+                    ),
+                    ft.Text(
+                        label,
+                        size=TYPE_BODY,
+                        color="#8FC3FF" if enabled else TEXT_SECONDARY,
+                        weight=ft.FontWeight.W_600 if enabled else ft.FontWeight.W_500,
+                    ),
+                ],
+                spacing=6,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+            if self.page:
+                self.plan_toggle_button.update()
+
+    async def _toggle_plan_mode(self):
+        await self._ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+        session = self.agent.session
+        session.set_plan_mode(not session.plan_mode_enabled)
+        if not session.plan_mode_enabled:
+            session.plan_questions_asked = 0
+            self._plan_question_count = 0
+        self._sync_plan_toggle_ui()
+        self._add_assistant_card(
+            "Plan Mode",
+            ft.Text(
+                f"Plan mode {'enabled' if session.plan_mode_enabled else 'disabled'}.",
+                color=TEXT_SECONDARY,
+            ),
+        )
+
+    async def _gui_plan_question_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.page or not self.messages_column:
+            return {"selected_option": "", "free_text": "", "selected_index": None}
+
+        question = str(payload.get("question", "")).strip()
+        options = [str(o) for o in payload.get("options", []) if str(o).strip()]
+        recommended_index = payload.get("recommended_index")
+        allow_free_text = bool(payload.get("allow_free_text", True))
+
+        loop = asyncio.get_running_loop()
+        self._plan_question_future = loop.create_future()
+        self._plan_question_count += 1
+
+        choices: list[ft.Control] = []
+        for idx, option in enumerate(options):
+            recommended = idx == recommended_index
+            button = ft.OutlinedButton(
+                text=f"{idx + 1}. {option}" + ("  (Recommended)" if recommended else ""),
+                on_click=lambda _e, i=idx, o=option: self._resolve_plan_question(i, o, ""),
+                style=ft.ButtonStyle(
+                    side=ft.BorderSide(1, BORDER_STRONG),
+                    color=TEXT_PRIMARY,
+                    bgcolor={
+                        ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE),
+                    },
+                    shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                ),
+            )
+            choices.append(button)
+
+        free_text_input = ft.TextField(
+            hint_text="Other answer",
+            border_radius=RADIUS_SM,
+            border_color=BORDER,
+            focused_border_color=ACCENT,
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            visible=allow_free_text,
+        )
+        free_submit = ft.TextButton(
+            "Submit answer",
+            on_click=lambda _e: self._resolve_plan_question(
+                None, "", free_text_input.value.strip() if free_text_input else ""
+            ),
+            visible=allow_free_text,
+        )
+
+        card = ft.Container(
+            width=SPECIAL_CARD_WIDTH,
+            border=ft.Border.all(1, ACCENT_SOFT),
+            border_radius=RADIUS_MD,
+            bgcolor=SURFACE_ELEVATED,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content=ft.Column(
+                [
+                    ft.Text(
+                        f"Asking questions · {self._plan_question_count}",
+                        size=TYPE_SM,
+                        color=TEXT_MUTED,
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    ft.Text(question, size=TYPE_MD, color=TEXT_PRIMARY, weight=ft.FontWeight.W_600),
+                    ft.Column(choices, spacing=6, tight=True),
+                    free_text_input,
+                    free_submit,
+                ],
+                spacing=8,
+                tight=True,
+            ),
+        )
+        self._append_chat_control(
+            self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        )
+        self.page.update()
+        self._scroll_chat_to_bottom(force=True)
+
+        result = await self._plan_question_future
+        self._plan_question_future = None
+        return result
+
+    def _resolve_plan_question(
+        self,
+        selected_index: int | None,
+        selected_option: str,
+        free_text: str,
+    ) -> None:
+        if not self._plan_question_future or self._plan_question_future.done():
+            return
+        self._plan_question_future.set_result(
+            {
+                "selected_index": selected_index,
+                "selected_option": selected_option,
+                "free_text": free_text,
+            }
+        )
+
+    async def _render_plan_ready_prompt(self):
+        if not self.page or not self.messages_column:
+            return
+        await self._ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+
+        status = ft.Text("", size=TYPE_SM, color=TEXT_MUTED)
+
+        def on_approve(_e):
+            if self.page:
+                self.page.run_task(self._handle_plan_ready_decision, True, status)
+
+        def on_decline(_e):
+            if self.page:
+                self.page.run_task(self._handle_plan_ready_decision, False, status)
+
+        actions = ft.Row(
+            [
+                ft.TextButton("No", on_click=on_decline),
+                ft.FilledButton(
+                    "Yes, implement plan",
+                    on_click=on_approve,
+                    style=ft.ButtonStyle(
+                        bgcolor={ft.ControlState.DEFAULT: ACCENT},
+                        color=ft.Colors.BLACK,
+                        shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                    ),
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.END,
+        )
+
+        card = ft.Container(
+            width=SPECIAL_CARD_WIDTH,
+            border=ft.Border.all(1, ACCENT_SOFT),
+            border_radius=RADIUS_MD,
+            bgcolor=SURFACE_ELEVATED,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "Implement this plan?",
+                        size=TYPE_MD,
+                        color=TEXT_PRIMARY,
+                        weight=ft.FontWeight.W_700,
+                    ),
+                    ft.Text(
+                        "Execution is blocked until you approve.",
+                        size=TYPE_SM,
+                        color=TEXT_SECONDARY,
+                    ),
+                    ft.Text(
+                        f"Asked {self.agent.session.plan_questions_asked} questions",
+                        size=TYPE_SM,
+                        color=TEXT_MUTED,
+                    ),
+                    actions,
+                    status,
+                ],
+                spacing=8,
+                tight=True,
+            ),
+        )
+        self._append_chat_control(
+            self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        )
+        self.page.update()
+        self._scroll_chat_to_bottom(force=True)
+
+    async def _handle_plan_ready_decision(self, approved: bool, status_text: ft.Text):
+        await self._ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+        if approved:
+            self.agent.session.set_plan_phase("executing")
+            status_text.value = "Approved"
+            status_text.color = SUCCESS
+            if self.page:
+                self.page.update()
+            self._active_turn_task = self.page.run_task(
+                self._run_agent,
+                "Implement the approved plan now. Execute the planned changes.",
+            )
+            return
+
+        self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
+        status_text.value = "Stayed in plan mode"
+        status_text.color = TEXT_MUTED
+        if self.page:
+            self.page.update()
 
 
 def create_gui_app(config: Config):

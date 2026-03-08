@@ -550,6 +550,26 @@ class LayoutBuilderMixin:
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
             visible=False,
         )
+        self.plan_toggle_button = ft.TextButton(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.TUNE_OUTLINED, size=13, color=TEXT_MUTED),
+                    ft.Text("Plan", size=TYPE_BODY, color=TEXT_SECONDARY, weight=WEIGHT_MEDIUM),
+                ],
+                spacing=6,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            on_click=lambda _e: self.page.run_task(self._toggle_plan_mode) if self.page else None,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_MD),
+                bgcolor={
+                    ft.ControlState.HOVERED: ft.Colors.with_opacity(0.07, ft.Colors.WHITE),
+                    ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT,
+                },
+            ),
+        )
 
         self.input_field = ft.TextField(
             hint_text="Message the agent...",
@@ -599,6 +619,7 @@ class LayoutBuilderMixin:
                     ft.Row(
                         [
                             self.model_selector,
+                            self.plan_toggle_button,
                             ft.Container(expand=True),
                             self.branch_controls_row,
                             self.send_button,

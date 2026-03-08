@@ -121,6 +121,50 @@ class CommandControllerMixin:
             )
             return True
 
+        if command == "/plan":
+            await self._ensure_agent()
+            if not self.agent or not self.agent.session:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return True
+            session = self.agent.session
+            if args:
+                mode = args[0].lower()
+                if mode not in {"on", "off"}:
+                    self._add_assistant_card(
+                        "Plan Mode",
+                        ft.Text("Use /plan, /plan on, or /plan off.", color=TEXT_SECONDARY),
+                    )
+                    return True
+                session.set_plan_mode(mode == "on")
+                if not session.plan_mode_enabled:
+                    session.plan_questions_asked = 0
+                self._sync_plan_toggle_ui()
+            self._add_assistant_card(
+                "Plan Mode",
+                ft.Column(
+                    [
+                        ft.Text(
+                            f"Status: {'on' if session.plan_mode_enabled else 'off'}",
+                            size=TYPE_MD,
+                            color=TEXT_PRIMARY,
+                        ),
+                        ft.Text(
+                            f"Phase: {session.plan_phase}",
+                            size=TYPE_MD,
+                            color=TEXT_SECONDARY,
+                        ),
+                        ft.Text(
+                            f"Questions asked: {session.plan_questions_asked}",
+                            size=TYPE_MD,
+                            color=TEXT_SECONDARY,
+                        ),
+                    ],
+                    spacing=4,
+                    tight=True,
+                ),
+            )
+            return True
+
         if command == "/config":
             rows = ft.Column(
                 [
@@ -170,7 +214,7 @@ class CommandControllerMixin:
             self.print_welcome(
                 model=self.config.model_name,
                 cwd=self.config.cwd,
-                commands=["/help", "/sessions", "/config", "/model", "/branch", "/approval", "/tools", "/stats", "/mcp"],
+                commands=["/help", "/sessions", "/config", "/model", "/plan", "/branch", "/approval", "/tools", "/stats", "/mcp"],
             )
             return True
 
@@ -199,6 +243,9 @@ class CommandControllerMixin:
                     ft.Row([ft.Text("Compactions", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["compaction_count"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Last Compacted", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(last_compacted_display, size=TYPE_MD, color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Pruned Tools", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["pruned_tool_msgs"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Plan Mode", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text("on" if stats.get("plan_mode_enabled") else "off", size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Plan Phase", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats.get("plan_phase", "idle")), size=TYPE_MD, color=TEXT_PRIMARY)]),
+                    ft.Row([ft.Text("Plan Questions", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats.get("plan_questions_asked", 0)), size=TYPE_MD, color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("Tools Enabled", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["tools_enabled"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
                     ft.Row([ft.Text("MCP Servers", size=TYPE_SM, weight=WEIGHT_SEMIBOLD, width=140, color=TEXT_SECONDARY), ft.Text(str(stats["mcp_servers"]), size=TYPE_MD, color=TEXT_PRIMARY)]),
                 ],

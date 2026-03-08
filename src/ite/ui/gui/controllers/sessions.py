@@ -31,6 +31,8 @@ class SessionControllerMixin:
             await fresh.initialize()
             fresh.approval_manager.confirmation_callback = self._gui_confirmation_callback
             self.agent.session = fresh
+            if hasattr(self, "_sync_plan_toggle_ui"):
+                self._sync_plan_toggle_ui()
 
             self.active_session_id = None
             self._set_current_session_title(None)
@@ -73,6 +75,9 @@ class SessionControllerMixin:
                 turn_count=session.turn_count,
                 messages=session.context_manager.get_messages(),
                 total_usage=session.context_manager.total_usage,
+                plan_mode_enabled=session.plan_mode_enabled,
+                plan_phase=session.plan_phase,
+                plan_questions_asked=session.plan_questions_asked,
             )
             SessionManager().save_session(snapshot)
             self._set_current_session_title(session.name)
@@ -184,6 +189,9 @@ class SessionControllerMixin:
         resumed.created_at = snapshot.created_at
         resumed.updated_at = snapshot.updated_at
         resumed.turn_count = snapshot.turn_count
+        resumed.plan_mode_enabled = snapshot.plan_mode_enabled
+        resumed.plan_phase = snapshot.plan_phase
+        resumed.plan_questions_asked = snapshot.plan_questions_asked
 
         await self.agent.session.client.close()
         await self.agent.session.mcp_manager.shutdown()
@@ -193,6 +201,8 @@ class SessionControllerMixin:
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.approval_manager.confirmation_callback = self._gui_confirmation_callback
         self.agent.session = resumed
+        if hasattr(self, "_sync_plan_toggle_ui"):
+            self._sync_plan_toggle_ui()
 
     def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]):
         if not self.messages_column or not self.page:

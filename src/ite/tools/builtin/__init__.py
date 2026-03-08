@@ -1,4 +1,5 @@
 from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.plan_question import PlanQuestionTool
 from ite.tools.builtin.todo import TodosTool
 from ite.tools.builtin.web_fetch import WebFetchTool
 from ite.tools.builtin.web_search import WebSearchTool
@@ -22,6 +23,7 @@ __all__ = [
     "WebFetchTool",
     "TodosTool",
     "MemoryTool",
+    "PlanQuestionTool",
 ]
 
 
@@ -38,4 +40,5 @@ def get_all_builtin_tools() -> list[type]:
         WebFetchTool,
         TodosTool,
         MemoryTool,
+        PlanQuestionTool,
     ]

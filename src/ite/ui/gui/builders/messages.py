@@ -202,6 +202,17 @@ class MessageBuilderMixin:
         self.page.update()
         self._scroll_chat_to_bottom(force=True)
 
+    def _add_plan_card(self, plan_text: str):
+        if not self.messages_column or not self.page:
+            return
+        plan_body = self._build_expandable_block(
+            plan_text,
+            as_markdown=True,
+            max_chars=3600,
+            max_lines=30,
+        )
+        self._add_assistant_card("Plan", plan_body)
+
     def _sanitize_cli_output(self, text: str) -> str:
         cleaned = re.sub(r"\x1b\[[0-9;]*m", "", text)
         cleaned = re.sub(r"[│┌┐└┘├┤┬┴┼─]+", "", cleaned)

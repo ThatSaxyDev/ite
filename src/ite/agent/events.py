@@ -24,6 +24,7 @@ class AgentEventType(str, Enum):
     # loop detection
     LOOP_DETECTED = "loop_detected"
     CONTEXT_COMPACTED = "context_compacted"
+    PLAN_READY = "plan_ready"
 
 
 @dataclass
@@ -135,5 +136,14 @@ class AgentEvent:
                 "trigger_tokens": trigger_tokens,
                 "context_window": context_window,
                 "summary_chars": summary_chars,
+            },
+        )
+
+    @classmethod
+    def plan_ready(cls, plan_text: str) -> AgentEvent:
+        return cls(
+            type=AgentEventType.PLAN_READY,
+            data={
+                "plan_text": plan_text,
             },
         )

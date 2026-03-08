@@ -26,11 +26,12 @@ class CLI:
         self.tui.print_welcome(
             model=self.config.model_name,
             cwd=self.config.cwd,
-            commands=["/help", "/subagent", "/config", "/model", "/branch", "/exit"],
+            commands=["/help", "/subagent", "/config", "/model", "/plan", "/branch", "/exit"],
         )
         async with Agent(
             config=self.config,
             confirmation_callback=self.tui.handle_confirmation,
+            plan_question_callback=self._plan_question_callback,
         ) as agent:
             self.agent = agent
 
@@ -122,6 +123,9 @@ class CLI:
                 turn_count=session.turn_count,
                 messages=session.context_manager.get_messages(),
                 total_usage=session.context_manager.total_usage,
+                plan_mode_enabled=session.plan_mode_enabled,
+                plan_phase=session.plan_phase,
+                plan_questions_asked=session.plan_questions_asked,
             )
             session_manager.save_session(snapshot)
             # console.print(
@@ -155,10 +159,26 @@ class CLI:
                 turn_count=session.turn_count,
                 messages=session.context_manager.get_messages(),
                 total_usage=session.context_manager.total_usage,
+                plan_mode_enabled=session.plan_mode_enabled,
+                plan_phase=session.plan_phase,
+                plan_questions_asked=session.plan_questions_asked,
             )
             session_manager.save_session(snapshot)
         except Exception:
             pass
+
+    async def _plan_question_callback(self, payload: dict) -> dict:
+        question = str(payload.get("question", "")).strip()
+        options = [str(o) for o in payload.get("options", []) if str(o).strip()]
+        recommended_index = payload.get("recommended_index")
+        allow_free_text = bool(payload.get("allow_free_text", True))
+
+        return self.tui.prompt_plan_question(
+            question=question,
+            options=options,
+            recommended_index=recommended_index,
+            allow_free_text=allow_free_text,
+        )
 
     async def _generate_session_name(self, session) -> str:
         """Use the LLM to generate a concise session title from the first exchange."""
@@ -252,6 +272,15 @@ class CLI:
             elif event.type == AgentEventType.TOOL_CALL_START:
                 self.tui.stop_spinner()
                 tool_name = event.data.get("name", "Unknown tool")
+                plan_only_phase = bool(
+                    self.agent
+                    and self.agent.session
+                    and self.agent.session.plan_mode_enabled
+                    and self.agent.session.plan_phase != "executing"
+                )
+                if tool_name in {"memory", "plan_question", "todos"} or plan_only_phase:
+                    self.tui.start_spinner("Running")
+                    continue
                 tool_kind = self._get_tool_kind(tool_name)
                 self.tui.tool_call_start(
                     event.data.get("call_id", ""),
@@ -264,6 +293,18 @@ class CLI:
             elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
                 self.tui.stop_spinner()
                 tool_name = event.data.get("name", "Unknown tool")
+                plan_only_phase = bool(
+                    self.agent
+                    and self.agent.session
+                    and self.agent.session.plan_mode_enabled
+                    and self.agent.session.plan_phase != "executing"
+                )
+                if tool_name in {"memory", "plan_question", "todos"}:
+                    self.tui.start_spinner("Running...")
+                    continue
+                if plan_only_phase and event.data.get("success", False):
+                    self.tui.start_spinner("Running...")
+                    continue
                 tool_kind = self._get_tool_kind(tool_name)
                 self.tui.tool_call_complete(
                     call_id=event.data.get("call_id", ""),
@@ -297,6 +338,28 @@ class CLI:
                     f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
                 )
                 self.tui.start_spinner("Running...")
+
+            elif event.type == AgentEventType.PLAN_READY:
+                self.tui.stop_spinner()
+                asked = (
+                    self.agent.session.plan_questions_asked
+                    if self.agent and self.agent.session
+                    else 0
+                )
+                approved = self.tui.prompt_plan_implementation(asked_questions=asked)
+                if approved and self.agent and self.agent.session:
+                    self.agent.session.set_plan_phase("executing")
+                    console.print("[dim]Plan approved · starting implementation[/dim]")
+                    await self._process_message(
+                        "Implement the approved plan now. Execute the planned changes."
+                    )
+                elif self.agent and self.agent.session:
+                    self.agent.session.set_plan_phase(
+                        "awaiting_implementation_confirmation"
+                    )
+                    console.print(
+                        "[dim]Plan remains active. Ask follow-ups or approve later.[/dim]"
+                    )
 
         self.tui.stop_spinner()
         return final_response

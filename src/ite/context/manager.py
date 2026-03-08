@@ -58,6 +58,8 @@ class ContextManager:
         self._compaction_count = 0
         self._last_compacted_at: datetime | None = None
         self._pruned_tool_msgs = 0
+        self._plan_mode_enabled = False
+        self._plan_phase = "idle"
 
     @property
     def message_count(self) -> int:
@@ -103,6 +105,10 @@ class ContextManager:
                 )
             )
 
+    def set_plan_state(self, enabled: bool, phase: str) -> None:
+        self._plan_mode_enabled = enabled
+        self._plan_phase = phase
+
     def add_user_message(self, content: str) -> None:
         item = MessageItem(
             role="user",
@@ -146,7 +152,13 @@ class ContextManager:
     def get_messages(self) -> list(dict[str, Any]):
         messages = []
 
-        system_prompt = get_system_prompt(self.config, self._user_memory, self._tools)
+        system_prompt = get_system_prompt(
+            self.config,
+            self._user_memory,
+            self._tools,
+            plan_mode_enabled=self._plan_mode_enabled,
+            plan_phase=self._plan_phase,
+        )
         if system_prompt:
             messages.append(
                 {

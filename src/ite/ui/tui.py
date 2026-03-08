@@ -820,6 +820,87 @@ class TUI:
 
         return response.lower() in {"y", "yes"}
 
+    def prompt_plan_question(
+        self,
+        *,
+        question: str,
+        options: list[str],
+        recommended_index: int | None = None,
+        allow_free_text: bool = True,
+    ) -> dict[str, Any]:
+        if self._spinner_running:
+            self.stop_spinner()
+
+        lines = []
+        for idx, option in enumerate(options, start=1):
+            marker = " (recommended)" if recommended_index == idx - 1 else ""
+            lines.append(f"{idx}. {option}{marker}")
+        if allow_free_text:
+            lines.append("0. Enter custom answer")
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                Group(
+                    Text(question, style="bold white"),
+                    Text(),
+                    Text("\n".join(lines), style="code"),
+                ),
+                title=Text("Planning Question", style="bold cyan"),
+                title_align="left",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
+        valid_choices = [str(i) for i in range(1, len(options) + 1)]
+        if allow_free_text:
+            valid_choices = ["0", *valid_choices]
+        default_choice = (
+            str(recommended_index + 1)
+            if recommended_index is not None and 0 <= recommended_index < len(options)
+            else (valid_choices[0] if valid_choices else "1")
+        )
+        picked = Prompt.ask("Select option", choices=valid_choices, default=default_choice)
+        if picked == "0" and allow_free_text:
+            text = Prompt.ask("Your answer").strip()
+            return {"selected_option": "", "free_text": text, "selected_index": None}
+
+        selected_index = int(picked) - 1
+        selected_option = options[selected_index]
+        return {
+            "selected_option": selected_option,
+            "free_text": "",
+            "selected_index": selected_index,
+        }
+
+    def prompt_plan_implementation(self, asked_questions: int = 0) -> bool:
+        self.console.print()
+        self.console.print(
+            Panel(
+                Text(
+                    (
+                        "Implement this plan now?"
+                        if asked_questions <= 0
+                        else f"Implement this plan now? (asked {asked_questions} questions)"
+                    ),
+                    style="bold white",
+                ),
+                title=Text("Plan Ready", style="bold cyan"),
+                title_align="left",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+        response = Prompt.ask(
+            "Implement plan",
+            choices=["y", "n", "yes", "no"],
+            default="n",
+        )
+        return response.lower() in {"y", "yes"}
+
     def show_help(self) -> None:
         help_text = """
 ## Commands

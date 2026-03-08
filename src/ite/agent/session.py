@@ -38,6 +38,9 @@ class Session:
         self.name: str | None = None
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
+        self.plan_mode_enabled: bool = False
+        self.plan_phase: str = "idle"
+        self.plan_questions_asked: int = 0
 
         self._turn_count = 0
 
@@ -58,6 +61,7 @@ class Session:
             user_memory=self._load_memory(),
             tools=self.tool_registry.get_tools(),
         )
+        self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
     def _load_memory(self) -> dict | None:
         from ite.tools.builtin.memory import MemoryTool
@@ -78,6 +82,21 @@ class Session:
         self.updated_at = datetime.now()
 
         return self._turn_count
+
+    def set_plan_mode(self, enabled: bool) -> None:
+        self.plan_mode_enabled = enabled
+        if not enabled:
+            self.plan_phase = "idle"
+        if self.context_manager:
+            self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
+
+    def set_plan_phase(self, phase: str) -> None:
+        self.plan_phase = phase
+        if self.context_manager:
+            self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
+
+    def increment_plan_questions(self) -> None:
+        self.plan_questions_asked += 1
 
     def get_stats(self) -> dict[str, Any]:
         latest = self.context_manager.latest_usage
@@ -105,6 +124,9 @@ class Session:
                 else None
             ),
             "pruned_tool_msgs": self.context_manager.pruned_tool_msgs,
+            "plan_mode_enabled": self.plan_mode_enabled,
+            "plan_phase": self.plan_phase,
+            "plan_questions_asked": self.plan_questions_asked,
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
         }

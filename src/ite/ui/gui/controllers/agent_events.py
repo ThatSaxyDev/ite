@@ -9,6 +9,17 @@ class AgentEventControllerMixin:
         if not self.page:
             return
 
+        plan_enabled = bool(
+            self.agent and self.agent.session and self.agent.session.plan_mode_enabled
+        )
+        plan_only_phase = bool(
+            plan_enabled
+            and self.agent
+            and self.agent.session
+            and self.agent.session.plan_phase != "executing"
+        )
+        suppressed_tools = {"memory", "plan_question", "todos"}
+
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
@@ -20,31 +31,41 @@ class AgentEventControllerMixin:
             self._hide_thinking_indicator()
             if self.streaming_markdown is not None:
                 self._finalize_streaming_message()
-            elif content:
+            elif content and not (plan_only_phase and content.strip()):
                 self._add_message("assistant", content)
+            elif content and plan_only_phase:
+                self._add_plan_card(content)
             # If the turn is still running after this text block, show activity again.
             if self._is_turn_running:
                 self._show_thinking_indicator()
 
         elif event.type == AgentEventType.TOOL_CALL_START:
-            if event.data.get("name") == "memory":
+            tool_name = event.data.get("name")
+            if tool_name in suppressed_tools:
+                return
+            if plan_only_phase:
                 return
             self._hide_thinking_indicator()
             self._add_tool_call(
                 event.data.get("call_id", ""),
-                event.data.get("name", ""),
+                tool_name or "",
                 event.data.get("arguments", {}),
                 event.data.get("tool_kind"),
             )
 
         elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
-            if event.data.get("name") == "memory":
+            tool_name = event.data.get("name")
+            if tool_name in suppressed_tools:
+                if self._is_turn_running:
+                    self._show_thinking_indicator()
+                return
+            if plan_only_phase and event.data.get("success", False):
                 if self._is_turn_running:
                     self._show_thinking_indicator()
                 return
             self._update_tool_call(
                 event.data.get("call_id", ""),
-                event.data.get("name", ""),
+                tool_name or "",
                 event.data.get("success", False),
                 event.data.get("output", ""),
                 event.data.get("error"),
@@ -74,3 +95,5 @@ class AgentEventControllerMixin:
                     color=TEXT_SECONDARY,
                 ),
             )
+        elif event.type == AgentEventType.PLAN_READY:
+            await self._render_plan_ready_prompt()

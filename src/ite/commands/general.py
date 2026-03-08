@@ -32,6 +32,9 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
                 turn_count=session.turn_count,
                 messages=session.context_manager.get_messages(),
                 total_usage=session.context_manager.total_usage,
+                plan_mode_enabled=session.plan_mode_enabled,
+                plan_phase=session.plan_phase,
+                plan_questions_asked=session.plan_questions_asked,
             )
             session_manager.save_session(snapshot)
     except Exception:
@@ -126,6 +129,9 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
             turn_count=previous.turn_count,
             messages=previous.context_manager.get_messages(),
             total_usage=previous.context_manager.total_usage,
+            plan_mode_enabled=previous.plan_mode_enabled,
+            plan_phase=previous.plan_phase,
+            plan_questions_asked=previous.plan_questions_asked,
         )
         session_manager.save_session(snapshot)
 

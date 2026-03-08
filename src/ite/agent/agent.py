@@ -21,15 +21,21 @@ class Agent:
         confirmation_callback: (
             Callable[[ToolConfirmation], bool | Awaitable[bool]] | None
         ) = None,
+        plan_question_callback: (
+            Callable[[dict], dict | Awaitable[dict]] | None
+        ) = None,
     ):
         self.config = config
         self.session: Session | None = Session(self.config)
         self.session.approval_manager.confirmation_callback = confirmation_callback
+        self.plan_question_callback = plan_question_callback
 
     async def run(self, message: str):
         await self.session.hook_system.trigger_before_agent(user_message=message)
         yield AgentEvent.agent_start(message)
         self.session.context_manager.add_user_message(message)
+        if self.session.plan_mode_enabled and self.session.plan_phase != "executing":
+            self.session.set_plan_phase("asking_questions")
         final_response: str | None = None
 
         async for event in self._agentic_loop():
@@ -132,6 +138,15 @@ class Agent:
                     self.session.context_manager.add_usage(usage)
 
                 self.session.context_manager.prune_tool_outputs()
+                if self.session.plan_mode_enabled:
+                    if self.session.plan_phase != "executing":
+                        self.session.set_plan_phase(
+                            "awaiting_implementation_confirmation"
+                        )
+                        if response_text.strip():
+                            yield AgentEvent.plan_ready(response_text)
+                    else:
+                        self.session.set_plan_phase("idle")
                 return
 
             tool_call_results: list[ToolResultMessage] = []
@@ -155,7 +170,15 @@ class Agent:
                     self.config.cwd,
                     self.session.hook_system,
                     self.session.approval_manager,
+                    plan_mode_enabled=self.session.plan_mode_enabled,
+                    plan_phase=self.session.plan_phase,
+                    set_plan_phase=self.session.set_plan_phase,
+                    plan_question_callback=self.plan_question_callback,
                 )
+
+                if tool_call.name == "plan_question" and result.success:
+                    self.session.increment_plan_questions()
+                    self.session.set_plan_phase("writing_plan")
 
                 yield AgentEvent.tool_call_complete(
                     tool_call.call_id,

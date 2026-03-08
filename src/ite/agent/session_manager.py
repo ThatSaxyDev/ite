@@ -30,6 +30,9 @@ class SessionSnapshot:
     total_usage: TokenUsage
     name: str | None = None
     workspace_path: str | None = None
+    plan_mode_enabled: bool = False
+    plan_phase: str = "idle"
+    plan_questions_asked: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +44,9 @@ class SessionSnapshot:
             "turn_count": self.turn_count,
             "messages": self.messages,
             "total_usage": self.total_usage.__dict__,
+            "plan_mode_enabled": self.plan_mode_enabled,
+            "plan_phase": self.plan_phase,
+            "plan_questions_asked": self.plan_questions_asked,
         }
 
     @classmethod
@@ -54,6 +60,9 @@ class SessionSnapshot:
             turn_count=data["turn_count"],
             messages=data["messages"],
             total_usage=TokenUsage(**data["total_usage"]),
+            plan_mode_enabled=bool(data.get("plan_mode_enabled", False)),
+            plan_phase=str(data.get("plan_phase", "idle")),
+            plan_questions_asked=int(data.get("plan_questions_asked", 0)),
         )
 
 

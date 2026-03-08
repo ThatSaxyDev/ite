@@ -10,9 +10,10 @@ from ite.tools.builtin import get_all_builtin_tools
 from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolResult
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 import logging
 from ite.tools.base import Tool
+from ite.safety.approval import is_safe_command
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,13 @@ class ToolRegistry:
         cwd: Path,
         hook_system: HookSystem,
         approval_manager: ApprovalManager | None = None,
+        *,
+        plan_mode_enabled: bool = False,
+        plan_phase: str = "idle",
+        set_plan_phase: Callable[[str], None] | None = None,
+        plan_question_callback: (
+            Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
+        ) = None,
     ) -> ToolResult:
         tool = self.get(name)
 
@@ -98,6 +106,25 @@ class ToolRegistry:
                 tool_result=result,
             )
             return result
+
+        if plan_mode_enabled and plan_phase != "executing":
+            if name == "plan_question":
+                pass
+            elif tool.is_mutating(params):
+                if name in {"todos", "memory"}:
+                    pass
+                elif name == "shell":
+                    command = str(params.get("command", "")).strip()
+                    if not command or not is_safe_command(command):
+                        return ToolResult.error_result(
+                            "Plan mode blocks mutating tools before implementation approval. "
+                            "Use non-mutating exploration first."
+                        )
+                else:
+                    return ToolResult.error_result(
+                        "Plan mode blocks mutating tools before implementation approval. "
+                        "Get plan approval first."
+                    )
 
         validation_errors = tool.validate_params(params)
 
@@ -125,6 +152,13 @@ class ToolRegistry:
             params=params,
             cwd=cwd,
         )
+
+        if name == "plan_question":
+            question_tool = self.get("plan_question")
+            if question_tool is not None and hasattr(question_tool, "question_callback"):
+                setattr(question_tool, "question_callback", plan_question_callback)
+            if set_plan_phase:
+                set_plan_phase("asking_questions")
 
         if approval_manager:
             confirmation = await tool.get_confirmation(invocation)
