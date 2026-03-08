@@ -10,12 +10,14 @@ from ite.tools.builtin.edit_file import EditTool
 from ite.tools.builtin.write_file import WriteFileTool
 from ite.tools.builtin.read_file import ReadFileTool
 from ite.tools.builtin.shell import ShellTool
+from ite.tools.builtin.apply_patch import ApplyPatchTool
 
 __all__ = [
     "ReadFileTool",
     "WriteFileTool",
     "EditTool",
     "ShellTool",
+    "ApplyPatchTool",
     "ListDirTool",
     "GrepTool",
     "GlobTool",
@@ -33,6 +35,7 @@ def get_all_builtin_tools() -> list[type]:
         WriteFileTool,
         EditTool,
         ShellTool,
+        ApplyPatchTool,
         ListDirTool,
         GrepTool,
         GlobTool,

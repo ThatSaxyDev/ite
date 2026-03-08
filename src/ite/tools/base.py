@@ -20,6 +20,30 @@ class ToolKind(Enum):
     MCP = "mcp"
 
 
+class ToolRiskLevel(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+@dataclass
+class ToolMetadata:
+    mutating: bool
+    risk_level: ToolRiskLevel
+    allowed_in_plan_mode: bool
+    supports_subagent_use: bool
+    output_schema: dict[str, Any]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "mutating": self.mutating,
+            "risk_level": self.risk_level.value,
+            "allowed_in_plan_mode": self.allowed_in_plan_mode,
+            "supports_subagent_use": self.supports_subagent_use,
+            "output_schema": self.output_schema,
+        }
+
+
 @dataclass
 class FileDiff:
     path: Path
@@ -156,6 +180,29 @@ class Tool(abc.ABC):
             ToolKind.NETWORK,
             ToolKind.MEMORY,
         }
+
+    def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
+        mutating = self.is_mutating(params)
+        risk_by_kind = {
+            ToolKind.READ: ToolRiskLevel.LOW,
+            ToolKind.WRITE: ToolRiskLevel.HIGH,
+            ToolKind.SHELL: ToolRiskLevel.HIGH,
+            ToolKind.NETWORK: ToolRiskLevel.MEDIUM,
+            ToolKind.MEMORY: ToolRiskLevel.MEDIUM,
+            ToolKind.MCP: ToolRiskLevel.HIGH,
+        }
+        risk_level = risk_by_kind.get(self.kind, ToolRiskLevel.MEDIUM)
+        allowed_in_plan_mode = not mutating
+        if self.name in {"memory", "todos", "plan_question"}:
+            allowed_in_plan_mode = True
+
+        return ToolMetadata(
+            mutating=mutating,
+            risk_level=risk_level,
+            allowed_in_plan_mode=allowed_in_plan_mode,
+            supports_subagent_use=True,
+            output_schema={"type": "string"},
+        )
 
     def _sandbox_check(self, path: Path, cwd: Path) -> ToolResult | None:
         """Validate path against sandbox policy. Returns error result if blocked, None if OK."""

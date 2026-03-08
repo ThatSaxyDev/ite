@@ -98,7 +98,7 @@ class EditTool(Tool):
                 )
 
             ensure_parent_dir(path)
-            path.wrire_text(params.new_string, encoding="utf-8")
+            path.write_text(params.new_string, encoding="utf-8")
 
             line_count = len(params.new_string.splitlines())
 

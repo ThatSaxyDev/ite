@@ -139,4 +139,5 @@ class Session:
             "plan_target_questions": self.plan_target_questions,
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
+            "tool_discovery_errors": len(self.discovery_manager.errors),
         }

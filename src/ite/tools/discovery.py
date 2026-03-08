@@ -3,16 +3,20 @@ import inspect
 from ite.tools.base import Tool
 import sys
 import importlib.util
+import logging
 from typing import Any
 from pathlib import Path
 from ite.tools.registry import ToolRegistry
 from ite.config.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 class ToolDiscoveryManager:
     def __init__(self, config: Config, registry: ToolRegistry):
         self.config = config
         self.registry = registry
+        self.errors: list[str] = []
 
     def _load_tool_modules(self, file_path: Path) -> Any:
         module_name = f"discovered_tool_{file_path.stem}"
@@ -59,8 +63,11 @@ class ToolDiscoveryManager:
                 for tool_class in tool_classes:
                     tool = tool_class(self.config)
                     self.registry.register(tool)
-            except Exception:
-                continue
+            except Exception as e:
+                error = f"Failed loading discovered tool {tool_file}: {e}"
+                self.errors.append(error)
+                logger.warning(error)
+                logger.debug("Tool discovery failure details", exc_info=True)
 
     def discover_all(self) -> None:
         self.discover_from_directory(self.config.cwd)
