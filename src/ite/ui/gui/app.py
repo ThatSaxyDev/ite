@@ -244,6 +244,13 @@ class GUIApp(
         if not self.messages_column or not self.page:
             return
         if self.thinking_row:
+            try:
+                self._remove_chat_control(self.thinking_row)
+            except Exception:
+                pass
+            self._append_chat_control(self.thinking_row)
+            self.page.update()
+            self._scroll_chat_to_bottom(animate=False, force=True)
             return
 
         self.thinking_spinner = ft.ProgressRing(
@@ -461,6 +468,7 @@ class GUIApp(
     async def _gui_plan_question_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.page or not self.messages_column:
             return {"selected_option": "", "free_text": "", "selected_index": None}
+        self._hide_thinking_indicator()
 
         question = str(payload.get("question", "")).strip()
         options = [str(o) for o in payload.get("options", []) if str(o).strip()]
