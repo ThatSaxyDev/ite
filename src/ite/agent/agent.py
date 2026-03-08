@@ -15,6 +15,8 @@ from ite.prompts.system import create_loop_breaker_prompt
 
 
 class Agent:
+    PLAN_MIN_QUESTIONS = 2
+
     def __init__(
         self,
         config: Config,
@@ -140,6 +142,16 @@ class Agent:
                 self.session.context_manager.prune_tool_outputs()
                 if self.session.plan_mode_enabled:
                     if self.session.plan_phase != "executing":
+                        if self.session.plan_questions_asked < self.PLAN_MIN_QUESTIONS:
+                            remaining = self.PLAN_MIN_QUESTIONS - self.session.plan_questions_asked
+                            self.session.set_plan_phase("asking_questions")
+                            self.session.context_manager.add_user_message(
+                                "Plan mode requirement: ask structured clarifying questions "
+                                f"with the plan_question tool before finalizing the plan. "
+                                f"At least {self.PLAN_MIN_QUESTIONS} total questions are required; "
+                                f"ask {remaining} more now."
+                            )
+                            continue
                         self.session.set_plan_phase(
                             "awaiting_implementation_confirmation"
                         )

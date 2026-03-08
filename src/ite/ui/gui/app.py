@@ -470,13 +470,24 @@ class GUIApp(
         loop = asyncio.get_running_loop()
         self._plan_question_future = loop.create_future()
         self._plan_question_count += 1
+        status_text = ft.Text("", size=TYPE_SM, color=TEXT_MUTED)
 
         choices: list[ft.Control] = []
         for idx, option in enumerate(options):
             recommended = idx == recommended_index
             button = ft.OutlinedButton(
-                text=f"{idx + 1}. {option}" + ("  (Recommended)" if recommended else ""),
-                on_click=lambda _e, i=idx, o=option: self._resolve_plan_question(i, o, ""),
+                content=ft.Text(
+                    f"{idx + 1}. {option}" + ("  (Recommended)" if recommended else ""),
+                    size=TYPE_MD,
+                    color=TEXT_PRIMARY,
+                ),
+                on_click=lambda _e, i=idx, o=option: self._resolve_plan_question(
+                    i,
+                    o,
+                    "",
+                    status_text=status_text,
+                    option_buttons=choices,
+                ),
                 style=ft.ButtonStyle(
                     side=ft.BorderSide(1, BORDER_STRONG),
                     color=TEXT_PRIMARY,
@@ -502,7 +513,13 @@ class GUIApp(
         free_submit = ft.TextButton(
             "Submit answer",
             on_click=lambda _e: self._resolve_plan_question(
-                None, "", free_text_input.value.strip() if free_text_input else ""
+                None,
+                "",
+                free_text_input.value.strip() if free_text_input else "",
+                status_text=status_text,
+                option_buttons=choices,
+                free_input=free_text_input,
+                free_submit=free_submit,
             ),
             visible=allow_free_text,
         )
@@ -525,6 +542,7 @@ class GUIApp(
                     ft.Column(choices, spacing=6, tight=True),
                     free_text_input,
                     free_submit,
+                    status_text,
                 ],
                 spacing=8,
                 tight=True,
@@ -545,16 +563,34 @@ class GUIApp(
         selected_index: int | None,
         selected_option: str,
         free_text: str,
+        *,
+        status_text: ft.Text | None = None,
+        option_buttons: list[ft.Control] | None = None,
+        free_input: ft.TextField | None = None,
+        free_submit: ft.TextButton | None = None,
     ) -> None:
         if not self._plan_question_future or self._plan_question_future.done():
             return
-        self._plan_question_future.set_result(
-            {
-                "selected_index": selected_index,
-                "selected_option": selected_option,
-                "free_text": free_text,
-            }
-        )
+        result = {
+            "selected_index": selected_index,
+            "selected_option": selected_option,
+            "free_text": free_text,
+        }
+        answer_preview = selected_option or free_text or "(no answer)"
+        if status_text:
+            status_text.value = f"Answered: {answer_preview}"
+            status_text.color = SUCCESS
+        for control in option_buttons or []:
+            control.disabled = True
+        if free_input:
+            free_input.disabled = True
+        if free_submit:
+            free_submit.disabled = True
+        if self.page:
+            self.page.update()
+        self._show_thinking_indicator()
+        loop = self._plan_question_future.get_loop()
+        loop.call_soon_threadsafe(self._plan_question_future.set_result, result)
 
     async def _render_plan_ready_prompt(self):
         if not self.page or not self.messages_column:
