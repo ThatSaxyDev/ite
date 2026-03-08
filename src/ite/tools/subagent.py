@@ -261,7 +261,7 @@ Audit tool setup, safety boundaries, and runtime routing assumptions.
 Focus on tool metadata correctness, discovery failures, and policy/risk gaps.
 Return concrete findings and actions in concise bullets.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir"],
-    max_turns=12,
+    max_turns=30,
     timeout_seconds=300,
 )
 
