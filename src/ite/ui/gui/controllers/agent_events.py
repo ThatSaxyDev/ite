@@ -18,7 +18,7 @@ class AgentEventControllerMixin:
             and self.agent.session
             and self.agent.session.plan_phase != "executing"
         )
-        suppressed_tools = {"memory", "plan_question", "todos"}
+        suppressed_tools = {"memory", "plan_question", "todos", "web_search", "web_fetch"}
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")

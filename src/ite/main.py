@@ -287,7 +287,7 @@ class CLI:
                     and self.agent.session.plan_mode_enabled
                     and self.agent.session.plan_phase != "executing"
                 )
-                if tool_name in {"memory", "plan_question", "todos"} or plan_only_phase:
+                if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"} or plan_only_phase:
                     self.tui.start_spinner("Running")
                     continue
                 tool_kind = self._get_tool_kind(tool_name)
@@ -308,7 +308,7 @@ class CLI:
                     and self.agent.session.plan_mode_enabled
                     and self.agent.session.plan_phase != "executing"
                 )
-                if tool_name in {"memory", "plan_question", "todos"}:
+                if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"}:
                     self.tui.start_spinner("Thinking...")
                     continue
                 if (
