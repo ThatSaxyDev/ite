@@ -2,6 +2,9 @@ from __future__ import annotations
 import re
 import flet as ft
 from typing import Any
+from pathlib import Path
+from ite.ui.tool_narrative import activity_title
+from ite.ui.tool_narrative import describe_tool_activity
 from ..tokens import *
 
 
@@ -19,12 +22,77 @@ class MessageBuilderMixin:
 
     def _build_status_chip(self, text: str, color: str, border: str, bg: str) -> ft.Container:
         return ft.Container(
-            content=ft.Text(text, size=TYPE_XS, color=color, weight=WEIGHT_SEMIBOLD),
-            padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+            content=ft.Text(text, size=TYPE_SM, color=color, weight=WEIGHT_SEMIBOLD),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=4),
             border=ft.Border.all(1, border),
             border_radius=RADIUS_LG,
             bgcolor=bg,
         )
+
+    def _tool_status_icon(self, state: str) -> str:
+        if state == "running":
+            return ft.Icons.PLAY_CIRCLE_ROUNDED
+        if state == "done":
+            return ft.Icons.CHECK_CIRCLE_ROUNDED
+        return ft.Icons.CANCEL_ROUNDED
+
+    def _build_tool_payload_surface(self, inner: ft.Control, *, code_mode: bool = False) -> ft.Container:
+        return ft.Container(
+            content=inner,
+            bgcolor=SURFACE_1 if not code_mode else SURFACE_2,
+            border=ft.Border.all(1, BORDER_STRONG if code_mode else BORDER),
+            border_radius=RADIUS_SM,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+        )
+
+    def _looks_like_source_excerpt(self, text: str) -> bool:
+        lines = text.splitlines()
+        if len(lines) < 4:
+            return False
+        numbered = 0
+        for line in lines[:20]:
+            if re.match(r"^\s*\d+\|", line):
+                numbered += 1
+        return numbered >= 4
+
+    def _to_code_block(self, text: str, language: str = "text") -> str:
+        cleaned_lines = []
+        for line in text.splitlines():
+            cleaned_lines.append(re.sub(r"^\s*\d+\|", "", line))
+        return f"```{language}\n" + "\n".join(cleaned_lines).strip("\n") + "\n```"
+
+    def _guess_language(self, path: str | None) -> str:
+        if not path:
+            return "text"
+        suffix = Path(path).suffix.lower()
+        return {
+            ".py": "python",
+            ".js": "javascript",
+            ".jsx": "jsx",
+            ".ts": "typescript",
+            ".tsx": "tsx",
+            ".json": "json",
+            ".toml": "toml",
+            ".yaml": "yaml",
+            ".yml": "yaml",
+            ".md": "markdown",
+            ".sh": "bash",
+            ".zsh": "bash",
+            ".rs": "rust",
+            ".go": "go",
+            ".java": "java",
+            ".kt": "kotlin",
+            ".swift": "swift",
+            ".c": "c",
+            ".h": "c",
+            ".cpp": "cpp",
+            ".hpp": "cpp",
+            ".css": "css",
+            ".html": "html",
+            ".xml": "xml",
+            ".sql": "sql",
+            ".dart": "dart",
+        }.get(suffix, "text")
 
     def _truncate_content(
         self,
@@ -258,37 +326,58 @@ class MessageBuilderMixin:
     ):
         if not self.messages_column or not self.page:
             return
+        if not hasattr(self, "_tool_args_by_call_id"):
+            self._tool_args_by_call_id = {}
+        self._tool_args_by_call_id[call_id] = arguments
 
         args_text = "\n".join(f"{k}={v}" for k, v in arguments.items()) or "(no args)"
+        narrative = describe_tool_activity(
+            name,
+            arguments,
+            stage="start",
+        )
+        title_text = activity_title(name, stage="start")
+        state = "running"
+        state_color = ACCENT
+        border_color = ACCENT_SOFT
+        status_bg = ft.Colors.with_opacity(0.1, ACCENT)
+        icon_name = self._tool_status_icon(state)
         card = ft.Container(
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("tool", size=TYPE_XS, color=TEXT_MUTED),
-                            ft.Text(name, size=TYPE_MD, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
-                            ft.Text(f"#{call_id[:8]}", size=TYPE_XS, color=TEXT_MUTED),
+                            ft.Icon(icon_name, size=16, color=state_color),
+                            ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
                             ft.Container(expand=True),
+                            ft.Text(
+                                f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
+                                size=TYPE_SM,
+                                color=TEXT_MUTED,
+                            ),
                             self._build_status_chip(
-                                "running",
-                                ACCENT,
-                                ACCENT_SOFT,
-                                ft.Colors.with_opacity(0.1, ACCENT),
+                                state,
+                                state_color,
+                                border_color,
+                                status_bg,
                             ),
                         ]
                     ),
                     ft.Divider(height=1, color=HAIRLINE),
-                    self._build_expandable_block(
-                        args_text,
-                        as_markdown=False,
-                        max_chars=500,
-                        max_lines=5,
+                    ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+                    self._build_tool_payload_surface(
+                        self._build_expandable_block(
+                            args_text,
+                            as_markdown=False,
+                            max_chars=500,
+                            max_lines=5,
+                        )
                     ),
                 ],
-                spacing=CHAT_BLOCK_GAP,
+                spacing=SPACE_MD,
                 tight=True,
             ),
-            border=ft.Border.all(1, ACCENT_SOFT),
+            border=ft.Border.all(1, border_color),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=CARD_PAD_X, vertical=CARD_PAD_Y),
             width=SPECIAL_CARD_WIDTH,
@@ -308,6 +397,7 @@ class MessageBuilderMixin:
         success: bool,
         output: str,
         error: str | None,
+        metadata: dict[str, Any] | None,
         diff: str | None,
         exit_code: int | None,
     ):
@@ -320,32 +410,65 @@ class MessageBuilderMixin:
 
         state_text = "done" if success else "failed"
         state_color = SUCCESS if success else DANGER
-        payload = output or error or "No output"
+        payload = (output or error or "No output").strip() or "No output"
+        icon_name = self._tool_status_icon(state_text)
+        args = {}
+        if hasattr(self, "_tool_args_by_call_id"):
+            args = self._tool_args_by_call_id.get(call_id, {})
+        narrative = describe_tool_activity(
+            name,
+            args,
+            metadata if isinstance(metadata, dict) else {},
+            stage="complete",
+            success=success,
+        )
+
+        code_mode = False
+        if self._looks_like_source_excerpt(payload):
+            language = self._guess_language(
+                metadata.get("path") if isinstance(metadata, dict) else None
+            )
+            payload = self._to_code_block(payload, language=language)
+            code_mode = True
 
         if diff:
-            body: ft.Control = self._build_expandable_block(
+            payload_block: ft.Control = self._build_expandable_block(
                 f"```diff\n{diff}\n```",
                 as_markdown=True,
                 max_chars=900,
                 max_lines=8,
             )
+            code_mode = True
+        elif payload.startswith("```"):
+            payload_block = self._build_expandable_block(
+                payload,
+                as_markdown=True,
+                max_chars=1100,
+                max_lines=14,
+            )
+            code_mode = True
         else:
-            body = self._build_expandable_block(
+            payload_block = self._build_expandable_block(
                 payload,
                 as_markdown=False,
                 max_chars=700,
                 max_lines=7,
             )
+        title_text = activity_title(name, stage="complete", success=success)
 
         card = ft.Container(
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Text("tool", size=TYPE_XS, color=TEXT_MUTED),
-                            ft.Text(name, size=TYPE_MD, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
-                            ft.Text(f"#{call_id[:8]}", size=TYPE_XS, color=TEXT_MUTED),
+                            ft.Icon(icon_name, size=16, color=state_color),
+                            ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
                             ft.Container(expand=True),
+                            ft.Text(
+                                f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
+                                size=TYPE_SM,
+                                color=TEXT_MUTED,
+                            ),
                             self._build_status_chip(
                                 state_text,
                                 state_color,
@@ -357,9 +480,10 @@ class MessageBuilderMixin:
                         ]
                     ),
                     ft.Divider(height=1, color=HAIRLINE),
-                    body,
+                    ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+                    self._build_tool_payload_surface(payload_block, code_mode=code_mode),
                 ],
-                spacing=CHAT_BLOCK_GAP,
+                spacing=SPACE_MD,
                 tight=True,
             ),
             border=ft.Border.all(1, SUCCESS_SOFT if success else DANGER_SOFT),

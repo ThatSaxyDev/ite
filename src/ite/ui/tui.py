@@ -1,5 +1,7 @@
 from ite.tools.base import ToolConfirmation
 from ite.config.config import Config
+from ite.ui.tool_narrative import activity_title
+from ite.ui.tool_narrative import describe_tool_activity
 from ite.utils.text import truncate_text
 from rich.syntax import Syntax
 from rich.markdown import Markdown
@@ -200,15 +202,21 @@ class TUI:
         if name == "memory":
             return
         self._tool_args_by_call_id[call_id] = arguments
+        narrative = describe_tool_activity(
+            name,
+            arguments,
+            stage="start",
+        )
+        title_text = activity_title(name, stage="start")
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
 
         title = Text.assemble(
             ("⏺ ", "muted"),
-            (name, border_style),
-            (" ", "muted"),
-            (f"#{call_id[:8]}", "muted"),
+            (title_text, border_style),
         )
+        if self.config.debug:
+            title.append(f"  {name} #{call_id[:8]}", "muted")
 
         display_args = dict(arguments)
         for key in ("path", "cwd"):
@@ -217,9 +225,13 @@ class TUI:
                 display_args[key] = str(display_path_relative_to_cwd(val, self.cwd))
 
         panel = Panel(
-            self._render_args_table(name, display_args)
-            if display_args
-            else Text("(no args)", style="muted"),
+            Group(
+                Text(narrative, style="muted"),
+                Text(),
+                self._render_args_table(name, display_args)
+                if display_args
+                else Text("(no args)", style="muted"),
+            ),
             title=title,
             title_align="left",
             subtitle=Text("running...", style="muted"),
@@ -389,18 +401,28 @@ class TUI:
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
         status_icon = "✅" if success else "❌"
         status_style = "success" if success else "error"
+        title_text = activity_title(name, stage="complete", success=success)
 
         title = Text.assemble(
             (f"{status_icon} ", status_style),
-            (name, border_style),
-            (" ", "muted"),
-            (f"#{call_id[:8]}", "muted"),
+            (title_text, border_style),
         )
+        if self.config.debug:
+            title.append(f"  {name} #{call_id[:8]}", "muted")
 
         args = self._tool_args_by_call_id.get(call_id, {})
+        narrative = describe_tool_activity(
+            name,
+            args,
+            metadata if isinstance(metadata, dict) else {},
+            stage="complete",
+            success=success,
+        )
 
         primary_path = None
         blocks = []
+        blocks.append(Text(narrative, style="muted"))
+        blocks.append(Text())
 
         if isinstance(metadata, dict) and isinstance(metadata.get("path"), str):
             primary_path = metadata.get("path")

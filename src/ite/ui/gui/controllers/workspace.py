@@ -153,6 +153,8 @@ class WorkspaceControllerMixin:
             self._set_current_session_title(None)
             self.active_session_id = None
             self._tool_call_row_indices.clear()
+            if hasattr(self, "_tool_args_by_call_id"):
+                self._tool_args_by_call_id.clear()
             self._refresh_workspace_options()
             self._refresh_sidebar_threads()
             if self.page:

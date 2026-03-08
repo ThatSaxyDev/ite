@@ -104,6 +104,7 @@ class GUIApp(
         self.streaming_container: ft.Container | None = None
         self.streaming_text: str = ""
         self._tool_call_row_indices: dict[str, int] = {}
+        self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._active_turn_task: asyncio.Task | None = None
         self._is_turn_running: bool = False
         self.thinking_row: ft.Row | None = None

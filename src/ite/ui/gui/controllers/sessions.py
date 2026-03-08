@@ -212,6 +212,8 @@ class SessionControllerMixin:
 
         self._clear_chat_controls()
         self._tool_call_row_indices.clear()
+        if hasattr(self, "_tool_args_by_call_id"):
+            self._tool_args_by_call_id.clear()
         self.streaming_markdown = None
         self.streaming_container = None
         self.streaming_text = ""
@@ -265,6 +267,7 @@ class SessionControllerMixin:
                     success=success,
                     output=output,
                     error=None if success else output,
+                    metadata=None,
                     diff=None,
                     exit_code=None,
                 )
