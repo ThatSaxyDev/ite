@@ -62,7 +62,25 @@ class SubagentTool(Tool):
     schema = SubagentParams
 
     def is_mutating(self, params: dict[str, Any]) -> bool:
-        return True
+        # Treat subagents as non-mutating in plan mode when their tool allowlist
+        # is strictly read-only. If allowlist is missing or includes mutating tools,
+        # keep conservative behavior and mark as mutating.
+        allowed = self.definition.allowed_tools
+        if not allowed:
+            return True
+
+        mutating_tools = {
+            "write_file",
+            "edit",
+            "apply_patch",
+            "shell",
+            "memory",
+            "todos",
+            "web_search",
+            "web_fetch",
+            "mcp",
+        }
+        return any(tool in mutating_tools for tool in allowed)
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         from ite.agent.events import AgentEventType

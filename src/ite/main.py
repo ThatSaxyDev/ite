@@ -248,7 +248,7 @@ class CLI:
         final_response: str | None = None
 
         # Start spinner while waiting for LLM
-        self.tui.start_spinner("Running...")
+        self.tui.start_spinner("Thinking...")
 
         async for event in self.agent.run(message):
             # print(event)
@@ -309,7 +309,7 @@ class CLI:
                     and self.agent.session.plan_phase != "executing"
                 )
                 if tool_name in {"memory", "plan_question", "todos"}:
-                    self.tui.start_spinner("Running...")
+                    self.tui.start_spinner("Thinking...")
                     continue
                 if (
                     plan_only_phase
@@ -318,10 +318,10 @@ class CLI:
                 ):
                     # In planning phase, model may probe tool schemas with partial calls.
                     # Keep this out of user transcript to reduce noise.
-                    self.tui.start_spinner("Running...")
+                    self.tui.start_spinner("Thinking...")
                     continue
                 if plan_only_phase and event.data.get("success", False):
-                    self.tui.start_spinner("Running...")
+                    self.tui.start_spinner("Thinking...")
                     continue
                 tool_kind = self._get_tool_kind(tool_name)
                 self.tui.tool_call_complete(
@@ -337,7 +337,7 @@ class CLI:
                     exit_code=event.data.get("exit_code"),
                 )
                 # Restart spinner while LLM processes tool results
-                self.tui.start_spinner("Running...")
+                self.tui.start_spinner("Thinking...")
 
             elif event.type == AgentEventType.LOOP_DETECTED:
                 self.tui.stop_spinner()
@@ -355,7 +355,7 @@ class CLI:
                 console.print(
                     f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
                 )
-                self.tui.start_spinner("Running...")
+                self.tui.start_spinner("Thinking...")
 
             elif event.type == AgentEventType.PLAN_READY:
                 self.tui.stop_spinner()
