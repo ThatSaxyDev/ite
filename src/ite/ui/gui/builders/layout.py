@@ -590,6 +590,8 @@ class LayoutBuilderMixin:
             hint_style=ft.TextStyle(size=TYPE_BODY, color=TEXT_MUTED),
             text_size=TYPE_BODY,
             content_padding=ft.Padding.symmetric(horizontal=0, vertical=0),
+            on_focus=self._on_composer_focus,
+            on_blur=self._on_composer_blur,
         )
 
         self.send_button = ft.IconButton(

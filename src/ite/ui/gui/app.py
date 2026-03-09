@@ -126,6 +126,10 @@ class GUIApp(
         self._last_dispatched_message: str | None = None
         self._last_user_message_for_retry: str | None = None
         self._stop_requested_by_user: bool = False
+        self._composer_history: list[str] = []
+        self._composer_history_index: int | None = None
+        self._composer_history_draft: str = ""
+        self._composer_input_focused: bool = False
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -409,8 +413,55 @@ class GUIApp(
             return
         key = str(getattr(e, "key", "") or "").lower()
         ctrl = bool(getattr(e, "ctrl", False))
+        if key in {"arrow up", "arrow down"}:
+            self._handle_composer_history_navigation(key)
+            return
         if ctrl and key == "tab" and self.page:
             self.page.run_task(self._toggle_plan_mode_from_shortcut)
+
+    def _on_composer_focus(self, _e=None):
+        self._composer_input_focused = True
+
+    def _on_composer_blur(self, _e=None):
+        self._composer_input_focused = False
+        self._composer_history_index = None
+        self._composer_history_draft = ""
+
+    def _record_composer_history(self, message: str):
+        text = (message or "").strip()
+        if not text:
+            return
+        if self._composer_history and self._composer_history[-1] == text:
+            return
+        self._composer_history.append(text)
+        if len(self._composer_history) > 300:
+            self._composer_history = self._composer_history[-300:]
+
+    def _handle_composer_history_navigation(self, key: str):
+        if not self._composer_input_focused or not self.input_field:
+            return
+        if self._is_turn_running or not self._composer_history:
+            return
+
+        if key == "arrow up":
+            if self._composer_history_index is None:
+                self._composer_history_draft = self.input_field.value or ""
+                self._composer_history_index = len(self._composer_history) - 1
+            else:
+                self._composer_history_index = max(0, self._composer_history_index - 1)
+            self.input_field.value = self._composer_history[self._composer_history_index]
+            self._safe_control_update(self.input_field)
+            return
+
+        if key == "arrow down" and self._composer_history_index is not None:
+            if self._composer_history_index < len(self._composer_history) - 1:
+                self._composer_history_index += 1
+                self.input_field.value = self._composer_history[self._composer_history_index]
+            else:
+                self.input_field.value = self._composer_history_draft
+                self._composer_history_index = None
+                self._composer_history_draft = ""
+            self._safe_control_update(self.input_field)
 
     async def _toggle_plan_mode_from_shortcut(self):
         if self.app_mode != "chat":
@@ -654,6 +705,9 @@ class GUIApp(
         self._auto_scroll_enabled = True
         self._scroll_chat_to_bottom(animate=False, force=True)
         self._last_dispatched_message = message
+        self._record_composer_history(message)
+        self._composer_history_index = None
+        self._composer_history_draft = ""
 
         self.input_field.value = ""
         self._safe_control_update(self.input_field)

@@ -29,7 +29,7 @@ class CLI:
 
     def _read_user_message(self) -> str:
         try:
-            first_line = console.input("\n[user]>[/user] ")
+            first_line = input("\n> ")
         except Exception:
             return ""
 
