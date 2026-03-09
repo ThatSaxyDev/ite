@@ -104,12 +104,17 @@ class ContextManager:
                     token_count=count_tokens(msg.get("content", ""), self._model_name),
                 )
             )
+        self._drop_unresolved_tool_calls()
 
     def set_plan_state(self, enabled: bool, phase: str) -> None:
         self._plan_mode_enabled = enabled
         self._plan_phase = phase
 
     def add_user_message(self, content: str) -> None:
+        # If the previous turn was interrupted mid tool-calling, remove dangling
+        # assistant tool-call messages that have no matching tool result(s).
+        self._drop_unresolved_tool_calls()
+
         item = MessageItem(
             role="user",
             content=content,
@@ -120,6 +125,51 @@ class ContextManager:
         )
 
         self._messages.append(item)
+
+    def _drop_unresolved_tool_calls(self) -> int:
+        if not self._messages:
+            return 0
+
+        kept: list[MessageItem] = []
+        dropped = 0
+        i = 0
+        n = len(self._messages)
+
+        while i < n:
+            msg = self._messages[i]
+            if msg.role != "assistant" or not msg.tool_calls:
+                kept.append(msg)
+                i += 1
+                continue
+
+            expected_ids = {
+                str(tc.get("id", "")).strip()
+                for tc in msg.tool_calls
+                if isinstance(tc, dict) and str(tc.get("id", "")).strip()
+            }
+
+            j = i + 1
+            seen_ids: set[str] = set()
+            while j < n and self._messages[j].role == "tool":
+                tool_id = (self._messages[j].tool_call_id or "").strip()
+                if tool_id:
+                    seen_ids.add(tool_id)
+                j += 1
+
+            unresolved = bool(expected_ids) and not expected_ids.issubset(seen_ids)
+            if unresolved:
+                dropped += 1
+                if msg.content.strip():
+                    msg.tool_calls = []
+                    msg.token_count = count_tokens(msg.content, self._model_name)
+                    kept.append(msg)
+            else:
+                kept.append(msg)
+            i += 1
+
+        if dropped:
+            self._messages = kept
+        return dropped
 
     def add_assistant_message(
         self, content: str, tool_calls: list[dict[str, Any]] | None = None
