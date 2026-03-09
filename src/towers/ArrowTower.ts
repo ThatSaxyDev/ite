@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { Tower, TowerStats } from './Tower';
-import { Enemy } from '../enemies/Enemy';
 import { Projectile } from '../projectiles/Projectile';
 
 export const TOWER_STATS: Record<string, TowerStats> = {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Game } from '../core/Game';
+import { Enemy } from '../enemies/Enemy';
 
 export interface TowerStats {
   name: string;
@@ -19,7 +20,7 @@ export abstract class Tower {
   
   protected mesh: THREE.Group;
   protected lastFireTime: number = 0;
-  protected target: import('./Enemy').Enemy | null = null;
+  protected target: Enemy | null = null;
   
   constructor(game: Game, x: number, z: number, stats: TowerStats) {
     this.game = game;
@@ -43,7 +44,6 @@ export abstract class Tower {
     this.findTarget();
     this.rotateTowardsTarget();
     
-    const currentTime = this.game.getDeltaTime(); // This returns dt, need actual time
     if (this.target && this.canFire()) {
       this.fire();
     }
@@ -51,7 +51,7 @@ export abstract class Tower {
   
   protected findTarget(): void {
     const enemies = this.game.enemyWaveManager.getEnemies();
-    let closestEnemy: import('./Enemy').Enemy | null = null;
+    let closestEnemy: Enemy | null = null;
     let closestDist = this.stats.range;
     
     for (const enemy of enemies) {

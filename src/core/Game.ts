@@ -1,4 +1,3 @@
-import * as THREE from 'three';
 import { SceneManager } from './SceneManager';
 import { InputManager } from './InputManager';
 import { GridSystem } from '../grid/GridSystem';
@@ -7,15 +6,8 @@ import { TowerFactory } from '../towers/TowerFactory';
 import { EnemyWaveManager } from '../enemies/EnemyWaveManager';
 import { ProjectileManager } from '../projectiles/ProjectileManager';
 import { PlayerProfile } from '../progression/PlayerProfile';
+import { Hero } from '../hero/Hero';
 import { HUD } from '../ui/HUD';
-/HUD';
-
-export  MENU = 'menu',
-  PLAYING = 'playing',
-  PAUSED = 'paused',
-  GAME_OVER = 'game_over',
-  VICTORY = 'victory'
-}
 
 export enum GameState {
   MENU = 'menu',
@@ -36,6 +28,7 @@ export class Game {
   public enemyWaveManager: EnemyWaveManager;
   public projectileManager: ProjectileManager;
   public playerProfile: PlayerProfile;
+  public hero: Hero;
   public hud: HUD;
   
   private state: GameState = GameState.MENU;
@@ -51,6 +44,7 @@ export class Game {
     this.enemyWaveManager = new EnemyWaveManager(this);
     this.projectileManager = new ProjectileManager(this);
     this.playerProfile = new PlayerProfile();
+    this.hero = new Hero(this);
     this.hud = new HUD(this);
   }
   
@@ -64,6 +58,7 @@ export class Game {
   public start(): void {
     this.lastTime = performance.now();
     this.setState(GameState.PLAYING);
+    this.enemyWaveManager.startWave(0);
     this.loop();
   }
   
@@ -99,6 +94,7 @@ export class Game {
     this.towerFactory.update(dt);
     this.enemyWaveManager.update(dt);
     this.projectileManager.update(dt);
+    this.hero.update(dt);
     this.hud.update(dt);
   }
   

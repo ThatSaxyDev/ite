@@ -1,7 +1,6 @@
 import { Game } from '../core/Game';
 import { Tower } from './Tower';
 import { ArrowTower, CannonTower, IceTower, TOWER_STATS } from './ArrowTower';
-import { GridSystem } from '../grid/GridSystem';
 
 export type TowerType = 'arrow' | 'cannon' | 'ice';
 

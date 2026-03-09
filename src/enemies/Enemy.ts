@@ -23,7 +23,7 @@ export class Enemy {
   public stats: EnemyStats;
   public health: number;
   
-  protected mesh: THREE.Group;
+  public mesh: THREE.Group;
   protected path: { x: number; z: number }[] = [];
   protected pathIndex: number = 0;
   protected speed: number;
@@ -78,7 +78,6 @@ export class Enemy {
     this.pathIndex = 0;
     
     if (path.length > 0) {
-      const startPos = this.game.gridSystem.getWorldPosition(path[0].x, path[0].z);
       this.x = path[0].x;
       this.z = path[0].z;
       this.updatePosition();

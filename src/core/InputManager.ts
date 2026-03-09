@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Game } from './Game';
+import { Game, GameState } from './Game';
 
 export class InputManager {
   private game: Game;
@@ -50,7 +50,7 @@ export class InputManager {
   
   private onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') {
-      this.game.setState(2); // PAUSED - using index for enum
+      this.game.setState(GameState.PAUSED);
     } else if (event.key === '1') {
       this.game.towerFactory.setSelectedTowerType('arrow');
     } else if (event.key === '2') {

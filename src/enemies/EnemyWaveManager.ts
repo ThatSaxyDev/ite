@@ -1,6 +1,5 @@
 import { Game } from '../core/Game';
 import { Enemy, ENEMY_STATS, EnemyStats } from './Enemy';
-import { Pathfinder } from '../pathfinding/Pathfinder';
 
 export interface WaveConfig {
   enemies: { type: string; count: number; interval: number }[];
@@ -43,7 +42,6 @@ export class EnemyWaveManager {
   private waveInProgress: boolean = false;
   private spawnQueue: { type: string; stats: EnemyStats }[] = [];
   private spawnTimer: number = 0;
-  private waveTimer: number = 0;
   private waveComplete: boolean = false;
   
   constructor(game: Game) {

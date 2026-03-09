@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { Game } from '../core/Game';
+
+export enum CellType {
   EMPTY = 0,
   PATH = 1,
   TOWER = 2,
@@ -14,7 +16,7 @@ export class GridSystem {
   private cellSize: number = 1;
   
   private highlightMesh: THREE.Mesh | null = null;
-  private selectedCell: { x: number; z: number } | null = null;
+  private _selectedCell: { x: number; z: number } | null = null;
   
   constructor(width: number, height: number) {
     this.width = width;
@@ -89,7 +91,7 @@ export class GridSystem {
     scene.add(this.highlightMesh);
   }
   
-  public update(dt: number): void {
+  public update(_dt: number): void {
     const game = Game.getInstance();
     const input = game.inputManager;
     const gridPos = input.getGridPosition();
@@ -120,7 +122,7 @@ export class GridSystem {
   }
   
   public deselectCell(): void {
-    this.selectedCell = null;
+    this._selectedCell = null;
   }
   
   public canPlaceTower(x: number, z: number): boolean {

@@ -2,11 +2,11 @@ import { Game } from '../core/Game';
 import { Projectile } from './Projectile';
 
 export class ProjectileManager {
-  private game: Game;
+  private _game: Game;
   private projectiles: Projectile[] = [];
   
   constructor(game: Game) {
-    this.game = game;
+    this._game = game;
   }
   
   public add(projectile: Projectile): void {
