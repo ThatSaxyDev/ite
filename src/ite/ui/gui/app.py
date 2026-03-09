@@ -614,13 +614,13 @@ class GUIApp(
         self._plan_question_count += 1
         status_icon = ft.Icon(
             ft.Icons.CHECK_CIRCLE_ROUNDED,
-            size=16,
+            size=12,
             color=SUCCESS,
             visible=False,
         )
         status_text = ft.Text(
             "Answered",
-            size=TYPE_BODY,
+            size=TYPE_MD,
             color=SUCCESS,
             weight=ft.FontWeight.W_600,
             visible=False,
@@ -670,23 +670,14 @@ class GUIApp(
         options_column = ft.Column(choices, spacing=6, tight=True)
         custom_option_container = ft.Container(visible=False)
 
-        free_text_input = ft.TextField(
-            hint_text="Other answer",
-            border_radius=RADIUS_SM,
-            border_color=BORDER,
-            focused_border_color=BORDER,
-            bgcolor=SURFACE_2,
-            color=TEXT_PRIMARY,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
-            height=38,
-            visible=allow_free_text,
-        )
-        free_submit = ft.TextButton(
-            "Submit answer",
-            on_click=lambda _e: self._resolve_plan_question(
+        def _submit_custom_answer(_e=None):
+            custom_value = free_text_input.value.strip() if free_text_input else ""
+            if not custom_value:
+                return
+            self._resolve_plan_question(
                 None,
                 "",
-                free_text_input.value.strip() if free_text_input else "",
+                custom_value,
                 status_text=status_text,
                 status_icon=status_icon,
                 status_row=status_row,
@@ -695,11 +686,32 @@ class GUIApp(
                 options_column=options_column,
                 custom_option_container=custom_option_container,
                 custom_option_index=len(options) + 1,
-                custom_option_text=free_text_input.value.strip() if free_text_input else "",
+                custom_option_text=custom_value,
                 custom_selected=True,
                 free_input=free_text_input,
                 free_submit=free_submit,
-            ),
+            )
+
+        free_text_input = ft.TextField(
+            hint_text="Other answer",
+            border_radius=RADIUS_SM,
+            border_color=BORDER,
+            focused_border_color=BORDER,
+            bgcolor=SURFACE_2,
+            color=TEXT_PRIMARY,
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            width=SPECIAL_CARD_WIDTH - 40,
+            multiline=True,
+            shift_enter=True,
+            min_lines=1,
+            max_lines=3,
+            text_size=TYPE_MD,
+            on_submit=_submit_custom_answer,
+            visible=allow_free_text,
+        )
+        free_submit = ft.TextButton(
+            "Submit",
+            on_click=_submit_custom_answer,
             visible=allow_free_text,
         )
 
@@ -777,13 +789,13 @@ class GUIApp(
             control.content = ft.Text(
                 f"✓ {label}" if is_selected else label,
                 size=TYPE_MD,
-                color=SUCCESS if is_selected else TEXT_MUTED,
+                color=TEXT_PRIMARY if is_selected else TEXT_MUTED,
                 weight=ft.FontWeight.W_600 if is_selected else ft.FontWeight.W_500,
             )
             control.style = ft.ButtonStyle(
-                side=ft.BorderSide(1, SUCCESS if is_selected else BORDER_STRONG),
+                side=ft.BorderSide(1, ft.Colors.with_opacity(0.45, ft.Colors.WHITE) if is_selected else BORDER_STRONG),
                 bgcolor={
-                    ft.ControlState.DEFAULT: SUCCESS_SOFT if is_selected else ft.Colors.TRANSPARENT,
+                    ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.08, ft.Colors.WHITE) if is_selected else ft.Colors.TRANSPARENT,
                 },
                 shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
                 padding=ft.Padding.symmetric(horizontal=10, vertical=8),
@@ -797,12 +809,12 @@ class GUIApp(
                     content=ft.Text(
                         f"✓ {custom_option_index}. {custom_option_text}",
                         size=TYPE_MD,
-                        color=SUCCESS,
+                        color=TEXT_PRIMARY,
                         weight=ft.FontWeight.W_600,
                     ),
                     style=ft.ButtonStyle(
-                        side=ft.BorderSide(1, SUCCESS),
-                        bgcolor={ft.ControlState.DEFAULT: SUCCESS_SOFT},
+                        side=ft.BorderSide(1, ft.Colors.with_opacity(0.45, ft.Colors.WHITE)),
+                        bgcolor={ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
                         shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
                         padding=ft.Padding.symmetric(horizontal=10, vertical=8),
                     ),
