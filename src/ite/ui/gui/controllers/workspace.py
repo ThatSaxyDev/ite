@@ -36,7 +36,7 @@ class WorkspaceControllerMixin:
         if self.sidebar_collapsed:
             self.sidebar_threads_column.controls = controls
             if self.page:
-                self.page.update()
+                self._safe_page_update()
             return
         if not sessions:
             if not self.sidebar_collapsed:
@@ -73,8 +73,21 @@ class WorkspaceControllerMixin:
                                 ),
                                 (
                                     ft.Container(
-                                        content=ft.Text("loading", size=TYPE_XS, color=ACCENT),
-                                        padding=ft.Padding.symmetric(horizontal=7, vertical=2),
+                                        content=ft.Row(
+                                            [
+                                                ft.ProgressRing(
+                                                    width=9,
+                                                    height=9,
+                                                    stroke_width=1.5,
+                                                    color=ACCENT,
+                                                ),
+                                                ft.Text("Loading...", size=TYPE_XS, color=ACCENT),
+                                            ],
+                                            spacing=5,
+                                            tight=True,
+                                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                        ),
+                                        padding=ft.Padding.symmetric(horizontal=8, vertical=2),
                                         border=ft.Border.all(1, ACCENT_SOFT),
                                         border_radius=RADIUS_LG,
                                         bgcolor=ft.Colors.with_opacity(0.10, ACCENT),
@@ -96,7 +109,7 @@ class WorkspaceControllerMixin:
 
         self.sidebar_threads_column.controls = controls
         if self.page:
-            self.page.update()
+            self._safe_page_update()
 
     def _refresh_workspace_options(self):
         if not self.workspace_selector:
@@ -123,7 +136,7 @@ class WorkspaceControllerMixin:
         ]
         self.workspace_selector.value = current_workspace
         if self.page:
-            self.page.update()
+            self._safe_page_update()
 
     def _on_workspace_select(self, e: ft.Event[ft.Dropdown]):
         if not self.workspace_selector or not self.page:
@@ -143,6 +156,7 @@ class WorkspaceControllerMixin:
             return
         self._set_loading(True)
         try:
+            await self._cancel_active_turn_and_wait()
             self.config.cwd = target
             if self.header_workspace_text:
                 self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
@@ -180,5 +194,18 @@ class WorkspaceControllerMixin:
         session = self.sidebar_sessions_by_id.get(session_id)
         if session:
             self._set_current_session_title(session.get("name") or "New thread")
+        if self.messages_column:
+            self._clear_chat_controls()
+            self._add_assistant_card(
+                "Loading Session",
+                ft.Row(
+                    [
+                        ft.ProgressRing(width=12, height=12, stroke_width=2, color=ACCENT),
+                        ft.Text("Loading selected thread...", size=TYPE_MD, color=TEXT_SECONDARY),
+                    ],
+                    spacing=8,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            )
         self._render_sidebar_threads()
         self.page.run_task(self._open_session_from_sidebar, session_id)

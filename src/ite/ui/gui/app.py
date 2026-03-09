@@ -107,6 +107,8 @@ class GUIApp(
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._active_turn_task: asyncio.Task | None = None
         self._is_turn_running: bool = False
+        self._active_turn_id: int = 0
+        self._is_closing: bool = False
         self._plan_ready_prompt_open: bool = False
         self.thinking_row: ft.Row | None = None
         self.thinking_text: ft.Text | None = None
@@ -116,6 +118,47 @@ class GUIApp(
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
         self._scroll_request_id = 0
+        self._defer_ui_updates: bool = False
+
+    def _is_page_alive(self) -> bool:
+        if self._is_closing or not self.page:
+            return False
+        try:
+            _ = self.page.session
+            return True
+        except Exception:
+            return False
+
+    def _safe_page_update(self, *controls: ft.Control) -> bool:
+        if self._defer_ui_updates:
+            return True
+        if not self._is_page_alive() or not self.page:
+            return False
+        try:
+            if controls:
+                self.page.update(*controls)
+            else:
+                self.page.update()
+            return True
+        except RuntimeError as ex:
+            if "destroyed session" in str(ex).lower():
+                self._is_closing = True
+            return False
+        except Exception:
+            return False
+
+    def _safe_control_update(self, control: ft.Control | None) -> bool:
+        if control is None or not self._is_page_alive():
+            return False
+        try:
+            control.update()
+            return True
+        except RuntimeError as ex:
+            if "destroyed session" in str(ex).lower():
+                self._is_closing = True
+            return False
+        except Exception:
+            return False
 
     def _ensure_chat_bottom_spacer(self):
         if not self.messages_column:
@@ -152,8 +195,10 @@ class GUIApp(
             self.messages_column.controls.remove(control)
         self._ensure_chat_bottom_spacer()
 
-    async def _run_agent(self, message: str):
+    async def _run_agent(self, message: str, turn_id: int):
         try:
+            if turn_id != self._active_turn_id:
+                return
             self._is_turn_running = True
             self._set_loading(True)
             self._add_message("user", message)
@@ -165,20 +210,27 @@ class GUIApp(
                 return
 
             async for event in self.agent.run(message):
+                if turn_id != self._active_turn_id:
+                    return
                 await self._handle_agent_event(event)
+                if turn_id != self._active_turn_id:
+                    return
             await self._auto_save()
         except asyncio.CancelledError:
-            self._add_assistant_card(
-                "Interrupted",
-                ft.Text("Stopped current turn.", color=ft.Colors.with_opacity(0.85, ft.Colors.AMBER_300)),
-            )
+            if turn_id == self._active_turn_id:
+                self._add_assistant_card(
+                    "Interrupted",
+                    ft.Text("Stopped current turn.", color=ft.Colors.with_opacity(0.85, ft.Colors.AMBER_300)),
+                )
         except Exception as e:
-            self._add_message("system", f"Error: {str(e)}", is_error=True)
+            if turn_id == self._active_turn_id:
+                self._add_message("system", f"Error: {str(e)}", is_error=True)
         finally:
-            self._is_turn_running = False
-            self._active_turn_task = None
-            self._hide_thinking_indicator()
-            self._set_loading(False)
+            if turn_id == self._active_turn_id:
+                self._is_turn_running = False
+                self._active_turn_task = None
+                self._hide_thinking_indicator()
+                self._set_loading(False)
 
     async def _ensure_agent(self) -> None:
         if self.agent is not None:
@@ -213,18 +265,33 @@ class GUIApp(
             return
         message = normalized
 
+        if self.loading_session_id is not None:
+            self._add_assistant_card(
+                "Threads",
+                ft.Text("Thread is still loading. Send once loading completes.", color=TEXT_MUTED),
+            )
+            return
+
+        self._dispatch_message(message)
+
+    def _dispatch_message(self, message: str):
+        if not self.page:
+            return
+
         # A new send should always anchor the viewport at the latest chat content.
         self._auto_scroll_enabled = True
         self._scroll_chat_to_bottom(animate=False, force=True)
 
         self.input_field.value = ""
-        self.input_field.update()
+        self._safe_control_update(self.input_field)
 
         try:
             if message.startswith("/"):
                 self.page.run_task(self._run_command, message)
             else:
-                self._active_turn_task = self.page.run_task(self._run_agent, message)
+                self._active_turn_id += 1
+                turn_id = self._active_turn_id
+                self._active_turn_task = self.page.run_task(self._run_agent, message, turn_id)
         except Exception as ex:
             self._add_message(
                 "system",
@@ -270,22 +337,50 @@ class GUIApp(
         return None
 
     async def _stop_active_turn(self):
+        await self._cancel_active_turn_and_wait()
+
+    async def _cancel_active_turn_and_wait(self, timeout_seconds: float = 2.0):
         task = self._active_turn_task
         if not task:
+            if self._is_turn_running:
+                self._active_turn_id += 1
+                self._is_turn_running = False
+                self._hide_thinking_indicator()
+                self._set_loading(False)
             return
+        timed_out = False
         try:
-            if hasattr(task, "done") and hasattr(task, "cancel"):
-                if not task.done():
-                    task.cancel()
+            if hasattr(task, "done") and hasattr(task, "cancel") and not task.done():
+                task.cancel()
+            if hasattr(task, "done") and not task.done():
+                await asyncio.wait_for(task, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            timed_out = True
+        except asyncio.CancelledError:
+            pass
         except Exception as ex:
             self._add_message(
                 "system",
                 f"Error stopping turn: {ex}",
                 is_error=True,
             )
+        finally:
+            # If cancellation stalls, invalidate this turn so stale events cannot mutate UI.
+            if timed_out:
+                self._active_turn_id += 1
+                self._is_turn_running = False
+                self._hide_thinking_indicator()
+                self._set_loading(False)
+            self._active_turn_task = None
+
+    def _reset_turn_ui_state(self):
+        self._active_turn_task = None
+        self._is_turn_running = False
+        self._hide_thinking_indicator()
+        self._set_loading(False)
 
     def _show_thinking_indicator(self):
-        if not self.messages_column or not self.page:
+        if not self.messages_column or not self._is_page_alive():
             return
         if self.thinking_row:
             try:
@@ -293,7 +388,7 @@ class GUIApp(
             except Exception:
                 pass
             self._append_chat_control(self.thinking_row)
-            self.page.update()
+            self._safe_page_update()
             self._scroll_chat_to_bottom(animate=False, force=True)
             return
 
@@ -318,17 +413,19 @@ class GUIApp(
         self.thinking_row = ft.Row([bubble], alignment=ft.MainAxisAlignment.START)
         self.thinking_row = self._wrap_in_lane(self.thinking_row)
         self._append_chat_control(self.thinking_row)
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(animate=False, force=True)
-        self._thinking_task = self.page.run_task(self._animate_thinking_text)
+        if self.page:
+            self._thinking_task = self.page.run_task(self._animate_thinking_text)
 
     async def _animate_thinking_text(self):
         phases = ["Thinking", "Thinking.", "Thinking..", "Thinking..."]
         i = 0
         try:
-            while self._is_turn_running and self.thinking_text and self.page:
+            while self._is_turn_running and self.thinking_text and self._is_page_alive():
                 self.thinking_text.value = phases[i % len(phases)]
-                self.thinking_text.update()
+                if not self._safe_control_update(self.thinking_text):
+                    return
                 i += 1
                 await asyncio.sleep(0.36)
         except asyncio.CancelledError:
@@ -353,12 +450,14 @@ class GUIApp(
         self.thinking_row = None
         self.thinking_text = None
         self.thinking_spinner = None
-        if self.page:
-            self.page.update()
+        self._safe_page_update()
 
     def _on_close(self, e):
+        self._is_closing = True
         self._stop_branch_sync_watcher()
-        if self.page and self.agent is not None:
+        if self._thinking_task and hasattr(self._thinking_task, "cancel"):
+            self._thinking_task.cancel()
+        if self.page:
             self.page.run_task(self._shutdown_agent)
 
     def _is_valid_base_url(self, base_url: str) -> bool:
@@ -398,16 +497,14 @@ class GUIApp(
             if self.setup_error_text:
                 self.setup_error_text.value = "API key is required."
                 self.setup_error_text.visible = True
-            if self.page:
-                self.page.update()
+            self._safe_page_update()
             return
 
         if not self._is_valid_base_url(base_url):
             if self.setup_error_text:
                 self.setup_error_text.value = "Base URL must be a valid http/https URL."
                 self.setup_error_text.visible = True
-            if self.page:
-                self.page.update()
+            self._safe_page_update()
             return
 
         try:
@@ -420,8 +517,7 @@ class GUIApp(
             if self.setup_error_text:
                 self.setup_error_text.value = f"Failed to save setup: {exc}"
                 self.setup_error_text.visible = True
-            if self.page:
-                self.page.update()
+            self._safe_page_update()
             return
 
         self.config.api_key = api_key
@@ -429,7 +525,7 @@ class GUIApp(
         self.config.model.name = model_name
         if self.model_selector_text:
             self.model_selector_text.value = self.config.model_name
-            self.model_selector_text.update()
+            self._safe_control_update(self.model_selector_text)
         if self.config.model_name not in self.model_items:
             self.model_items.insert(0, self.config.model_name)
 
@@ -438,7 +534,7 @@ class GUIApp(
 
         if self.header_workspace_text:
             self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
-            self.header_workspace_text.update()
+            self._safe_control_update(self.header_workspace_text)
 
         self.app_mode = "chat"
         self._apply_app_mode()
@@ -454,11 +550,12 @@ class GUIApp(
             self.chat_shell.visible = self.app_mode == "chat"
         if self.setup_view:
             self.setup_view.visible = self.app_mode == "setup"
-        self.page.update()
+        self._safe_page_update()
 
     async def _shutdown_agent(self):
         if self.agent is None:
             return
+        await self._cancel_active_turn_and_wait()
         try:
             await self.agent.__aexit__(None, None, None)
         finally:
@@ -488,8 +585,7 @@ class GUIApp(
                 tight=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             )
-            if self.page:
-                self.plan_toggle_button.update()
+            self._safe_control_update(self.plan_toggle_button)
 
     async def _toggle_plan_mode(self):
         await self._ensure_agent()
@@ -541,7 +637,7 @@ class GUIApp(
                 status.value = "Reusing saved plan. Confirm implementation below."
                 status.color = SUCCESS
                 if self.page:
-                    self.page.update()
+                    self._safe_page_update()
                 await self._render_plan_ready_prompt()
                 return
             if choice == "refine":
@@ -551,7 +647,7 @@ class GUIApp(
                 status.value = "Old plan loaded. Send follow-up guidance to refine it."
                 status.color = TEXT_MUTED
                 if self.page:
-                    self.page.update()
+                    self._safe_page_update()
                 return
 
             session.clear_pending_plan()
@@ -560,8 +656,7 @@ class GUIApp(
             self._sync_plan_toggle_ui()
             status.value = "Saved plan discarded. Next prompt will generate a new plan."
             status.color = TEXT_MUTED
-            if self.page:
-                self.page.update()
+            self._safe_page_update()
 
         refine_button.on_click = lambda _e: self.page.run_task(handle, "refine") if self.page else None
         accept_button.on_click = lambda _e: self.page.run_task(handle, "accept") if self.page else None
@@ -743,7 +838,7 @@ class GUIApp(
         self._append_chat_control(
             self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         )
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(force=True)
 
         result = await self._plan_question_future
@@ -833,8 +928,7 @@ class GUIApp(
             status_icon.visible = True
         if status_row:
             status_row.visible = True
-        if self.page:
-            self.page.update()
+        self._safe_page_update()
         self._show_thinking_indicator()
         loop = self._plan_question_future.get_loop()
         loop.call_soon_threadsafe(self._plan_question_future.set_result, result)
@@ -926,7 +1020,7 @@ class GUIApp(
         self._append_chat_control(
             self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         )
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(force=True)
 
     async def _handle_plan_ready_decision(
@@ -955,8 +1049,7 @@ class GUIApp(
             self._sync_plan_toggle_ui()
             status_text.value = "Approved. Plan mode off. Starting implementation."
             status_text.color = SUCCESS
-            if self.page:
-                self.page.update()
+            self._safe_page_update()
             self._add_assistant_card(
                 "Plan Mode",
                 ft.Column(
@@ -977,9 +1070,12 @@ class GUIApp(
                     tight=True,
                 ),
             )
+            self._active_turn_id += 1
+            turn_id = self._active_turn_id
             self._active_turn_task = self.page.run_task(
                 self._run_agent,
                 Agent.PLAN_EXECUTE_PROMPT,
+                turn_id,
             )
             return
 
@@ -1015,8 +1111,7 @@ class GUIApp(
                 tight=True,
             ),
         )
-        if self.page:
-            self.page.update()
+        self._safe_page_update()
 
 
 def create_gui_app(config: Config):

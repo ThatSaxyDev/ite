@@ -69,7 +69,7 @@ class BranchControllerMixin:
             self.branch_items = []
             self.branch_selector_text.value = "branch"
             self.branch_controls_row.visible = False
-            self.page.update()
+            self._safe_page_update()
             return
 
         branches = await asyncio.to_thread(list_local_branches, cwd)
@@ -81,7 +81,7 @@ class BranchControllerMixin:
         self.branch_items = branches
         self.branch_selector_text.value = current
         self.branch_controls_row.visible = True
-        self.page.update()
+        self._safe_page_update()
 
     def _set_branch_loading(self, loading: bool):
         self.branch_loading = loading
@@ -90,7 +90,7 @@ class BranchControllerMixin:
         if self.branch_create_button:
             self.branch_create_button.disabled = loading
         if self.page:
-            self.page.update()
+            self._safe_page_update()
 
     def _open_branch_picker_dialog(self, e=None):
         if not self.page or self.branch_loading:
@@ -201,7 +201,7 @@ class BranchControllerMixin:
             )
         self.branch_picker_list.controls = controls
         if self.page:
-            self.page.update()
+            self._safe_page_update()
 
     def _on_branch_picker_choose(self, branch: str):
         if not self.page or self.branch_loading:

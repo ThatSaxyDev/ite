@@ -399,7 +399,7 @@ class LayoutBuilderMixin:
 
         self._render_sidebar_threads()
         if update and self.page:
-            self.page.update()
+            self._safe_page_update()
 
     def build_header(self) -> ft.Control:
         self.header_session_text = ft.Text(
@@ -437,7 +437,7 @@ class LayoutBuilderMixin:
         self.current_session_title = normalized if normalized else "New thread"
         if self.header_session_text:
             self.header_session_text.value = self.current_session_title
-            self.header_session_text.update()
+            self._safe_control_update(self.header_session_text)
 
     def _build_chat_panel(self) -> ft.Control:
         self.messages_column = ft.Column(
@@ -658,11 +658,12 @@ class LayoutBuilderMixin:
                 shape=ft.CircleBorder(),
             )
         if self.page:
-            self.send_button.update()
+            self._safe_control_update(self.send_button)
 
     def _set_loading(self, loading: bool):
+        is_busy = self._is_turn_running
         if self.input_field:
-            self.input_field.disabled = self._is_turn_running
+            self.input_field.disabled = is_busy
         self._refresh_action_button()
         if self.page:
-            self.page.update()
+            self._safe_page_update()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 import asyncio
-import json
 from typing import Any
 from pathlib import Path
 import flet as ft
@@ -14,6 +13,7 @@ class SessionControllerMixin:
         """Start a fresh agent session instead of clearing the current one."""
         self._set_loading(True)
         try:
+            await self._cancel_active_turn_and_wait()
             await self._ensure_agent()
             if not self.agent or not self.agent.session:
                 return
@@ -39,7 +39,7 @@ class SessionControllerMixin:
 
             if self.messages_column and self.page:
                 self._clear_chat_controls()
-                self.page.update()
+                self._safe_page_update()
 
             self._tool_call_row_indices.clear()
             self.streaming_markdown = None
@@ -135,6 +135,7 @@ class SessionControllerMixin:
     async def _open_session_from_sidebar(self, session_id: str):
         self._set_loading(True)
         try:
+            await self._cancel_active_turn_and_wait()
             snapshot = SessionManager().load_session(session_id)
             if snapshot is None:
                 self._add_message("system", f"Session not found: {session_id}", is_error=True)
@@ -178,6 +179,7 @@ class SessionControllerMixin:
             self._add_message("system", f"Error loading session: {e}", is_error=True)
         finally:
             self.loading_session_id = None
+            self._reset_turn_ui_state()
             self._refresh_sidebar_threads()
             self._set_loading(False)
 
@@ -212,6 +214,12 @@ class SessionControllerMixin:
         if not self.messages_column or not self.page:
             return
 
+        max_render_messages = 220
+        hidden_count = max(0, len(messages) - max_render_messages)
+        rendered_messages = (
+            messages[-max_render_messages:] if hidden_count > 0 else messages
+        )
+
         self._clear_chat_controls()
         self._tool_call_row_indices.clear()
         if hasattr(self, "_tool_args_by_call_id"):
@@ -221,59 +229,42 @@ class SessionControllerMixin:
         self.streaming_text = ""
 
         tool_call_names: dict[str, str] = {}
-
-        for message in messages:
-            role = message.get("role")
-            content = message.get("content", "")
-
-            if role == "system":
-                # Internal system prompt; omit from UI transcript.
-                continue
-
-            if role == "user":
-                self._append_chat_control(self.build_chat_message("user", content))
-                continue
-
-            if role == "assistant":
-                if content:
-                    self._append_chat_control(
-                        self.build_chat_message("assistant", content)
-                    )
-
-                for tool_call in message.get("tool_calls") or []:
-                    call_id = tool_call.get("id", "")
-                    function = tool_call.get("function", {}) or {}
-                    tool_name = function.get("name", "tool")
-                    if tool_name == "memory":
-                        continue
-                    raw_args = function.get("arguments", "") or ""
-                    try:
-                        parsed_args = json.loads(raw_args) if raw_args else {}
-                    except Exception:
-                        parsed_args = {"raw": raw_args}
-
-                    tool_call_names[call_id] = tool_name
-                    self._add_tool_call(call_id, tool_name, parsed_args, None)
-                continue
-
-            if role == "tool":
-                call_id = message.get("tool_call_id", "")
-                tool_name = tool_call_names.get(call_id, "tool")
-                if tool_name == "memory":
-                    continue
-                output = content if isinstance(content, str) else str(content)
-                success = not output.lstrip().startswith("Error:")
-                self._update_tool_call(
-                    call_id=call_id,
-                    name=tool_name,
-                    success=success,
-                    output=output,
-                    error=None if success else output,
-                    metadata=None,
-                    diff=None,
-                    exit_code=None,
+        self._defer_ui_updates = True
+        try:
+            if hidden_count > 0:
+                self._add_assistant_card(
+                    "Transcript",
+                    ft.Text(
+                        f"Showing latest {max_render_messages} messages for performance "
+                        f"({hidden_count} older messages hidden).",
+                        color=TEXT_MUTED,
+                    ),
                 )
-                continue
 
-        self.page.update()
+            for message in rendered_messages:
+                role = message.get("role")
+                content = message.get("content", "")
+
+                if role == "system":
+                    # Internal system prompt; omit from UI transcript.
+                    continue
+
+                if role == "user":
+                    self._append_chat_control(self.build_chat_message("user", content))
+                    continue
+
+                if role == "assistant":
+                    if content:
+                        self._append_chat_control(
+                            self.build_chat_message("assistant", content)
+                        )
+                    continue
+
+                if role == "tool":
+                    # Skip historical tool cards during hydration to keep thread switching responsive.
+                    continue
+        finally:
+            self._defer_ui_updates = False
+
+        self._safe_page_update()
         self._scroll_chat_to_bottom(animate=True, force=True)

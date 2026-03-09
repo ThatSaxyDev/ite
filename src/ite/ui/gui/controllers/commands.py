@@ -53,7 +53,7 @@ class CommandControllerMixin:
                     self._append_chat_control(
                         self.build_system_log_message(f"command {command}", cleaned)
                     )
-                    self.page.update()
+                    self._safe_page_update()
                     self._scroll_chat_to_bottom(force=True)
         except SystemExit:
             self._add_message("system", "Exiting ITE GUI.")
@@ -204,7 +204,7 @@ class CommandControllerMixin:
                     self.config.model_name = args[0]
                     if self.model_selector_text:
                         self.model_selector_text.value = self.config.model_name
-                        self.model_selector_text.update()
+                        self._safe_control_update(self.model_selector_text)
                     self._add_assistant_card("Model Updated", ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_PRIMARY))
                 else:
                     self._add_assistant_card("Current Model", ft.Text(self.config.model_name, color=TEXT_PRIMARY))
@@ -222,7 +222,7 @@ class CommandControllerMixin:
             self.active_session_id = None
             if self.messages_column and self.page:
                 self._clear_chat_controls()
-                self.page.update()
+                self._safe_page_update()
             self._refresh_sidebar_threads()
             self._set_current_session_title(None)
             self._add_assistant_card("Conversation", ft.Text("Cleared session context.", color=TEXT_PRIMARY))
@@ -381,7 +381,7 @@ class CommandControllerMixin:
         self.config.model_name = selected
         if self.model_selector_text:
             self.model_selector_text.value = self.config.model_name
-            self.model_selector_text.update()
+            self._safe_control_update(self.model_selector_text)
         self._add_assistant_card(
             "Model Updated",
             ft.Text(f"{old_model} -> {self.config.model_name}", color=TEXT_SECONDARY),

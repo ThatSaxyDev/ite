@@ -577,7 +577,7 @@ class MessageBuilderMixin:
             toggle.tooltip = "Collapse" if expanded["value"] else "Expand"
             state_label.value = "" if expanded["value"] else ""
             if self.page:
-                self.page.update()
+                self._safe_page_update()
                 self._scroll_chat_to_bottom(animate=False)
 
         toggle.on_click = on_toggle
@@ -652,7 +652,7 @@ class MessageBuilderMixin:
         if not self.messages_column or not self.page:
             return
         self._append_chat_control(self.build_chat_message(role, content, is_error=is_error))
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(force=force_scroll)
 
     def _add_assistant_card(self, title: str, content: ft.Control):
@@ -678,7 +678,7 @@ class MessageBuilderMixin:
         self._append_chat_control(
             self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         )
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(force=True)
 
     def _add_plan_card(self, plan_text: str):
@@ -720,7 +720,7 @@ class MessageBuilderMixin:
 
         self.streaming_text += content
         self.streaming_markdown.value = self.streaming_text
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(animate=True, force=True)
 
     def _finalize_streaming_message(self):
@@ -798,7 +798,7 @@ class MessageBuilderMixin:
         row_index = self._append_chat_control(row)
         if row_index is not None:
             self._tool_call_row_indices[call_id] = row_index
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(force=True)
 
     def _update_tool_call(
@@ -940,5 +940,5 @@ class MessageBuilderMixin:
         self.messages_column.controls[index] = self._wrap_in_lane(
             ft.Row([card], alignment=ft.MainAxisAlignment.START)
         )
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(animate=False, force=True)

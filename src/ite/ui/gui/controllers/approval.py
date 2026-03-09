@@ -18,7 +18,7 @@ class ApprovalControllerMixin:
             self.agent.session.approval_manager.approval_policy = policy
         if self.approval_selector:
             self.approval_selector.value = policy.value
-            self.approval_selector.update()
+            self._safe_control_update(self.approval_selector)
 
     def _on_approval_select(self, e: ft.Event[ft.Dropdown]):
         if not self.approval_selector:
@@ -108,7 +108,7 @@ class ApprovalControllerMixin:
                 approval_card.border = ft.Border.all(
                     1, SUCCESS_SOFT
                 )
-            self.page.update()
+            self._safe_page_update()
             if not confirmation_future.done():
                 confirmation_future.set_result(True)
 
@@ -124,7 +124,7 @@ class ApprovalControllerMixin:
                 approval_card.border = ft.Border.all(
                     1, DANGER_SOFT
                 )
-            self.page.update()
+            self._safe_page_update()
             if not confirmation_future.done():
                 confirmation_future.set_result(False)
 
@@ -175,7 +175,7 @@ class ApprovalControllerMixin:
         self._append_chat_control(
             self._wrap_in_lane(ft.Row([approval_card], alignment=ft.MainAxisAlignment.START))
         )
-        self.page.update()
+        self._safe_page_update()
         self._scroll_chat_to_bottom(force=True)
 
     async def _gui_confirmation_callback(self, confirmation: ToolConfirmation) -> bool:
