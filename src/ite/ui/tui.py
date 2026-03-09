@@ -1110,9 +1110,27 @@ class TUI:
             if recommended_index is not None and 0 <= recommended_index < len(options)
             else (valid_choices[0] if valid_choices else "1")
         )
-        picked = Prompt.ask("Select option", choices=valid_choices, default=default_choice)
+        choice_label = "/".join(valid_choices)
+        while True:
+            raw = self.console.input(
+                f"Select option [{choice_label}] ({default_choice}): "
+            )
+            picked = (raw or "").strip()
+            if not picked:
+                picked = default_choice
+            if picked in valid_choices:
+                break
+            if allow_free_text and picked and not picked.isdigit():
+                # If the user pasted free text at the option prompt, accept it directly.
+                return {
+                    "selected_option": "",
+                    "free_text": picked,
+                    "selected_index": None,
+                }
+            self.console.print("[error]Please select one of the available options[/error]")
+
         if picked == "0" and allow_free_text:
-            text = Prompt.ask("Your answer").strip()
+            text = self.console.input("Your answer: ").strip()
             return {"selected_option": "", "free_text": text, "selected_index": None}
 
         selected_index = int(picked) - 1

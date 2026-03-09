@@ -4,6 +4,7 @@ from ite.config.loader import load_config, ensure_workspace_layout
 import logging
 import sys
 import re
+import select
 from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
@@ -12,6 +13,7 @@ import click
 import asyncio
 import signal
 from rich.prompt import Prompt
+from rich.panel import Panel
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -24,6 +26,50 @@ class CLI:
         self.tui = TUI(config=config, console=console)
         self._last_dispatched_message: str | None = None
         self._last_user_message_for_retry: str | None = None
+
+    def _read_user_message(self) -> str:
+        try:
+            first_line = console.input("\n[user]>[/user] ")
+        except Exception:
+            return ""
+
+        lines = [first_line.rstrip("\n")]
+        # Capture immediate leftover lines from multiline paste as one message.
+        try:
+            for _ in range(16):
+                readable, _, _ = select.select([sys.stdin], [], [], 0.01)
+                if not readable:
+                    break
+                line = sys.stdin.readline()
+                if line == "":
+                    break
+                lines.append(line.rstrip("\n"))
+        except Exception:
+            pass
+
+        return "\n".join(lines).strip()
+
+    def _confirm_before_send(self, message: str) -> bool:
+        """Require explicit confirmation for paste-like input."""
+        looks_pasted = "\n" in message or len(message) >= 120
+        if not looks_pasted:
+            return True
+
+        lines = message.splitlines()
+        preview = "\n".join(lines[:5])
+        if len(lines) > 5:
+            preview += "\n..."
+
+        console.print("\n[dim]Paste-like input detected.[/dim]")
+        console.print(Panel(preview, border_style="yellow", title="Preview"))
+
+        choice = Prompt.ask(
+            "1) Send now  2) Cancel",
+            choices=["1", "2"],
+            default="2",
+            show_choices=False,
+        )
+        return choice == "1"
 
 
     async def run_interactive(self) -> str | None:
@@ -42,8 +88,10 @@ class CLI:
             try:
                 while True:
                     try:
-                        user_input = console.input("\n[user]>[/user] ").strip()
+                        user_input = self._read_user_message()
                         if not user_input:
+                            continue
+                        if not self._confirm_before_send(user_input):
                             continue
 
                         if await self._handle_command(user_input):
@@ -248,6 +296,30 @@ class CLI:
             and re.search(r"\b(now|this|it|changes)\b", text)
         )
 
+    def _prompt_intent_choice(
+        self,
+        prompt: str,
+        *,
+        default: str,
+        option1_aliases: tuple[str, ...],
+        option2_aliases: tuple[str, ...],
+    ) -> str | None:
+        while True:
+            try:
+                raw = console.input(f"{prompt} ({default}): ")
+            except KeyboardInterrupt:
+                console.print()
+                return None
+
+            value = (raw or "").strip().lower()
+            if not value:
+                return default
+            if value == "1" or value in option1_aliases:
+                return "1"
+            if value == "2" or value in option2_aliases:
+                return "2"
+            console.print("[error]Please enter 1 or 2.[/error]")
+
     def _apply_tui_intent_assist(self, message: str) -> str | None:
         if not self.agent or not self.agent.session:
             return message
@@ -261,15 +333,17 @@ class CLI:
 
         if not plan_enabled and self._detect_plan_intent(message):
             console.print(
-                "[bold bright_white]Plan suggestion:[/bold bright_white] "
+                "\n[bold bright_white]Plan suggestion:[/bold bright_white] "
                 "[dim]This looks like a planning request.[/dim]"
             )
-            choice = Prompt.ask(
+            choice = self._prompt_intent_choice(
                 "1) Enable Plan mode and continue  2) Send normally",
-                choices=["1", "2"],
                 default="1",
-                show_choices=False,
+                option1_aliases=("enable", "plan", "yes", "y", "on"),
+                option2_aliases=("send", "normal", "no", "n", "off"),
             )
+            if choice is None:
+                return None
             if choice == "1":
                 session.set_plan_mode(True)
                 session.set_plan_phase("idle")
@@ -278,15 +352,17 @@ class CLI:
 
         if plan_enabled and self._detect_execution_intent(message):
             console.print(
-                "[bold bright_white]Execution suggestion:[/bold bright_white] "
+                "\n[bold bright_white]Execution suggestion:[/bold bright_white] "
                 "[dim]This looks like execution while Plan mode is ON.[/dim]"
             )
-            choice = Prompt.ask(
+            choice = self._prompt_intent_choice(
                 "1) Turn Plan mode off and continue  2) Stay in Plan mode",
-                choices=["1", "2"],
                 default="1",
-                show_choices=False,
+                option1_aliases=("turn off", "off", "disable", "yes", "y"),
+                option2_aliases=("stay", "keep", "plan", "no", "n"),
             )
+            if choice is None:
+                return None
             if choice == "1":
                 session.set_plan_mode(False)
                 session.set_plan_phase("idle")
