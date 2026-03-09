@@ -34,6 +34,7 @@ class SessionSnapshot:
     plan_phase: str = "idle"
     plan_questions_asked: int = 0
     plan_target_questions: int = 3
+    pending_plan_text: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -49,6 +50,7 @@ class SessionSnapshot:
             "plan_phase": self.plan_phase,
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
+            "pending_plan_text": self.pending_plan_text,
         }
 
     @classmethod
@@ -66,6 +68,7 @@ class SessionSnapshot:
             plan_phase=str(data.get("plan_phase", "idle")),
             plan_questions_asked=int(data.get("plan_questions_asked", 0)),
             plan_target_questions=int(data.get("plan_target_questions", 3)),
+            pending_plan_text=data.get("pending_plan_text"),
         )
 
 

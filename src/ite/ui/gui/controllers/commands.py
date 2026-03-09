@@ -139,9 +139,13 @@ class CommandControllerMixin:
                 if session.plan_mode_enabled:
                     session.set_plan_phase("idle")
                     self._plan_question_count = 0
+                    if hasattr(self, "_show_plan_resume_options_if_available"):
+                        await self._show_plan_resume_options_if_available()
                 else:
                     session.plan_questions_asked = 0
                     self._plan_question_count = 0
+                    if hasattr(self, "_plan_ready_prompt_open"):
+                        self._plan_ready_prompt_open = False
                 self._sync_plan_toggle_ui()
             self._add_assistant_card(
                 "Plan Mode",
@@ -164,6 +168,11 @@ class CommandControllerMixin:
                         ),
                         ft.Text(
                             f"Question target: {getattr(session, 'plan_target_questions', 3)}",
+                            size=TYPE_MD,
+                            color=TEXT_SECONDARY,
+                        ),
+                        ft.Text(
+                            f"Pending plan: {'yes' if session.has_pending_plan() else 'no'}",
                             size=TYPE_MD,
                             color=TEXT_SECONDARY,
                         ),

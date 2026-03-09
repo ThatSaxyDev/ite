@@ -107,6 +107,7 @@ class GUIApp(
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._active_turn_task: asyncio.Task | None = None
         self._is_turn_running: bool = False
+        self._plan_ready_prompt_open: bool = False
         self.thinking_row: ft.Row | None = None
         self.thinking_text: ft.Text | None = None
         self.thinking_spinner: ft.ProgressRing | None = None
@@ -207,6 +208,11 @@ class GUIApp(
         if not message:
             return
 
+        normalized = self._normalize_plan_execution_request(message)
+        if normalized is None:
+            return
+        message = normalized
+
         # A new send should always anchor the viewport at the latest chat content.
         self._auto_scroll_enabled = True
         self._scroll_chat_to_bottom(animate=False, force=True)
@@ -225,6 +231,43 @@ class GUIApp(
                 f"Error: failed to start agent task: {ex}",
                 is_error=True,
             )
+
+    def _normalize_plan_execution_request(self, message: str) -> str | None:
+        raw = message.strip()
+        lowered = raw.lower()
+        if lowered not in {
+            "implement plan",
+            "implement the plan",
+            "go ahead and implement",
+            "execute plan",
+            "approve plan",
+            "yes, implement plan",
+        }:
+            return raw
+
+        if not self.agent or not self.agent.session:
+            return raw
+
+        session = self.agent.session
+        if (
+            session.plan_mode_enabled
+            and session.plan_phase == "awaiting_implementation_confirmation"
+        ):
+            self._plan_ready_prompt_open = False
+            session.clear_pending_plan()
+            session.set_plan_mode(False)
+            session.set_plan_phase("idle")
+            self._sync_plan_toggle_ui()
+            return Agent.PLAN_EXECUTE_PROMPT
+
+        self._add_assistant_card(
+            "Plan Mode",
+            ft.Text(
+                "No pending plan is waiting for approval. Ask for a plan first, then approve implementation.",
+                color=TEXT_SECONDARY,
+            ),
+        )
+        return None
 
     async def _stop_active_turn(self):
         task = self._active_turn_task
@@ -457,15 +500,102 @@ class GUIApp(
         if session.plan_mode_enabled:
             session.set_plan_phase("idle")
             self._plan_question_count = 0
+            await self._show_plan_resume_options_if_available()
         else:
             session.plan_questions_asked = 0
             self._plan_question_count = 0
+        if not session.plan_mode_enabled:
+            self._plan_ready_prompt_open = False
         self._sync_plan_toggle_ui()
         self._add_assistant_card(
             "Plan Mode",
             ft.Text(
                 f"Plan mode {'enabled' if session.plan_mode_enabled else 'disabled'}.",
                 color=TEXT_SECONDARY,
+            ),
+        )
+
+    async def _show_plan_resume_options_if_available(self) -> None:
+        if not self.page:
+            return
+        await self._ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+        session = self.agent.session
+        if not session.has_pending_plan():
+            return
+
+        status = ft.Text("", size=TYPE_SM, color=TEXT_MUTED)
+        refine_button = ft.OutlinedButton("Refine old plan")
+        accept_button = ft.FilledButton("Accept and implement")
+        new_button = ft.TextButton("Generate new plan")
+        actions = [refine_button, accept_button, new_button]
+
+        async def handle(choice: str):
+            for button in actions:
+                button.disabled = True
+            if choice == "accept":
+                session.set_plan_mode(True)
+                session.set_plan_phase("awaiting_implementation_confirmation")
+                self._sync_plan_toggle_ui()
+                status.value = "Reusing saved plan. Confirm implementation below."
+                status.color = SUCCESS
+                if self.page:
+                    self.page.update()
+                await self._render_plan_ready_prompt()
+                return
+            if choice == "refine":
+                session.set_plan_mode(True)
+                session.set_plan_phase("asking_questions")
+                self._sync_plan_toggle_ui()
+                status.value = "Old plan loaded. Send follow-up guidance to refine it."
+                status.color = TEXT_MUTED
+                if self.page:
+                    self.page.update()
+                return
+
+            session.clear_pending_plan()
+            session.set_plan_mode(True)
+            session.set_plan_phase("idle")
+            self._sync_plan_toggle_ui()
+            status.value = "Saved plan discarded. Next prompt will generate a new plan."
+            status.color = TEXT_MUTED
+            if self.page:
+                self.page.update()
+
+        refine_button.on_click = lambda _e: self.page.run_task(handle, "refine") if self.page else None
+        accept_button.on_click = lambda _e: self.page.run_task(handle, "accept") if self.page else None
+        new_button.on_click = lambda _e: self.page.run_task(handle, "new") if self.page else None
+
+        preview_lines = (session.pending_plan_text or "").strip().splitlines()
+        preview_text = "\n".join(preview_lines[:6]).strip() or "Saved plan available."
+        if len(preview_lines) > 6:
+            preview_text += "\n..."
+
+        self._add_assistant_card(
+            "Saved Plan Found",
+            ft.Column(
+                [
+                    ft.Text(
+                        "A previously generated plan is available. Choose what to do next.",
+                        color=TEXT_SECONDARY,
+                    ),
+                    ft.Container(
+                        content=ft.Text(
+                            preview_text,
+                            style=ft.TextStyle(font_family="JetBrains Mono", size=TYPE_SM, color=TEXT_PRIMARY),
+                            selectable=True,
+                        ),
+                        border=ft.Border.all(1, HAIRLINE),
+                        border_radius=RADIUS_SM,
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                        bgcolor=SURFACE_2,
+                    ),
+                    ft.Row(actions, alignment=ft.MainAxisAlignment.END),
+                    status,
+                ],
+                spacing=8,
+                tight=True,
             ),
         )
 
@@ -610,29 +740,46 @@ class GUIApp(
         await self._ensure_agent()
         if not self.agent or not self.agent.session:
             return
+        if self._plan_ready_prompt_open:
+            return
+        self._plan_ready_prompt_open = True
 
         status = ft.Text("", size=TYPE_SM, color=TEXT_MUTED)
+        no_button = ft.TextButton("No")
+        yes_button = ft.FilledButton(
+            "Yes, implement plan",
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: ACCENT},
+                color=ft.Colors.BLACK,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
 
         def on_approve(_e):
             if self.page:
-                self.page.run_task(self._handle_plan_ready_decision, True, status)
+                self.page.run_task(
+                    self._handle_plan_ready_decision,
+                    True,
+                    status,
+                    [no_button, yes_button],
+                )
 
         def on_decline(_e):
             if self.page:
-                self.page.run_task(self._handle_plan_ready_decision, False, status)
+                self.page.run_task(
+                    self._handle_plan_ready_decision,
+                    False,
+                    status,
+                    [no_button, yes_button],
+                )
+
+        no_button.on_click = on_decline
+        yes_button.on_click = on_approve
 
         actions = ft.Row(
             [
-                ft.TextButton("No", on_click=on_decline),
-                ft.FilledButton(
-                    "Yes, implement plan",
-                    on_click=on_approve,
-                    style=ft.ButtonStyle(
-                        bgcolor={ft.ControlState.DEFAULT: ACCENT},
-                        color=ft.Colors.BLACK,
-                        shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
-                    ),
-                ),
+                no_button,
+                yes_button,
             ],
             alignment=ft.MainAxisAlignment.END,
         )
@@ -674,17 +821,26 @@ class GUIApp(
         self.page.update()
         self._scroll_chat_to_bottom(force=True)
 
-    async def _handle_plan_ready_decision(self, approved: bool, status_text: ft.Text):
+    async def _handle_plan_ready_decision(
+        self,
+        approved: bool,
+        status_text: ft.Text,
+        action_buttons: list[ft.Control] | None = None,
+    ):
         await self._ensure_agent()
         if not self.agent or not self.agent.session:
             return
+        for control in action_buttons or []:
+            control.disabled = True
 
         if approved:
             # Approving exits plan mode and starts execution.
             self.agent.session.set_plan_mode(False)
             self.agent.session.set_plan_phase("idle")
+            self.agent.session.clear_pending_plan()
             self.agent.session.plan_questions_asked = 0
             self._plan_question_count = 0
+            self._plan_ready_prompt_open = False
             self._sync_plan_toggle_ui()
             status_text.value = "Approved · Plan mode off"
             status_text.color = SUCCESS
@@ -696,19 +852,23 @@ class GUIApp(
             )
             self._active_turn_task = self.page.run_task(
                 self._run_agent,
-                "Implement the approved plan now. Execute the planned changes.",
+                Agent.PLAN_EXECUTE_PROMPT,
             )
             return
 
-        # Declining keeps plan mode enabled for iterative refinement.
+        # Declining keeps plan mode enabled and the plan in pending-approval state.
         self.agent.session.set_plan_mode(True)
-        self.agent.session.set_plan_phase("asking_questions")
+        self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
+        self._plan_ready_prompt_open = False
         self._sync_plan_toggle_ui()
-        status_text.value = "Not implemented · Plan mode still on"
+        status_text.value = "Not implemented · You can type 'implement plan' later"
         status_text.color = TEXT_MUTED
         self._add_assistant_card(
             "Plan Mode",
-            ft.Text("Plan mode remains enabled. Refine the plan with follow-up prompts.", color=TEXT_SECONDARY),
+            ft.Text(
+                "Plan mode remains enabled. Refine with follow-up prompts, or type 'implement plan' to execute this plan later.",
+                color=TEXT_SECONDARY,
+            ),
         )
         if self.page:
             self.page.update()

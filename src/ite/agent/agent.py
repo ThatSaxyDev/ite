@@ -101,6 +101,7 @@ class Agent:
 
             tool_calls: list[ToolCall] = []
             usage: TokenUsage | None = None
+            stream_error: str | None = None
 
             async for event in self.session.client.chat_completion(
                 self.session.context_manager.get_messages(),
@@ -123,11 +124,16 @@ class Agent:
                     if event.tool_call:
                         tool_calls.append(event.tool_call)
                 elif event.type == StreamEventType.ERROR:
-                    yield AgentEvent.agent_error(
-                        event.error or "Unknown error occurred",
-                    )
+                    stream_error = event.error or "Unknown error occurred"
+                    yield AgentEvent.agent_error(stream_error)
+                    break
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
+
+            if stream_error:
+                # Fail this turn immediately instead of looping and repeating
+                # the same upstream/provider error up to max_turns.
+                return
 
             if self.session.plan_mode_enabled and self.session.plan_phase != "executing":
                 # Deterministic planner UX: process at most one structured question per turn.
@@ -211,6 +217,7 @@ class Agent:
                         )
                         plan_text = self._select_plan_text(response_text)
                         if plan_text.strip():
+                            self.session.set_pending_plan(plan_text)
                             yield AgentEvent.text_complete(plan_text)
                             self.session.loop_detector.record_action(
                                 "response", text=plan_text

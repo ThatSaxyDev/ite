@@ -42,6 +42,7 @@ class Session:
         self.plan_phase: str = "idle"
         self.plan_questions_asked: int = 0
         self.plan_target_questions: int = 3
+        self.pending_plan_text: str | None = None
 
         self._turn_count = 0
 
@@ -107,6 +108,16 @@ class Session:
     def increment_plan_questions(self) -> None:
         self.plan_questions_asked += 1
 
+    def set_pending_plan(self, plan_text: str) -> None:
+        text = plan_text.strip()
+        self.pending_plan_text = text if text else None
+
+    def clear_pending_plan(self) -> None:
+        self.pending_plan_text = None
+
+    def has_pending_plan(self) -> bool:
+        return bool(self.pending_plan_text and self.pending_plan_text.strip())
+
     def get_stats(self) -> dict[str, Any]:
         latest = self.context_manager.latest_usage
         total = self.context_manager.total_usage
@@ -137,6 +148,7 @@ class Session:
             "plan_phase": self.plan_phase,
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
+            "pending_plan_available": self.has_pending_plan(),
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
             "tool_discovery_errors": len(self.discovery_manager.errors),

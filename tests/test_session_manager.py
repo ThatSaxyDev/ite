@@ -89,6 +89,7 @@ class SessionManagerCorruptionTests(unittest.TestCase):
             turn_count=1,
             messages=[{"role": "user", "content": "hello"}],
             total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            pending_plan_text="## Plan\n- step one",
         )
 
         self.manager.save_session(snapshot)
@@ -98,6 +99,8 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         loaded = json.loads(file_path.read_text(encoding="utf-8"))
         self.assertEqual(loaded["session_id"], "save-check")
         self.assertEqual(loaded["total_usage"]["total_tokens"], 2)
+        self.assertIn("pending_plan_text", loaded)
+        self.assertIn("step one", loaded["pending_plan_text"])
 
 
 if __name__ == "__main__":

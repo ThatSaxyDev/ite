@@ -193,6 +193,7 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
         plan_phase=ctx.agent.session.plan_phase,
         plan_questions_asked=ctx.agent.session.plan_questions_asked,
         plan_target_questions=ctx.agent.session.plan_target_questions,
+        pending_plan_text=ctx.agent.session.pending_plan_text,
     )
     session_manager.save_session(session_snapshot)
 
@@ -312,6 +313,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
             plan_phase=ctx.agent.session.plan_phase,
             plan_questions_asked=ctx.agent.session.plan_questions_asked,
             plan_target_questions=ctx.agent.session.plan_target_questions,
+            pending_plan_text=ctx.agent.session.pending_plan_text,
         )
         session_manager.save_checkpoint(current_snapshot)
 
@@ -334,6 +336,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     session.plan_phase = snapshot.plan_phase
     session.plan_questions_asked = snapshot.plan_questions_asked
     session.plan_target_questions = snapshot.plan_target_questions
+    session.pending_plan_text = snapshot.pending_plan_text
 
     await ctx.agent.session.client.close()
     await ctx.agent.session.mcp_manager.shutdown()
@@ -376,6 +379,7 @@ async def cmd_checkpoint(ctx: CommandContext, args: list[str]) -> None:
         plan_phase=ctx.agent.session.plan_phase,
         plan_questions_asked=ctx.agent.session.plan_questions_asked,
         plan_target_questions=ctx.agent.session.plan_target_questions,
+        pending_plan_text=ctx.agent.session.pending_plan_text,
     )
     checkpoint_id = session_manager.save_checkpoint(session_snapshot)
     title = Text.assemble(("💾  ", ""), ("Checkpoint created", "bold bright_white"))
@@ -462,6 +466,7 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
     session.plan_phase = snapshot.plan_phase
     session.plan_questions_asked = snapshot.plan_questions_asked
     session.plan_target_questions = snapshot.plan_target_questions
+    session.pending_plan_text = snapshot.pending_plan_text
 
     await ctx.agent.session.client.close()
     await ctx.agent.session.mcp_manager.shutdown()

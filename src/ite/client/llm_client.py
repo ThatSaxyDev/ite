@@ -107,6 +107,12 @@ class LLMClient:
                     )
                     return
             except APIError as e:
+                status_code = getattr(e, "status_code", None)
+                is_server_error = isinstance(status_code, int) and status_code >= 500
+                if is_server_error and attempt < self._max_retries:
+                    wait_time = 2**attempt
+                    await asyncio.sleep(wait_time)
+                    continue
                 yield StreamEvent(
                     type=StreamEventType.ERROR,
                     error=f"API error: {e}",

@@ -79,6 +79,7 @@ class SessionControllerMixin:
                 plan_phase=session.plan_phase,
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
+                pending_plan_text=session.pending_plan_text,
             )
             SessionManager().save_session(snapshot)
             self._set_current_session_title(session.name)
@@ -194,6 +195,7 @@ class SessionControllerMixin:
         resumed.plan_phase = snapshot.plan_phase
         resumed.plan_questions_asked = snapshot.plan_questions_asked
         resumed.plan_target_questions = snapshot.plan_target_questions
+        resumed.pending_plan_text = snapshot.pending_plan_text
 
         await self.agent.session.client.close()
         await self.agent.session.mcp_manager.shutdown()

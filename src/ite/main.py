@@ -45,6 +45,11 @@ class CLI:
                         if await self._handle_command(user_input):
                             continue
 
+                        normalized = self._normalize_plan_execution_request(user_input)
+                        if normalized is None:
+                            continue
+                        user_input = normalized
+
                         # Run agent in a cancellable task with SIGINT → cancel
                         response_task = asyncio.create_task(
                             self._process_message(user_input)
@@ -78,6 +83,37 @@ class CLI:
                 self._auto_save_sync()
 
         console.print("\n[dim]Bye![/dim]")
+
+    def _normalize_plan_execution_request(self, message: str) -> str | None:
+        raw = message.strip()
+        lowered = raw.lower()
+        if lowered not in {
+            "implement plan",
+            "implement the plan",
+            "go ahead and implement",
+            "execute plan",
+            "approve plan",
+            "yes, implement plan",
+        }:
+            return raw
+
+        if not self.agent or not self.agent.session:
+            return raw
+
+        session = self.agent.session
+        if (
+            session.plan_mode_enabled
+            and session.plan_phase == "awaiting_implementation_confirmation"
+        ):
+            session.clear_pending_plan()
+            session.set_plan_mode(False)
+            session.set_plan_phase("idle")
+            return Agent.PLAN_EXECUTE_PROMPT
+
+        console.print(
+            "[dim]No pending plan is awaiting approval. Ask for a plan first.[/dim]"
+        )
+        return None
 
     async def _handle_command(self, user_input: str) -> bool:
         """Handle CLI commands. Returns True if handled, False if it should be sent to agent."""
@@ -127,6 +163,7 @@ class CLI:
                 plan_phase=session.plan_phase,
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
+                pending_plan_text=session.pending_plan_text,
             )
             session_manager.save_session(snapshot)
             # console.print(
@@ -164,6 +201,7 @@ class CLI:
                 plan_phase=session.plan_phase,
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
+                pending_plan_text=session.pending_plan_text,
             )
             session_manager.save_session(snapshot)
         except Exception:
@@ -378,17 +416,18 @@ class CLI:
                 )
                 approved = self.tui.prompt_plan_implementation(asked_questions=asked)
                 if approved and self.agent and self.agent.session:
+                    self.agent.session.clear_pending_plan()
                     self.agent.session.set_plan_phase("executing")
                     console.print("[dim]Plan approved · starting implementation[/dim]")
                     await self._process_message(
-                        "Implement the approved plan now. Execute the planned changes."
+                        Agent.PLAN_EXECUTE_PROMPT
                     )
                 elif self.agent and self.agent.session:
                     self.agent.session.set_plan_phase(
                         "awaiting_implementation_confirmation"
                     )
                     console.print(
-                        "[dim]Plan remains active. Ask follow-ups or approve later.[/dim]"
+                        "[dim]Plan remains active. Ask follow-ups or type 'implement plan' later.[/dim]"
                     )
 
         self.tui.stop_spinner()
