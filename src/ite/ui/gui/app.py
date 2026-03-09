@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import flet as ft
 from urllib.parse import urlparse
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from ite.agent.agent import Agent
 from ite.commands import build_registry
@@ -119,12 +120,319 @@ class GUIApp(
         self._auto_scroll_enabled = True
         self._scroll_request_id = 0
         self._defer_ui_updates: bool = False
+        self._intent_assist_prompt: str | None = None
+        self._intent_assist_kind: str | None = None
+        self._intent_assist_row: ft.Control | None = None
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
             return True
         task = self._active_turn_task
         return bool(task and hasattr(task, "done") and not task.done())
+
+    def _is_plan_mode_enabled(self) -> bool:
+        return bool(
+            self.agent and self.agent.session and self.agent.session.plan_mode_enabled
+        )
+
+    def _clear_intent_assist_state(self):
+        if self._intent_assist_row is not None:
+            try:
+                self._remove_chat_control(self._intent_assist_row)
+            except Exception:
+                pass
+            self._intent_assist_row = None
+        self._intent_assist_prompt = None
+        self._intent_assist_kind = None
+        self._safe_page_update()
+
+    def _should_suppress_intent_detection(self, message: str, *, plan_enabled: bool) -> bool:
+        text = (message or "").strip()
+        # Execution intent in plan mode often comes in short imperative phrases
+        # (e.g., "lets build"), so keep a lower cutoff there.
+        min_len = 7 if plan_enabled else 12
+        if len(text) < min_len:
+            return True
+        if len(text.split()) < 3:
+            if not (plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())):
+                return True
+        if message == Agent.PLAN_EXECUTE_PROMPT:
+            return True
+        return False
+
+    def _detect_plan_intent(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        strong_phrases = (
+            "make a plan",
+            "implementation plan",
+            "before coding",
+            "steps to build",
+            "plan this",
+            "create a plan",
+            "draft a plan",
+            "what is the plan",
+            "outline the plan",
+        )
+        if any(p in text for p in strong_phrases):
+            return True
+
+        # Product-building intent should default to planning assist.
+        build_intent_markers = (
+            "i want to build",
+            "i want to create",
+            "help me build",
+            "help me create",
+            "how should i build",
+            "how do i build",
+            "design a",
+            "build a",
+            "create a",
+            "architect a",
+        )
+        product_targets = (
+            "app",
+            "game",
+            "website",
+            "web app",
+            "tool",
+            "platform",
+            "system",
+            "project",
+            "feature",
+            "api",
+            "dashboard",
+        )
+        if any(m in text for m in build_intent_markers) and any(t in text for t in product_targets):
+            return True
+
+        if bool(re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text):
+            return True
+
+        return False
+
+    def _detect_execution_intent(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        phrases = (
+            "implement now",
+            "go ahead and build",
+            "apply the changes",
+            "start coding",
+            "execute this",
+            "ship it",
+            "go implement",
+            "build it now",
+            "start implementation",
+            "let's build",
+            "lets build",
+            "let's implement",
+            "lets implement",
+            "let us build",
+            "let us implement",
+            "build then",
+            "implement then",
+            "lets built",
+            "let's built",
+        )
+        if any(p in text for p in phrases):
+            return True
+        # Natural imperative forms should trigger even without explicit "now/this/it".
+        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text)):
+            return True
+        if bool(re.search(r"\b(build|implement|start coding|execute)\b", text) and re.search(r"\b(then|next)\b", text)):
+            return True
+        return bool(
+            re.search(r"\b(implement|build|built|code|execute|apply)\b", text)
+            and re.search(r"\b(now|this|it|changes)\b", text)
+        )
+
+    def _show_intent_assist_panel(self, kind: str, prompt: str):
+        if not self.messages_column:
+            return
+
+        self._intent_assist_prompt = prompt
+        self._intent_assist_kind = kind
+
+        if kind == "plan":
+            title = "Enable Plan Mode?"
+            body = "This prompt looks like planning. Switch to Plan mode before sending?"
+            primary_label = "Enable Plan Mode"
+            secondary_label = "Send Normally"
+            primary_action = lambda _e: self.page.run_task(self._intent_accept_plan_mode) if self.page else None
+            secondary_action = lambda _e: self.page.run_task(self._intent_send_without_switch) if self.page else None
+        else:
+            title = "Run In Execution Mode?"
+            body = "This prompt looks like execution while Plan mode is ON."
+            primary_label = "Turn Off Plan Mode & Continue"
+            secondary_label = "Stay in Plan Mode"
+            primary_action = lambda _e: self.page.run_task(self._intent_disable_plan_mode_and_send) if self.page else None
+            secondary_action = lambda _e: self.page.run_task(self._intent_send_without_switch) if self.page else None
+
+        primary_button = ft.FilledButton(
+            primary_label,
+            on_click=primary_action,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: ft.Colors.WHITE, ft.ControlState.HOVERED: "#F3F3F3"},
+                color=ft.Colors.BLACK,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+        secondary_button = ft.OutlinedButton(
+            secondary_label,
+            on_click=secondary_action,
+            style=ft.ButtonStyle(
+                side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
+                color=TEXT_SECONDARY,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+
+        card = ft.Container(
+            width=SPECIAL_CARD_WIDTH,
+            border=ft.Border.all(1, HAIRLINE),
+            border_radius=RADIUS_MD,
+            bgcolor=SURFACE_ELEVATED,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content=ft.Column(
+                [
+                    ft.Text(title, size=TYPE_TITLE, color=TEXT_PRIMARY, weight=ft.FontWeight.W_700),
+                    ft.Text(body, size=TYPE_BODY, color=TEXT_SECONDARY),
+                    ft.Text("Shortcut: Ctrl+Tab toggles Plan Mode", size=TYPE_SM, color=TEXT_MUTED),
+                    ft.Row([secondary_button, primary_button], alignment=ft.MainAxisAlignment.END),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+        )
+        row = self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        if self._intent_assist_row is not None:
+            try:
+                self._remove_chat_control(self._intent_assist_row)
+            except Exception:
+                pass
+        self._intent_assist_row = row
+        self._append_chat_control(row)
+        self._safe_page_update()
+        self._scroll_chat_to_bottom(force=True)
+
+    async def _intent_accept_plan_mode(self):
+        prompt = (self._intent_assist_prompt or "").strip()
+        if not prompt:
+            self._clear_intent_assist_state()
+            return
+        await self._run_plan_mode_toggle_flow(
+            target_enabled=True,
+            post_toggle_callback=lambda: self._send_pending_intent_prompt(prompt),
+        )
+
+    async def _intent_disable_plan_mode_and_send(self):
+        prompt = (self._intent_assist_prompt or "").strip()
+        if not prompt:
+            self._clear_intent_assist_state()
+            return
+        await self._run_plan_mode_toggle_flow(
+            target_enabled=False,
+            post_toggle_callback=lambda: self._send_pending_intent_prompt(prompt),
+        )
+
+    async def _intent_send_without_switch(self):
+        prompt = (self._intent_assist_prompt or "").strip()
+        kind = self._intent_assist_kind
+        plan_enabled = self._is_plan_mode_enabled()
+        self._clear_intent_assist_state()
+        if prompt:
+            # If user chose to stay in plan mode from an execution-intent prompt,
+            # reframe to planning so the agent quickly enters question/plan flow.
+            if kind == "execute" and plan_enabled:
+                self._add_assistant_card(
+                    "Plan Mode",
+                    ft.Text(
+                        "Plan mode remains enabled. I will ask clarifying questions and produce a plan.",
+                        color=TEXT_SECONDARY,
+                    ),
+                )
+                prompt = (
+                    f"{prompt}\n\n"
+                    "Stay in plan mode. Do not execute changes yet. "
+                    "Ask clarifying questions first, then provide an implementation plan."
+                )
+            self._dispatch_message(prompt)
+
+    async def _send_pending_intent_prompt(self, prompt: str):
+        self._clear_intent_assist_state()
+        cleaned = (prompt or "").strip()
+        if cleaned:
+            self._dispatch_message(cleaned)
+
+    async def _run_plan_mode_toggle_flow(
+        self,
+        *,
+        target_enabled: bool | None = None,
+        announce_shortcut_notice: bool = False,
+        post_toggle_callback: Callable[[], Awaitable[None] | None] | None = None,
+    ):
+        self._clear_intent_assist_state()
+        await self._ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+        session = self.agent.session
+
+        current = bool(session.plan_mode_enabled)
+        desired = (not current) if target_enabled is None else bool(target_enabled)
+
+        if desired != current:
+            session.set_plan_mode(desired)
+            if desired:
+                session.set_plan_phase("idle")
+                self._plan_question_count = 0
+                await self._show_plan_resume_options_if_available()
+            else:
+                session.plan_questions_asked = 0
+                self._plan_question_count = 0
+                self._plan_ready_prompt_open = False
+            self._sync_plan_toggle_ui()
+
+        if announce_shortcut_notice:
+            self._show_transient_notice(
+                "Plan mode enabled." if session.plan_mode_enabled else "Plan mode disabled."
+            )
+
+        if post_toggle_callback:
+            maybe = post_toggle_callback()
+            if asyncio.iscoroutine(maybe):
+                await maybe
+
+    def _on_keyboard_event(self, e: ft.KeyboardEvent):
+        if self.app_mode != "chat":
+            return
+        key = str(getattr(e, "key", "") or "").lower()
+        ctrl = bool(getattr(e, "ctrl", False))
+        if ctrl and key == "tab" and self.page:
+            self.page.run_task(self._toggle_plan_mode_from_shortcut)
+
+    async def _toggle_plan_mode_from_shortcut(self):
+        if self.app_mode != "chat":
+            return
+        if self._intent_assist_prompt and self._intent_assist_kind == "plan":
+            prompt = self._intent_assist_prompt
+            await self._run_plan_mode_toggle_flow(
+                target_enabled=True,
+                announce_shortcut_notice=True,
+                post_toggle_callback=lambda: self._send_pending_intent_prompt(prompt),
+            )
+            return
+        if self._intent_assist_prompt and self._intent_assist_kind == "execute":
+            prompt = self._intent_assist_prompt
+            await self._run_plan_mode_toggle_flow(
+                target_enabled=False,
+                announce_shortcut_notice=True,
+                post_toggle_callback=lambda: self._send_pending_intent_prompt(prompt),
+            )
+            return
+
+        await self._run_plan_mode_toggle_flow(
+            target_enabled=None,
+            announce_shortcut_notice=True,
+        )
 
     def _show_transient_notice(self, message: str):
         if not self.page:
@@ -316,6 +624,17 @@ class GUIApp(
             )
             return
 
+        if not message.startswith("/"):
+            plan_enabled = self._is_plan_mode_enabled()
+            if self._should_suppress_intent_detection(message, plan_enabled=plan_enabled):
+                self._dispatch_message(message)
+                return
+            if not plan_enabled and self._detect_plan_intent(message):
+                self._show_intent_assist_panel("plan", message)
+                return
+            if plan_enabled and self._detect_execution_intent(message):
+                self._show_intent_assist_panel("execute", message)
+                return
         self._dispatch_message(message)
 
     def _dispatch_message(self, message: str):
@@ -420,6 +739,7 @@ class GUIApp(
     def _reset_turn_ui_state(self):
         self._active_turn_task = None
         self._is_turn_running = False
+        self._clear_intent_assist_state()
         self._hide_thinking_indicator()
         self._set_loading(False)
 
@@ -632,25 +952,12 @@ class GUIApp(
             self._safe_control_update(self.plan_toggle_button)
 
     async def _toggle_plan_mode(self):
-        await self._ensure_agent()
-        if not self.agent or not self.agent.session:
-            return
-        session = self.agent.session
-        session.set_plan_mode(not session.plan_mode_enabled)
-        if session.plan_mode_enabled:
-            session.set_plan_phase("idle")
-            self._plan_question_count = 0
-            await self._show_plan_resume_options_if_available()
-        else:
-            session.plan_questions_asked = 0
-            self._plan_question_count = 0
-        if not session.plan_mode_enabled:
-            self._plan_ready_prompt_open = False
-        self._sync_plan_toggle_ui()
+        await self._run_plan_mode_toggle_flow(target_enabled=None)
+        after = self._is_plan_mode_enabled()
         self._add_assistant_card(
             "Plan Mode",
             ft.Text(
-                f"Plan mode {'enabled' if session.plan_mode_enabled else 'disabled'}.",
+                f"Plan mode {'enabled' if after else 'disabled'}.",
                 color=TEXT_SECONDARY,
             ),
         )

@@ -19,6 +19,7 @@ class LayoutBuilderMixin:
         page.window.min_height = 760
         page.run_task(self._center_window)
         page.on_close = self._on_close
+        page.on_keyboard_event = self._on_keyboard_event
 
         self._build_ui(page)
 
