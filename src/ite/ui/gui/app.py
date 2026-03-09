@@ -120,6 +120,50 @@ class GUIApp(
         self._scroll_request_id = 0
         self._defer_ui_updates: bool = False
 
+    def _has_active_turn(self) -> bool:
+        if self._is_turn_running:
+            return True
+        task = self._active_turn_task
+        return bool(task and hasattr(task, "done") and not task.done())
+
+    def _show_transient_notice(self, message: str):
+        if not self.page:
+            return
+        snack = ft.SnackBar(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.INFO_OUTLINED, size=16, color=ACCENT),
+                    ft.Text(message, color=TEXT_PRIMARY, size=TYPE_MD),
+                ],
+                spacing=8,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            bgcolor=SURFACE_ELEVATED,
+            duration=2800,
+            show_close_icon=False,
+        )
+        try:
+            if hasattr(self.page, "show_snack_bar"):
+                self.page.show_snack_bar(snack)
+                return
+            if hasattr(self.page, "open"):
+                self.page.open(snack)
+                return
+            self.page.snack_bar = snack
+            self.page.snack_bar.open = True
+            self.page.update()
+        except RuntimeError as ex:
+            if "destroyed session" in str(ex).lower():
+                self._is_closing = True
+        except Exception:
+            pass
+        # Last-resort visible fallback if snack APIs are unavailable.
+        self._add_assistant_card(
+            "Notice",
+            ft.Text(message, color=TEXT_SECONDARY),
+        )
+
     def _is_page_alive(self) -> bool:
         if self._is_closing or not self.page:
             return False

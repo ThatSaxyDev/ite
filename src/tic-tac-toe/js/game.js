@@ -60,7 +60,7 @@ function init() {
 
     // Camera
     camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 8, 10);
+    camera.position.set(0, 6, 8);
     camera.lookAt(0, 0, 0);
 
     // Renderer
@@ -131,9 +131,9 @@ function createBoard() {
 
         const tileGeometry = new THREE.BoxGeometry(CONFIG.tileSize, 0.6, CONFIG.tileSize);
         const tileMaterial = new THREE.MeshStandardMaterial({
-            color: CONFIG.colors.tile,
+            color: 0x3a3a6e,
             emissive: CONFIG.colors.tile,
-            emissiveIntensity: 0.1,
+            emissiveIntensity: 0.3,
             metalness: 0.5,
             roughness: 0.5
         });
@@ -320,32 +320,21 @@ function onMouseMove(event) {
     const intersects = raycaster.intersectObjects(tiles);
     
     // Reset previous hover
-    if (hoveredTile && (!intersects.length || intersects[0].object.userData.index !== hoveredTile.userData.index)) {
-        if (hoveredTile.userData.isHitbox) {
-            // Find the actual tile to reset
-            const tileMesh = tileGroup.children.find(c => c.userData.index === hoveredTile.userData.index && !c.userData.isHitbox);
-            if (tileMesh) {
-                tileMesh.material.color.setHex(CONFIG.colors.tile);
-                tileMesh.material.emissiveIntensity = 0.1;
-            }
-        } else {
-            hoveredTile.material.color.setHex(CONFIG.colors.tile);
-            hoveredTile.material.emissiveIntensity = 0.1;
-        }
+    if (hoveredTile) {
+        hoveredTile.material.color.setHex(0x3a3a6e);
+        hoveredTile.material.emissiveIntensity = 0.3;
         hoveredTile = null;
+        document.body.style.cursor = 'default';
     }
     
     // Set new hover
     if (intersects.length > 0 && !gameState.gameOver) {
-        const hitObj = intersects[0].object;
-        if (gameState.board[hitObj.userData.index] === null) {
-            hoveredTile = hitObj;
-            // Find and highlight the actual tile
-            const tileMesh = tileGroup.children.find(c => c.userData.index === hitObj.userData.index && !c.userData.isHitbox);
-            if (tileMesh) {
-                tileMesh.material.color.setHex(CONFIG.colors.tileHover);
-                tileMesh.material.emissiveIntensity = 0.3;
-            }
+        const tile = intersects[0].object;
+        if (gameState.board[tile.userData.index] === null) {
+            hoveredTile = tile;
+            tile.material.color.setHex(0x7a7aae);
+            tile.material.emissiveIntensity = 0.6;
+            document.body.style.cursor = 'pointer';
         }
     }
 }

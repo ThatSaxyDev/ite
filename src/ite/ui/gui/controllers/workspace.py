@@ -187,6 +187,14 @@ class WorkspaceControllerMixin:
     def _on_sidebar_session_click(self, session_id: str):
         if not self.page:
             return
+        if self._has_active_turn():
+            self._show_transient_notice(
+                "A process is running. Stop it first before switching threads."
+            )
+            return
+        if self.loading_session_id is not None:
+            self._show_transient_notice("A thread is already loading. Please wait.")
+            return
         if self.loading_session_id == session_id:
             return
         self.loading_session_id = session_id
