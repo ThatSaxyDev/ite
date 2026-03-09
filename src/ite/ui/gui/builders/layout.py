@@ -607,6 +607,27 @@ class LayoutBuilderMixin:
                 shape=ft.CircleBorder(),
             ),
         )
+        self.attach_button = ft.IconButton(
+            icon=ft.Icons.ATTACH_FILE_ROUNDED,
+            width=24,
+            height=24,
+            tooltip="Attach files",
+            on_click=self._open_attach_picker,
+            icon_color=TEXT_SECONDARY,
+            icon_size=14,
+            style=ft.ButtonStyle(
+                padding=0,
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_MD),
+            ),
+        )
+        self.attachments_row = ft.Row(
+            [],
+            wrap=True,
+            spacing=8,
+            run_spacing=6,
+            visible=False,
+        )
         composer_lane = ft.Container(
             width=CONTENT_LANE_WIDTH,
             border=ft.Border.all(1, BORDER),
@@ -616,18 +637,23 @@ class LayoutBuilderMixin:
             content=ft.Column(
                 [
                     ft.Container(
+                        content=self.attachments_row,
+                        padding=ft.Padding.only(top=8),
+                    ),
+                    ft.Container(
                         content=self.input_field,
                         expand=True,
                     ),
                     ft.Row(
                         [
+                            self.attach_button,
                             self.model_selector,
                             self.plan_toggle_button,
                             ft.Container(expand=True),
                             self.branch_controls_row,
                             self.send_button,
                         ],
-                        spacing=10,
+                        spacing=6,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ],
@@ -667,6 +693,8 @@ class LayoutBuilderMixin:
         is_busy = self._is_turn_running
         if self.input_field:
             self.input_field.disabled = is_busy
+        if self.attach_button:
+            self.attach_button.disabled = is_busy
         self._refresh_action_button()
         if self.page:
             self._safe_page_update()

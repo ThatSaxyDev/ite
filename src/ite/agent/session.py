@@ -43,6 +43,7 @@ class Session:
         self.plan_questions_asked: int = 0
         self.plan_target_questions: int = 3
         self.pending_plan_text: str | None = None
+        self.pending_attachment_paths: list[str] = []
 
         self._turn_count = 0
 
@@ -149,6 +150,7 @@ class Session:
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
             "pending_plan_available": self.has_pending_plan(),
+            "pending_attachments": len(self.pending_attachment_paths),
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
             "tool_discovery_errors": len(self.discovery_manager.errors),

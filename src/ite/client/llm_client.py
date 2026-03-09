@@ -129,10 +129,13 @@ class LLMClient:
 
             msg: dict[str, Any] = {"role": role}
             content = raw.get("content")
-
-            # OpenAI-compatible providers can reject missing/null content.
-            # Keep content consistently string-typed for all roles.
-            msg["content"] = "" if content is None else str(content)
+            if role == "user" and isinstance(content, list):
+                # Preserve multimodal user content parts.
+                msg["content"] = content
+            else:
+                # OpenAI-compatible providers can reject missing/null content.
+                # Keep non-multimodal content consistently string-typed.
+                msg["content"] = "" if content is None else str(content)
 
             tool_call_id = raw.get("tool_call_id")
             if tool_call_id is not None:

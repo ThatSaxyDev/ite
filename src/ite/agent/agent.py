@@ -35,7 +35,7 @@ class Agent:
         self.session.approval_manager.confirmation_callback = confirmation_callback
         self.plan_question_callback = plan_question_callback
 
-    async def run(self, message: str):
+    async def run(self, message: str, user_model_content: str | list[dict] | None = None):
         session = self.session
         if session is None:
             yield AgentEvent.agent_error("Session is not available.")
@@ -54,7 +54,11 @@ class Agent:
             session.set_plan_phase("asking_questions")
         final_response: str | None = None
 
-        async for event in self._agentic_loop(session):
+        async for event in self._agentic_loop(
+            session,
+            latest_user_text=message,
+            latest_user_model_content=user_model_content,
+        ):
             yield event
 
             if event.type == AgentEventType.TEXT_COMPLETE:
@@ -66,7 +70,13 @@ class Agent:
 
         yield AgentEvent.agent_end(final_response)
 
-    async def _agentic_loop(self, session: Session) -> AsyncGenerator[AgentEvent, None]:
+    async def _agentic_loop(
+        self,
+        session: Session,
+        *,
+        latest_user_text: str,
+        latest_user_model_content: str | list[dict] | None = None,
+    ) -> AsyncGenerator[AgentEvent, None]:
         max_turns = self.config.max_turns
 
         for turn_num in range(max_turns):
@@ -112,8 +122,15 @@ class Agent:
             usage: TokenUsage | None = None
             stream_error: str | None = None
 
+            outbound_messages = session.context_manager.get_messages()
+            if latest_user_model_content is not None:
+                for msg in reversed(outbound_messages):
+                    if msg.get("role") == "user" and msg.get("content") == latest_user_text:
+                        msg["content"] = latest_user_model_content
+                        break
+
             async for event in session.client.chat_completion(
-                session.context_manager.get_messages(),
+                outbound_messages,
                 tools=tool_schemas if tool_schemas else None,
                 stream=True,
             ):

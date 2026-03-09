@@ -3,10 +3,17 @@ from __future__ import annotations
 import asyncio
 import re
 import flet as ft
+from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Awaitable, Callable
 
 from ite.agent.agent import Agent
+from ite.attachments import (
+    Attachment,
+    AttachmentManager,
+    MAX_ATTACHMENTS,
+    build_user_model_content,
+)
 from ite.commands import build_registry
 from ite.config.config import Config
 from ite.config.loader import save_system_config
@@ -44,6 +51,8 @@ class GUIApp(
         self.chat_bottom_spacer: ft.Container | None = None
         self.input_field: ft.TextField | None = None
         self.send_button: ft.IconButton | None = None
+        self.attach_button: ft.IconButton | None = None
+        self.attachments_row: ft.Row | None = None
         self.loading_indicator: ft.ProgressRing | None = None
         self.model_selector: ft.Control | None = None
         self.model_selector_text: ft.Text | None = None
@@ -130,6 +139,7 @@ class GUIApp(
         self._composer_history_index: int | None = None
         self._composer_history_draft: str = ""
         self._composer_input_focused: bool = False
+        self._pending_attachment_paths: list[str] = []
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -427,6 +437,165 @@ class GUIApp(
         self._composer_history_index = None
         self._composer_history_draft = ""
 
+    def _render_attachment_chips(self):
+        if not self.attachments_row:
+            return
+        chips: list[ft.Control] = []
+        for idx, raw in enumerate(self._pending_attachment_paths):
+            p = Path(raw)
+            chips.append(
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Text(p.name, size=TYPE_SM, color=TEXT_SECONDARY),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_size=12,
+                                width=20,
+                                height=20,
+                                tooltip="Remove",
+                                on_click=lambda _e, i=idx: self._remove_attachment_at(i),
+                                style=ft.ButtonStyle(
+                                    padding=0,
+                                    bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                                ),
+                            ),
+                        ],
+                        spacing=4,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border=ft.Border.all(1, HAIRLINE),
+                    border_radius=RADIUS_SM,
+                    bgcolor=SURFACE_2,
+                )
+            )
+        self.attachments_row.controls = chips
+        self.attachments_row.visible = bool(chips)
+        self._safe_control_update(self.attachments_row)
+
+    def _remove_attachment_at(self, index: int):
+        if index < 0 or index >= len(self._pending_attachment_paths):
+            return
+        self._pending_attachment_paths.pop(index)
+        self._render_attachment_chips()
+
+    def _clear_pending_attachments(self):
+        self._pending_attachment_paths = []
+        self._render_attachment_chips()
+
+    def _queue_attachments(self, paths: list[str]):
+        added = 0
+        for raw in paths:
+            p = str(Path(raw).expanduser())
+            if p in self._pending_attachment_paths:
+                continue
+            if len(self._pending_attachment_paths) >= MAX_ATTACHMENTS:
+                self._show_transient_notice(f"Max attachments reached ({MAX_ATTACHMENTS}).")
+                break
+            self._pending_attachment_paths.append(p)
+            added += 1
+        if added:
+            self._render_attachment_chips()
+            self._show_transient_notice(f"Attached {added} file(s).")
+
+    def _open_attach_picker(self, _e=None):
+        if self.page:
+            self.page.run_task(self._open_attach_picker_async)
+
+    async def _open_attach_picker_async(self):
+        if not self.page:
+            return
+        try:
+            picker = ft.FilePicker()
+            picked = picker.pick_files(allow_multiple=True)
+            files = await picked if asyncio.iscoroutine(picked) else picked
+            files = files or []
+            paths = [f.path for f in files if getattr(f, "path", None)]
+            if paths:
+                self._queue_attachments(paths)
+            return
+        except Exception:
+            self._show_transient_notice("File picker unavailable in this runtime.")
+
+    def _consume_dropped_path_text(self, message: str) -> bool:
+        raw_lines = [
+            line.strip().strip('"').strip("'")
+            for line in (message or "").splitlines()
+            if line.strip()
+        ]
+        if not raw_lines:
+            return False
+        if len(raw_lines) > MAX_ATTACHMENTS:
+            return False
+        paths: list[str] = []
+        for line in raw_lines:
+            p = Path(line).expanduser()
+            if not p.exists() or not p.is_file():
+                return False
+            paths.append(str(p))
+        self._queue_attachments(paths)
+        if self.input_field:
+            self.input_field.value = ""
+            self._safe_control_update(self.input_field)
+        self._show_transient_notice("File path(s) detected and queued as attachments.")
+        return True
+
+    def _prepare_attachments_for_turn(
+        self,
+        message: str,
+        turn_id: int,
+    ) -> tuple[str, str | list[dict] | None, str | None, list[Attachment]] | None:
+        if not self._pending_attachment_paths:
+            return message, None, None, []
+
+        manager = AttachmentManager(self.config.cwd)
+        temp_turn_id = f"gui_{turn_id}"
+        staged, errors = manager.stage_paths(self._pending_attachment_paths, temp_turn_id)
+        if errors:
+            self._add_assistant_card(
+                "Attachments",
+                ft.Column(
+                    [ft.Text(err, size=TYPE_SM, color=ft.Colors.AMBER_200) for err in errors],
+                    spacing=4,
+                    tight=True,
+                ),
+            )
+        if not staged:
+            return None
+
+        model_content = build_user_model_content(message, staged, self.config.cwd)
+        self._clear_pending_attachments()
+        return message, model_content, temp_turn_id, staged
+
+    def _add_user_attachment_preview(self, attachments: list[Attachment]):
+        if not attachments or not self.messages_column:
+            return
+        images = [a for a in attachments if a.kind == "image"]
+        if not images:
+            return
+        image_fit = "cover"
+        if hasattr(ft, "ImageFit"):
+            try:
+                image_fit = ft.ImageFit.COVER
+            except Exception:
+                image_fit = "cover"
+        tiles: list[ft.Control] = []
+        for img in images[:MAX_ATTACHMENTS]:
+            tiles.append(
+                ft.Container(
+                    width=72,
+                    height=72,
+                    border=ft.Border.all(1, HAIRLINE),
+                    border_radius=RADIUS_SM,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                    content=ft.Image(src=img.source_path, fit=image_fit),
+                )
+            )
+        row = ft.Row(tiles, spacing=6, alignment=ft.MainAxisAlignment.END)
+        self._append_chat_control(self._wrap_in_lane(row))
+
     def _record_composer_history(self, message: str):
         text = (message or "").strip()
         if not text:
@@ -601,13 +770,22 @@ class GUIApp(
             self.messages_column.controls.remove(control)
         self._ensure_chat_bottom_spacer()
 
-    async def _run_agent(self, message: str, turn_id: int):
+    async def _run_agent(
+        self,
+        message: str,
+        turn_id: int,
+        user_model_content: str | list[dict] | None = None,
+        temp_attachment_turn_id: str | None = None,
+        display_message: str | None = None,
+        staged_attachments: list[Attachment] | None = None,
+    ):
         try:
             if turn_id != self._active_turn_id:
                 return
             self._is_turn_running = True
             self._set_loading(True)
-            self._add_message("user", message)
+            self._add_user_attachment_preview(staged_attachments or [])
+            self._add_message("user", (display_message if display_message is not None else message))
             self._show_thinking_indicator()
             await self._ensure_agent()
 
@@ -615,7 +793,7 @@ class GUIApp(
                 self._add_message("system", "Error: agent not initialized", is_error=True)
                 return
 
-            async for event in self.agent.run(message):
+            async for event in self.agent.run(message, user_model_content=user_model_content):
                 if turn_id != self._active_turn_id:
                     return
                 await self._handle_agent_event(event)
@@ -635,6 +813,8 @@ class GUIApp(
             if turn_id == self._active_turn_id:
                 self._add_message("system", f"Error: {str(e)}", is_error=True)
         finally:
+            if temp_attachment_turn_id:
+                AttachmentManager(self.config.cwd).cleanup_turn(temp_attachment_turn_id)
             if turn_id == self._active_turn_id:
                 self._stop_requested_by_user = False
                 self._is_turn_running = False
@@ -669,6 +849,8 @@ class GUIApp(
 
         message = self.input_field.value.strip()
         if not message:
+            return
+        if not message.startswith("/") and self._consume_dropped_path_text(message):
             return
 
         normalized = self._normalize_plan_execution_request(message)
@@ -718,8 +900,22 @@ class GUIApp(
             else:
                 self._active_turn_id += 1
                 turn_id = self._active_turn_id
-                self._active_turn_task = self.page.run_task(self._run_agent, message, turn_id)
+                prepared = self._prepare_attachments_for_turn(message, turn_id)
+                if prepared is None:
+                    return
+                prepared_message, user_model_content, temp_turn_id, staged = prepared
+                self._active_turn_task = self.page.run_task(
+                    self._run_agent,
+                    prepared_message,
+                    turn_id,
+                    user_model_content,
+                    temp_turn_id,
+                    message,
+                    staged,
+                )
         except Exception as ex:
+            if "temp_turn_id" in locals() and temp_turn_id:
+                AttachmentManager(self.config.cwd).cleanup_turn(temp_turn_id)
             self._add_message(
                 "system",
                 f"Error: failed to start agent task: {ex}",

@@ -9,6 +9,7 @@ from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
 from ite.agent.session_manager import SessionSnapshot, SessionManager
+from ite.attachments import AttachmentManager, build_user_model_content, build_user_text_with_manifest
 import click
 import asyncio
 import signal
@@ -76,7 +77,7 @@ class CLI:
         self.tui.print_welcome(
             model=self.config.model_name,
             cwd=self.config.cwd,
-            commands=["/help", "/subagent", "/config", "/model", "/plan", "/branch", "/exit"],
+            commands=["/help", "/subagent", "/config", "/model", "/plan", "/branch", "/attach", "/exit"],
         )
         async with Agent(
             config=self.config,
@@ -109,9 +110,38 @@ class CLI:
                         self._last_dispatched_message = user_input
                         self._last_user_message_for_retry = user_input
 
+                        user_model_content = None
+                        attachment_turn_id: str | None = None
+                        if self.agent and self.agent.session and self.agent.session.pending_attachment_paths:
+                            manager = AttachmentManager(self.config.cwd)
+                            attachment_turn_id = f"tui_{self.agent.session.session_id}_{self.agent.session.turn_count + 1}"
+                            staged, errors = manager.stage_paths(
+                                self.agent.session.pending_attachment_paths,
+                                attachment_turn_id,
+                            )
+                            if errors:
+                                for err in errors:
+                                    console.print(f"[warning]{err}[/warning]")
+                            if staged:
+                                user_model_content = build_user_model_content(
+                                    user_input,
+                                    staged,
+                                    self.config.cwd,
+                                )
+                                user_input = build_user_text_with_manifest(
+                                    user_input,
+                                    staged,
+                                    self.config.cwd,
+                                )
+                            self.agent.session.pending_attachment_paths = []
+
                         # Run agent in a cancellable task with SIGINT → cancel
                         response_task = asyncio.create_task(
-                            self._process_message(user_input)
+                            self._process_message(
+                                user_input,
+                                user_model_content=user_model_content,
+                                attachment_turn_id=attachment_turn_id,
+                            )
                         )
 
                         loop = asyncio.get_running_loop()
@@ -545,7 +575,12 @@ class CLI:
             return None
         return tool.kind.value
 
-    async def _process_message(self, message: str) -> str | None:
+    async def _process_message(
+        self,
+        message: str,
+        user_model_content: str | list[dict] | None = None,
+        attachment_turn_id: str | None = None,
+    ) -> str | None:
         if not self.agent:
             return None
 
@@ -554,155 +589,157 @@ class CLI:
 
         # Start spinner while waiting for LLM
         self.tui.start_spinner("Thinking...")
+        try:
+            async for event in self.agent.run(message, user_model_content=user_model_content):
+                if event.type == AgentEventType.TEXT_DELTA:
+                    content = event.data.get("content", "")
+                    if not assistant_streaming:
+                        self.tui.stop_spinner()
+                        self.tui.begin_assistant()
+                        assistant_streaming = True
+                    self.tui.stream_assistant_delta(content)
 
-        async for event in self.agent.run(message):
-            # print(event)
-            if event.type == AgentEventType.TEXT_DELTA:
-                content = event.data.get("content", "")
-                if not assistant_streaming:
+                elif event.type == AgentEventType.TEXT_COMPLETE:
+                    final_response = event.data.get("content")
                     self.tui.stop_spinner()
-                    self.tui.begin_assistant()
-                    assistant_streaming = True
-                self.tui.stream_assistant_delta(content)
+                    if assistant_streaming:
+                        self.tui.end_assistant()
+                        assistant_streaming = False
+                    elif final_response:
+                        # Plan mode may suppress text deltas before final output.
+                        # Render complete assistant output in one shot.
+                        self.tui.begin_assistant()
+                        self.tui.stream_assistant_delta(final_response)
+                        self.tui.end_assistant()
 
-            elif event.type == AgentEventType.TEXT_COMPLETE:
-                final_response = event.data.get("content")
-                self.tui.stop_spinner()
-                if assistant_streaming:
-                    self.tui.end_assistant()
-                    assistant_streaming = False
-                elif final_response:
-                    # Plan mode may suppress text deltas before final output.
-                    # Render complete assistant output in one shot.
-                    self.tui.begin_assistant()
-                    self.tui.stream_assistant_delta(final_response)
-                    self.tui.end_assistant()
+                elif event.type == AgentEventType.AGENT_ERROR:
+                    self.tui.stop_spinner()
+                    error = event.data.get("error", "Unknown error")
+                    if "Maximum turns" in str(error):
+                        console.print("\n[warning]Turn limit reached before completion.[/warning]")
+                        handled = await self._run_tui_recovery_flow(
+                            reason="Maximum turns reached.",
+                        )
+                        if handled:
+                            await self._auto_save()
+                    else:
+                        console.print(f"\n[error]Error: {error}[/error]")
 
-            elif event.type == AgentEventType.AGENT_ERROR:
-                self.tui.stop_spinner()
-                error = event.data.get("error", "Unknown error")
-                if "Maximum turns" in str(error):
-                    console.print("\n[warning]Turn limit reached before completion.[/warning]")
-                    handled = await self._run_tui_recovery_flow(
-                        reason="Maximum turns reached.",
+                elif event.type == AgentEventType.TOOL_CALL_START:
+                    self.tui.stop_spinner()
+                    tool_name = event.data.get("name", "Unknown tool")
+                    plan_only_phase = bool(
+                        self.agent
+                        and self.agent.session
+                        and self.agent.session.plan_mode_enabled
+                        and self.agent.session.plan_phase != "executing"
                     )
-                    if handled:
-                        await self._auto_save()
-                else:
-                    console.print(f"\n[error]Error: {error}[/error]")
-
-            elif event.type == AgentEventType.TOOL_CALL_START:
-                self.tui.stop_spinner()
-                tool_name = event.data.get("name", "Unknown tool")
-                plan_only_phase = bool(
-                    self.agent
-                    and self.agent.session
-                    and self.agent.session.plan_mode_enabled
-                    and self.agent.session.plan_phase != "executing"
-                )
-                if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"} or plan_only_phase:
+                    if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"} or plan_only_phase:
+                        self.tui.start_spinner("Running")
+                        continue
+                    tool_kind = self._get_tool_kind(tool_name)
+                    self.tui.tool_call_start(
+                        event.data.get("call_id", ""),
+                        tool_name,
+                        tool_kind,
+                        event.data.get("arguments", {}),
+                    )
                     self.tui.start_spinner("Running")
-                    continue
-                tool_kind = self._get_tool_kind(tool_name)
-                self.tui.tool_call_start(
-                    event.data.get("call_id", ""),
-                    tool_name,
-                    tool_kind,
-                    event.data.get("arguments", {}),
-                )
-                self.tui.start_spinner("Running")
 
-            elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
-                self.tui.stop_spinner()
-                tool_name = event.data.get("name", "Unknown tool")
-                plan_only_phase = bool(
-                    self.agent
-                    and self.agent.session
-                    and self.agent.session.plan_mode_enabled
-                    and self.agent.session.plan_phase != "executing"
-                )
-                if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"}:
-                    self.tui.start_spinner("Thinking...")
-                    continue
-                if (
-                    plan_only_phase
-                    and not event.data.get("success", False)
-                    and str(event.data.get("error") or "").startswith("Invalid parameters:")
-                ):
-                    # In planning phase, model may probe tool schemas with partial calls.
-                    # Keep this out of user transcript to reduce noise.
-                    self.tui.start_spinner("Thinking...")
-                    continue
-                if plan_only_phase and event.data.get("success", False):
-                    self.tui.start_spinner("Thinking...")
-                    continue
-                tool_kind = self._get_tool_kind(tool_name)
-                self.tui.tool_call_complete(
-                    call_id=event.data.get("call_id", ""),
-                    name=tool_name,
-                    tool_kind=tool_kind,
-                    success=event.data.get("success", False),
-                    output=event.data.get("output", ""),
-                    error=event.data.get("error"),
-                    metadata=event.data.get("metadata"),
-                    diff=event.data.get("diff"),
-                    truncated=event.data.get("truncated", False),
-                    exit_code=event.data.get("exit_code"),
-                )
-                # Restart spinner while LLM processes tool results
-                self.tui.start_spinner("Thinking...")
-
-            elif event.type == AgentEventType.LOOP_DETECTED:
-                self.tui.stop_spinner()
-                message = event.data.get("message", "Repetitive pattern detected")
-                console.print(
-                    f"\n[bold yellow]⚠ Loop detected:[/bold yellow] [yellow]{message}[/yellow]"
-                )
-                self.tui.start_spinner("Recovering...")
-
-            elif event.type == AgentEventType.CONTEXT_COMPACTED:
-                self.tui.stop_spinner()
-                trigger_tokens = int(event.data.get("trigger_tokens", 0))
-                context_window = int(event.data.get("context_window", 0))
-                used_pct = (trigger_tokens / context_window * 100) if context_window else 0
-                console.print(
-                    f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
-                )
-                self.tui.start_spinner("Thinking...")
-
-            elif event.type == AgentEventType.PLAN_READY:
-                self.tui.stop_spinner()
-                plan_text = event.data.get("plan_text", "")
-                if not isinstance(plan_text, str) or not plan_text.strip():
-                    if self.agent and self.agent.session:
-                        self.agent.session.set_plan_phase("writing_plan")
-                    await self._process_message(
-                        "Write the complete final implementation plan now before asking for implementation approval."
+                elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                    self.tui.stop_spinner()
+                    tool_name = event.data.get("name", "Unknown tool")
+                    plan_only_phase = bool(
+                        self.agent
+                        and self.agent.session
+                        and self.agent.session.plan_mode_enabled
+                        and self.agent.session.plan_phase != "executing"
                     )
-                    continue
-                asked = (
-                    self.agent.session.plan_questions_asked
-                    if self.agent and self.agent.session
-                    else 0
-                )
-                approved = self.tui.prompt_plan_implementation(asked_questions=asked)
-                if approved and self.agent and self.agent.session:
-                    self.agent.session.clear_pending_plan()
-                    self.agent.session.set_plan_phase("executing")
-                    console.print("[dim]Plan approved · starting implementation[/dim]")
-                    await self._process_message(
-                        Agent.PLAN_EXECUTE_PROMPT
+                    if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"}:
+                        self.tui.start_spinner("Thinking...")
+                        continue
+                    if (
+                        plan_only_phase
+                        and not event.data.get("success", False)
+                        and str(event.data.get("error") or "").startswith("Invalid parameters:")
+                    ):
+                        # In planning phase, model may probe tool schemas with partial calls.
+                        # Keep this out of user transcript to reduce noise.
+                        self.tui.start_spinner("Thinking...")
+                        continue
+                    if plan_only_phase and event.data.get("success", False):
+                        self.tui.start_spinner("Thinking...")
+                        continue
+                    tool_kind = self._get_tool_kind(tool_name)
+                    self.tui.tool_call_complete(
+                        call_id=event.data.get("call_id", ""),
+                        name=tool_name,
+                        tool_kind=tool_kind,
+                        success=event.data.get("success", False),
+                        output=event.data.get("output", ""),
+                        error=event.data.get("error"),
+                        metadata=event.data.get("metadata"),
+                        diff=event.data.get("diff"),
+                        truncated=event.data.get("truncated", False),
+                        exit_code=event.data.get("exit_code"),
                     )
-                elif self.agent and self.agent.session:
-                    self.agent.session.set_plan_phase(
-                        "awaiting_implementation_confirmation"
-                    )
+                    # Restart spinner while LLM processes tool results
+                    self.tui.start_spinner("Thinking...")
+
+                elif event.type == AgentEventType.LOOP_DETECTED:
+                    self.tui.stop_spinner()
+                    loop_message = event.data.get("message", "Repetitive pattern detected")
                     console.print(
-                        "[dim]Plan mode remains enabled. Next: send follow-up guidance to refine this plan. or type 'implement plan' later.[/dim]"
+                        f"\n[bold yellow]⚠ Loop detected:[/bold yellow] [yellow]{loop_message}[/yellow]"
                     )
+                    self.tui.start_spinner("Recovering...")
 
-        self.tui.stop_spinner()
-        return final_response
+                elif event.type == AgentEventType.CONTEXT_COMPACTED:
+                    self.tui.stop_spinner()
+                    trigger_tokens = int(event.data.get("trigger_tokens", 0))
+                    context_window = int(event.data.get("context_window", 0))
+                    used_pct = (trigger_tokens / context_window * 100) if context_window else 0
+                    console.print(
+                        f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
+                    )
+                    self.tui.start_spinner("Thinking...")
+
+                elif event.type == AgentEventType.PLAN_READY:
+                    self.tui.stop_spinner()
+                    plan_text = event.data.get("plan_text", "")
+                    if not isinstance(plan_text, str) or not plan_text.strip():
+                        if self.agent and self.agent.session:
+                            self.agent.session.set_plan_phase("writing_plan")
+                        await self._process_message(
+                            "Write the complete final implementation plan now before asking for implementation approval."
+                        )
+                        continue
+                    asked = (
+                        self.agent.session.plan_questions_asked
+                        if self.agent and self.agent.session
+                        else 0
+                    )
+                    approved = self.tui.prompt_plan_implementation(asked_questions=asked)
+                    if approved and self.agent and self.agent.session:
+                        self.agent.session.clear_pending_plan()
+                        self.agent.session.set_plan_phase("executing")
+                        console.print("[dim]Plan approved · starting implementation[/dim]")
+                        await self._process_message(
+                            Agent.PLAN_EXECUTE_PROMPT
+                        )
+                    elif self.agent and self.agent.session:
+                        self.agent.session.set_plan_phase(
+                            "awaiting_implementation_confirmation"
+                        )
+                        console.print(
+                            "[dim]Plan mode remains enabled. Next: send follow-up guidance to refine this plan. or type 'implement plan' later.[/dim]"
+                        )
+
+            return final_response
+        finally:
+            self.tui.stop_spinner()
+            if attachment_turn_id:
+                AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
 
 
 @click.command()

@@ -80,6 +80,7 @@ def build_registry() -> CommandRegistry:
     from ite.commands.session import register as register_session
     from ite.commands.subagent import register as register_subagent
     from ite.commands.sandbox import register as register_sandbox
+    from ite.commands.attach import register as register_attach
 
     registry = CommandRegistry()
     register_general(registry)
@@ -90,4 +91,5 @@ def build_registry() -> CommandRegistry:
     register_session(registry)
     register_subagent(registry)
     register_sandbox(registry)
+    register_attach(registry)
     return registry

@@ -45,6 +45,8 @@ class SessionControllerMixin:
             self.streaming_markdown = None
             self.streaming_container = None
             self.streaming_text = ""
+            if hasattr(self, "_clear_pending_attachments"):
+                self._clear_pending_attachments()
             self._refresh_sidebar_threads()
             self._add_assistant_card(
                 "New Thread",
@@ -161,6 +163,8 @@ class SessionControllerMixin:
 
             await self._resume_agent_session(snapshot)
             self.active_session_id = snapshot.session_id
+            if hasattr(self, "_clear_pending_attachments"):
+                self._clear_pending_attachments()
             self._refresh_sidebar_threads()
             self._set_current_session_title(snapshot.name)
             self._hydrate_chat_from_snapshot(snapshot.messages)
