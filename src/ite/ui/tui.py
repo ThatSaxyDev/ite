@@ -19,6 +19,7 @@ from rich.live import Live
 from rich.spinner import Spinner
 from typing import Tuple
 import re
+import json
 from rich.prompt import Prompt
 
 AGENT_THEME = Theme(
@@ -269,6 +270,95 @@ class TUI:
 
         return start_line, "\n".join(code_lines)
 
+    def _summary_line(self, *parts: str) -> Text:
+        clean = [p for p in parts if p]
+        return Text(" • ".join(clean), style="muted")
+
+    def _render_grep_block(self, output: str) -> Table | None:
+        groups: list[tuple[str, list[str]]] = []
+        current_file: str | None = None
+        current_lines: list[str] = []
+        for raw in output.splitlines():
+            line = raw.rstrip()
+            if line.startswith("=== ") and line.endswith(" ==="):
+                if current_file is not None:
+                    groups.append((current_file, current_lines))
+                current_file = line[4:-4].strip()
+                current_lines = []
+                continue
+            if current_file is not None and line:
+                current_lines.append(line)
+        if current_file is not None:
+            groups.append((current_file, current_lines))
+
+        if not groups:
+            return None
+
+        max_digits = 2
+        for _, lines in groups:
+            for line in lines:
+                m = re.match(r"^\s*(\d+):(.*)$", line)
+                if m:
+                    max_digits = max(max_digits, len(m.group(1)))
+
+        table = Table.grid(padding=(0, 1))
+        table.add_column(style="muted", justify="right", no_wrap=True, width=max_digits + 1)
+        table.add_column(style="code")
+
+        for file_path, lines in groups:
+            table.add_row("", Text(file_path, style="highlight"))
+            for line in lines:
+                m = re.match(r"^\s*(\d+):(.*)$", line)
+                if m:
+                    table.add_row(m.group(1), Text(m.group(2).lstrip(), style="code"))
+                else:
+                    table.add_row("", Text(line, style="code"))
+            table.add_row("", Text(""))
+        return table
+
+    def _render_subagent_payload(self, output: str) -> list[Any] | None:
+        try:
+            payload = json.loads(output)
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        blocks: list[Any] = []
+        summary = str(payload.get("summary", "")).strip()
+        termination = str(payload.get("termination", "")).strip()
+        tools_used = payload.get("tools_used", [])
+        findings = payload.get("findings", [])
+        actions = payload.get("actions", [])
+
+        if summary:
+            blocks.append(Text(summary, style="muted"))
+            blocks.append(Text())
+
+        meta_parts = []
+        if termination:
+            meta_parts.append(f"termination={termination}")
+        if isinstance(tools_used, list):
+            meta_parts.append(f"tools={len(tools_used)}")
+        if meta_parts:
+            blocks.append(self._summary_line(*meta_parts))
+            blocks.append(Text())
+
+        if isinstance(findings, list) and findings:
+            blocks.append(Text("Findings", style="bold cyan"))
+            for item in findings:
+                blocks.append(Text(f"- {item}", style="code"))
+            blocks.append(Text())
+
+        if isinstance(actions, list) and actions:
+            blocks.append(Text("Actions", style="bold yellow"))
+            for item in actions:
+                blocks.append(Text(f"- {item}", style="code"))
+
+        if not blocks:
+            return None
+        return blocks
+
     def _guess_language(self, path: str | None) -> str:
         if not path:
             return "text"
@@ -441,9 +531,7 @@ class TUI:
                 header_parts.append(" ⏺ ")
 
                 if shown_start and shown_end and total_lines:
-                    header_parts.append(
-                        f"lines {shown_start}-{shown_end} of {total_lines}"
-                    )
+                    header_parts.append(f"lines {shown_start}-{shown_end} of {total_lines}")
 
                 header = "".join(header_parts)
 
@@ -477,6 +565,19 @@ class TUI:
         elif name in {"write_file", "edit"} and success and diff:
             output_line = output.strip() if output.strip() else "Completed"
             blocks.append(Text(output_line, style="muted"))
+            if isinstance(metadata, dict):
+                parts = []
+                if isinstance(metadata.get("path"), str):
+                    parts.append(str(metadata["path"]))
+                if isinstance(metadata.get("replace_count"), int):
+                    parts.append(f"{metadata['replace_count']} replacements")
+                if isinstance(metadata.get("lines_added"), int):
+                    parts.append(f"{metadata['lines_added']} lines")
+                if isinstance(metadata.get("line_diff"), int):
+                    sign = "+" if metadata["line_diff"] > 0 else ""
+                    parts.append(f"{sign}{metadata['line_diff']} line delta")
+                if parts:
+                    blocks.append(self._summary_line(*parts))
             diff_text = diff
             diff_display = truncate_text(
                 diff_text,
@@ -491,16 +592,17 @@ class TUI:
                 blocks.append(Text(f"$ {command.strip()}", style="muted"))
 
             if exit_code is not None:
-                blocks.append(Text(f"exit_code={exit_code}", style="muted"))
+                blocks.append(self._summary_line(f"exit code {exit_code}"))
 
             output_display = truncate_text(
                 output,
                 self.config.model_name,
                 self._max_block_tokens,
             )
-            blocks.append(
-                Syntax(output_display, "text", theme="monokai", word_wrap=True)
-            )
+            if output_display.strip():
+                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="muted"))
 
         elif name == "list_dir" and success:
             entries = metadata.get("entries")
@@ -514,16 +616,17 @@ class TUI:
                 summary.append(f"{entries} entries")
 
             if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
+                blocks.append(self._summary_line(*summary))
 
             output_display = truncate_text(
                 output,
                 self.config.model_name,
                 self._max_block_tokens,
             )
-            blocks.append(
-                Syntax(output_display, "text", theme="monokai", word_wrap=True)
-            )
+            if output_display.strip():
+                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="muted"))
 
         elif name == "grep" and success:
             matches = metadata.get("matches")
@@ -541,34 +644,39 @@ class TUI:
                 summary.append(f"searched {files_searched} {file_word}")
 
             if summary:
-                blocks.append(Text(" • ".join(summary), style="muted"))
+                blocks.append(self._summary_line(*summary))
 
             output_display = truncate_text(
                 output,
                 self.config.model_name,
                 self._max_block_tokens,
             )
-            blocks.append(
-                Syntax(output_display, "text", theme="monokai", word_wrap=True)
-            )
+            grep_block = self._render_grep_block(output_display)
+            if grep_block is not None:
+                blocks.append(grep_block)
+            elif output_display.strip():
+                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="muted"))
 
         elif name == "glob" and success:
             matches = metadata.get("matches")
 
             if isinstance(matches, int):
                 if matches == 1:
-                    blocks.append(Text("1 match was found", style="muted"))
+                    blocks.append(self._summary_line("1 file found"))
                 else:
-                    blocks.append(Text(f"{matches} matches were found", style="muted"))
+                    blocks.append(self._summary_line(f"{matches} files found"))
 
             output_display = truncate_text(
                 output,
                 self.config.model_name,
                 self._max_block_tokens,
             )
-            blocks.append(
-                Syntax(output_display, "text", theme="monokai", word_wrap=True)
-            )
+            if output_display.strip():
+                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="muted"))
 
         elif name == "web_search" and success:
             results_count = metadata.get("results")
@@ -763,6 +871,15 @@ class TUI:
 
             elif action == "clear":
                 blocks.append(Text(f"  ✓ {output}", style="muted"))
+
+        elif name.startswith("subagent_"):
+            rendered = self._render_subagent_payload(output)
+            if rendered is not None:
+                blocks.extend(rendered)
+            elif output.strip():
+                blocks.append(Syntax(output, "json", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="muted"))
 
         else:
             if error and not success:
