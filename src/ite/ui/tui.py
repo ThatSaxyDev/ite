@@ -579,6 +579,12 @@ class TUI:
             extracted = self._extract_read_file_code(output) if primary_path else None
             if primary_path and extracted is not None:
                 start_line, code = extracted
+                code_display, was_truncated = self._truncate_for_tool(
+                    name,
+                    code,
+                    preserve_lines=True,
+                )
+                local_truncated = local_truncated or was_truncated
                 shown_start = metadata.get("shown_start")
                 shown_end = metadata.get("shown_end")
                 total_lines = metadata.get("total_lines")
@@ -597,7 +603,7 @@ class TUI:
                 blocks.append(Text())
                 blocks.append(
                     Syntax(
-                        code,
+                        code_display,
                         language,
                         theme="monokai",
                         line_numbers=True,
@@ -745,6 +751,12 @@ class TUI:
         elif name == "web_search" and success:
             results_count = metadata.get("results")
             query = args.get("query")
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
 
             summary = []
 
@@ -764,7 +776,7 @@ class TUI:
             # Parse results into structured data
             results = []
             current = {}
-            for line in output.splitlines():
+            for line in output_display.splitlines():
                 line = line.strip()
                 if not line or line.startswith("Search results for:"):
                     if current:
@@ -786,7 +798,8 @@ class TUI:
             result_table.add_column(style="muted", justify="right", width=3)
             result_table.add_column()
 
-            for i, r in enumerate(results, start=1):
+            max_results_rows = 12
+            for i, r in enumerate(results[:max_results_rows], start=1):
                 title_text = Text()
                 title_text.append(r.get("title", ""), style="highlight")
                 result_table.add_row(f"{i}.", title_text)
@@ -798,8 +811,11 @@ class TUI:
                     result_table.add_row("", Text(r["snippet"], style="muted"))
 
                 # spacer between results
-                if i < len(results):
+                if i < min(len(results), max_results_rows):
                     result_table.add_row("", Text())
+
+            if len(results) > max_results_rows:
+                result_table.add_row("", Text(f"... {len(results) - max_results_rows} more results", style="muted"))
 
             blocks.append(result_table)
 
@@ -845,6 +861,12 @@ class TUI:
             completed = metadata.get("completed", 0) if metadata else 0
             total = metadata.get("total", 0) if metadata else 0
             action = metadata.get("action", "") if metadata else ""
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
 
             # Progress header
             if total > 0:
@@ -858,7 +880,7 @@ class TUI:
                 blocks.append(Text())
 
             # Render each line with styled checkboxes
-            for line in output.splitlines():
+            for line in output_display.splitlines():
                 styled = Text()
                 stripped = line.strip()
                 if stripped.startswith("☑"):
@@ -881,6 +903,12 @@ class TUI:
         elif name == "memory" and success:
             action = args.get("action", "")
             key = args.get("key", "")
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
 
             if action == "set":
                 styled = Text()
@@ -897,7 +925,7 @@ class TUI:
                     styled.append(f"{key}", style="bold cyan")
                     styled.append(" → ", style="muted")
                     # Extract value from output after "key: "
-                    val = output.split(f"{key}: ", 1)[-1] if key else output
+                    val = output_display.split(f"{key}: ", 1)[-1] if key else output_display
                     styled.append(val, style="white")
                 else:
                     styled.append("  ○ ", style="dim")
@@ -926,7 +954,7 @@ class TUI:
                     mem_table.add_column("Key", style="cyan")
                     mem_table.add_column("Value", style="white")
 
-                    for line in output.splitlines():
+                    for line in output_display.splitlines():
                         stripped = line.strip()
                         if ":" in stripped and not stripped.startswith("Stored"):
                             k, v = stripped.split(":", 1)
@@ -942,7 +970,13 @@ class TUI:
             if rendered is not None:
                 blocks.extend(rendered)
             elif output.strip():
-                blocks.append(Syntax(output, "json", theme="monokai", word_wrap=True))
+                output_display, was_truncated = self._truncate_for_tool(
+                    name,
+                    output,
+                    preserve_lines=True,
+                )
+                local_truncated = local_truncated or was_truncated
+                blocks.append(Syntax(output_display, "json", theme="monokai", word_wrap=True))
             else:
                 blocks.append(Text("No output", style="muted"))
 
