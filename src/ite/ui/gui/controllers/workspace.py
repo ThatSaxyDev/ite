@@ -31,6 +31,8 @@ class WorkspaceControllerMixin:
         self.sidebar_sessions_by_id = {
             s.get("session_id", ""): s for s in sessions if s.get("session_id")
         }
+        if hasattr(self, "_refresh_empty_state_copy"):
+            self._refresh_empty_state_copy()
         self._render_sidebar_threads(sessions)
 
     def _render_sidebar_threads(self, sessions: list[dict] | None = None):

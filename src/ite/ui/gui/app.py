@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import flet as ft
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 from typing import Any, Awaitable, Callable
@@ -755,12 +756,59 @@ class GUIApp(
 
     def _refresh_empty_state_copy(self):
         if self.empty_state_title_text:
-            self.empty_state_title_text.value = "Ready when you are"
+            self.empty_state_title_text.value = self._build_empty_state_title()
             self._safe_control_update(self.empty_state_title_text)
         if self.empty_state_workspace_text:
             workspace_name = Path(self.config.cwd).resolve().name or str(self.config.cwd)
             self.empty_state_workspace_text.value = workspace_name
             self._safe_control_update(self.empty_state_workspace_text)
+
+    def _build_empty_state_title(self) -> str:
+        now = datetime.now()
+        hour = now.hour
+        if 5 <= hour < 12:
+            opener_variants = [
+                "Good morning",
+                "Fresh start",
+                "Morning focus",
+                "Let's get momentum",
+            ]
+        elif 12 <= hour < 17:
+            opener_variants = [
+                "Good afternoon",
+                "Afternoon check-in",
+                "Back to shipping",
+                "Let's make progress",
+            ]
+        else:
+            opener_variants = [
+                "Good evening",
+                "Evening build session",
+                "Quiet hours, solid output",
+                "Let's close the day strong",
+            ]
+
+        thread_count = len(self.sidebar_sessions_cache or [])
+        if thread_count > 0:
+            followup_variants = [
+                "Continue where you left off.",
+                "Pick up your last thread.",
+                "Your workspace is ready.",
+                "Resume the next step.",
+            ]
+        else:
+            followup_variants = [
+                "What should we build next?",
+                "Start a thread and let's map it out.",
+                "Drop in a goal to begin.",
+                "Tell me what you want to ship.",
+            ]
+
+        workspace_key = str(self.config.cwd.resolve())
+        seed = sum(ord(ch) for ch in f"{workspace_key}:{now.date().isoformat()}:{thread_count}")
+        opener = opener_variants[seed % len(opener_variants)]
+        followup = followup_variants[(seed // 3) % len(followup_variants)]
+        return f"{opener}. {followup}"
 
     def _ensure_chat_bottom_spacer(self):
         if not self.messages_column:
