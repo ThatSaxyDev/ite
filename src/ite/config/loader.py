@@ -17,6 +17,9 @@ WORKSPACE_DIR_NAME = ".ite"
 DEFAULT_PROJECT_CONFIG = """# Workspace-level ITE config
 # Add overrides here (model, hooks, mcp servers, etc.)
 #
+# Hooks are disabled by default for fast/safe baseline behavior.
+hooks_enabled = false
+#
 # Example:
 # [model]
 # name = "gpt-4o-mini"

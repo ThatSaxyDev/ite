@@ -328,6 +328,13 @@ class MessageBuilderMixin:
             )
 
         rows: list[ft.Control] = []
+        max_line_digits = 2
+        for _, match_lines in groups:
+            for line in match_lines:
+                m = re.match(r"^\s*(\d+):(.*)$", line)
+                if m:
+                    max_line_digits = max(max_line_digits, len(m.group(1)))
+
         shown = 0
         for file_path, match_lines in groups:
             if shown >= line_limit:
@@ -352,9 +359,13 @@ class MessageBuilderMixin:
                     rows.append(
                         ft.Row(
                             [
-                                ft.Text(
-                                    f"{line_no:>4}",
-                                    style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_SM, color=TEXT_MUTED),
+                                ft.Container(
+                                    width=max(28, max_line_digits * 9 + 8),
+                                    content=ft.Text(
+                                        line_no,
+                                        style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_SM, color=TEXT_MUTED),
+                                        text_align=ft.TextAlign.RIGHT,
+                                    ),
                                 ),
                                 ft.Container(width=8),
                                 ft.Text(
