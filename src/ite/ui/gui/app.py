@@ -61,6 +61,7 @@ class GUIApp(
         self.model_selector_text: ft.Text | None = None
         self.model_items: list[str] = []
         self.model_picker_dialog: ft.AlertDialog | None = None
+        self.empty_workspace_picker_dialog: ft.AlertDialog | None = None
         self.workspace_selector: ft.Dropdown | None = None
         self.branch_selector: ft.Control | None = None
         self.branch_selector_text: ft.Text | None = None

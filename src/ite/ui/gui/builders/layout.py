@@ -475,6 +475,27 @@ class LayoutBuilderMixin:
             size=24,
             color=TEXT_MUTED,
         )
+        empty_state_workspace_button = ft.TextButton(
+            content=ft.Row(
+                [
+                    self.empty_state_workspace_text,
+                    ft.Icon(ft.Icons.KEYBOARD_ARROW_DOWN, size=16, color=TEXT_MUTED),
+                ],
+                spacing=4,
+                tight=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            on_click=self._open_empty_state_workspace_dialog,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_MD),
+                bgcolor={
+                    ft.ControlState.HOVERED: ft.Colors.with_opacity(0.06, ft.Colors.WHITE),
+                    ft.ControlState.DEFAULT: ft.Colors.TRANSPARENT,
+                },
+            ),
+        )
         image_base64 = self._load_empty_state_image_base64()
         if image_base64:
             empty_image = ft.Image(
@@ -492,7 +513,7 @@ class LayoutBuilderMixin:
                 [
                     empty_image,
                     self.empty_state_title_text,
-                    self.empty_state_workspace_text,
+                    empty_state_workspace_button,
                 ],
                 spacing=5,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,

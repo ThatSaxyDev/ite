@@ -7,6 +7,14 @@ from ..tokens import *
 
 
 class WorkspaceControllerMixin:
+    def _known_workspace_paths(self) -> list[str]:
+        manager = SessionManager()
+        current_workspace = str(self.config.cwd.resolve())
+        known = [p for p in manager.list_workspaces() if p]
+        if current_workspace not in known:
+            known.insert(0, current_workspace)
+        return known
+
     def _refresh_sidebar_threads(self):
         if not self.sidebar_threads_column:
             return
@@ -114,11 +122,8 @@ class WorkspaceControllerMixin:
     def _refresh_workspace_options(self):
         if not self.workspace_selector:
             return
-        manager = SessionManager()
         current_workspace = str(self.config.cwd.resolve())
-        known = [p for p in manager.list_workspaces() if p]
-        if current_workspace not in known:
-            known.insert(0, current_workspace)
+        known = self._known_workspace_paths()
         self.workspace_selector.options = [
             ft.dropdown.Option(
                 key=p,
@@ -137,6 +142,103 @@ class WorkspaceControllerMixin:
         self.workspace_selector.value = current_workspace
         if self.page:
             self._safe_page_update()
+
+    def _open_empty_state_workspace_dialog(self, e=None):
+        if not self.page:
+            return
+        current_workspace = str(self.config.cwd.resolve())
+        known = self._known_workspace_paths()
+
+        items: list[ft.Control] = []
+        for workspace in known:
+            name = Path(workspace).name or workspace
+            is_current = workspace == current_workspace
+            items.append(
+                ft.Container(
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=8),
+                    border_radius=RADIUS_SM,
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE)
+                    if is_current
+                    else ft.Colors.TRANSPARENT,
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.FOLDER_OPEN, size=13, color=TEXT_MUTED),
+                            ft.Column(
+                                [
+                                    ft.Text(
+                                        name,
+                                        size=TYPE_BODY,
+                                        color=TEXT_PRIMARY,
+                                        expand=True,
+                                        no_wrap=True,
+                                    ),
+                                    ft.Text(
+                                        workspace,
+                                        size=TYPE_XS,
+                                        color=TEXT_MUTED,
+                                        no_wrap=True,
+                                    ),
+                                ],
+                                spacing=1,
+                                expand=True,
+                                tight=True,
+                            ),
+                            ft.Container(
+                                visible=is_current,
+                                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                                border_radius=999,
+                                bgcolor=ft.Colors.with_opacity(0.12, ACCENT),
+                                content=ft.Text(
+                                    "current",
+                                    size=TYPE_XS,
+                                    color=ACCENT,
+                                    weight=WEIGHT_SEMIBOLD,
+                                ),
+                            ),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    on_click=lambda _, w=workspace: self._on_empty_state_workspace_pick(w),
+                )
+            )
+
+        self.empty_workspace_picker_dialog = ft.AlertDialog(
+            modal=True,
+            bgcolor=SURFACE_1,
+            title=ft.Text(
+                "Select workspace",
+                color=TEXT_PRIMARY,
+                size=TYPE_H1,
+                weight=WEIGHT_SEMIBOLD,
+            ),
+            content=ft.Container(
+                width=460,
+                height=360,
+                content=ft.Column(
+                    [ft.Column(items, spacing=4, scroll=ft.ScrollMode.AUTO, expand=True)],
+                    spacing=0,
+                    expand=True,
+                ),
+            ),
+            actions=[
+                ft.TextButton(
+                    "Close",
+                    on_click=lambda _: self.page.pop_dialog() if self.page else None,
+                    style=ft.ButtonStyle(color=ft.Colors.WHITE),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+            actions_padding=ft.Padding.only(right=16, bottom=12),
+            content_padding=ft.Padding.symmetric(horizontal=14, vertical=10),
+        )
+        self.page.show_dialog(self.empty_workspace_picker_dialog)
+
+    def _on_empty_state_workspace_pick(self, workspace: str):
+        if not self.page:
+            return
+        self.page.pop_dialog()
+        self.page.run_task(self._switch_workspace, workspace)
 
     def _on_workspace_select(self, e: ft.Event[ft.Dropdown]):
         if not self.workspace_selector or not self.page:
