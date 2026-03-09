@@ -505,13 +505,24 @@ class LayoutBuilderMixin:
             )
         else:
             empty_image = ft.Image(src="ite_image.png", width=400, fit="cover")
+        shimmer_cls = getattr(ft, "Shimmer", None)
+        if shimmer_cls:
+            empty_image_control: ft.Control = shimmer_cls(
+                content=empty_image,
+                base_color=ft.Colors.with_opacity(0.2, ft.Colors.WHITE),
+                highlight_color=ft.Colors.with_opacity(0.4, ft.Colors.WHITE),
+                period=2200,
+            )
+            # Quick fallback (non-shimmer): empty_image_control = empty_image
+        else:
+            empty_image_control = empty_image
         self.empty_state_container = ft.Container(
             alignment=ft.Alignment(0, 0),
             expand=True,
             visible=True,
             content=ft.Column(
                 [
-                    empty_image,
+                    empty_image_control,
                     self.empty_state_title_text,
                     empty_state_workspace_button,
                 ],
