@@ -173,7 +173,8 @@ class CLI:
             # Auto-checkpoint every 5 turns
             if session.turn_count > 0 and session.turn_count % 5 == 0:
                 cp_id = session_manager.save_checkpoint(snapshot)
-                console.print(f"[dim]  📌 Auto-checkpoint · {cp_id[:20]}…[/dim]")
+                if self.config.debug:
+                    console.print(f"[dim]  📌 Auto-checkpoint · {cp_id[:20]}…[/dim]")
 
         except Exception as e:
             logger.warning("Auto-save failed: %s", e)

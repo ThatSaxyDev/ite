@@ -33,6 +33,7 @@ let gameState = {
 // ThreeJS Variables
 let scene, camera, renderer, raycaster, mouse;
 let tiles = [];
+let hoverMarker;
 let tileGroup;
 let hoveredTile = null;
 
@@ -88,6 +89,9 @@ function init() {
 
     // Create game board
     createBoard();
+
+    // Create hover marker (shows where click will happen)
+    createHoverMarker();
 
     // Create grid lines
     createGridLines();
@@ -165,6 +169,23 @@ function createBoard() {
     }
 
     scene.add(tileGroup);
+}
+
+function createHoverMarker() {
+    // Create a visible ring that shows which cell is being hovered
+    const geometry = new THREE.RingGeometry(0.7, 0.9, 32);
+    const material = new THREE.MeshBasicMaterial({ 
+        color: 0xffff00, 
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.6
+    });
+    hoverMarker = new THREE.Mesh(geometry, material);
+    hoverMarker.rotation.x = -Math.PI / 2;
+    hoverMarker.position.y = 0.1;
+    hoverMarker.visible = false;
+    hoverMarker.userData = { isHoverMarker: true };
+    scene.add(hoverMarker);
 }
 
 function createGridLines() {
@@ -324,8 +345,11 @@ function onMouseMove(event) {
         hoveredTile.material.color.setHex(0x3a3a6e);
         hoveredTile.material.emissiveIntensity = 0.3;
         hoveredTile = null;
-        document.body.style.cursor = 'default';
     }
+    
+    // Hide marker by default
+    if (hoverMarker) hoverMarker.visible = false;
+    document.body.style.cursor = 'default';
     
     // Set new hover
     if (intersects.length > 0 && !gameState.gameOver) {
@@ -334,6 +358,14 @@ function onMouseMove(event) {
             hoveredTile = tile;
             tile.material.color.setHex(0x7a7aae);
             tile.material.emissiveIntensity = 0.6;
+            
+            // Show marker at tile position
+            if (hoverMarker) {
+                hoverMarker.position.x = tile.position.x;
+                hoverMarker.position.z = tile.position.z;
+                hoverMarker.visible = true;
+            }
+            
             document.body.style.cursor = 'pointer';
         }
     }
