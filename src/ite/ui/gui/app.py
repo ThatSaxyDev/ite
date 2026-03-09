@@ -123,6 +123,7 @@ class GUIApp(
         self._intent_assist_prompt: str | None = None
         self._intent_assist_kind: str | None = None
         self._intent_assist_row: ft.Control | None = None
+        self._last_dispatched_message: str | None = None
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -570,10 +571,7 @@ class GUIApp(
             await self._auto_save()
         except asyncio.CancelledError:
             if turn_id == self._active_turn_id:
-                self._add_assistant_card(
-                    "Interrupted",
-                    ft.Text("Stopped current turn.", color=ft.Colors.with_opacity(0.85, ft.Colors.AMBER_300)),
-                )
+                self._show_recovery_actions_card("Stopped current turn.")
         except Exception as e:
             if turn_id == self._active_turn_id:
                 self._add_message("system", f"Error: {str(e)}", is_error=True)
@@ -644,6 +642,7 @@ class GUIApp(
         # A new send should always anchor the viewport at the latest chat content.
         self._auto_scroll_enabled = True
         self._scroll_chat_to_bottom(animate=False, force=True)
+        self._last_dispatched_message = message
 
         self.input_field.value = ""
         self._safe_control_update(self.input_field)
@@ -661,6 +660,61 @@ class GUIApp(
                 f"Error: failed to start agent task: {ex}",
                 is_error=True,
             )
+
+    def _build_recovery_followup_prompt(self) -> str:
+        return (
+            "Continue from the last successful step only. "
+            "Do not repeat completed work. "
+            "Fix the remaining failure, run one final verification, and summarize changed files."
+        )
+
+    def _show_recovery_actions_card(self, reason: str):
+        if not self.page:
+            return
+        continue_button = ft.FilledButton(
+            "Continue From Last Step",
+            on_click=lambda _e: self.page.run_task(self._recovery_continue_from_last_step),
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.DEFAULT: ft.Colors.WHITE, ft.ControlState.HOVERED: "#F3F3F3"},
+                color=ft.Colors.BLACK,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+        retry_button = ft.OutlinedButton(
+            "Retry Last Prompt",
+            on_click=lambda _e: self.page.run_task(self._recovery_retry_last_prompt),
+            style=ft.ButtonStyle(
+                side={ft.ControlState.DEFAULT: ft.BorderSide(1, BORDER_STRONG)},
+                color=TEXT_SECONDARY,
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+        self._add_assistant_card(
+            "Recovery",
+            ft.Column(
+                [
+                    ft.Text(reason, size=TYPE_BODY, color=TEXT_SECONDARY),
+                    ft.Text(
+                        "Use one of the recovery actions below.",
+                        size=TYPE_SM,
+                        color=TEXT_MUTED,
+                    ),
+                    ft.Row([retry_button, continue_button], alignment=ft.MainAxisAlignment.END),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+        )
+
+    async def _recovery_continue_from_last_step(self):
+        self._dispatch_message(self._build_recovery_followup_prompt())
+
+    async def _recovery_retry_last_prompt(self):
+        prompt = (self._last_dispatched_message or "").strip()
+        if not prompt:
+            self._show_transient_notice("No previous prompt to retry.")
+            return
+        self._dispatch_message(prompt)
 
     def _normalize_plan_execution_request(self, message: str) -> str | None:
         raw = message.strip()

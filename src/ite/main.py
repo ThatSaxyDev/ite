@@ -3,6 +3,7 @@ from pathlib import Path
 from ite.config.loader import load_config, ensure_workspace_layout
 import logging
 import sys
+import re
 from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
@@ -10,6 +11,7 @@ from ite.agent.session_manager import SessionSnapshot, SessionManager
 import click
 import asyncio
 import signal
+from rich.prompt import Prompt
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -20,6 +22,7 @@ class CLI:
         self.config = config
         self.agent: Agent | None = None
         self.tui = TUI(config=config, console=console)
+        self._last_dispatched_message: str | None = None
 
 
     async def run_interactive(self) -> str | None:
@@ -50,6 +53,12 @@ class CLI:
                             continue
                         user_input = normalized
 
+                        intercepted = self._apply_tui_intent_assist(user_input)
+                        if intercepted is None:
+                            continue
+                        user_input = intercepted
+                        self._last_dispatched_message = user_input
+
                         # Run agent in a cancellable task with SIGINT → cancel
                         response_task = asyncio.create_task(
                             self._process_message(user_input)
@@ -66,6 +75,11 @@ class CLI:
                             self.tui.stop_spinner()
                             self.tui.end_assistant()
                             console.print("\n[grey50]⏹ Response interrupted[/grey50]")
+                            handled = await self._run_tui_recovery_flow(
+                                reason="The run was interrupted.",
+                            )
+                            if handled:
+                                await self._auto_save()
                         finally:
                             # Restore default so Ctrl+C works at the prompt
                             loop.remove_signal_handler(signal.SIGINT)
@@ -114,6 +128,181 @@ class CLI:
             "[dim]No pending plan is awaiting approval. Ask for a plan first.[/dim]"
         )
         return None
+
+    def _build_recovery_followup_prompt(self) -> str:
+        return (
+            "Continue from the last successful step only. "
+            "Do not repeat completed work. "
+            "Fix the remaining failure, run one final verification, and summarize changed files."
+        )
+
+    async def _run_tui_recovery_flow(self, reason: str) -> bool:
+        console.print(f"[bold bright_white]Recovery:[/bold bright_white] [dim]{reason}[/dim]")
+        choice = Prompt.ask(
+            "1) Continue from last step  2) Retry last prompt  3) Stop",
+            choices=["1", "2", "3"],
+            default="1",
+            show_choices=False,
+        )
+        if choice == "3":
+            return False
+
+        next_message = self._build_recovery_followup_prompt()
+        if choice == "2":
+            retry = (self._last_dispatched_message or "").strip()
+            if not retry:
+                console.print("[dim]No previous prompt to retry; using continue prompt instead.[/dim]")
+            else:
+                next_message = retry
+
+        self._last_dispatched_message = next_message
+        await self._process_message(next_message)
+        return True
+
+    def _should_suppress_intent_detection(self, message: str, *, plan_enabled: bool) -> bool:
+        text = (message or "").strip()
+        min_len = 7 if plan_enabled else 12
+        if len(text) < min_len:
+            return True
+        if len(text.split()) < 3:
+            if not (plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())):
+                return True
+        if message == Agent.PLAN_EXECUTE_PROMPT:
+            return True
+        return False
+
+    def _detect_plan_intent(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        strong_phrases = (
+            "make a plan",
+            "implementation plan",
+            "before coding",
+            "steps to build",
+            "plan this",
+            "create a plan",
+            "draft a plan",
+            "what is the plan",
+            "outline the plan",
+        )
+        if any(p in text for p in strong_phrases):
+            return True
+
+        build_intent_markers = (
+            "i want to build",
+            "i want to create",
+            "help me build",
+            "help me create",
+            "how should i build",
+            "how do i build",
+            "design a",
+            "build a",
+            "create a",
+            "architect a",
+        )
+        product_targets = (
+            "app",
+            "game",
+            "website",
+            "web app",
+            "tool",
+            "platform",
+            "system",
+            "project",
+            "feature",
+            "api",
+            "dashboard",
+        )
+        if any(m in text for m in build_intent_markers) and any(t in text for t in product_targets):
+            return True
+
+        return bool(re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text)
+
+    def _detect_execution_intent(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        phrases = (
+            "implement now",
+            "go ahead and build",
+            "apply the changes",
+            "start coding",
+            "execute this",
+            "ship it",
+            "go implement",
+            "build it now",
+            "start implementation",
+            "let's build",
+            "lets build",
+            "let's implement",
+            "lets implement",
+            "let us build",
+            "let us implement",
+            "build then",
+            "implement then",
+            "lets built",
+            "let's built",
+        )
+        if any(p in text for p in phrases):
+            return True
+        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text)):
+            return True
+        if bool(re.search(r"\b(build|implement|start coding|execute)\b", text) and re.search(r"\b(then|next)\b", text)):
+            return True
+        return bool(
+            re.search(r"\b(implement|build|built|code|execute|apply)\b", text)
+            and re.search(r"\b(now|this|it|changes)\b", text)
+        )
+
+    def _apply_tui_intent_assist(self, message: str) -> str | None:
+        if not self.agent or not self.agent.session:
+            return message
+        if message.startswith("/"):
+            return message
+
+        session = self.agent.session
+        plan_enabled = bool(session.plan_mode_enabled)
+        if self._should_suppress_intent_detection(message, plan_enabled=plan_enabled):
+            return message
+
+        if not plan_enabled and self._detect_plan_intent(message):
+            console.print(
+                "[bold bright_white]Plan suggestion:[/bold bright_white] "
+                "[dim]This looks like a planning request.[/dim]"
+            )
+            choice = Prompt.ask(
+                "1) Enable Plan mode and continue  2) Send normally",
+                choices=["1", "2"],
+                default="1",
+                show_choices=False,
+            )
+            if choice == "1":
+                session.set_plan_mode(True)
+                session.set_plan_phase("idle")
+                console.print("[dim]Plan mode enabled.[/dim]")
+            return message
+
+        if plan_enabled and self._detect_execution_intent(message):
+            console.print(
+                "[bold bright_white]Execution suggestion:[/bold bright_white] "
+                "[dim]This looks like execution while Plan mode is ON.[/dim]"
+            )
+            choice = Prompt.ask(
+                "1) Turn Plan mode off and continue  2) Stay in Plan mode",
+                choices=["1", "2"],
+                default="1",
+                show_choices=False,
+            )
+            if choice == "1":
+                session.set_plan_mode(False)
+                session.set_plan_phase("idle")
+                console.print("[dim]Plan mode disabled.[/dim]")
+                return message
+            console.print("[dim]Staying in plan mode; will continue with planning flow.[/dim]")
+            return (
+                f"{message}\n\n"
+                "Stay in plan mode. Do not execute changes yet. "
+                "Ask clarifying questions first, then provide an implementation plan."
+            )
+
+        return message
 
     async def _handle_command(self, user_input: str) -> bool:
         """Handle CLI commands. Returns True if handled, False if it should be sent to agent."""
@@ -319,7 +508,15 @@ class CLI:
             elif event.type == AgentEventType.AGENT_ERROR:
                 self.tui.stop_spinner()
                 error = event.data.get("error", "Unknown error")
-                console.print(f"\n[error]Error: {error}[/error]")
+                if "Maximum turns" in str(error):
+                    console.print("\n[warning]Turn limit reached before completion.[/warning]")
+                    handled = await self._run_tui_recovery_flow(
+                        reason="Maximum turns reached.",
+                    )
+                    if handled:
+                        await self._auto_save()
+                else:
+                    console.print(f"\n[error]Error: {error}[/error]")
 
             elif event.type == AgentEventType.TOOL_CALL_START:
                 self.tui.stop_spinner()

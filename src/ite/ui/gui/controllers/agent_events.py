@@ -79,11 +79,17 @@ class AgentEventControllerMixin:
 
         elif event.type == AgentEventType.AGENT_ERROR:
             self._hide_thinking_indicator()
-            self._add_message(
-                "system",
-                f"Error: {event.data.get('error', 'Unknown error')}",
-                is_error=True,
-            )
+            error_text = str(event.data.get("error", "Unknown error"))
+            if "Maximum turns" in error_text:
+                self._show_recovery_actions_card(
+                    "This run hit the turn limit before finishing."
+                )
+            else:
+                self._add_message(
+                    "system",
+                    f"Error: {error_text}",
+                    is_error=True,
+                )
 
         elif event.type == AgentEventType.CONTEXT_COMPACTED:
             trigger_tokens = int(event.data.get("trigger_tokens", 0))
