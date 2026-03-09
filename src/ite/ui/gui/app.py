@@ -124,6 +124,8 @@ class GUIApp(
         self._intent_assist_kind: str | None = None
         self._intent_assist_row: ft.Control | None = None
         self._last_dispatched_message: str | None = None
+        self._last_user_message_for_retry: str | None = None
+        self._stop_requested_by_user: bool = False
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -571,12 +573,19 @@ class GUIApp(
             await self._auto_save()
         except asyncio.CancelledError:
             if turn_id == self._active_turn_id:
-                self._show_recovery_actions_card("Stopped current turn.")
+                if self._stop_requested_by_user:
+                    self._add_assistant_card(
+                        "Interrupted",
+                        ft.Text("Stopped current turn.", color=ft.Colors.with_opacity(0.85, ft.Colors.AMBER_300)),
+                    )
+                else:
+                    self._show_recovery_actions_card("Run interrupted unexpectedly.")
         except Exception as e:
             if turn_id == self._active_turn_id:
                 self._add_message("system", f"Error: {str(e)}", is_error=True)
         finally:
             if turn_id == self._active_turn_id:
+                self._stop_requested_by_user = False
                 self._is_turn_running = False
                 self._active_turn_task = None
                 self._hide_thinking_indicator()
@@ -600,6 +609,7 @@ class GUIApp(
     def _on_send(self, e):
         if self._is_turn_running:
             if self.page:
+                self._stop_requested_by_user = True
                 self.page.run_task(self._stop_active_turn)
             return
 
@@ -614,6 +624,7 @@ class GUIApp(
         if normalized is None:
             return
         message = normalized
+        self._last_user_message_for_retry = message
 
         if self.loading_session_id is not None:
             self._add_assistant_card(
@@ -710,7 +721,7 @@ class GUIApp(
         self._dispatch_message(self._build_recovery_followup_prompt())
 
     async def _recovery_retry_last_prompt(self):
-        prompt = (self._last_dispatched_message or "").strip()
+        prompt = (self._last_user_message_for_retry or "").strip()
         if not prompt:
             self._show_transient_notice("No previous prompt to retry.")
             return

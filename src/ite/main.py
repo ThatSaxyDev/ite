@@ -23,6 +23,7 @@ class CLI:
         self.agent: Agent | None = None
         self.tui = TUI(config=config, console=console)
         self._last_dispatched_message: str | None = None
+        self._last_user_message_for_retry: str | None = None
 
 
     async def run_interactive(self) -> str | None:
@@ -58,6 +59,7 @@ class CLI:
                             continue
                         user_input = intercepted
                         self._last_dispatched_message = user_input
+                        self._last_user_message_for_retry = user_input
 
                         # Run agent in a cancellable task with SIGINT → cancel
                         response_task = asyncio.create_task(
@@ -75,11 +77,6 @@ class CLI:
                             self.tui.stop_spinner()
                             self.tui.end_assistant()
                             console.print("\n[grey50]⏹ Response interrupted[/grey50]")
-                            handled = await self._run_tui_recovery_flow(
-                                reason="The run was interrupted.",
-                            )
-                            if handled:
-                                await self._auto_save()
                         finally:
                             # Restore default so Ctrl+C works at the prompt
                             loop.remove_signal_handler(signal.SIGINT)
@@ -149,7 +146,7 @@ class CLI:
 
         next_message = self._build_recovery_followup_prompt()
         if choice == "2":
-            retry = (self._last_dispatched_message or "").strip()
+            retry = (self._last_user_message_for_retry or "").strip()
             if not retry:
                 console.print("[dim]No previous prompt to retry; using continue prompt instead.[/dim]")
             else:
