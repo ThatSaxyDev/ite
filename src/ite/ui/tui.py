@@ -1065,6 +1065,7 @@ class TUI:
         *,
         question: str,
         options: list[str],
+        question_number: int | None = None,
         recommended_index: int | None = None,
         allow_free_text: bool = True,
     ) -> dict[str, Any]:
@@ -1086,7 +1087,14 @@ class TUI:
                     Text(),
                     Text("\n".join(lines), style="code"),
                 ),
-                title=Text("Planning Question", style="bold cyan"),
+                title=Text(
+                    (
+                        f"Asking question {question_number}"
+                        if isinstance(question_number, int) and question_number > 0
+                        else "Planning question"
+                    ),
+                    style="bold cyan",
+                ),
                 title_align="left",
                 border_style="cyan",
                 box=box.ROUNDED,

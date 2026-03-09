@@ -174,10 +174,14 @@ class CLI:
         options = [str(o) for o in payload.get("options", []) if str(o).strip()]
         recommended_index = payload.get("recommended_index")
         allow_free_text = bool(payload.get("allow_free_text", True))
+        question_number = 1
+        if self.agent and self.agent.session:
+            question_number = max(1, self.agent.session.plan_questions_asked + 1)
 
         return self.tui.prompt_plan_question(
             question=question,
             options=options,
+            question_number=question_number,
             recommended_index=recommended_index,
             allow_free_text=allow_free_text,
         )
