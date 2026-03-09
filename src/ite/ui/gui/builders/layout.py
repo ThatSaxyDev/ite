@@ -1,11 +1,22 @@
 from __future__ import annotations
 import asyncio
+import base64
+from pathlib import Path
 import flet as ft
 from ..tokens import *
 from ite.config.config import ApprovalPolicy
 
 
 class LayoutBuilderMixin:
+    def _load_empty_state_image_base64(self) -> str | None:
+        try:
+            image_path = Path(__file__).resolve().parents[2] / "assets" / "ite_image.png"
+            if not image_path.exists():
+                return None
+            return base64.b64encode(image_path.read_bytes()).decode("ascii")
+        except Exception:
+            return None
+
     def run(self, page: ft.Page):
         self.page = page
         page.title = "iTE"
@@ -68,6 +79,10 @@ class LayoutBuilderMixin:
         self._start_branch_sync_watcher()
         self._apply_sidebar_state(update=False)
         self._apply_app_mode()
+        if hasattr(self, "_refresh_empty_state_copy"):
+            self._refresh_empty_state_copy()
+        if hasattr(self, "_refresh_empty_state_visibility"):
+            self._refresh_empty_state_visibility()
 
     def build_setup_view(self) -> ft.Control:
         def _format_approval_label(value: str) -> str:
@@ -449,12 +464,54 @@ class LayoutBuilderMixin:
             expand=True,
         )
         self._ensure_chat_bottom_spacer()
+        self.empty_state_title_text = ft.Text(
+            "Ready when you are",
+            size=32,
+            weight=WEIGHT_SEMIBOLD,
+            color=TEXT_PRIMARY,
+        )
+        self.empty_state_workspace_text = ft.Text(
+            "",
+            size=24,
+            color=TEXT_MUTED,
+        )
+        image_base64 = self._load_empty_state_image_base64()
+        if image_base64:
+            empty_image = ft.Image(
+                src=f"data:image/png;base64,{image_base64}",
+                width=400,              
+                fit="cover",
+            )
+        else:
+            empty_image = ft.Image(src="ite_image.png", width=400, fit="cover")
+        self.empty_state_container = ft.Container(
+            alignment=ft.Alignment(0, 0),
+            expand=True,
+            visible=True,
+            content=ft.Column(
+                [
+                    empty_image,
+                    self.empty_state_title_text,
+                    self.empty_state_workspace_text,
+                ],
+                spacing=5,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                alignment=ft.MainAxisAlignment.CENTER,
+                tight=True,
+            ),
+        )
 
         return ft.Container(
             expand=True,
             bgcolor=CANVAS,
             padding=ft.Padding.only(right=20, left=20, top=16),
-            content=self.messages_column,
+            content=ft.Stack(
+                [
+                    self.empty_state_container,
+                    self.messages_column,
+                ],
+                expand=True,
+            ),
         )
 
     def build_composer(self) -> ft.Control:

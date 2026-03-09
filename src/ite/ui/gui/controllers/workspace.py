@@ -160,6 +160,8 @@ class WorkspaceControllerMixin:
             self.config.cwd = target
             if self.header_workspace_text:
                 self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
+            if hasattr(self, "_refresh_empty_state_copy"):
+                self._refresh_empty_state_copy()
             if self.agent is not None:
                 await self._shutdown_agent()
             if self.messages_column:

@@ -48,6 +48,9 @@ class GUIApp(
         self.page: ft.Page | None = None
 
         self.messages_column: ft.Column | None = None
+        self.empty_state_container: ft.Container | None = None
+        self.empty_state_title_text: ft.Text | None = None
+        self.empty_state_workspace_text: ft.Text | None = None
         self.chat_bottom_spacer: ft.Container | None = None
         self.input_field: ft.TextField | None = None
         self.send_button: ft.IconButton | None = None
@@ -735,6 +738,29 @@ class GUIApp(
         except Exception:
             return False
 
+    def _refresh_empty_state_visibility(self):
+        if not self.empty_state_container or not self.messages_column:
+            return
+        if self.app_mode != "chat":
+            self.empty_state_container.visible = False
+            self._safe_control_update(self.empty_state_container)
+            return
+        visible_controls = [
+            c for c in self.messages_column.controls if c is not self.chat_bottom_spacer
+        ]
+        should_show = (len(visible_controls) == 0) and (not self._is_turn_running)
+        self.empty_state_container.visible = should_show
+        self._safe_control_update(self.empty_state_container)
+
+    def _refresh_empty_state_copy(self):
+        if self.empty_state_title_text:
+            self.empty_state_title_text.value = "Ready when you are"
+            self._safe_control_update(self.empty_state_title_text)
+        if self.empty_state_workspace_text:
+            workspace_name = Path(self.config.cwd).resolve().name or str(self.config.cwd)
+            self.empty_state_workspace_text.value = workspace_name
+            self._safe_control_update(self.empty_state_workspace_text)
+
     def _ensure_chat_bottom_spacer(self):
         if not self.messages_column:
             return
@@ -752,9 +778,11 @@ class GUIApp(
         controls = self.messages_column.controls
         if controls and controls[-1] is self.chat_bottom_spacer:
             controls.insert(len(controls) - 1, control)
+            self._refresh_empty_state_visibility()
             return len(controls) - 2
         controls.append(control)
         self._ensure_chat_bottom_spacer()
+        self._refresh_empty_state_visibility()
         return len(self.messages_column.controls) - 2
 
     def _clear_chat_controls(self):
@@ -762,6 +790,7 @@ class GUIApp(
             return
         self.messages_column.controls.clear()
         self._ensure_chat_bottom_spacer()
+        self._refresh_empty_state_visibility()
 
     def _remove_chat_control(self, control: ft.Control):
         if not self.messages_column:
@@ -769,6 +798,7 @@ class GUIApp(
         if control in self.messages_column.controls:
             self.messages_column.controls.remove(control)
         self._ensure_chat_bottom_spacer()
+        self._refresh_empty_state_visibility()
 
     async def _run_agent(
         self,
@@ -821,6 +851,7 @@ class GUIApp(
                 self._active_turn_task = None
                 self._hide_thinking_indicator()
                 self._set_loading(False)
+                self._refresh_empty_state_visibility()
 
     async def _ensure_agent(self) -> None:
         if self.agent is not None:
@@ -1792,4 +1823,5 @@ def run_gui(config: Config):
         gui = GUIApp(config)
         gui.run(page)
 
-    flet.run(main=create_page, view=ft.AppView.FLET_APP)
+    assets_dir = str((Path(__file__).resolve().parent / "assets"))
+    flet.run(main=create_page, view=ft.AppView.FLET_APP, assets_dir=assets_dir)
