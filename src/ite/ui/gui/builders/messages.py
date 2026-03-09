@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import re
 import flet as ft
 from typing import Any
@@ -43,6 +44,57 @@ class MessageBuilderMixin:
             border=ft.Border.all(1, BORDER_STRONG if code_mode else BORDER),
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+        )
+
+    def _build_scrollable_text_block(
+        self,
+        content: str,
+        *,
+        max_height: int = 220,
+        line_limit: int = 500,
+        markdown: bool = False,
+    ) -> ft.Control:
+        lines = content.splitlines()
+        clipped = lines[:line_limit]
+        clipped_text = "\n".join(clipped)
+        if len(lines) > line_limit:
+            clipped_text += f"\n\n... [{len(lines) - line_limit} more lines not shown]"
+
+        line_count = max(1, len(clipped))
+        estimated_height = min(max(42, line_count * 22 + 12), max_height)
+        body: ft.Control
+        if markdown:
+            body = ft.Markdown(
+                clipped_text,
+                selectable=True,
+                extension_set="gitHubFlavored",
+            )
+        else:
+            body = ft.Text(
+                clipped_text,
+                style=MONO_STYLE,
+                selectable=True,
+            )
+        return ft.Container(
+            height=estimated_height,
+            content=ft.Column(
+                [body],
+                scroll=ft.ScrollMode.AUTO,
+                tight=True,
+                spacing=0,
+            ),
+        )
+
+    def _build_empty_output_hint(self) -> ft.Control:
+        return ft.Container(
+            content=ft.Row(
+                [
+                    ft.Icon(ft.Icons.INFO_OUTLINE_ROUNDED, size=14, color=TEXT_MUTED),
+                    ft.Text("No output", size=TYPE_SM, color=TEXT_MUTED),
+                ],
+                spacing=8,
+            ),
+            padding=ft.Padding.symmetric(horizontal=6, vertical=4),
         )
 
     def _looks_like_source_excerpt(self, text: str) -> bool:
@@ -140,11 +192,19 @@ class MessageBuilderMixin:
             spans.append(ft.TextSpan(line[cursor:], style=ft.TextStyle(font_family=FONT_MONO, color=TEXT_PRIMARY, size=TYPE_BODY)))
         return ft.Text(spans=spans, selectable=True)
 
-    def _build_colored_code_view(self, content: str, language: str) -> ft.Control:
+    def _build_colored_code_view(
+        self,
+        content: str,
+        language: str,
+        *,
+        start_line: int = 1,
+        max_height: int = 360,
+        line_limit: int = 700,
+    ) -> ft.Control:
         rows: list[ft.Control] = []
         lines = content.splitlines()
-        clipped = lines[:160]
-        for idx, line in enumerate(clipped, start=1):
+        clipped = lines[:line_limit]
+        for idx, line in enumerate(clipped, start=start_line):
             rows.append(
                 ft.Row(
                     [
@@ -163,11 +223,17 @@ class MessageBuilderMixin:
                     color=TEXT_MUTED,
                 )
             )
-        return ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO)
+        estimated_height = min(max(110, len(clipped) * 23 + 20), max_height)
+        return ft.Container(
+            height=estimated_height,
+            content=ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO),
+        )
 
-    def _build_diff_view(self, diff_text: str) -> ft.Control:
+    def _build_diff_view(self, diff_text: str, *, max_height: int = 340, line_limit: int = 800) -> ft.Control:
         rows: list[ft.Control] = []
-        for line in diff_text.splitlines():
+        lines = diff_text.splitlines()
+        clipped = lines[:line_limit]
+        for line in clipped:
             color = TEXT_PRIMARY
             if line.startswith("+"):
                 color = ft.Colors.with_opacity(0.95, ft.Colors.GREEN_300)
@@ -184,7 +250,249 @@ class MessageBuilderMixin:
                     selectable=True,
                 )
             )
-        return ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO)
+        if len(lines) > len(clipped):
+            rows.append(
+                ft.Text(
+                    f"... {len(lines) - len(clipped)} more lines",
+                    size=TYPE_SM,
+                    color=TEXT_MUTED,
+                )
+            )
+        estimated_height = min(max(110, len(clipped) * 22 + 20), max_height)
+        return ft.Container(
+            height=estimated_height,
+            content=ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO),
+        )
+
+    def _build_file_list_view(
+        self,
+        paths: list[str],
+        *,
+        max_height: int = 210,
+        line_limit: int = 240,
+    ) -> ft.Control:
+        clipped = paths[:line_limit]
+        rows: list[ft.Control] = []
+        for p in clipped:
+            rows.append(
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.INSERT_DRIVE_FILE_ROUNDED, size=14, color=TEXT_MUTED),
+                        ft.Text(
+                            p,
+                            style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_BODY, color=TEXT_PRIMARY),
+                            selectable=True,
+                        ),
+                    ],
+                    spacing=8,
+                )
+            )
+        if len(paths) > len(clipped):
+            rows.append(ft.Text(f"... {len(paths)-len(clipped)} more entries", size=TYPE_SM, color=TEXT_MUTED))
+        estimated_height = min(max(90, len(clipped) * 24 + 16), max_height)
+        return ft.Container(
+            height=estimated_height,
+            content=ft.Column(rows, spacing=4, tight=True, scroll=ft.ScrollMode.AUTO),
+        )
+
+    def _build_grep_view(
+        self,
+        payload: str,
+        *,
+        max_height: int = 260,
+        line_limit: int = 420,
+    ) -> ft.Control:
+        groups: list[tuple[str, list[str]]] = []
+        current_file: str | None = None
+        current_lines: list[str] = []
+        for raw in payload.splitlines():
+            line = raw.rstrip()
+            if line.startswith("=== ") and line.endswith(" ==="):
+                if current_file is not None:
+                    groups.append((current_file, current_lines))
+                current_file = line[4:-4].strip()
+                current_lines = []
+                continue
+            if current_file is not None:
+                if line:
+                    current_lines.append(line)
+        if current_file is not None:
+            groups.append((current_file, current_lines))
+
+        if not groups:
+            return self._build_scrollable_text_block(
+                payload,
+                max_height=max_height,
+                line_limit=line_limit,
+                markdown=False,
+            )
+
+        rows: list[ft.Control] = []
+        shown = 0
+        for file_path, match_lines in groups:
+            if shown >= line_limit:
+                break
+            rows.append(
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.FOLDER_OPEN_ROUNDED, size=14, color=TEXT_MUTED),
+                        ft.Text(file_path, size=TYPE_SM, color=TEXT_SECONDARY, selectable=True),
+                    ],
+                    spacing=8,
+                )
+            )
+            for line in match_lines:
+                if shown >= line_limit:
+                    break
+                color = TEXT_PRIMARY
+                m = re.match(r"^\s*(\d+):(.*)$", line)
+                if m:
+                    line_no = m.group(1)
+                    text = m.group(2).lstrip()
+                    rows.append(
+                        ft.Row(
+                            [
+                                ft.Text(
+                                    f"{line_no:>4}",
+                                    style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_SM, color=TEXT_MUTED),
+                                ),
+                                ft.Container(width=8),
+                                ft.Text(
+                                    text,
+                                    style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_BODY, color=color),
+                                    selectable=True,
+                                ),
+                            ],
+                            spacing=0,
+                        )
+                    )
+                else:
+                    rows.append(
+                        ft.Text(
+                            line,
+                            style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_BODY, color=color),
+                            selectable=True,
+                        )
+                    )
+                shown += 1
+            rows.append(ft.Container(height=4))
+
+        estimated_height = min(max(110, min(shown, 28) * 22 + 24), max_height)
+        return ft.Container(
+            height=estimated_height,
+            content=ft.Column(rows, spacing=2, tight=True, scroll=ft.ScrollMode.AUTO),
+        )
+
+    def _looks_like_json(self, value: str) -> bool:
+        text = value.strip()
+        if not text:
+            return False
+        if (text.startswith("{") and text.endswith("}")) or (
+            text.startswith("[") and text.endswith("]")
+        ):
+            return True
+        return False
+
+    def _normalize_path_lines(self, payload: str) -> list[str]:
+        lines = []
+        for raw in payload.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            line = line.lstrip("📄").lstrip("🗂️").strip()
+            if line.endswith("/"):
+                line = line[:-1]
+            lines.append(line)
+        return lines
+
+    def _build_meta_summary(self, name: str, metadata: dict[str, Any] | None, exit_code: int | None) -> ft.Control | None:
+        if not isinstance(metadata, dict):
+            metadata = {}
+        chips: list[ft.Control] = []
+
+        def chip(label: str) -> ft.Control:
+            return ft.Container(
+                content=ft.Text(label, size=TYPE_SM, color=TEXT_SECONDARY),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                border=ft.Border.all(1, BORDER),
+                border_radius=RADIUS_SM,
+                bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.WHITE),
+            )
+
+        if name == "glob":
+            matches = metadata.get("matches")
+            if isinstance(matches, int):
+                chips.append(chip(f"{matches} files found"))
+        elif name == "list_dir":
+            entries = metadata.get("entries")
+            if isinstance(entries, int):
+                chips.append(chip(f"{entries} entries"))
+        elif name == "grep":
+            matches = metadata.get("matches")
+            files = metadata.get("files_searched")
+            if isinstance(matches, int):
+                if isinstance(files, int):
+                    chips.append(chip(f"{matches} matches in {files} files"))
+                else:
+                    chips.append(chip(f"{matches} matches"))
+        elif name == "read_file":
+            shown_start = metadata.get("shown_start")
+            shown_end = metadata.get("shown_end")
+            total = metadata.get("total_lines")
+            if all(isinstance(x, int) for x in [shown_start, shown_end, total]):
+                chips.append(chip(f"lines {shown_start}-{shown_end} of {total}"))
+        elif name == "write_file":
+            if isinstance(metadata.get("path"), str):
+                chips.append(chip(str(metadata["path"])))
+            if isinstance(metadata.get("lines_added"), int):
+                chips.append(chip(f"{metadata['lines_added']} lines written"))
+        elif name == "edit":
+            if isinstance(metadata.get("path"), str):
+                chips.append(chip(str(metadata["path"])))
+            if isinstance(metadata.get("replace_count"), int):
+                chips.append(chip(f"{metadata['replace_count']} replacements"))
+            if isinstance(metadata.get("line_diff"), int):
+                sign = "+" if metadata["line_diff"] > 0 else ""
+                chips.append(chip(f"{sign}{metadata['line_diff']} line delta"))
+        elif name == "apply_patch":
+            actions = metadata.get("actions")
+            if isinstance(actions, list):
+                chips.append(chip(f"{len(actions)} files changed"))
+        elif name == "shell":
+            if isinstance(exit_code, int):
+                chips.append(chip(f"exit code {exit_code}"))
+
+        if not chips:
+            return None
+        return ft.Row(chips, spacing=8, wrap=True)
+
+    def _build_patch_actions_view(self, actions: list[dict[str, Any]]) -> ft.Control:
+        rows: list[ft.Control] = []
+        for action in actions[:300]:
+            op = str(action.get("action", "update")).lower()
+            path = str(action.get("path", ""))
+            color = TEXT_SECONDARY
+            icon = ft.Icons.EDIT_ROUNDED
+            if op == "add":
+                color = ft.Colors.with_opacity(0.9, ft.Colors.GREEN_300)
+                icon = ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED
+            elif op == "delete":
+                color = ft.Colors.with_opacity(0.9, ft.Colors.RED_300)
+                icon = ft.Icons.REMOVE_CIRCLE_OUTLINE_ROUNDED
+            rows.append(
+                ft.Row(
+                    [
+                        ft.Icon(icon, size=14, color=color),
+                        ft.Text(op.upper(), size=TYPE_SM, color=color, weight=WEIGHT_SEMIBOLD),
+                        ft.Text(path, style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_BODY, color=TEXT_PRIMARY), selectable=True),
+                    ],
+                    spacing=8,
+                )
+            )
+        return ft.Container(
+            height=min(max(90, len(rows) * 24 + 16), 220),
+            content=ft.Column(rows, spacing=4, tight=True, scroll=ft.ScrollMode.AUTO),
+        )
 
     def _truncate_content(
         self,
@@ -458,11 +766,11 @@ class MessageBuilderMixin:
                     ft.Divider(height=1, color=HAIRLINE),
                     ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
                     self._build_tool_payload_surface(
-                        self._build_expandable_block(
+                        self._build_scrollable_text_block(
                             args_text,
-                            as_markdown=False,
-                            max_chars=500,
-                            max_lines=5,
+                            max_height=140,
+                            line_limit=180,
+                            markdown=False,
                         )
                     ),
                 ],
@@ -519,6 +827,9 @@ class MessageBuilderMixin:
         language = self._guess_language(
             metadata.get("path") if isinstance(metadata, dict) else None
         )
+        start_line = 1
+        if isinstance(metadata, dict) and isinstance(metadata.get("shown_start"), int):
+            start_line = int(metadata.get("shown_start"))
         code_content = payload
         if self._looks_like_source_excerpt(payload):
             code_content = "\n".join(
@@ -526,48 +837,86 @@ class MessageBuilderMixin:
             )
             code_mode = True
 
-        if diff:
+        if payload == "No output":
+            payload_block = self._build_empty_output_hint()
+        elif diff:
             payload_block: ft.Control = self._build_diff_view(diff)
             code_mode = True
         elif code_mode:
-            payload_block = self._build_colored_code_view(code_content, language)
+            payload_block = self._build_colored_code_view(
+                content=code_content,
+                language=language,
+                start_line=start_line,
+            )
+            code_mode = True
+        elif name in {"glob", "list_dir"} and success:
+            paths = self._normalize_path_lines(payload)
+            payload_block = self._build_file_list_view(paths)
+        elif name == "grep" and success:
+            payload_block = self._build_grep_view(payload)
+        elif name == "apply_patch" and success and isinstance(metadata, dict) and isinstance(metadata.get("actions"), list):
+            payload_block = self._build_patch_actions_view(metadata.get("actions") or [])
+        elif name == "shell":
+            payload_block = self._build_scrollable_text_block(
+                payload,
+                max_height=260,
+                line_limit=520,
+                markdown=False,
+            )
+        elif self._looks_like_json(payload):
+            try:
+                normalized = json.dumps(json.loads(payload), indent=2)
+            except Exception:
+                normalized = payload
+            payload_block = self._build_colored_code_view(
+                content=normalized,
+                language="json",
+                start_line=1,
+                max_height=280,
+                line_limit=500,
+            )
             code_mode = True
         else:
-            payload_block = self._build_expandable_block(
+            payload_block = self._build_scrollable_text_block(
                 payload,
-                as_markdown=False,
-                max_chars=700,
-                max_lines=7,
+                max_height=220,
+                line_limit=500,
+                markdown=False,
             )
         title_text = activity_title(name, stage="complete", success=success)
+        summary_row = self._build_meta_summary(name, metadata if isinstance(metadata, dict) else None, exit_code)
+
+        content_items: list[ft.Control] = [
+            ft.Row(
+                [
+                    ft.Icon(icon_name, size=16, color=state_color),
+                    ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
+                    ft.Container(expand=True),
+                    ft.Text(
+                        f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
+                        size=TYPE_SM,
+                        color=TEXT_MUTED,
+                    ),
+                    self._build_status_chip(
+                        state_text,
+                        state_color,
+                        SUCCESS_SOFT if success else DANGER_SOFT,
+                        ft.Colors.with_opacity(
+                            0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+                        ),
+                    ),
+                ]
+            ),
+            ft.Divider(height=1, color=HAIRLINE),
+            ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+        ]
+        if summary_row is not None:
+            content_items.append(summary_row)
+        content_items.append(self._build_tool_payload_surface(payload_block, code_mode=code_mode))
 
         card = ft.Container(
             content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(icon_name, size=16, color=state_color),
-                            ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
-                            ft.Container(expand=True),
-                            ft.Text(
-                                f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
-                                size=TYPE_SM,
-                                color=TEXT_MUTED,
-                            ),
-                            self._build_status_chip(
-                                state_text,
-                                state_color,
-                                SUCCESS_SOFT if success else DANGER_SOFT,
-                                ft.Colors.with_opacity(
-                                    0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
-                                ),
-                            ),
-                        ]
-                    ),
-                    ft.Divider(height=1, color=HAIRLINE),
-                    ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
-                    self._build_tool_payload_surface(payload_block, code_mode=code_mode),
-                ],
+                content_items,
                 spacing=SPACE_MD,
                 tight=True,
             ),

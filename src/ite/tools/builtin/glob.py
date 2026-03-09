@@ -10,7 +10,10 @@ from ite.tools.base import Tool
 
 
 class GlobParams(BaseModel):
-    pattern: str = Field(description="Glob pattern to match")
+    pattern: str = Field(
+        "**/*",
+        description="Glob pattern to match (default: '**/*')",
+    )
     path: str = Field(
         ".", description="Directory to search in (default: current directory)"
     )
