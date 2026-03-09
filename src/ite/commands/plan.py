@@ -70,13 +70,13 @@ async def cmd_plan(ctx: CommandContext, args: list[str]) -> None:
     body = Text.assemble(
         ("Plan mode is now ", "code"),
         ("ON", "bold cyan") if enable else ("OFF", "bold white"),
-        (".\n", "code"),
-        (
-            "Mutating tools are blocked until plan implementation is approved."
-            if enable
-            else "Normal execution behavior restored.",
-            "dim",
-        ),
+        # (".\n", "code"),
+        # (
+        #     "Mutating tools are blocked until plan implementation is approved."
+        #     if enable
+        #     else "Normal execution behavior restored.",
+        #     "dim",
+        # ),
     )
     ctx.console.print()
     ctx.console.print(
