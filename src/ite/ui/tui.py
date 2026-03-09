@@ -274,6 +274,63 @@ class TUI:
         clean = [p for p in parts if p]
         return Text(" • ".join(clean), style="muted")
 
+    def _truncate_for_tool(
+        self,
+        name: str,
+        text: str,
+        *,
+        preserve_lines: bool = True,
+    ) -> tuple[str, bool]:
+        if not text:
+            return text, False
+
+        max_lines_by_tool = {
+            "read_file": 20,
+            "write_file": 30,
+            "edit": 30,
+            "list_dir": 24,
+            "glob": 24,
+            "grep": 40,
+            "shell": 30,
+            "web_fetch": 36,
+        }
+        max_chars_by_tool = {
+            "read_file": 3200,
+            "write_file": 4400,
+            "edit": 4400,
+            "list_dir": 2200,
+            "glob": 2200,
+            "grep": 5600,
+            "shell": 4200,
+            "web_fetch": 5200,
+        }
+
+        max_lines = max_lines_by_tool.get(name, 28)
+        max_chars = max_chars_by_tool.get(name, 4200)
+
+        clipped = text
+        was_truncated = False
+
+        lines = clipped.splitlines()
+        if len(lines) > max_lines:
+            clipped = "\n".join(lines[:max_lines])
+            was_truncated = True
+
+        if len(clipped) > max_chars:
+            clipped = clipped[:max_chars]
+            was_truncated = True
+
+        token_truncated = truncate_text(
+            clipped,
+            self.config.model_name,
+            self._max_block_tokens,
+            preserve_lines=preserve_lines,
+        )
+        if token_truncated != clipped:
+            was_truncated = True
+
+        return token_truncated, was_truncated
+
     def _render_grep_block(self, output: str) -> Table | None:
         groups: list[tuple[str, list[str]]] = []
         current_file: str | None = None
@@ -510,6 +567,7 @@ class TUI:
         )
 
         primary_path = None
+        local_truncated = False
         blocks = []
         blocks.append(Text(narrative, style="muted"))
         blocks.append(Text())
@@ -548,11 +606,12 @@ class TUI:
                     )
                 )
             else:
-                output_display = truncate_text(
+                output_display, was_truncated = self._truncate_for_tool(
+                    name,
                     output,
-                    "",
-                    self._max_block_tokens,
+                    preserve_lines=True,
                 )
+                local_truncated = local_truncated or was_truncated
                 blocks.append(
                     Syntax(
                         output_display,
@@ -576,14 +635,15 @@ class TUI:
                 if isinstance(metadata.get("line_diff"), int):
                     sign = "+" if metadata["line_diff"] > 0 else ""
                     parts.append(f"{sign}{metadata['line_diff']} line delta")
-                if parts:
-                    blocks.append(self._summary_line(*parts))
+            if parts:
+                blocks.append(self._summary_line(*parts))
             diff_text = diff
-            diff_display = truncate_text(
+            diff_display, was_truncated = self._truncate_for_tool(
+                name,
                 diff_text,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
             blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
 
         elif name == "shell" and success:
@@ -594,11 +654,12 @@ class TUI:
             if exit_code is not None:
                 blocks.append(self._summary_line(f"exit code {exit_code}"))
 
-            output_display = truncate_text(
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
                 output,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
             if output_display.strip():
                 blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
             else:
@@ -618,11 +679,12 @@ class TUI:
             if summary:
                 blocks.append(self._summary_line(*summary))
 
-            output_display = truncate_text(
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
                 output,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
             if output_display.strip():
                 blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
             else:
@@ -646,11 +708,12 @@ class TUI:
             if summary:
                 blocks.append(self._summary_line(*summary))
 
-            output_display = truncate_text(
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
                 output,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
             grep_block = self._render_grep_block(output_display)
             if grep_block is not None:
                 blocks.append(grep_block)
@@ -668,11 +731,12 @@ class TUI:
                 else:
                     blocks.append(self._summary_line(f"{matches} files found"))
 
-            output_display = truncate_text(
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
                 output,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
             if output_display.strip():
                 blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
             else:
@@ -763,11 +827,12 @@ class TUI:
             if summary:
                 blocks.append(Text(" • ".join(summary), style="muted"))
 
-            output_display = truncate_text(
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
                 output,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
 
             if isinstance(content_type, str) and "json" in content_type:
                 blocks.append(
@@ -885,11 +950,12 @@ class TUI:
             if error and not success:
                 blocks.append(Text(error, style="error"))
 
-            output_display = truncate_text(
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
                 output,
-                self.config.model_name,
-                self._max_block_tokens,
+                preserve_lines=True,
             )
+            local_truncated = local_truncated or was_truncated
 
             if output_display.strip():
                 if success:
@@ -901,7 +967,9 @@ class TUI:
             else:
                 blocks.append(Text("No output", style="muted"))
 
-        if truncated:
+        if local_truncated:
+            blocks.append(Text("... [truncated]", style="warning"))
+        elif truncated:
             blocks.append(Text("... [truncated]", style="warning"))
 
         panel = Panel(
