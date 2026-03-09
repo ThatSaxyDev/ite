@@ -612,14 +612,30 @@ class GUIApp(
         loop = asyncio.get_running_loop()
         self._plan_question_future = loop.create_future()
         self._plan_question_count += 1
-        status_text = ft.Text("", size=TYPE_SM, color=TEXT_MUTED)
+        status_icon = ft.Icon(
+            ft.Icons.CHECK_CIRCLE_ROUNDED,
+            size=16,
+            color=SUCCESS,
+            visible=False,
+        )
+        status_text = ft.Text(
+            "Answered",
+            size=TYPE_BODY,
+            color=SUCCESS,
+            weight=ft.FontWeight.W_600,
+            visible=False,
+        )
+        status_row = ft.Row([status_icon, status_text], spacing=6, visible=False)
 
-        choices: list[ft.Control] = []
+        choices: list[ft.OutlinedButton] = []
+        option_labels: list[str] = []
         for idx, option in enumerate(options):
             recommended = idx == recommended_index
+            label = f"{idx + 1}. {option}" + ("  (Recommended)" if recommended else "")
+            option_labels.append(label)
             button = ft.OutlinedButton(
                 content=ft.Text(
-                    f"{idx + 1}. {option}" + ("  (Recommended)" if recommended else ""),
+                    label,
                     size=TYPE_MD,
                     color=TEXT_PRIMARY,
                 ),
@@ -628,7 +644,17 @@ class GUIApp(
                     o,
                     "",
                     status_text=status_text,
+                    status_icon=status_icon,
+                    status_row=status_row,
                     option_buttons=choices,
+                    option_labels=option_labels,
+                    options_column=options_column,
+                    custom_option_container=custom_option_container,
+                    custom_option_index=len(options),
+                    custom_option_text="",
+                    custom_selected=False,
+                    free_input=free_text_input,
+                    free_submit=free_submit,
                 ),
                 style=ft.ButtonStyle(
                     side=ft.BorderSide(1, BORDER_STRONG),
@@ -641,15 +667,18 @@ class GUIApp(
                 ),
             )
             choices.append(button)
+        options_column = ft.Column(choices, spacing=6, tight=True)
+        custom_option_container = ft.Container(visible=False)
 
         free_text_input = ft.TextField(
             hint_text="Other answer",
             border_radius=RADIUS_SM,
             border_color=BORDER,
-            focused_border_color=ACCENT,
+            focused_border_color=BORDER,
             bgcolor=SURFACE_2,
             color=TEXT_PRIMARY,
-            content_padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            content_padding=ft.Padding.symmetric(horizontal=10, vertical=6),
+            height=38,
             visible=allow_free_text,
         )
         free_submit = ft.TextButton(
@@ -659,7 +688,15 @@ class GUIApp(
                 "",
                 free_text_input.value.strip() if free_text_input else "",
                 status_text=status_text,
+                status_icon=status_icon,
+                status_row=status_row,
                 option_buttons=choices,
+                option_labels=option_labels,
+                options_column=options_column,
+                custom_option_container=custom_option_container,
+                custom_option_index=len(options) + 1,
+                custom_option_text=free_text_input.value.strip() if free_text_input else "",
+                custom_selected=True,
                 free_input=free_text_input,
                 free_submit=free_submit,
             ),
@@ -681,10 +718,11 @@ class GUIApp(
                         weight=ft.FontWeight.W_600,
                     ),
                     ft.Text(question, size=TYPE_MD, color=TEXT_PRIMARY, weight=ft.FontWeight.W_600),
-                    ft.Column(choices, spacing=6, tight=True),
+                    options_column,
+                    custom_option_container,
                     free_text_input,
                     free_submit,
-                    status_text,
+                    status_row,
                 ],
                 spacing=8,
                 tight=True,
@@ -707,27 +745,82 @@ class GUIApp(
         free_text: str,
         *,
         status_text: ft.Text | None = None,
-        option_buttons: list[ft.Control] | None = None,
+        status_icon: ft.Icon | None = None,
+        status_row: ft.Row | None = None,
+        option_buttons: list[ft.OutlinedButton] | None = None,
+        option_labels: list[str] | None = None,
+        options_column: ft.Column | None = None,
+        custom_option_container: ft.Container | None = None,
+        custom_option_index: int = 0,
+        custom_option_text: str = "",
+        custom_selected: bool = False,
         free_input: ft.TextField | None = None,
         free_submit: ft.TextButton | None = None,
     ) -> None:
         if not self._plan_question_future or self._plan_question_future.done():
             return
+        free_text_clean = free_text.strip()
         result = {
             "selected_index": selected_index,
             "selected_option": selected_option,
-            "free_text": free_text,
+            "free_text": free_text_clean,
         }
-        answer_preview = selected_option or free_text or "(no answer)"
-        if status_text:
-            status_text.value = f"Answered: {answer_preview}"
-            status_text.color = SUCCESS
-        for control in option_buttons or []:
+
+        for idx, control in enumerate(option_buttons or []):
+            label = (
+                option_labels[idx]
+                if option_labels and idx < len(option_labels)
+                else f"{idx + 1}. Option"
+            )
+            is_selected = selected_index is not None and idx == selected_index
             control.disabled = True
+            control.content = ft.Text(
+                f"✓ {label}" if is_selected else label,
+                size=TYPE_MD,
+                color=SUCCESS if is_selected else TEXT_MUTED,
+                weight=ft.FontWeight.W_600 if is_selected else ft.FontWeight.W_500,
+            )
+            control.style = ft.ButtonStyle(
+                side=ft.BorderSide(1, SUCCESS if is_selected else BORDER_STRONG),
+                bgcolor={
+                    ft.ControlState.DEFAULT: SUCCESS_SOFT if is_selected else ft.Colors.TRANSPARENT,
+                },
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+            )
+
+        if custom_option_container is not None:
+            custom_option_container.visible = custom_selected and bool(free_text_clean)
+            if custom_selected and free_text_clean:
+                custom_option_container.content = ft.OutlinedButton(
+                    disabled=True,
+                    content=ft.Text(
+                        f"✓ {custom_option_index}. {custom_option_text}",
+                        size=TYPE_MD,
+                        color=SUCCESS,
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    style=ft.ButtonStyle(
+                        side=ft.BorderSide(1, SUCCESS),
+                        bgcolor={ft.ControlState.DEFAULT: SUCCESS_SOFT},
+                        shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+                        padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                    ),
+                )
+
         if free_input:
             free_input.disabled = True
+            free_input.visible = False
         if free_submit:
             free_submit.disabled = True
+            free_submit.visible = False
+        if status_text:
+            status_text.value = "Answered by user" if custom_selected else "Answered"
+            status_text.visible = True
+        if status_icon:
+            status_icon.visible = True
+        if status_row:
+            status_row.visible = True
         if self.page:
             self.page.update()
         self._show_thinking_indicator()

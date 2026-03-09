@@ -427,7 +427,7 @@ class CLI:
                         "awaiting_implementation_confirmation"
                     )
                     console.print(
-                        "[dim]Plan remains active. Ask follow-ups or type 'implement plan' later.[/dim]"
+                        "[dim]Plan mode remains enabled. Next: send follow-up guidance to refine this plan. or type 'implement plan' later.[/dim]"
                     )
 
         self.tui.stop_spinner()
