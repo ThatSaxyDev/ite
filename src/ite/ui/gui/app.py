@@ -525,7 +525,7 @@ class GUIApp(
         if not session.has_pending_plan():
             return
 
-        status = ft.Text("", size=TYPE_SM, color=TEXT_MUTED)
+        status = ft.Text("", size=TYPE_BODY, color=TEXT_MUTED)
         refine_button = ft.OutlinedButton("Refine old plan")
         accept_button = ft.FilledButton("Accept and implement")
         new_button = ft.TextButton("Generate new plan")
@@ -762,6 +762,7 @@ class GUIApp(
                     True,
                     status,
                     [no_button, yes_button],
+                    actions_wrap,
                 )
 
         def on_decline(_e):
@@ -771,6 +772,7 @@ class GUIApp(
                     False,
                     status,
                     [no_button, yes_button],
+                    actions_wrap,
                 )
 
         no_button.on_click = on_decline
@@ -783,6 +785,7 @@ class GUIApp(
             ],
             alignment=ft.MainAxisAlignment.END,
         )
+        actions_wrap = ft.Container(content=actions)
 
         card = ft.Container(
             width=SPECIAL_CARD_WIDTH,
@@ -794,21 +797,21 @@ class GUIApp(
                 [
                     ft.Text(
                         "Implement this plan?",
-                        size=TYPE_MD,
+                        size=TYPE_TITLE,
                         color=TEXT_PRIMARY,
                         weight=ft.FontWeight.W_700,
                     ),
                     ft.Text(
                         "Execution is blocked until you approve.",
-                        size=TYPE_SM,
+                        size=TYPE_BODY,
                         color=TEXT_SECONDARY,
                     ),
                     ft.Text(
                         f"Asked {self.agent.session.plan_questions_asked} questions",
-                        size=TYPE_SM,
+                        size=TYPE_BODY,
                         color=TEXT_MUTED,
                     ),
-                    actions,
+                    actions_wrap,
                     status,
                 ],
                 spacing=8,
@@ -826,12 +829,15 @@ class GUIApp(
         approved: bool,
         status_text: ft.Text,
         action_buttons: list[ft.Control] | None = None,
+        actions_container: ft.Container | None = None,
     ):
         await self._ensure_agent()
         if not self.agent or not self.agent.session:
             return
         for control in action_buttons or []:
             control.disabled = True
+        if actions_container is not None:
+            actions_container.visible = False
 
         if approved:
             # Approving exits plan mode and starts execution.
@@ -842,13 +848,29 @@ class GUIApp(
             self._plan_question_count = 0
             self._plan_ready_prompt_open = False
             self._sync_plan_toggle_ui()
-            status_text.value = "Approved · Plan mode off"
+            status_text.value = "Approved. Plan mode off. Starting implementation."
             status_text.color = SUCCESS
             if self.page:
                 self.page.update()
             self._add_assistant_card(
                 "Plan Mode",
-                ft.Text("Plan mode disabled. Starting implementation.", color=TEXT_SECONDARY),
+                ft.Column(
+                    [
+                        ft.Text(
+                            "Implementation started.",
+                            size=TYPE_TITLE,
+                            color=TEXT_PRIMARY,
+                            weight=ft.FontWeight.W_600,
+                        ),
+                        ft.Text(
+                            "Plan mode has been turned off for this run.",
+                            size=TYPE_BODY,
+                            color=TEXT_SECONDARY,
+                        ),
+                    ],
+                    spacing=4,
+                    tight=True,
+                ),
             )
             self._active_turn_task = self.page.run_task(
                 self._run_agent,
@@ -861,13 +883,31 @@ class GUIApp(
         self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
         self._plan_ready_prompt_open = False
         self._sync_plan_toggle_ui()
-        status_text.value = "Not implemented · You can type 'implement plan' later"
+        status_text.value = "Not implemented. Plan remains pending."
         status_text.color = TEXT_MUTED
         self._add_assistant_card(
             "Plan Mode",
-            ft.Text(
-                "Plan mode remains enabled. Refine with follow-up prompts, or type 'implement plan' to execute this plan later.",
-                color=TEXT_SECONDARY,
+            ft.Column(
+                [
+                    ft.Text(
+                        "Plan mode remains enabled.",
+                        size=TYPE_TITLE,
+                        color=TEXT_PRIMARY,
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    ft.Text(
+                        "Next: send follow-up guidance to refine this plan.",
+                        size=TYPE_BODY,
+                        color=TEXT_SECONDARY,
+                    ),
+                    ft.Text(
+                        "Or type 'implement plan' later to execute this exact plan.",
+                        size=TYPE_MD,
+                        color=TEXT_MUTED,
+                    ),
+                ],
+                spacing=4,
+                tight=True,
             ),
         )
         if self.page:
