@@ -90,18 +90,32 @@ Screen {
 }
 
 .block .card-title {
-    color: #9ecbff;
+    color: #9caecb;
     text-style: bold;
-    margin-bottom: 1;
+    margin-bottom: 0;
 }
 
 .block.user {
-    border: solid #313948;
-    background: #1b2028;
+    border: none;
+    border-left: solid #4a89d8;
+    background: #121a2a 58%;
+    padding: 1 2;
 }
 
 .block.assistant {
-    border: solid #2f4863;
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 0 0 1 0;
+}
+
+.block.assistant .card-title {
+    display: none;
+}
+
+.block.assistant .card-body {
+    margin-top: 0;
+    padding: 0 1 0 1;
 }
 
 .block.system {
@@ -116,11 +130,42 @@ Screen {
 }
 
 .block.tool.running {
-    border: none;
+    border-left: solid #2a6edb;
+    background: #10182a 60%;
+    padding: 1 2;
 }
 
 .block.success {
-    border: none;
+    border-left: solid #2f9e63;
+    background: #0f1d1a 52%;
+    padding: 1 2;
+}
+
+.block.tool.error {
+    border-left: solid #b23a3a;
+    background: #241516 58%;
+    padding: 1 2;
+}
+
+.card-body {
+    margin-top: 1;
+}
+
+.user-body Markdown,
+.assistant-body Markdown {
+    layout: stream;
+    margin: 0;
+    padding: 0;
+}
+
+.user-body MarkdownBlock:last-of-type,
+.assistant-body MarkdownBlock:last-of-type {
+    margin-bottom: 0;
+}
+
+.assistant-body MarkdownFence {
+    background: #111a26;
+    border: round #2b3a4f;
 }
 
 .modal {

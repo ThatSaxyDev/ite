@@ -8,10 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rich import box
 from rich.console import Group
 from rich.markdown import Markdown as RichMarkdown
-from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -256,6 +254,7 @@ class ReupTUIAdapter:
 
 class ReupApp(App):
     CSS_PATH = "reup.tcss"
+    TITLE = "iTE"
     BINDINGS = [
         Binding("ctrl+enter", "send", "Send"),
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt/Quit", priority=True),
@@ -272,6 +271,7 @@ class ReupApp(App):
 
     def __init__(self, config: Config) -> None:
         super().__init__()
+        self.title = "iTE"
         self.config = config
         self.agent: Agent | None = None
         self._command_registry = build_registry()
@@ -288,7 +288,7 @@ class ReupApp(App):
         yield Header(show_clock=True)
         with Vertical(id="shell"):
             with Horizontal(id="topbar"):
-                yield Static("iTE Reup", id="title")
+                yield Static("New thread", id="title")
                 yield Static("idle", id="run-state")
                 yield Static("", id="header-meta")
             with Container(id="chat-panel"):
@@ -308,8 +308,8 @@ class ReupApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.refresh_header()
         await self.ensure_agent()
+        self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
@@ -321,9 +321,22 @@ class ReupApp(App):
             await self.agent.__aexit__(None, None, None)
             self.agent = None
 
+    def _current_session_title(self) -> str:
+        if not self.agent or not self.agent.session:
+            return "New thread"
+
+        session = self.agent.session
+        if isinstance(session.name, str) and session.name.strip():
+            return session.name.strip()
+        if session.turn_count > 0:
+            return "Untitled thread"
+        return "New thread"
+
     def refresh_header(self) -> None:
+        title = self.query_one("#title", Static)
         meta = self.query_one("#header-meta", Static)
-        meta.update(f"Model: {self.config.model_name}  |  Workspace: {self.config.cwd}")
+        title.update(self._current_session_title())
+        meta.update(f"Workspace: {self.config.cwd}")
         model_chip = self.query_one("#model-chip", Static)
         model_chip.update(self.config.model_name)
 
@@ -618,6 +631,7 @@ class ReupApp(App):
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.approval_manager.confirmation_callback = self.confirmation_callback
         self.agent.session = resumed
+        self.refresh_header()
 
         await self._hydrate_chat_from_snapshot(snapshot.messages)
         self.post_system(
@@ -639,10 +653,10 @@ class ReupApp(App):
             if role == "system":
                 continue
             if role == "user":
-                await self.add_assistant_card("You", str(content), css_class="user")
+                await self.add_assistant_card("You", RichMarkdown(str(content)), css_class="user")
                 continue
             if role == "assistant" and content:
-                await self.add_assistant_card("ite", RichMarkdown(str(content)), css_class="assistant")
+                await self.add_assistant_card("iTE", RichMarkdown(str(content)), css_class="assistant")
         self._refresh_empty_state()
 
     async def run_command(self, command_line: str) -> None:
@@ -966,6 +980,103 @@ class ReupApp(App):
             return True
         return bool(re.search(r"(?m)^(#{1,6}\s|\* |\d+\.\s|>\s)", text))
 
+    def _looks_like_json(self, text: str) -> bool:
+        stripped = text.strip()
+        return (stripped.startswith("{") and stripped.endswith("}")) or (
+            stripped.startswith("[") and stripped.endswith("]")
+        )
+
+    def _render_list_dir_output(self, output: str) -> Text:
+        def strip_existing_icon(text: str) -> str:
+            cleaned = text.lstrip()
+            while cleaned and cleaned[0] in {
+                "📁",
+                "📂",
+                "📄",
+                "🗀",
+                "🗁",
+                "🗂",
+                "🗃",
+                "🗄",
+                "🗋",
+                "🗎",
+            }:
+                cleaned = cleaned[1:].lstrip()
+            return cleaned
+
+        result = Text()
+        for raw_line in output.splitlines():
+            line = strip_existing_icon(raw_line.rstrip())
+            if not line:
+                result.append("\n")
+                continue
+            if line.endswith("/"):
+                result.append("📁 ", style="#9bc7ff")
+                result.append(line, style="#dce6ff")
+            else:
+                result.append("📄 ", style="#9da9bd")
+                result.append(line, style="#d5d9e2")
+            result.append("\n")
+        return result
+
+    def _render_grep_output(self, output: str) -> Any:
+        groups: list[tuple[str, list[str]]] = []
+        current_file: str | None = None
+        current_lines: list[str] = []
+
+        for raw in output.splitlines():
+            line = raw.rstrip()
+            if line.startswith("=== ") and line.endswith(" ==="):
+                if current_file is not None:
+                    groups.append((current_file, current_lines))
+                current_file = line[4:-4].strip()
+                current_lines = []
+                continue
+            if current_file is not None and line:
+                current_lines.append(line)
+        if current_file is not None:
+            groups.append((current_file, current_lines))
+
+        if not groups:
+            return Syntax(output, "text", theme="monokai", word_wrap=True)
+
+        table = Table.grid(padding=(0, 1))
+        table.add_column(style="#8c97ab", justify="right", no_wrap=True)
+        table.add_column(style="#d5d9e2")
+
+        for file_path, lines in groups:
+            table.add_row("", Text(self._display_path(file_path), style="bold #9bc7ff"))
+            for line in lines:
+                match = re.match(r"^\s*(\d+):(.*)$", line)
+                if match:
+                    table.add_row(match.group(1), Text(match.group(2).lstrip(), style="#d5d9e2"))
+                else:
+                    table.add_row("", Text(line, style="#d5d9e2"))
+            table.add_row("", Text(""))
+
+        return table
+
+    def _render_text_payload(self, text: str, *, success: bool, language: str = "text") -> Any:
+        if not text.strip():
+            return Text("No output", style="#8c97ab")
+        if "\x1b" in text:
+            return Text.from_ansi(text)
+        if success and self._looks_like_markdown(text):
+            return RichMarkdown(text)
+        if success and self._looks_like_json(text):
+            try:
+                payload = json.loads(text)
+            except Exception:
+                pass
+            else:
+                return Syntax(
+                    json.dumps(payload, indent=2, ensure_ascii=False),
+                    "json",
+                    theme="monokai",
+                    word_wrap=True,
+                )
+        return Syntax(text, language, theme="monokai", word_wrap=True)
+
     async def stream_assistant_delta(self, content: str) -> None:
         self._streaming_buffer += content
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -986,10 +1097,10 @@ class ReupApp(App):
         self._streaming_buffer = ""
 
     async def add_user_message(self, message: str) -> None:
-        await self.add_assistant_card("You", message, css_class="user")
+        await self.add_assistant_card("You", RichMarkdown(message), css_class="user")
 
     async def add_assistant_message(self, message: str) -> None:
-        await self.add_assistant_card("ite", RichMarkdown(message), css_class="assistant")
+        await self.add_assistant_card("iTE", RichMarkdown(message), css_class="assistant")
 
     def post_system(self, title: str, message: str, is_error: bool = False) -> None:
         css_class = "system error" if is_error else "system"
@@ -998,7 +1109,7 @@ class ReupApp(App):
     async def add_assistant_card(self, title: str, body: Any, css_class: str = "assistant") -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
 
-        body_widget = Static(classes="card-body")
+        body_widget = Static(classes=f"card-body {css_class}-body")
         body_widget.update(body if not isinstance(body, str) else str(body))
 
         card = Container(
@@ -1034,17 +1145,11 @@ class ReupApp(App):
         else:
             blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
 
-        panel = Panel(
-            Group(*blocks),
-            title=Text(f"⌛ {title_text}", style="bold #9bc7ff"),
-            title_align="left",
-            subtitle=Text("running", style="#8c97ab"),
-            subtitle_align="right",
-            border_style=border_style,
-            box=box.ROUNDED,
-            padding=(1, 2),
-        )
-        card.update(panel)
+        header = Text()
+        header.append("⌛ ", style="bold #9bc7ff")
+        header.append(title_text, style="bold #9bc7ff")
+        header.append("  running", style="#8c97ab")
+        card.update(Group(header, Text(""), *blocks))
         self._tool_widgets[call_id] = card
 
         await conversation.mount(card)
@@ -1110,20 +1215,24 @@ class ReupApp(App):
                 local_truncated = local_truncated or was_truncated
                 blocks.append(Text(self._display_path(primary_path), style="#8c97ab"))
                 blocks.append(Text(""))
-                blocks.append(
-                    Syntax(
-                        code_display,
-                        self._guess_language(primary_path),
-                        theme="monokai",
-                        line_numbers=True,
-                        start_line=start_line,
-                        word_wrap=False,
+                language = self._guess_language(primary_path)
+                if language == "markdown":
+                    blocks.append(RichMarkdown(code_display))
+                else:
+                    blocks.append(
+                        Syntax(
+                            code_display,
+                            language,
+                            theme="monokai",
+                            line_numbers=True,
+                            start_line=start_line,
+                            word_wrap=False,
+                        )
                     )
-                )
             else:
                 output_display, was_truncated = self._truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
-                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(self._render_text_payload(output_display, success=True))
         elif name in {"write_file", "edit"} and success and diff:
             if payload.strip():
                 blocks.append(Text(payload.strip(), style="#d9dee8"))
@@ -1143,13 +1252,18 @@ class ReupApp(App):
             output_display, was_truncated = self._truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if output_display.strip():
-                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(self._render_text_payload(output_display, success=success))
             else:
                 blocks.append(Text("No output", style="#8c97ab"))
         elif name in {"list_dir", "glob", "grep"}:
             output_display, was_truncated = self._truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(Syntax(output_display or "No output", "text", theme="monokai", word_wrap=True))
+            if name == "list_dir":
+                blocks.append(self._render_list_dir_output(output_display))
+            elif name == "grep":
+                blocks.append(self._render_grep_output(output_display))
+            else:
+                blocks.append(self._render_text_payload(output_display, success=success))
         else:
             output_display, was_truncated = self._truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
@@ -1158,39 +1272,24 @@ class ReupApp(App):
                 local_truncated = local_truncated or diff_truncated
                 blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
             elif output_display.strip():
-                if success and self._looks_like_markdown(output_display):
-                    blocks.append(RichMarkdown(output_display))
-                elif success:
-                    try:
-                        json_payload = json.loads(output_display)
-                    except Exception:
-                        blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
-                    else:
-                        pretty = json.dumps(json_payload, indent=2, ensure_ascii=False)
-                        blocks.append(Syntax(pretty, "json", theme="monokai", word_wrap=True))
-                else:
-                    blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(self._render_text_payload(output_display, success=success))
             else:
                 blocks.append(Text("No output", style="#8c97ab"))
 
         if local_truncated or truncated:
             blocks.extend([Text(""), Text("... [truncated]", style="#f5b54f")])
 
-        wrapper = Panel(
-            Group(*blocks),
-            title=Text(f"{icon} {title_text}", style=title_style),
-            title_align="left",
-            subtitle=Text(
-                status + (f" · exit {exit_code}" if exit_code is not None else ""),
-                style="#8c97ab",
-            ),
-            subtitle_align="right",
-            border_style=border_style,
-            box=box.HEAVY,
-            padding=(1, 2),
+        header = Text()
+        header.append(f"{icon} ", style=title_style)
+        header.append(title_text, style=title_style)
+        header.append(
+            "  "
+            + status
+            + (f" · exit {exit_code}" if exit_code is not None else ""),
+            style="#8c97ab",
         )
 
-        card.update(wrapper)
+        card.update(Group(header, Text(""), *blocks))
         card.remove_class("running")
         if success:
             card.add_class("success")
@@ -1273,6 +1372,7 @@ class ReupApp(App):
         await fresh.initialize()
         fresh.approval_manager.confirmation_callback = self.confirmation_callback
         self.agent.session = fresh
+        self.refresh_header()
 
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
@@ -1296,6 +1396,7 @@ class ReupApp(App):
 
         if session.name is None:
             session.name = await self.generate_session_name(session)
+            self.refresh_header()
 
         snapshot = SessionSnapshot(
             session_id=session.session_id,
