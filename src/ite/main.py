@@ -5,6 +5,7 @@ import logging
 import sys
 import re
 import select
+import termios
 from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
@@ -13,7 +14,6 @@ from ite.attachments import AttachmentManager, build_user_model_content, build_u
 import click
 import asyncio
 import signal
-from rich.panel import Panel
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -34,12 +34,28 @@ class CLI:
             return ""
 
         lines = [first_line.rstrip("\n")]
-        # Capture immediate leftover lines from multiline paste as one message.
+        # If more input arrives immediately after the first line, treat it as paste
+        # and collect until stdin is quiet.
         try:
-            for _ in range(256):
-                readable, _, _ = select.select([sys.stdin], [], [], 0.01)
-                if not readable:
+            poll_s = 0.01
+            settle_s = 0.35
+            # First, wait briefly for follow-up lines to appear.
+            saw_more = False
+            for _ in range(20):  # ~200ms
+                readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                if readable:
+                    saw_more = True
                     break
+            if not saw_more:
+                return lines[0].strip()
+
+            quiet_for = 0.0
+            while quiet_for < settle_s and len(lines) < 2048:
+                readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                if not readable:
+                    quiet_for += poll_s
+                    continue
+                quiet_for = 0.0
                 line = sys.stdin.readline()
                 if line == "":
                     break
@@ -49,8 +65,32 @@ class CLI:
 
         return "\n".join(lines).strip()
 
+    def _confirm_before_send(self, message: str) -> bool:
+        looks_pasted = "\n" in message or len(message) >= 220
+        if not looks_pasted:
+            return True
+
+        console.print("\n[dim]Pasted input ready. Enter = Send, c = Cancel.[/dim]")
+
+        # Drop any spillover from large multiline paste before reading choice.
+        self._flush_stdin_input_queue()
+        self._drain_stdin_buffer()
+        try:
+            choice = click.getchar()
+        except KeyboardInterrupt:
+            console.print()
+            return False
+        except Exception:
+            return True
+
+        if choice in {"\r", "\n"}:
+            return True
+        if str(choice).lower() == "c":
+            return False
+        return True
+
     def _drain_stdin_buffer(self, settle_ms: int = 120) -> None:
-        """Drop buffered stdin lines and wait for a short quiet period."""
+        """Drop buffered stdin lines and wait briefly for quiet."""
         quiet_for = 0.0
         settle_s = max(settle_ms, 0) / 1000.0
         poll_s = 0.01
@@ -67,40 +107,14 @@ class CLI:
         except Exception:
             pass
 
-    def _confirm_before_send(self, message: str) -> bool:
-        """Require explicit confirmation for paste-like input."""
-        looks_pasted = "\n" in message or len(message) >= 120
-        if not looks_pasted:
-            return True
-
-        lines = message.splitlines()
-        preview = "\n".join(lines[:5])
-        if len(lines) > 5:
-            preview += "\n..."
-
-        console.print("\n[dim]Paste-like input detected.[/dim]")
-        console.print(Panel(preview, border_style="yellow", title="Preview"))
-        # Prevent leftover pasted lines from being consumed as prompt answers.
-        self._drain_stdin_buffer()
-
+    def _flush_stdin_input_queue(self) -> None:
+        """Force-clear unread terminal input bytes when possible (POSIX)."""
         try:
-            raw = input("1) Send now  2) Cancel (2): ").strip()
-        except KeyboardInterrupt:
-            console.print()
-            return False
+            if not sys.stdin or not sys.stdin.isatty():
+                return
+            termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
         except Exception:
-            return False
-
-        if not raw:
-            return False
-        token = raw.split()[0].strip().lower()
-        if token in {"1", "send", "yes", "y"}:
-            return True
-        if token in {"2", "cancel", "no", "n"}:
-            return False
-
-        console.print("[dim]Invalid choice; cancelled paste send.[/dim]")
-        return False
+            pass
 
 
     async def run_interactive(self) -> str | None:
