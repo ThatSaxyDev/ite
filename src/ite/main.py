@@ -13,7 +13,6 @@ from ite.attachments import AttachmentManager, build_user_model_content, build_u
 import click
 import asyncio
 import signal
-from rich.prompt import Prompt
 from rich.panel import Panel
 
 logger = logging.getLogger(__name__)
@@ -37,7 +36,7 @@ class CLI:
         lines = [first_line.rstrip("\n")]
         # Capture immediate leftover lines from multiline paste as one message.
         try:
-            for _ in range(16):
+            for _ in range(256):
                 readable, _, _ = select.select([sys.stdin], [], [], 0.01)
                 if not readable:
                     break
@@ -49,6 +48,24 @@ class CLI:
             pass
 
         return "\n".join(lines).strip()
+
+    def _drain_stdin_buffer(self, settle_ms: int = 120) -> None:
+        """Drop buffered stdin lines and wait for a short quiet period."""
+        quiet_for = 0.0
+        settle_s = max(settle_ms, 0) / 1000.0
+        poll_s = 0.01
+        try:
+            while quiet_for < settle_s:
+                readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                if not readable:
+                    quiet_for += poll_s
+                    continue
+                quiet_for = 0.0
+                chunk = sys.stdin.readline()
+                if chunk == "":
+                    break
+        except Exception:
+            pass
 
     def _confirm_before_send(self, message: str) -> bool:
         """Require explicit confirmation for paste-like input."""
@@ -63,14 +80,27 @@ class CLI:
 
         console.print("\n[dim]Paste-like input detected.[/dim]")
         console.print(Panel(preview, border_style="yellow", title="Preview"))
+        # Prevent leftover pasted lines from being consumed as prompt answers.
+        self._drain_stdin_buffer()
 
-        choice = Prompt.ask(
-            "1) Send now  2) Cancel",
-            choices=["1", "2"],
-            default="2",
-            show_choices=False,
-        )
-        return choice == "1"
+        try:
+            raw = input("1) Send now  2) Cancel (2): ").strip()
+        except KeyboardInterrupt:
+            console.print()
+            return False
+        except Exception:
+            return False
+
+        if not raw:
+            return False
+        token = raw.split()[0].strip().lower()
+        if token in {"1", "send", "yes", "y"}:
+            return True
+        if token in {"2", "cancel", "no", "n"}:
+            return False
+
+        console.print("[dim]Invalid choice; cancelled paste send.[/dim]")
+        return False
 
 
     async def run_interactive(self) -> str | None:
@@ -260,6 +290,10 @@ class CLI:
             "outline the plan",
         )
         if any(p in text for p in strong_phrases):
+            return True
+
+        # Treat collaborative "let's build/create/design ..." asks as planning-first.
+        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text)):
             return True
 
         build_intent_markers = (

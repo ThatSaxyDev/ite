@@ -198,6 +198,10 @@ class GUIApp(
         if any(p in text for p in strong_phrases):
             return True
 
+        # Treat collaborative "let's build/create/design ..." asks as planning-first.
+        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text)):
+            return True
+
         # Product-building intent should default to planning assist.
         build_intent_markers = (
             "i want to build",
