@@ -10,6 +10,7 @@ from rich.markdown import Markdown as RichMarkdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
+from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -269,6 +270,7 @@ class ReupApp(App):
         self._tool_widgets: dict[str, Static] = {}
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._adapter = ReupTUIAdapter(self)
+        self._message_count: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -277,21 +279,26 @@ class ReupApp(App):
                 yield Static("iTE Reup", id="title")
                 yield Static("idle", id="run-state")
                 yield Static("", id="header-meta")
-            yield VerticalScroll(id="conversation")
+            with Container(id="chat-panel"):
+                yield VerticalScroll(id="conversation")
+                yield Static("", id="empty-state")
             with Horizontal(id="composer"):
-                yield TextArea(id="prompt", language="markdown")
-                with Vertical(id="composer-actions"):
-                    yield Button("Send", id="send", variant="primary")
-                    yield Button("Stop", id="stop", variant="warning")
+                with Container(id="prompt-container"):
+                    yield TextArea(id="prompt", language="markdown")
+                    with Horizontal(id="composer-meta"):
+                        yield Static("📎", classes="meta-icon")
+                        yield Static(self.config.model_name, classes="meta-chip", id="model-chip")
+                        yield Static("Plan", classes="meta-chip")
+                        yield Static("", id="meta-spacer")
+                        yield Static("tui_re", classes="meta-chip")
+                        yield Button("Send", id="send", variant="default")
         yield Footer()
 
     async def on_mount(self) -> None:
         self.refresh_header()
         await self.ensure_agent()
-        self.post_system(
-            "Welcome",
-            f"Textual TUI enabled via --reup\nModel: {self.config.model_name}\nWorkspace: {self.config.cwd}",
-        )
+        self._set_loading_state("idle", busy=False)
+        self._refresh_empty_state()
         self.query_one("#prompt", TextArea).focus()
 
     async def on_unmount(self) -> None:
@@ -303,6 +310,91 @@ class ReupApp(App):
     def refresh_header(self) -> None:
         meta = self.query_one("#header-meta", Static)
         meta.update(f"Model: {self.config.model_name}  |  Workspace: {self.config.cwd}")
+        model_chip = self.query_one("#model-chip", Static)
+        model_chip.update(self.config.model_name)
+
+    def _build_empty_state_title(self) -> str:
+        # Mirror GUI greeting logic so both surfaces stay consistent.
+        now = datetime.now()
+        hour = now.hour
+        if 5 <= hour < 12:
+            opener_variants = [
+                "Good morning",
+                "Fresh start",
+                "Morning focus",
+                "Let's get momentum",
+            ]
+        elif 12 <= hour < 17:
+            opener_variants = [
+                "Good afternoon",
+                "Afternoon check-in",
+                "Back to shipping",
+                "Let's make progress",
+            ]
+        else:
+            opener_variants = [
+                "Good evening",
+                "Evening build session",
+                "Quiet hours, solid output",
+                "Let's close the day strong",
+            ]
+
+        try:
+            thread_count = len(
+                [
+                    s
+                    for s in SessionManager().list_sessions(
+                        workspace_path=self.config.cwd,
+                        include_legacy_unscoped=False,
+                    )
+                    if s.get("turn_count", 0) > 0
+                ]
+            )
+        except Exception:
+            thread_count = 0
+
+        if thread_count > 0:
+            followup_variants = [
+                "Continue where you left off.",
+                "Pick up your last thread.",
+                "Your workspace is ready.",
+                "Resume the next step.",
+            ]
+        else:
+            followup_variants = [
+                "What should we build next?",
+                "Start a thread and let's map it out.",
+                "Drop in a goal to begin.",
+                "Tell me what you want to ship.",
+            ]
+
+        workspace_key = str(self.config.cwd.resolve())
+        seed = sum(ord(ch) for ch in f"{workspace_key}:{now.date().isoformat()}:{thread_count}")
+        opener = opener_variants[seed % len(opener_variants)]
+        followup = followup_variants[(seed // 3) % len(followup_variants)]
+        return f"{opener}. {followup}"
+
+    def _refresh_empty_state(self) -> None:
+        empty = self.query_one("#empty-state", Static)
+        if self._message_count > 0 or self._is_turn_running:
+            empty.display = False
+            return
+        # Reuse exact legacy TUI logo rows for stable terminal glyph alignment.
+        logo_lines = [
+            "  ██╗ ██████╗ ███████╗",
+            "  ╚═╝ ╚═██╔═╝ ██╔═══╝",
+            "  ██╗   ██║   ████╗  ",
+            "  ██║   ██║   ██╔═╝  ",
+            "  ██║   ██║   ███████╗",
+            "  ╚═╝   ╚═╝   ╚══════╝",
+        ]
+        art = "\n".join(logo_lines)
+        greeting = self._build_empty_state_title()
+        content = Text()
+        content.append(art + "\n\n", style="bold #8d94a0")
+        content.append(greeting, style="bold #e3e7ef")
+        empty.update(content)
+        empty.display = True
 
     def _set_loading_state(self, state: str, busy: bool) -> None:
         state_widget = self.query_one("#run-state", Static)
@@ -310,11 +402,16 @@ class ReupApp(App):
 
         prompt = self.query_one("#prompt", TextArea)
         send = self.query_one("#send", Button)
-        stop = self.query_one("#stop", Button)
 
         prompt.disabled = busy
-        send.disabled = busy
-        stop.disabled = not busy
+        send.disabled = False
+        if busy:
+            send.label = "Stop"
+            send.variant = "warning"
+        else:
+            send.label = "Send"
+            send.variant = "default"
+        self._refresh_empty_state()
 
     async def ensure_agent(self) -> None:
         if self.agent is not None:
@@ -400,10 +497,6 @@ class ReupApp(App):
     @on(Button.Pressed, "#send")
     async def on_send_button(self, _event: Button.Pressed) -> None:
         await self.handle_send()
-
-    @on(Button.Pressed, "#stop")
-    async def on_stop_button(self, _event: Button.Pressed) -> None:
-        await self.cancel_active_turn()
 
     async def handle_send(self) -> None:
         if self._is_turn_running:
@@ -495,6 +588,7 @@ class ReupApp(App):
     async def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
+        self._message_count = 0
 
         max_render = 220
         rendered = messages[-max_render:]
@@ -509,6 +603,7 @@ class ReupApp(App):
                 continue
             if role == "assistant" and content:
                 await self.add_assistant_card("ite", RichMarkdown(str(content)), css_class="assistant")
+        self._refresh_empty_state()
 
     async def run_command(self, command_line: str) -> None:
         parts = command_line.split()
@@ -695,6 +790,8 @@ class ReupApp(App):
         if self._streaming_widget is None:
             self._streaming_widget = Static(classes="block assistant")
             await conversation.mount(self._streaming_widget)
+            self._message_count += 1
+            self._refresh_empty_state()
         self._streaming_widget.update(RichMarkdown(self._streaming_buffer))
         conversation.scroll_end(animate=False)
 
@@ -729,6 +826,8 @@ class ReupApp(App):
         )
 
         await conversation.mount(card)
+        self._message_count += 1
+        self._refresh_empty_state()
         conversation.scroll_end(animate=False)
 
     async def add_tool_call_start(
@@ -888,8 +987,10 @@ class ReupApp(App):
         self._tool_args_by_call_id.clear()
         self._streaming_widget = None
         self._streaming_buffer = ""
+        self._message_count = 0
+        self._refresh_empty_state()
 
-        self.post_system("New Thread", "Started a fresh session.")
+        self.post_system("Thread", "Started a fresh session.")
 
     async def auto_save(self) -> None:
         if not self.agent or not self.agent.session:
