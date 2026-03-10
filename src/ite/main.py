@@ -807,12 +807,18 @@ class CLI:
     is_flag=True,
     help="Launch GUI mode instead of TUI",
 )
+@click.option(
+    "--reup",
+    is_flag=True,
+    help="Launch the Textual-based reup TUI (experimental)",
+)
 def main(
     cwd: Path | None,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
     gui: bool = False,
+    reup: bool = False,
 ):
     workspace_dir = cwd or Path.cwd()
     ensure_workspace_layout(workspace_dir)
@@ -855,6 +861,10 @@ def main(
     if gui:
         from ite.ui.gui import run_gui
         run_gui(config)
+    elif reup:
+        from ite.ui.reup import run_reup
+
+        run_reup(config)
     else:
         cli = CLI(config)
         asyncio.run(cli.run_interactive())
