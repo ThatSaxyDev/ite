@@ -39,7 +39,7 @@ Screen {
 
 #conversation {
     height: 1fr;
-    padding: 1 4 1 4;
+    padding: 1 4 0 4;
 }
 
 #empty-state {
@@ -63,25 +63,28 @@ Screen {
 }
 
 #composer {
-    height: 11;
-    border-top: solid #252a33;
-    background: #101319;
-    padding: 1 4 1 4;
+    height: 8;
+    border: none;
+    background: transparent;
+    padding: 0 4 0 4;
+    align-vertical: bottom;
 }
 
 #prompt-container {
     width: 1fr;
-    height: 100%;
-    border: round #2d333d;
-    background: #171a21;
+    height: auto;
+    layout: vertical;
+    border: round #2f3b52;
+    background: #121826 88%;
     padding: 0 1 0 1;
+    margin: 0 1 0 1;
 }
 
 .block {
     margin: 0 0 1 0;
-    padding: 1;
-    border: solid #2b313c;
-    background: #161b22;
+    padding: 0;
+    border: none;
+    background: transparent;
     height: auto;
     max-width: 180;
 }
@@ -113,11 +116,11 @@ Screen {
 }
 
 .block.tool.running {
-    border: solid #1d4ed8;
+    border: none;
 }
 
 .block.success {
-    border: solid #166534;
+    border: none;
 }
 
 .modal {
@@ -158,21 +161,27 @@ Screen {
 
 #prompt {
     width: 1fr;
-    height: 5;
+    height: auto;
+    min-height: 2;
     border: none;
     background: transparent;
     color: #e5e7eb;
-    padding: 0 1;
+    padding: 1 1 0 1;
 }
 
 #prompt:focus {
     border: none;
 }
 
-#composer-meta {
+#composer-gap {
     height: 1;
+}
+
+#composer-meta {
+    height: 3;
     width: 1fr;
-    margin: 0 0 0 1;
+    margin: 0 0 0 0;
+    align-vertical: middle;
 }
 
 .meta-icon {
@@ -216,4 +225,25 @@ Screen {
 #send:focus {
     background: #ffffff;
     color: #000000;
+}
+
+Markdown {
+    layout: stream;
+    background: transparent;
+}
+
+MarkdownFence {
+    background: #141a24;
+    border: round #2f3a4c;
+    padding: 0 1;
+}
+
+MarkdownTable {
+    border: solid #2f3a4c;
+}
+
+MarkdownBlockQuote {
+    border-left: solid #3f5473;
+    background: #151b26;
+    padding: 0 1;
 }

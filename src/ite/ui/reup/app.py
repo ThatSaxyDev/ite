@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from rich import box
+from rich.console import Group
 from rich.markdown import Markdown as RichMarkdown
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -24,6 +28,7 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.commands import build_registry
 from ite.config.config import Config
+from ite.ui.tool_narrative import activity_title, describe_tool_activity
 
 from .adapters.registry import build_command_context
 
@@ -257,6 +262,13 @@ class ReupApp(App):
         Binding("ctrl+l", "clear_input", "Clear Input"),
         Binding("f1", "show_help", "Help"),
     ]
+    MIN_PROMPT_LINES = 2
+    MAX_PROMPT_LINES = 8
+    META_ROW_HEIGHT = 3
+    COMPOSER_GAP_HEIGHT = 1
+    PROMPT_TOP_PAD = 1
+    CONTAINER_EXTRA = 0
+    COMPOSER_EXTRA = 1
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -285,6 +297,7 @@ class ReupApp(App):
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
                     yield TextArea(id="prompt", language="markdown")
+                    yield Static("", id="composer-gap")
                     with Horizontal(id="composer-meta"):
                         yield Static("📎", classes="meta-icon")
                         yield Static(self.config.model_name, classes="meta-chip", id="model-chip")
@@ -299,6 +312,7 @@ class ReupApp(App):
         await self.ensure_agent()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
+        self._resize_composer_for_prompt()
         self.query_one("#prompt", TextArea).focus()
 
     async def on_unmount(self) -> None:
@@ -483,6 +497,7 @@ class ReupApp(App):
     def action_clear_input(self) -> None:
         prompt = self.query_one("#prompt", TextArea)
         prompt.text = ""
+        self._resize_composer_for_prompt()
 
     async def action_interrupt_or_quit(self) -> None:
         if self._is_turn_running:
@@ -498,6 +513,30 @@ class ReupApp(App):
     async def on_send_button(self, _event: Button.Pressed) -> None:
         await self.handle_send()
 
+    @on(TextArea.Changed, "#prompt")
+    def on_prompt_changed(self, _event: TextArea.Changed) -> None:
+        self._resize_composer_for_prompt()
+
+    def _resize_composer_for_prompt(self) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        prompt_container = self.query_one("#prompt-container", Container)
+        composer = self.query_one("#composer", Horizontal)
+
+        line_count = max(1, prompt.text.count("\n") + 1)
+        prompt_lines = min(max(line_count, self.MIN_PROMPT_LINES), self.MAX_PROMPT_LINES)
+        prompt_height = prompt_lines + self.PROMPT_TOP_PAD
+        container_height = (
+            prompt_height
+            + self.COMPOSER_GAP_HEIGHT
+            + self.META_ROW_HEIGHT
+            + self.CONTAINER_EXTRA
+        )
+        composer_height = container_height + self.COMPOSER_EXTRA
+
+        prompt.styles.height = prompt_height
+        prompt_container.styles.height = container_height
+        composer.styles.height = composer_height
+
     async def handle_send(self) -> None:
         if self._is_turn_running:
             await self.cancel_active_turn()
@@ -509,6 +548,7 @@ class ReupApp(App):
             return
 
         prompt.text = ""
+        self._resize_composer_for_prompt()
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:
@@ -784,6 +824,148 @@ class ReupApp(App):
             return None
         return tool.kind.value
 
+    def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[tuple[str, Any]]:
+        preferred_order = {
+            "read_file": ["path", "offset", "limit"],
+            "write_file": ["path", "create_directories", "content"],
+            "edit": ["path", "replace_all", "old_string", "new_string"],
+            "shell": ["command", "timeout", "cwd"],
+            "list_dir": ["path", "include_hidden"],
+            "grep": ["path", "case_insensitive", "pattern"],
+            "glob": ["path", "pattern"],
+        }
+
+        preferred = preferred_order.get(tool_name, [])
+        ordered: list[tuple[str, Any]] = []
+        seen: set[str] = set()
+
+        for key in preferred:
+            if key in args:
+                ordered.append((key, args[key]))
+                seen.add(key)
+
+        for key, value in args.items():
+            if key not in seen:
+                ordered.append((key, value))
+
+        return ordered
+
+    def _display_path(self, path: str) -> str:
+        try:
+            base = self.config.cwd.resolve()
+            target = Path(path).expanduser().resolve()
+            return str(target.relative_to(base))
+        except Exception:
+            return path
+
+    def _render_args_table(self, tool_name: str, args: dict[str, Any]) -> Table:
+        table = Table.grid(padding=(0, 1))
+        table.add_column(style="#7d8aa5", justify="right", no_wrap=True)
+        table.add_column(style="#d5d9e2", overflow="fold")
+
+        for key, value in self._ordered_args(tool_name, args):
+            if key in {"path", "cwd"} and isinstance(value, str):
+                value = self._display_path(value)
+            elif isinstance(value, str) and key in {"content", "old_string", "new_string"}:
+                line_count = len(value.splitlines())
+                byte_count = len(value.encode("utf-8", errors="replace"))
+                value = f"<{line_count} lines, {byte_count} bytes>"
+            elif not isinstance(value, str):
+                value = str(value)
+            table.add_row(key, value)
+
+        return table
+
+    def _truncate_for_tool(self, name: str, text: str) -> tuple[str, bool]:
+        if not text:
+            return "", False
+
+        max_lines_by_tool = {
+            "read_file": 28,
+            "write_file": 40,
+            "edit": 40,
+            "list_dir": 32,
+            "glob": 32,
+            "grep": 52,
+            "shell": 42,
+            "web_fetch": 46,
+        }
+        max_chars_by_tool = {
+            "read_file": 4200,
+            "write_file": 5200,
+            "edit": 5200,
+            "list_dir": 3200,
+            "glob": 3200,
+            "grep": 7200,
+            "shell": 6400,
+            "web_fetch": 7200,
+        }
+
+        max_lines = max_lines_by_tool.get(name, 36)
+        max_chars = max_chars_by_tool.get(name, 5600)
+
+        clipped = text
+        was_truncated = False
+
+        lines = clipped.splitlines()
+        if len(lines) > max_lines:
+            clipped = "\n".join(lines[:max_lines])
+            was_truncated = True
+
+        if len(clipped) > max_chars:
+            clipped = clipped[:max_chars]
+            was_truncated = True
+
+        return clipped, was_truncated
+
+    def _extract_read_file_code(self, text: str) -> tuple[int, str] | None:
+        body = text
+        header_match = re.match(r"Showing lines (\d+)-(\d+) of (\d+)\n\n", text)
+        if header_match:
+            body = text[header_match.end() :]
+
+        code_lines: list[str] = []
+        start_line: int | None = None
+        for line in body.splitlines():
+            match = re.match(r"^\s*(\d+)\|(.*)$", line)
+            if not match:
+                return None
+            line_no = int(match.group(1))
+            if start_line is None:
+                start_line = line_no
+            code_lines.append(match.group(2))
+
+        if start_line is None:
+            return None
+        return start_line, "\n".join(code_lines)
+
+    def _guess_language(self, path: str | None) -> str:
+        if not path:
+            return "text"
+        ext = Path(path).suffix.lower()
+        return {
+            ".py": "python",
+            ".ts": "typescript",
+            ".tsx": "tsx",
+            ".js": "javascript",
+            ".jsx": "jsx",
+            ".json": "json",
+            ".md": "markdown",
+            ".yml": "yaml",
+            ".yaml": "yaml",
+            ".toml": "toml",
+            ".css": "css",
+            ".html": "html",
+            ".sh": "bash",
+            ".diff": "diff",
+            ".patch": "diff",
+        }.get(ext, "text")
+
+    def _looks_like_markdown(self, text: str) -> bool:
+        if "```" in text:
+            return True
+        return bool(re.search(r"(?m)^(#{1,6}\s|\* |\d+\.\s|>\s)", text))
+
     async def stream_assistant_delta(self, content: str) -> None:
         self._streaming_buffer += content
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -841,13 +1023,33 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
         self._tool_args_by_call_id[call_id] = arguments
 
-        args_lines = "\n".join(f"{k}: {v}" for k, v in arguments.items()) or "(no args)"
         card = Static(classes="block tool running")
-        kind = f"[{tool_kind}] " if tool_kind else ""
-        card.update(f"🔧 {kind}{name}\nstatus: running\n\n{args_lines}")
+        border_style = "#2a6edb"
+        title_text = activity_title(name, stage="start")
+        narrative = describe_tool_activity(name, arguments, stage="start")
+
+        blocks: list[Any] = [Text(narrative, style="#8c97ab")]
+        if arguments:
+            blocks.extend([Text(""), self._render_args_table(name, arguments)])
+        else:
+            blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
+
+        panel = Panel(
+            Group(*blocks),
+            title=Text(f"⌛ {title_text}", style="bold #9bc7ff"),
+            title_align="left",
+            subtitle=Text("running", style="#8c97ab"),
+            subtitle_align="right",
+            border_style=border_style,
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+        card.update(panel)
         self._tool_widgets[call_id] = card
 
         await conversation.mount(card)
+        self._message_count += 1
+        self._refresh_empty_state()
         conversation.scroll_end(animate=False)
 
     async def update_tool_call(
@@ -879,29 +1081,121 @@ class ReupApp(App):
 
         status = "done" if success else "failed"
         icon = "✅" if success else "❌"
-        kind = f"[{tool_kind}] " if tool_kind else ""
+        args = self._tool_args_by_call_id.get(call_id, {})
+        narrative = describe_tool_activity(
+            name,
+            args,
+            metadata if isinstance(metadata, dict) else {},
+            stage="complete",
+            success=success,
+        )
+
+        border_style = "#2f9e63" if success else "#b23a3a"
+        title_style = "bold #a9ebbe" if success else "bold #ffb0b0"
+        title_text = activity_title(name, stage="complete", success=success)
+
+        blocks: list[Any] = [Text(narrative, style="#8c97ab"), Text("")]
 
         payload = output if success else (error or output)
-        payload = payload or "No output"
-        if diff:
-            payload_renderable: Any = Syntax(diff, "diff", theme="monokai", word_wrap=True)
-        else:
-            payload_renderable = payload
+        payload = payload or ""
+        local_truncated = False
+        md = metadata if isinstance(metadata, dict) else {}
+        primary_path = md.get("path") if isinstance(md.get("path"), str) else None
 
-        wrapper = Panel.fit(
-            payload_renderable,
-            title=f"{icon} {kind}{name}",
-            subtitle=f"{status}" + (f" · exit {exit_code}" if exit_code is not None else ""),
+        if name == "read_file" and success:
+            extracted = self._extract_read_file_code(payload) if primary_path else None
+            if primary_path and extracted is not None:
+                start_line, code = extracted
+                code_display, was_truncated = self._truncate_for_tool(name, code)
+                local_truncated = local_truncated or was_truncated
+                blocks.append(Text(self._display_path(primary_path), style="#8c97ab"))
+                blocks.append(Text(""))
+                blocks.append(
+                    Syntax(
+                        code_display,
+                        self._guess_language(primary_path),
+                        theme="monokai",
+                        line_numbers=True,
+                        start_line=start_line,
+                        word_wrap=False,
+                    )
+                )
+            else:
+                output_display, was_truncated = self._truncate_for_tool(name, payload)
+                local_truncated = local_truncated or was_truncated
+                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+        elif name in {"write_file", "edit"} and success and diff:
+            if payload.strip():
+                blocks.append(Text(payload.strip(), style="#d9dee8"))
+                blocks.append(Text(""))
+            diff_display, was_truncated = self._truncate_for_tool(name, diff)
+            local_truncated = local_truncated or was_truncated
+            blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
+        elif name == "shell":
+            command = args.get("command")
+            if isinstance(command, str) and command.strip():
+                blocks.append(Text(f"$ {command.strip()}", style="#8c97ab"))
+            if exit_code is not None:
+                blocks.append(Text(f"exit code {exit_code}", style="#8c97ab"))
+            if command or exit_code is not None:
+                blocks.append(Text(""))
+
+            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            if output_display.strip():
+                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="#8c97ab"))
+        elif name in {"list_dir", "glob", "grep"}:
+            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            blocks.append(Syntax(output_display or "No output", "text", theme="monokai", word_wrap=True))
+        else:
+            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            if diff:
+                diff_display, diff_truncated = self._truncate_for_tool(name, diff)
+                local_truncated = local_truncated or diff_truncated
+                blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
+            elif output_display.strip():
+                if success and self._looks_like_markdown(output_display):
+                    blocks.append(RichMarkdown(output_display))
+                elif success:
+                    try:
+                        json_payload = json.loads(output_display)
+                    except Exception:
+                        blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                    else:
+                        pretty = json.dumps(json_payload, indent=2, ensure_ascii=False)
+                        blocks.append(Syntax(pretty, "json", theme="monokai", word_wrap=True))
+                else:
+                    blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+            else:
+                blocks.append(Text("No output", style="#8c97ab"))
+
+        if local_truncated or truncated:
+            blocks.extend([Text(""), Text("... [truncated]", style="#f5b54f")])
+
+        wrapper = Panel(
+            Group(*blocks),
+            title=Text(f"{icon} {title_text}", style=title_style),
+            title_align="left",
+            subtitle=Text(
+                status + (f" · exit {exit_code}" if exit_code is not None else ""),
+                style="#8c97ab",
+            ),
+            subtitle_align="right",
+            border_style=border_style,
+            box=box.HEAVY,
+            padding=(1, 2),
         )
+
         card.update(wrapper)
         card.remove_class("running")
         if success:
             card.add_class("success")
         else:
             card.add_class("error")
-
-        if truncated:
-            await conversation.mount(Static("... [truncated]", classes="block system"))
 
         conversation.scroll_end(animate=False)
 
