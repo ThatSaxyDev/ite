@@ -2,18 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import io
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from rich.markdown import Markdown as RichMarkdown
 from rich.panel import Panel
 from rich.syntax import Syntax
-from textual import on
+from rich.table import Table
+from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
@@ -26,7 +28,13 @@ from .adapters.registry import build_command_context
 
 
 class ConfirmModal(ModalScreen[bool]):
-    def __init__(self, title: str, body: str, yes_label: str = "Approve", no_label: str = "Deny") -> None:
+    def __init__(
+        self,
+        title: str,
+        body: str,
+        yes_label: str = "Approve",
+        no_label: str = "Deny",
+    ) -> None:
         super().__init__()
         self._title = title
         self._body = body
@@ -91,6 +99,7 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
                 }
             )
             return
+
         if bid == "custom-submit":
             custom_input = self.query_one("#custom-input", Input)
             value = custom_input.value.strip()
@@ -101,6 +110,65 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
                     "selected_index": None,
                 }
             )
+
+
+class SessionResumeModal(ModalScreen[str | None]):
+    """Toad-style resume modal with a session table."""
+
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, sessions: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self._sessions = sessions
+        self._session_ids: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal"):
+            yield Label("Resume Session", classes="modal-title")
+            with Container(classes="modal-list"):
+                yield DataTable(id="sessions", cursor_type="row")
+            with Horizontal(classes="modal-actions"):
+                yield Button("Resume", id="resume", variant="success", disabled=True)
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#sessions", DataTable)
+        table.add_columns("Name", "Session", "Updated", "Turns")
+
+        self._session_ids = []
+        for session in self._sessions:
+            sid = str(session.get("session_id", ""))
+            name = str(session.get("name") or sid)
+            updated = str(session.get("updated_at", ""))
+            turns = str(session.get("turn_count", 0))
+            try:
+                updated = datetime.fromisoformat(updated).strftime("%b %d · %I:%M %p")
+            except Exception:
+                pass
+            self._session_ids.append(sid)
+            table.add_row(name, f"{sid[:8]}…", updated, turns)
+
+    @on(DataTable.RowHighlighted, "#sessions")
+    def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
+        self.query_one("#resume", Button).disabled = False
+
+    @on(DataTable.RowSelected, "#sessions")
+    def on_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.cursor_row < 0 or event.cursor_row >= len(self._session_ids):
+            return
+        self.dismiss(self._session_ids[event.cursor_row])
+
+    @on(Button.Pressed, "#resume")
+    def on_resume_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#sessions", DataTable)
+        row = table.cursor_row
+        if row < 0 or row >= len(self._session_ids):
+            return
+        self.dismiss(self._session_ids[row])
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
 
 
 class ReupTUIAdapter:
@@ -118,13 +186,25 @@ class ReupTUIAdapter:
         self._app.config.cwd = Path(value)
         self._app.refresh_header()
 
-    def print_welcome(self, model: str = "", cwd: str = "", commands: list[str] | None = None, version: str = "0.0.3") -> None:
+    def print_welcome(
+        self,
+        model: str = "",
+        cwd: str = "",
+        commands: list[str] | None = None,
+        version: str = "0.0.3",
+    ) -> None:
         msg = f"ITE Reup ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
         if commands:
             msg += "\nCommands: " + ", ".join(commands)
         self._app.post_system("Welcome", msg)
 
-    def tool_call_start(self, call_id: str, name: str, tool_kind: str | None, arguments: dict[str, Any]) -> None:
+    def tool_call_start(
+        self,
+        call_id: str,
+        name: str,
+        tool_kind: str | None,
+        arguments: dict[str, Any],
+    ) -> None:
         self._app.run_worker(
             self._app.add_tool_call_start(
                 call_id=call_id,
@@ -195,6 +275,7 @@ class ReupApp(App):
         with Vertical(id="shell"):
             with Horizontal(id="topbar"):
                 yield Static("iTE Reup", id="title")
+                yield Static("idle", id="run-state")
                 yield Static("", id="header-meta")
             yield VerticalScroll(id="conversation")
             with Horizontal(id="composer"):
@@ -223,6 +304,18 @@ class ReupApp(App):
         meta = self.query_one("#header-meta", Static)
         meta.update(f"Model: {self.config.model_name}  |  Workspace: {self.config.cwd}")
 
+    def _set_loading_state(self, state: str, busy: bool) -> None:
+        state_widget = self.query_one("#run-state", Static)
+        state_widget.update(state)
+
+        prompt = self.query_one("#prompt", TextArea)
+        send = self.query_one("#send", Button)
+        stop = self.query_one("#stop", Button)
+
+        prompt.disabled = busy
+        send.disabled = busy
+        stop.disabled = not busy
+
     async def ensure_agent(self) -> None:
         if self.agent is not None:
             return
@@ -232,6 +325,55 @@ class ReupApp(App):
             plan_question_callback=self.plan_question_callback,
         )
         await self.agent.__aenter__()
+
+    async def _open_modal(self, screen: ModalScreen[Any]) -> Any:
+        """Open a modal and await dismissal from regular event handlers safely."""
+        loop = asyncio.get_running_loop()
+        result_future: asyncio.Future[Any] = loop.create_future()
+
+        def _on_dismiss(result: Any) -> None:
+            if not result_future.done():
+                result_future.set_result(result)
+
+        self.push_screen(screen, callback=_on_dismiss)
+        return await result_future
+
+    def _is_plan_only_phase(self) -> bool:
+        return bool(
+            self.agent
+            and self.agent.session
+            and self.agent.session.plan_mode_enabled
+            and self.agent.session.plan_phase != "executing"
+        )
+
+    def _normalize_plan_execution_request(self, message: str) -> str | None:
+        raw = message.strip()
+        lowered = raw.lower()
+        if lowered not in {
+            "implement plan",
+            "implement the plan",
+            "go ahead and implement",
+            "execute plan",
+            "approve plan",
+            "yes, implement plan",
+        }:
+            return raw
+
+        if not self.agent or not self.agent.session:
+            return raw
+
+        session = self.agent.session
+        if session.plan_mode_enabled and session.plan_phase == "awaiting_implementation_confirmation":
+            session.clear_pending_plan()
+            session.set_plan_mode(False)
+            session.set_plan_phase("idle")
+            return Agent.PLAN_EXECUTE_PROMPT
+
+        self.post_system(
+            "Plan Mode",
+            "No pending plan is waiting for approval. Ask for a plan first.",
+        )
+        return None
 
     def action_show_help(self) -> None:
         self.post_system(
@@ -275,11 +417,98 @@ class ReupApp(App):
 
         prompt.text = ""
 
+        normalized = self._normalize_plan_execution_request(message)
+        if normalized is None:
+            return
+        message = normalized
+
         if message.startswith("/"):
             await self.run_command(message)
             return
 
         await self.run_agent_message(message)
+
+    async def _list_resume_sessions(self, all_workspaces: bool = False) -> list[dict[str, Any]]:
+        sessions = SessionManager().list_sessions(
+            workspace_path=None if all_workspaces else self.config.cwd,
+            include_legacy_unscoped=all_workspaces,
+        )
+        return [s for s in sessions if s.get("turn_count", 0) > 0]
+
+    @work
+    async def _open_resume_flow(self, all_workspaces: bool = False) -> None:
+        """Open resume modal and restore a selected session (toad-style worker flow)."""
+        sessions = await self._list_resume_sessions(all_workspaces=all_workspaces)
+        if not sessions:
+            self.post_system("Sessions", "No saved sessions found.")
+            return
+
+        selected_id = await self.push_screen_wait(SessionResumeModal(sessions))
+        if not selected_id:
+            return
+
+        snapshot = SessionManager().load_session(selected_id)
+        if snapshot is None:
+            self.post_system("Sessions", f"Session not found: {selected_id}", is_error=True)
+            return
+
+        await self._resume_snapshot(snapshot)
+
+    async def _resume_snapshot(self, snapshot: SessionSnapshot) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+
+        if snapshot.workspace_path:
+            target_workspace = Path(snapshot.workspace_path).resolve()
+            if target_workspace != self.config.cwd.resolve():
+                self.config.cwd = target_workspace
+                self.refresh_header()
+
+        resumed = Session(config=self.config)
+        resumed.session_id = snapshot.session_id
+        resumed.name = snapshot.name
+        resumed.created_at = snapshot.created_at
+        resumed.updated_at = snapshot.updated_at
+        resumed.turn_count = snapshot.turn_count
+        resumed.plan_mode_enabled = snapshot.plan_mode_enabled
+        resumed.plan_phase = snapshot.plan_phase
+        resumed.plan_questions_asked = snapshot.plan_questions_asked
+        resumed.plan_target_questions = snapshot.plan_target_questions
+        resumed.pending_plan_text = snapshot.pending_plan_text
+
+        await self.agent.session.client.close()
+        await self.agent.session.mcp_manager.shutdown()
+        await resumed.initialize()
+
+        resumed.context_manager.set_messages(snapshot.messages)
+        resumed.context_manager.total_usage = snapshot.total_usage
+        resumed.approval_manager.confirmation_callback = self.confirmation_callback
+        self.agent.session = resumed
+
+        await self._hydrate_chat_from_snapshot(snapshot.messages)
+        self.post_system(
+            "Session Loaded",
+            f"{snapshot.name or snapshot.session_id} · {snapshot.turn_count} turns",
+        )
+
+    async def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]) -> None:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        await conversation.remove_children()
+
+        max_render = 220
+        rendered = messages[-max_render:]
+
+        for message in rendered:
+            role = message.get("role")
+            content = message.get("content", "")
+            if role == "system":
+                continue
+            if role == "user":
+                await self.add_assistant_card("You", str(content), css_class="user")
+                continue
+            if role == "assistant" and content:
+                await self.add_assistant_card("ite", RichMarkdown(str(content)), css_class="assistant")
 
     async def run_command(self, command_line: str) -> None:
         parts = command_line.split()
@@ -290,13 +519,26 @@ class ReupApp(App):
             self.exit()
             return
 
-        # Avoid curses picker inside Textual app.
+        # Native in-app session picker flow (replaces curses picker in old /sessions command).
         if command == "/sessions" and "--list" not in args:
-            args.append("--list")
+            self._open_resume_flow(all_workspaces=("--all" in args))
+            return
+
+        if command == "/resume" and not args:
+            self._open_resume_flow(all_workspaces=False)
+            return
+
+        if command == "/resume" and args:
+            snapshot = SessionManager().load_session(args[0])
+            if snapshot is None:
+                self.post_system("Resume", f"Session not found: {args[0]}", is_error=True)
+                return
+            await self._resume_snapshot(snapshot)
+            return
 
         await self.ensure_agent()
         if not self.agent:
-            self.post_system("Error", "Agent is not initialized")
+            self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
         output = io.StringIO()
@@ -329,6 +571,7 @@ class ReupApp(App):
         await self.add_user_message(message)
         self._active_turn_task = asyncio.create_task(self._agent_turn(message))
         self._is_turn_running = True
+        self._set_loading_state("thinking", busy=True)
 
         try:
             await self._active_turn_task
@@ -338,6 +581,7 @@ class ReupApp(App):
         finally:
             self._active_turn_task = None
             self._is_turn_running = False
+            self._set_loading_state("idle", busy=False)
 
     async def _agent_turn(self, message: str) -> None:
         assert self.agent is not None
@@ -346,16 +590,20 @@ class ReupApp(App):
             await self.handle_agent_event(event)
 
     async def handle_agent_event(self, event: AgentEvent) -> None:
+        plan_only_phase = self._is_plan_only_phase()
+        suppressed_tools = {"memory", "plan_question", "todos", "web_search", "web_fetch"}
+
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
-            await self.stream_assistant_delta(content)
+            if content:
+                await self.stream_assistant_delta(content)
             return
 
         if event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
             if self._streaming_widget is not None:
                 await self.finalize_streaming_message()
-            elif content:
+            elif content and not plan_only_phase:
                 await self.add_assistant_message(content)
             return
 
@@ -363,11 +611,23 @@ class ReupApp(App):
             self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
             return
 
+        if event.type == AgentEventType.CONTEXT_COMPACTED:
+            trigger_tokens = int(event.data.get("trigger_tokens", 0))
+            context_window = int(event.data.get("context_window", 0))
+            used_pct = (trigger_tokens / context_window * 100) if context_window else 0
+            self.post_system(
+                "Context",
+                f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used).",
+            )
+            return
+
         if event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name", "tool")
-            if tool_name in {"memory", "plan_question"}:
+            if tool_name in suppressed_tools or plan_only_phase:
+                self._set_loading_state("thinking", busy=True)
                 return
             tool_kind = self.get_tool_kind(tool_name)
+            self._set_loading_state("running tool", busy=True)
             await self.add_tool_call_start(
                 call_id=event.data.get("call_id", ""),
                 name=tool_name,
@@ -378,7 +638,11 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
-            if tool_name in {"memory", "plan_question"}:
+            if tool_name in suppressed_tools:
+                self._set_loading_state("thinking", busy=True)
+                return
+            if plan_only_phase and event.data.get("success", False):
+                self._set_loading_state("thinking", busy=True)
                 return
             tool_kind = self.get_tool_kind(tool_name)
             await self.update_tool_call(
@@ -393,12 +657,14 @@ class ReupApp(App):
                 truncated=event.data.get("truncated", False),
                 exit_code=event.data.get("exit_code"),
             )
+            self._set_loading_state("thinking", busy=True)
             return
 
         if event.type == AgentEventType.PLAN_READY:
             plan_text = event.data.get("plan_text", "")
-            await self.add_assistant_card("Plan", RichMarkdown(plan_text))
-            approved = await self.push_screen_wait(
+            if isinstance(plan_text, str) and plan_text.strip():
+                await self.add_assistant_card("Plan", RichMarkdown(plan_text))
+            approved = await self._open_modal(
                 ConfirmModal(
                     title="Plan Ready",
                     body="Implement this plan now?",
@@ -454,10 +720,7 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
 
         body_widget = Static(classes="card-body")
-        if isinstance(body, str):
-            body_widget.update(body)
-        else:
-            body_widget.update(body)
+        body_widget.update(body if not isinstance(body, str) else str(body))
 
         card = Container(
             Static(title, classes="card-title"),
@@ -478,11 +741,13 @@ class ReupApp(App):
     ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         self._tool_args_by_call_id[call_id] = arguments
+
         args_lines = "\n".join(f"{k}: {v}" for k, v in arguments.items()) or "(no args)"
         card = Static(classes="block tool running")
         kind = f"[{tool_kind}] " if tool_kind else ""
         card.update(f"🔧 {kind}{name}\nstatus: running\n\n{args_lines}")
         self._tool_widgets[call_id] = card
+
         await conversation.mount(card)
         conversation.scroll_end(animate=False)
 
@@ -535,8 +800,10 @@ class ReupApp(App):
             card.add_class("success")
         else:
             card.add_class("error")
+
         if truncated:
             await conversation.mount(Static("... [truncated]", classes="block system"))
+
         conversation.scroll_end(animate=False)
 
     async def confirmation_callback(self, confirmation) -> bool:
@@ -546,7 +813,7 @@ class ReupApp(App):
         if confirmation.diff:
             body += f"\n\n{confirmation.diff.to_diff()}"
 
-        approved = await self.push_screen_wait(
+        approved = await self._open_modal(
             ConfirmModal(
                 title=f"Approval required: {confirmation.tool_name}",
                 body=body,
@@ -557,23 +824,27 @@ class ReupApp(App):
         return bool(approved)
 
     async def plan_question_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
-        question = str(payload.get("question", "")).strip()
-        options = [str(o) for o in payload.get("options", []) if str(o).strip()]
-        recommended_index = payload.get("recommended_index")
-        allow_free_text = bool(payload.get("allow_free_text", True))
+        self._set_loading_state("planning", busy=True)
+        try:
+            question = str(payload.get("question", "")).strip()
+            options = [str(o) for o in payload.get("options", []) if str(o).strip()]
+            recommended_index = payload.get("recommended_index")
+            allow_free_text = bool(payload.get("allow_free_text", True))
 
-        result = await self.push_screen_wait(
-            PlanQuestionModal(
-                question=question,
-                options=options,
-                recommended_index=recommended_index,
-                allow_free_text=allow_free_text,
+            result = await self._open_modal(
+                PlanQuestionModal(
+                    question=question,
+                    options=options,
+                    recommended_index=recommended_index,
+                    allow_free_text=allow_free_text,
+                )
             )
-        )
 
-        if not result:
-            return {"selected_option": "", "free_text": "", "selected_index": None}
-        return result
+            if not result:
+                return {"selected_option": "", "free_text": "", "selected_index": None}
+            return result
+        finally:
+            self._set_loading_state("thinking", busy=True)
 
     async def cancel_active_turn(self) -> None:
         task = self._active_turn_task
@@ -589,6 +860,7 @@ class ReupApp(App):
                 pass
         self._active_turn_task = None
         self._is_turn_running = False
+        self._set_loading_state("idle", busy=False)
 
     async def start_new_thread(self) -> None:
         await self.ensure_agent()
@@ -622,6 +894,7 @@ class ReupApp(App):
     async def auto_save(self) -> None:
         if not self.agent or not self.agent.session:
             return
+
         session = self.agent.session
         if session.turn_count == 0:
             return
@@ -691,6 +964,7 @@ class ReupApp(App):
 
         fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
         return fallback.strip() or "New thread"
+
 
 
 def run_reup(config: Config) -> None:
