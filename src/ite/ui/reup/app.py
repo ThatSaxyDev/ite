@@ -20,6 +20,7 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
+from textual.widget import Widget
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
@@ -355,6 +356,8 @@ class ReupApp(App):
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
         self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
+        self._plan_ready_future: asyncio.Future[bool] | None = None
+        self._plan_ready_action_card: Widget | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -524,6 +527,14 @@ class ReupApp(App):
         frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
         self._top_spinner_index += 1
         throbber.update(frame)
+
+    def _with_implementation_plan_title(self, plan_text: str) -> str:
+        text = (plan_text or "").strip()
+        if not text:
+            return "# Implementation Plan"
+        if "implementation plan" in text.lower():
+            return text
+        return f"# Implementation Plan\n\n{text}"
 
     async def ensure_agent(self) -> None:
         if self.agent is not None:
@@ -805,6 +816,20 @@ class ReupApp(App):
                     if hasattr(event, "prevent_default"):
                         event.prevent_default()
                     return
+
+        if self._plan_ready_future is not None and not self._plan_ready_future.done():
+            if event.key in {"2", "enter", "y"}:
+                self._resolve_plan_ready_choice(True)
+                event.stop()
+                if hasattr(event, "prevent_default"):
+                    event.prevent_default()
+                return
+            if event.key in {"1", "n", "escape", "ctrl+c"}:
+                self._resolve_plan_ready_choice(False)
+                event.stop()
+                if hasattr(event, "prevent_default"):
+                    event.prevent_default()
+                return
 
         focused = self.focused
         if not isinstance(focused, TextArea) or focused.id != "prompt":
@@ -1164,15 +1189,12 @@ class ReupApp(App):
         if event.type == AgentEventType.PLAN_READY:
             plan_text = event.data.get("plan_text", "")
             if isinstance(plan_text, str) and plan_text.strip():
-                await self.add_assistant_card("Plan", RichMarkdown(plan_text))
-            approved = await self._open_modal(
-                ConfirmModal(
-                    title="Plan Ready",
-                    body="Implement this plan now?",
-                    yes_label="Implement",
-                    no_label="Keep Plan Mode",
+                await self.add_assistant_card(
+                    "Implementation Plan",
+                    RichMarkdown(self._with_implementation_plan_title(plan_text)),
+                    css_class="plan",
                 )
-            )
+            approved = await self._present_plan_ready_action_card()
             if approved and self.agent and self.agent.session:
                 self.agent.session.clear_pending_plan()
                 self.agent.session.set_plan_phase("executing")
@@ -1184,6 +1206,47 @@ class ReupApp(App):
                     "Use `implement plan` any time to start execution.",
                 )
             return
+
+    async def _present_plan_ready_action_card(self) -> bool:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        loop = asyncio.get_running_loop()
+        self._plan_ready_future = loop.create_future()
+
+        action_card = Container(
+            Static("Plan ready. Choose next step.", classes="card-title"),
+            Horizontal(
+                Button("Keep in Plan Mode", id="plan-ready-keep", variant="default"),
+                Button("Implement", id="plan-ready-implement", variant="success"),
+                classes="plan-ready-actions",
+            ),
+            classes="block plan plan-ready",
+        )
+        self._plan_ready_action_card = action_card
+
+        await conversation.mount(action_card)
+        self._message_count += 1
+        self._refresh_empty_state()
+        conversation.scroll_end(animate=False)
+
+        return bool(await self._plan_ready_future)
+
+    def _resolve_plan_ready_choice(self, approved: bool) -> None:
+        future = self._plan_ready_future
+        if future is None or future.done():
+            return
+        future.set_result(approved)
+        self._plan_ready_future = None
+        if self._plan_ready_action_card is not None:
+            self._plan_ready_action_card.remove()
+            self._plan_ready_action_card = None
+
+    @on(Button.Pressed, "#plan-ready-implement")
+    def on_plan_ready_implement(self, _event: Button.Pressed) -> None:
+        self._resolve_plan_ready_choice(True)
+
+    @on(Button.Pressed, "#plan-ready-keep")
+    def on_plan_ready_keep(self, _event: Button.Pressed) -> None:
+        self._resolve_plan_ready_choice(False)
 
     def get_tool_kind(self, tool_name: str) -> str | None:
         if not self.agent or not self.agent.session:
