@@ -288,6 +288,9 @@ class ReupApp(App):
         self._composer_history_draft: str = ""
         self._applying_history_nav: bool = False
         self._suppress_history_reset_once: bool = False
+        self._top_busy: bool = False
+        self._top_spinner_index: int = 0
+        self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -295,6 +298,7 @@ class ReupApp(App):
             with Horizontal(id="topbar"):
                 yield Static("New thread", id="title")
                 yield Static("idle", id="run-state")
+                yield Static("·", id="top-throbber")
                 yield Static("", id="header-meta")
             with Container(id="chat-panel"):
                 yield VerticalScroll(id="conversation")
@@ -318,6 +322,7 @@ class ReupApp(App):
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
+        self.set_interval(0.1, self._tick_top_indicator)
         self.query_one("#prompt", TextArea).focus()
 
     async def on_unmount(self) -> None:
@@ -430,7 +435,10 @@ class ReupApp(App):
 
     def _set_loading_state(self, state: str, busy: bool) -> None:
         state_widget = self.query_one("#run-state", Static)
-        state_widget.update(state)
+        state_widget.update(state if busy else "")
+        self._top_busy = busy
+        if not busy:
+            self.query_one("#top-throbber", Static).update(" ")
 
         prompt = self.query_one("#prompt", TextArea)
         send = self.query_one("#send", Button)
@@ -444,6 +452,15 @@ class ReupApp(App):
             send.label = "Send"
             send.variant = "default"
         self._refresh_empty_state()
+
+    def _tick_top_indicator(self) -> None:
+        throbber = self.query_one("#top-throbber", Static)
+        if not self._top_busy:
+            throbber.update(" ")
+            return
+        frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
+        self._top_spinner_index += 1
+        throbber.update(frame)
 
     async def ensure_agent(self) -> None:
         if self.agent is not None:
