@@ -33,6 +33,16 @@ from .adapters.registry import build_command_context
 
 
 class ConfirmModal(ModalScreen[bool]):
+    BINDINGS = [
+        ("enter", "accept", "Accept"),
+        ("y", "accept", "Accept"),
+        ("n", "cancel", "Cancel"),
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+c", "cancel", "Cancel"),
+        ("1", "cancel", "Option 1"),
+        ("2", "accept", "Option 2"),
+    ]
+
     def __init__(
         self,
         title: str,
@@ -47,36 +57,52 @@ class ConfirmModal(ModalScreen[bool]):
         self._no = no_label
 
     def compose(self) -> ComposeResult:
-        with Container(classes="modal"):
+        with Container(classes="modal confirm-modal"):
             yield Label(self._title, classes="modal-title")
             yield Static(self._body, classes="modal-body")
             with Horizontal(classes="modal-actions"):
                 yield Button(self._no, id="no", variant="default")
                 yield Button(self._yes, id="yes", variant="success")
 
-    @on(Button.Pressed)
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        self.dismiss(event.button.id == "yes")
+    async def on_mount(self) -> None:
+        # Default to the affirmative action, mirroring previous TUI defaults.
+        self.query_one("#yes", Button).focus()
+
+    def action_accept(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#yes")
+    def on_yes_pressed(self, _event: Button.Pressed) -> None:
+        self.action_accept()
+
+    @on(Button.Pressed, "#no")
+    def on_no_pressed(self, _event: Button.Pressed) -> None:
+        self.action_cancel()
 
 
 class PlanQuestionModal(ModalScreen[dict[str, Any]]):
     def __init__(
         self,
         *,
+        question_number: int,
         question: str,
         options: list[str],
         recommended_index: int | None,
         allow_free_text: bool,
     ) -> None:
         super().__init__()
+        self._question_number = max(1, question_number)
         self._question = question
         self._options = options
         self._recommended_index = recommended_index
         self._allow_free_text = allow_free_text
 
     def compose(self) -> ComposeResult:
-        with Container(classes="modal"):
-            yield Label("Planning Question", classes="modal-title")
+        with Container(classes="modal plan-modal"):
+            yield Label(f"Asking questions {self._question_number}", classes="modal-title")
             yield Static(self._question, classes="modal-body")
             with Vertical(classes="modal-options"):
                 for idx, option in enumerate(self._options):
@@ -558,6 +584,160 @@ class ReupApp(App):
         )
         return None
 
+    def _should_suppress_intent_detection(self, message: str, *, plan_enabled: bool) -> bool:
+        text = (message or "").strip()
+        min_len = 7 if plan_enabled else 12
+        if len(text) < min_len:
+            return True
+        if len(text.split()) < 3:
+            if not (plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())):
+                return True
+        if message == Agent.PLAN_EXECUTE_PROMPT:
+            return True
+        return False
+
+    def _detect_plan_intent(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        strong_phrases = (
+            "make a plan",
+            "implementation plan",
+            "before coding",
+            "steps to build",
+            "plan this",
+            "create a plan",
+            "draft a plan",
+            "what is the plan",
+            "outline the plan",
+        )
+        if any(p in text for p in strong_phrases):
+            return True
+
+        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text)):
+            return True
+
+        build_intent_markers = (
+            "i want to build",
+            "i want to create",
+            "help me build",
+            "help me create",
+            "how should i build",
+            "how do i build",
+            "design a",
+            "build a",
+            "create a",
+            "architect a",
+        )
+        product_targets = (
+            "app",
+            "game",
+            "website",
+            "web app",
+            "tool",
+            "platform",
+            "system",
+            "project",
+            "feature",
+            "api",
+            "dashboard",
+        )
+        if any(m in text for m in build_intent_markers) and any(t in text for t in product_targets):
+            return True
+
+        return bool(re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text)
+
+    def _detect_execution_intent(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        phrases = (
+            "implement now",
+            "go ahead and build",
+            "apply the changes",
+            "start coding",
+            "execute this",
+            "ship it",
+            "go implement",
+            "build it now",
+            "start implementation",
+            "let's build",
+            "lets build",
+            "let's implement",
+            "lets implement",
+            "let us build",
+            "let us implement",
+            "build then",
+            "implement then",
+            "lets built",
+            "let's built",
+        )
+        if any(p in text for p in phrases):
+            return True
+        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text)):
+            return True
+        if bool(
+            re.search(r"\b(build|implement|start coding|execute)\b", text)
+            and re.search(r"\b(then|next)\b", text)
+        ):
+            return True
+        return bool(
+            re.search(r"\b(implement|build|built|code|execute|apply)\b", text)
+            and re.search(r"\b(now|this|it|changes)\b", text)
+        )
+
+    async def _apply_intent_assist(self, message: str) -> str | None:
+        if message.startswith("/"):
+            return message
+
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            return message
+
+        session = self.agent.session
+        plan_enabled = bool(session.plan_mode_enabled)
+        if self._should_suppress_intent_detection(message, plan_enabled=plan_enabled):
+            return message
+
+        if not plan_enabled and self._detect_plan_intent(message):
+            choice = await self._open_modal(
+                ConfirmModal(
+                    title="Enable Plan Mode?",
+                    body="This prompt looks like planning. Switch to Plan mode before sending?",
+                    yes_label="Enable Plan Mode",
+                    no_label="Send Normally",
+                )
+            )
+            if choice is None:
+                return None
+            if bool(choice):
+                session.set_plan_mode(True)
+                session.set_plan_phase("idle")
+                self.post_system("Plan Mode", "Plan mode enabled.")
+            return message
+
+        if plan_enabled and self._detect_execution_intent(message):
+            choice = await self._open_modal(
+                ConfirmModal(
+                    title="Run In Execution Mode?",
+                    body="This prompt looks like execution while Plan mode is ON.",
+                    yes_label="Turn Off Plan Mode",
+                    no_label="Stay in Plan Mode",
+                )
+            )
+            if choice is None:
+                return None
+            if bool(choice):
+                session.set_plan_mode(False)
+                session.set_plan_phase("idle")
+                self.post_system("Plan Mode", "Plan mode disabled.")
+                return message
+
+            self.post_system("Plan Mode", "Staying in plan mode; continuing with planning flow.")
+            return (
+                f"{message}\n\n"
+                "Stay in plan mode. Do not execute changes yet. "
+                "Ask clarifying questions first, then provide an implementation plan."
+            )
+
+        return message
+
     def action_show_help(self) -> None:
         self.post_system(
             "Help",
@@ -604,6 +784,25 @@ class ReupApp(App):
         await self.handle_send()
 
     def on_key(self, event: events.Key) -> None:
+        # Global modal escape hatch: always allow resolving confirm prompts,
+        # even if focus gets stuck or terminal mouse support is flaky.
+        if self.screen_stack:
+            top = self.screen_stack[-1]
+            if isinstance(top, ConfirmModal):
+                key = event.key
+                if key in {"enter", "y", "2"}:
+                    top.dismiss(True)
+                    event.stop()
+                    if hasattr(event, "prevent_default"):
+                        event.prevent_default()
+                    return
+                if key in {"n", "escape", "ctrl+c", "1"}:
+                    top.dismiss(False)
+                    event.stop()
+                    if hasattr(event, "prevent_default"):
+                        event.prevent_default()
+                    return
+
         focused = self.focused
         if not isinstance(focused, TextArea) or focused.id != "prompt":
             return
@@ -711,10 +910,18 @@ class ReupApp(App):
             await self.run_command(message)
             return
 
+        # Important: run intent-assist modal flow in a worker so the
+        # Textual message pump remains interactive (mouse + keyboard).
         self.run_worker(
-            self.run_agent_message(message),
+            self._handle_agent_send_with_intent(message),
             exclusive=False,
         )
+
+    async def _handle_agent_send_with_intent(self, message: str) -> None:
+        assisted = await self._apply_intent_assist(message)
+        if assisted is None:
+            return
+        await self.run_agent_message(assisted)
 
     async def _list_resume_sessions(self, all_workspaces: bool = False) -> list[dict[str, Any]]:
         sessions = SessionManager().list_sessions(
@@ -1464,9 +1671,18 @@ class ReupApp(App):
             options = [str(o) for o in payload.get("options", []) if str(o).strip()]
             recommended_index = payload.get("recommended_index")
             allow_free_text = bool(payload.get("allow_free_text", True))
+            question_number = int(
+                payload.get("question_number")
+                or (
+                    (self.agent.session.plan_questions_asked + 1)
+                    if self.agent and self.agent.session
+                    else 1
+                )
+            )
 
             result = await self._open_modal(
                 PlanQuestionModal(
+                    question_number=question_number,
                     question=question,
                     options=options,
                     recommended_index=recommended_index,

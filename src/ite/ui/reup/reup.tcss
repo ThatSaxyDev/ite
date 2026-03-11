@@ -219,6 +219,112 @@ SessionResumeModal {
     background: #06080f 58%;
 }
 
+ConfirmModal .confirm-modal {
+    width: 76;
+    height: auto;
+    min-height: 9;
+    max-height: 18;
+    border: round #3f4c67;
+    background: #141b2a 96%;
+    padding: 1 2;
+}
+
+ConfirmModal .modal-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+ConfirmModal #yes,
+ConfirmModal #no {
+    height: 1;
+    min-height: 1;
+    padding: 0 1;
+    border: none;
+    text-style: bold;
+}
+
+ConfirmModal #yes {
+    background: #5dcf84;
+    color: #0f1a12;
+}
+
+ConfirmModal #yes:hover {
+    background: #75de99;
+}
+
+ConfirmModal #no {
+    background: #2b3243;
+    color: #e2e7f2;
+}
+
+ConfirmModal #no:hover {
+    background: #364058;
+}
+
+PlanQuestionModal .plan-modal {
+    width: 88;
+    height: auto;
+    min-height: 12;
+    max-height: 30;
+    border: round #3f4c67;
+    background: #141b2a 96%;
+    padding: 1 2;
+}
+
+PlanQuestionModal .modal-title {
+    text-style: bold;
+    color: #c9a6ff;
+    margin-bottom: 1;
+}
+
+PlanQuestionModal .modal-body {
+    color: #dbe3f2;
+    margin-bottom: 1;
+}
+
+PlanQuestionModal .modal-options {
+    margin-bottom: 1;
+}
+
+PlanQuestionModal .modal-options Button {
+    margin-bottom: 1;
+    border: none;
+    background: #2b3243;
+    color: #e2e7f2;
+    text-style: bold;
+}
+
+PlanQuestionModal .modal-options Button:hover {
+    background: #364058;
+}
+
+PlanQuestionModal .modal-options Button.-primary {
+    background: #5dcf84;
+    color: #0f1a12;
+}
+
+PlanQuestionModal .modal-options Button.-primary:hover {
+    background: #75de99;
+}
+
+PlanQuestionModal #custom-input {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+PlanQuestionModal #custom-submit {
+    border: none;
+    background: #2b3243;
+    color: #e2e7f2;
+    text-style: bold;
+}
+
+PlanQuestionModal #custom-submit:hover {
+    background: #364058;
+}
+
 SessionResumeModal .modal {
     width: 108;
     height: 32;
