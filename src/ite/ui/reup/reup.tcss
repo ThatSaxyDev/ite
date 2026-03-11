@@ -219,6 +219,21 @@ SessionResumeModal {
     background: #000000 45%;
 }
 
+SessionResumeModal .modal {
+    width: 92;
+    height: 24;
+    max-height: 85%;
+    min-height: 18;
+    overflow: hidden;
+}
+
+SessionResumeModal .modal-list {
+    height: 12;
+    min-height: 10;
+    max-height: 1fr;
+    overflow-y: auto;
+}
+
 .modal-title {
     text-style: bold;
     color: #f5f5f5;
