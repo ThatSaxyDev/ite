@@ -17,6 +17,7 @@ from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
 
@@ -175,6 +176,33 @@ class SessionResumeModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ReupPromptTextArea(TextArea):
+    class Submitted(Message):
+        pass
+
+    BINDINGS = []
+
+    def action_submit(self) -> None:
+        self.post_message(self.Submitted())
+
+    def action_newline(self) -> None:
+        self.insert("\n")
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in {"shift+enter", "ctrl+j"}:
+            event.stop()
+            if hasattr(event, "prevent_default"):
+                event.prevent_default()
+            self.action_newline()
+            return
+        if event.key == "enter":
+            event.stop()
+            if hasattr(event, "prevent_default"):
+                event.prevent_default()
+            self.action_submit()
+            return
+
+
 class ReupTUIAdapter:
     """Adapter for existing command handlers expecting a TUI-like object."""
 
@@ -305,7 +333,7 @@ class ReupApp(App):
                 yield Static("", id="empty-state")
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
-                    yield TextArea(id="prompt", language="markdown")
+                    yield ReupPromptTextArea(id="prompt", language="markdown")
                     yield Static("", id="composer-gap")
                     with Horizontal(id="composer-meta"):
                         yield Static("📎", classes="meta-icon")
@@ -447,10 +475,9 @@ class ReupApp(App):
         send.disabled = False
         if busy:
             send.label = "Stop"
-            send.variant = "warning"
         else:
             send.label = "Send"
-            send.variant = "default"
+        send.variant = "default"
         self._refresh_empty_state()
 
     def _tick_top_indicator(self) -> None:
@@ -560,6 +587,11 @@ class ReupApp(App):
             self._composer_history_index = None
             self._composer_history_draft = ""
         self._resize_composer_for_prompt()
+
+    async def on_reup_prompt_text_area_submitted(
+        self, _event: ReupPromptTextArea.Submitted
+    ) -> None:
+        await self.handle_send()
 
     def on_key(self, event: events.Key) -> None:
         focused = self.focused

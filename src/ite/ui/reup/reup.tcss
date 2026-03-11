@@ -298,13 +298,27 @@ Screen {
     text-opacity: 100%;
 }
 
+#send > .button--label {
+    color: #000000;
+    text-style: bold;
+    text-opacity: 100%;
+}
+
 #send:hover {
     background: #ffffff;
     color: #000000;
 }
 
+#send:hover > .button--label {
+    color: #000000;
+}
+
 #send:focus {
     background: #ffffff;
+    color: #000000;
+}
+
+#send:focus > .button--label {
     color: #000000;
 }
 
