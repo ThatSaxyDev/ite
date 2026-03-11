@@ -212,6 +212,13 @@ Screen {
     padding: 1 2;
 }
 
+ConfirmModal,
+PlanQuestionModal,
+SessionResumeModal {
+    align: center middle;
+    background: #000000 45%;
+}
+
 .modal-title {
     text-style: bold;
     color: #f5f5f5;
