@@ -1692,6 +1692,27 @@ class ReupApp(App):
 
             if not result:
                 return {"selected_option": "", "free_text": "", "selected_index": None}
+
+            selected_option = str(result.get("selected_option", "") or "").strip()
+            free_text = str(result.get("free_text", "") or "").strip()
+            selected_index = result.get("selected_index")
+            if free_text:
+                answer_text = free_text
+            elif selected_option:
+                answer_text = selected_option
+            else:
+                answer_text = "No answer captured."
+
+            answer_mark = "Custom" if free_text else (
+                f"Option {int(selected_index) + 1}" if isinstance(selected_index, int) else "Answer"
+            )
+            feedback = (
+                f"**Question {question_number}**\n\n"
+                f"{question}\n\n"
+                f"**Captured:** {answer_mark}\n"
+                f"> {answer_text}"
+            )
+            await self.add_assistant_card("Plan Progress", RichMarkdown(feedback), css_class="system")
             return result
         finally:
             self._set_loading_state("thinking", busy=True)
