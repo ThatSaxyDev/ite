@@ -9,8 +9,8 @@ Screen {
 }
 
 #topbar {
-    height: 3;
-    padding: 0 2 0 2;
+    height: 4;
+    padding: 1 2 0 2;
     background: #111318;
     border-bottom: solid #252a33;
 }
@@ -135,6 +135,7 @@ Screen {
     border-left: solid #2a6edb;
     background: #10182a 60%;
     padding: 1 2;
+    margin-top: 1;
     margin-bottom: 2;
 }
 
@@ -143,6 +144,7 @@ Screen {
     border-left: solid #2f9e63;
     background: #0f1d1a 52%;
     padding: 1 2;
+    margin-top: 1;
     margin-bottom: 2;
 }
 
@@ -151,6 +153,7 @@ Screen {
     border-left: solid #b23a3a;
     background: #241516 58%;
     padding: 1 2;
+    margin-top: 1;
     margin-bottom: 2;
 }
 
