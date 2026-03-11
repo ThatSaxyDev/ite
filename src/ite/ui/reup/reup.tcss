@@ -151,6 +151,37 @@ Screen {
     background: #2a1515;
 }
 
+.block.plan {
+    border: none;
+    border-left: solid #7c6bd7;
+    background: #13172a 46%;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.plan .card-title {
+    color: #c9a6ff;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.plan .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.plan-body Markdown {
+    layout: stream;
+    margin: 0;
+    padding: 0;
+}
+
+.plan-body MarkdownFence {
+    background: #121830;
+    border: round #3a4368;
+}
+
 .block.tool.running {
     border: none;
     border-left: solid #2a6edb;

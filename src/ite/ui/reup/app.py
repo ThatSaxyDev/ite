@@ -578,8 +578,8 @@ class ReupApp(App):
             session.set_plan_phase("idle")
             return Agent.PLAN_EXECUTE_PROMPT
 
-        self.post_system(
-            "Plan Mode",
+        self.post_plan_note(
+            "Plan mode",
             "No pending plan is waiting for approval. Ask for a plan first.",
         )
         return None
@@ -709,7 +709,7 @@ class ReupApp(App):
             if bool(choice):
                 session.set_plan_mode(True)
                 session.set_plan_phase("idle")
-                self.post_system("Plan Mode", "Plan mode enabled.")
+                self.post_plan_note("Plan mode enabled", "Planning mode is now active for this thread.")
             return message
 
         if plan_enabled and self._detect_execution_intent(message):
@@ -726,10 +726,13 @@ class ReupApp(App):
             if bool(choice):
                 session.set_plan_mode(False)
                 session.set_plan_phase("idle")
-                self.post_system("Plan Mode", "Plan mode disabled.")
+                self.post_plan_note("Plan mode disabled", "Execution mode is now active.")
                 return message
 
-            self.post_system("Plan Mode", "Staying in plan mode; continuing with planning flow.")
+            self.post_plan_note(
+                "Staying in plan mode",
+                "Continuing in planning mode. I will ask clarifying questions before execution.",
+            )
             return (
                 f"{message}\n\n"
                 "Stay in plan mode. Do not execute changes yet. "
@@ -1176,7 +1179,10 @@ class ReupApp(App):
                 await self.run_agent_message(Agent.PLAN_EXECUTE_PROMPT)
             elif self.agent and self.agent.session:
                 self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
-                self.post_system("Plan Mode", "Plan kept for refinement. Use 'implement plan' later.")
+                self.post_plan_note(
+                    "Plan saved for refinement",
+                    "Use `implement plan` any time to start execution.",
+                )
             return
 
     def get_tool_kind(self, tool_name: str) -> str | None:
@@ -1455,6 +1461,12 @@ class ReupApp(App):
         css_class = "system error" if is_error else "system"
         self.run_worker(self.add_assistant_card(title, message, css_class=css_class), exclusive=False)
 
+    def post_plan_note(self, title: str, markdown_text: str) -> None:
+        self.run_worker(
+            self.add_assistant_card(title, RichMarkdown(markdown_text), css_class="plan"),
+            exclusive=False,
+        )
+
     async def add_assistant_card(self, title: str, body: Any, css_class: str = "assistant") -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
 
@@ -1707,12 +1719,16 @@ class ReupApp(App):
                 f"Option {int(selected_index) + 1}" if isinstance(selected_index, int) else "Answer"
             )
             feedback = (
-                f"**Question {question_number}**\n\n"
+                f"**Prompt**\n"
                 f"{question}\n\n"
-                f"**Captured:** {answer_mark}\n"
-                f"> {answer_text}"
+                f"**Captured · {answer_mark}**\n"
+                f"{answer_text}"
             )
-            await self.add_assistant_card("Plan Progress", RichMarkdown(feedback), css_class="system")
+            await self.add_assistant_card(
+                f"Captured answer {question_number}",
+                RichMarkdown(feedback),
+                css_class="plan",
+            )
             return result
         finally:
             self._set_loading_state("thinking", busy=True)
