@@ -216,22 +216,90 @@ ConfirmModal,
 PlanQuestionModal,
 SessionResumeModal {
     align: center middle;
-    background: #000000 45%;
+    background: #06080f 58%;
 }
 
 SessionResumeModal .modal {
-    width: 92;
-    height: 24;
-    max-height: 85%;
-    min-height: 18;
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
+    padding: 1 2;
     overflow: hidden;
 }
 
 SessionResumeModal .modal-list {
-    height: 12;
-    min-height: 10;
+    height: 1fr;
+    min-height: 12;
     max-height: 1fr;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid #3b3f58;
+    background: #1c2234;
+    padding: 0;
     overflow-y: auto;
+}
+
+SessionResumeModal .modal-title {
+    text-align: center;
+    text-style: bold;
+    color: #c9a6ff;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .modal-body {
+    color: #d5d7e2;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .resume-warning {
+    border: round #b38a54;
+    background: #2b2833;
+    color: #f2ce9a;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .modal-actions {
+    height: 3;
+    align-horizontal: right;
+    border-top: solid #363a52;
+    padding-top: 1;
+    margin-top: 0;
+}
+
+SessionResumeModal #resume {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #b28af3;
+    color: #12111a;
+    border: none;
+}
+
+SessionResumeModal #resume:hover {
+    background: #c59df8;
+    color: #0f0e16;
+}
+
+SessionResumeModal #cancel {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: #262b3d;
+    color: #e4e6ef;
+    border: none;
+}
+
+SessionResumeModal #cancel:hover {
+    background: #31374d;
+}
+
+SessionResumeModal .resume-table {
+    height: 1fr;
 }
 
 .modal-title {

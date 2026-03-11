@@ -128,30 +128,44 @@ class SessionResumeModal(ModalScreen[str | None]):
         self._session_ids: list[str] = []
 
     def compose(self) -> ComposeResult:
-        with Container(classes="modal"):
-            yield Label("Resume Session", classes="modal-title")
-            with Container(classes="modal-list"):
-                yield DataTable(id="sessions", cursor_type="row")
-            with Horizontal(classes="modal-actions"):
-                yield Button("Resume", id="resume", variant="success", disabled=True)
+        with Container(classes="modal resume-modal"):
+            yield Label("Session Resume", classes="modal-title resume-title")
+            yield Static("Pick a session to resume.", classes="modal-body resume-body")
+            yield Static(
+                "⚠ Some providers may not support full resume semantics.",
+                classes="resume-warning",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(id="sessions", classes="resume-table", cursor_type="row")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Resume", id="resume", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
+
+    @staticmethod
+    def _format_timestamp(value: Any) -> str:
+        if not value:
+            return "-"
+        text = str(value)
+        try:
+            return datetime.fromisoformat(text).strftime("%b %d · %I:%M %p")
+        except Exception:
+            return text
 
     async def on_mount(self) -> None:
         table = self.query_one("#sessions", DataTable)
-        table.add_columns("Name", "Session", "Updated", "Turns")
+        table.add_columns("Name", "Session", "Created", "Last Used")
 
         self._session_ids = []
         for session in self._sessions:
             sid = str(session.get("session_id", ""))
             name = str(session.get("name") or sid)
-            updated = str(session.get("updated_at", ""))
-            turns = str(session.get("turn_count", 0))
-            try:
-                updated = datetime.fromisoformat(updated).strftime("%b %d · %I:%M %p")
-            except Exception:
-                pass
+            created = self._format_timestamp(session.get("created_at"))
+            updated = self._format_timestamp(session.get("updated_at"))
             self._session_ids.append(sid)
-            table.add_row(name, f"{sid[:8]}…", updated, turns)
+            table.add_row(name, f"{sid[:8]}…", created, updated)
+        if self._session_ids:
+            table.move_cursor(row=0, column=0)
+            self.query_one("#resume", Button).disabled = False
 
     @on(DataTable.RowHighlighted, "#sessions")
     def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
