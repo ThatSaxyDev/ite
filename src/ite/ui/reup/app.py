@@ -701,7 +701,10 @@ class ReupApp(App):
             await self.run_command(message)
             return
 
-        await self.run_agent_message(message)
+        self.run_worker(
+            self.run_agent_message(message),
+            exclusive=False,
+        )
 
     async def _list_resume_sessions(self, all_workspaces: bool = False) -> list[dict[str, Any]]:
         sessions = SessionManager().list_sessions(
