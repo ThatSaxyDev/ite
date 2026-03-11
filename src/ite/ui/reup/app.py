@@ -129,12 +129,8 @@ class SessionResumeModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
-            yield Label("Session Resume", classes="modal-title resume-title")
+            yield Label("Resume Session", classes="modal-title resume-title")
             yield Static("Pick a session to resume.", classes="modal-body resume-body")
-            yield Static(
-                "⚠ Some providers may not support full resume semantics.",
-                classes="resume-warning",
-            )
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="sessions", classes="resume-table", cursor_type="row")
             with Horizontal(classes="modal-actions resume-actions"):

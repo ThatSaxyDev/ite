@@ -235,7 +235,7 @@ SessionResumeModal .modal-list {
     min-height: 12;
     max-height: 1fr;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 0;
     border: solid #3b3f58;
     background: #1c2234;
     padding: 0;
@@ -264,11 +264,13 @@ SessionResumeModal .resume-warning {
 }
 
 SessionResumeModal .modal-actions {
-    height: 3;
+    height: 1;
+    min-height: 1;
     align-horizontal: right;
-    border-top: solid #363a52;
-    padding-top: 1;
+    border-top: none;
+    padding-top: 0;
     margin-top: 0;
+    margin-bottom: 0;
 }
 
 SessionResumeModal #resume {
