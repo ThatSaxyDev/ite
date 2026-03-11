@@ -100,13 +100,14 @@ Screen {
     border-left: solid #4a89d8;
     background: #121a2a 58%;
     padding: 1 2;
+    margin-top: 1;
 }
 
 .block.assistant {
     border: none;
     background: transparent;
     padding: 0;
-    margin: 0 0 1 0;
+    margin: 0 0 2 0;
 }
 
 .block.assistant .card-title {

@@ -13,7 +13,7 @@ from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
@@ -283,6 +283,11 @@ class ReupApp(App):
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
+        self._composer_history: list[str] = []
+        self._composer_history_index: int | None = None
+        self._composer_history_draft: str = ""
+        self._applying_history_nav: bool = False
+        self._suppress_history_reset_once: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -510,6 +515,8 @@ class ReupApp(App):
     def action_clear_input(self) -> None:
         prompt = self.query_one("#prompt", TextArea)
         prompt.text = ""
+        self._composer_history_index = None
+        self._composer_history_draft = ""
         self._resize_composer_for_prompt()
 
     async def action_interrupt_or_quit(self) -> None:
@@ -528,7 +535,77 @@ class ReupApp(App):
 
     @on(TextArea.Changed, "#prompt")
     def on_prompt_changed(self, _event: TextArea.Changed) -> None:
+        if self._suppress_history_reset_once:
+            self._suppress_history_reset_once = False
+            self._resize_composer_for_prompt()
+            return
+        if self._composer_history_index is not None and not self._applying_history_nav:
+            self._composer_history_index = None
+            self._composer_history_draft = ""
         self._resize_composer_for_prompt()
+
+    def on_key(self, event: events.Key) -> None:
+        focused = self.focused
+        if not isinstance(focused, TextArea) or focused.id != "prompt":
+            return
+        if event.key not in {"up", "down"}:
+            return
+        if self._is_turn_running or not self._composer_history:
+            return
+        handled = self._handle_composer_history_navigation(event.key)
+        if not handled:
+            return
+        event.stop()
+        if hasattr(event, "prevent_default"):
+            event.prevent_default()
+
+    def _record_composer_history(self, message: str) -> None:
+        text = (message or "").strip()
+        if not text:
+            return
+        if self._composer_history and self._composer_history[-1] == text:
+            return
+        self._composer_history.append(text)
+        if len(self._composer_history) > 300:
+            self._composer_history = self._composer_history[-300:]
+
+    def _set_prompt_text_from_history(self, text: str) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        self._suppress_history_reset_once = True
+        self._applying_history_nav = True
+        try:
+            prompt.text = text
+            if hasattr(prompt, "action_cursor_document_end"):
+                prompt.action_cursor_document_end()
+        finally:
+            self._applying_history_nav = False
+        self._resize_composer_for_prompt()
+
+    def _handle_composer_history_navigation(self, key: str) -> bool:
+        prompt = self.query_one("#prompt", TextArea)
+
+        if key == "up":
+            if self._composer_history_index is None:
+                self._composer_history_draft = prompt.text or ""
+                self._composer_history_index = len(self._composer_history) - 1
+            else:
+                self._composer_history_index = max(0, self._composer_history_index - 1)
+            self._set_prompt_text_from_history(self._composer_history[self._composer_history_index])
+            return True
+
+        if key == "down" and self._composer_history_index is not None:
+            if self._composer_history_index < len(self._composer_history) - 1:
+                self._composer_history_index += 1
+                self._set_prompt_text_from_history(
+                    self._composer_history[self._composer_history_index]
+                )
+            else:
+                self._set_prompt_text_from_history(self._composer_history_draft)
+                self._composer_history_index = None
+                self._composer_history_draft = ""
+            return True
+
+        return False
 
     def _resize_composer_for_prompt(self) -> None:
         prompt = self.query_one("#prompt", TextArea)
@@ -560,6 +637,9 @@ class ReupApp(App):
         if not message:
             return
 
+        self._record_composer_history(message)
+        self._composer_history_index = None
+        self._composer_history_draft = ""
         prompt.text = ""
         self._resize_composer_for_prompt()
 
