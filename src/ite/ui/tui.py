@@ -225,6 +225,50 @@ class TUI:
             if isinstance(val, str) and self.cwd:
                 display_args[key] = str(display_path_relative_to_cwd(val, self.cwd))
 
+        if name == "todos":
+            scope = str(display_args.get("scope", "execution")).strip().lower()
+            action = str(display_args.get("action", "update")).strip().lower()
+            label = "planning checklist" if scope == "planning" else "task checklist"
+            hint = "Updating checklist"
+            if action == "add":
+                count = 0
+                items = display_args.get("items")
+                if isinstance(items, list):
+                    count = len(items)
+                elif isinstance(display_args.get("content"), str) and display_args.get("content"):
+                    count = 1
+                hint = f"Creating {label}" + (f" ({count} items)" if count else "")
+            elif action == "complete":
+                hint = f"Marking item complete in {label}"
+            elif action == "reopen":
+                hint = f"Reopening item in {label}"
+            elif action == "remove":
+                hint = f"Removing item from {label}"
+            elif action == "update":
+                hint = f"Updating item in {label}"
+            elif action == "list":
+                hint = f"Refreshing {label}"
+            elif action == "clear":
+                hint = f"Clearing {label}"
+
+            panel = Panel(
+                Group(
+                    Text(narrative, style="muted"),
+                    Text(),
+                    Text(hint, style="code"),
+                ),
+                title=title,
+                title_align="left",
+                subtitle=Text("running...", style="muted"),
+                subtitle_align="right",
+                border_style=border_style,
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+            self.console.print()
+            self.console.print(panel)
+            return
+
         panel = Panel(
             Group(
                 Text(narrative, style="muted"),

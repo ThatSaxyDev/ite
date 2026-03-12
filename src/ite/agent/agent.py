@@ -190,12 +190,47 @@ class Agent:
         return marker_hits >= 2 or (marker_hits >= 1 and has_files_hint)
 
     def _derive_execution_seed_items(self, message: str) -> list[str]:
-        goal = (message or "").strip() or "user request"
-        return [
-            f"Implement requested changes for: {goal[:80]}",
-            "Run verification checks (tests/lint/build as applicable)",
-            "Summarize outcome and changed files",
-        ]
+        first_line = ((message or "").strip().splitlines() or [""])[0].strip()
+        text = re.sub(r"\s+", " ", first_line or "user request")
+        parts = re.split(r"\b(?:and then|then|and)\b|,|;", text, flags=re.IGNORECASE)
+
+        verbs = (
+            "build",
+            "create",
+            "implement",
+            "fix",
+            "refactor",
+            "add",
+            "update",
+            "migrate",
+            "parse",
+            "export",
+            "validate",
+            "write",
+            "generate",
+        )
+        tasks: list[str] = []
+        for raw in parts:
+            part = raw.strip(" .")
+            if not part:
+                continue
+            lowered = part.lower()
+            if not any(lowered.startswith(v + " ") or f" {v} " in lowered for v in verbs):
+                continue
+            part = re.sub(r"^(please\s+)?(can you\s+)?", "", part, flags=re.IGNORECASE).strip()
+            if part:
+                part = part[0].upper() + part[1:]
+            if part and part not in tasks:
+                tasks.append(part)
+            if len(tasks) >= 4:
+                break
+
+        if not tasks:
+            tasks = ["Implement requested changes"]
+
+        tasks.append("Run verification checks (tests/lint/build as applicable)")
+        tasks.append("Summarize outcome and changed files")
+        return tasks[:6]
 
     def _has_execution_todos(self, session: Session) -> bool:
         state = session.export_todos_state()

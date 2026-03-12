@@ -210,7 +210,11 @@ class TodosTool(Tool):
                     "add",
                     scope,
                     changed_ids=added_ids,
-                    message=f"Added {len(added_ids)} todo item(s) to {scope}.",
+                    message=(
+                        f"Checklist created with {len(added_ids)} item(s)."
+                        if len(added_ids) > 1
+                        else "Checklist created with 1 item."
+                    ),
                 ),
             )
 
@@ -244,7 +248,7 @@ class TodosTool(Tool):
                     "complete",
                     scope,
                     changed_ids=[params.id],
-                    message=f"Marked todo '{params.id}' as completed.",
+                    message="Marked one checklist item complete.",
                 ),
             )
 
@@ -268,7 +272,7 @@ class TodosTool(Tool):
                     "reopen",
                     scope,
                     changed_ids=[params.id],
-                    message=f"Reopened todo '{params.id}'.",
+                    message="Reopened one checklist item.",
                 ),
             )
 
@@ -296,7 +300,7 @@ class TodosTool(Tool):
                     "update",
                     scope,
                     changed_ids=[params.id],
-                    message=f"Updated todo '{params.id}'.",
+                    message="Updated one checklist item.",
                 ),
             )
 
@@ -318,7 +322,7 @@ class TodosTool(Tool):
                     "remove",
                     scope,
                     changed_ids=[params.id],
-                    message=f"Removed todo '{params.id}'.",
+                    message="Removed one checklist item.",
                 ),
             )
 
@@ -338,7 +342,7 @@ class TodosTool(Tool):
                     scope,
                     changed_ids=[],
                     cleared=count,
-                    message=f"Cleared {count} todo item(s) in {scope}.",
+                    message=f"Cleared {count} checklist item(s).",
                 ),
             )
 
