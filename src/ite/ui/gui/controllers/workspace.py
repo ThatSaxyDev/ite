@@ -275,6 +275,8 @@ class WorkspaceControllerMixin:
             self._tool_call_row_indices.clear()
             if hasattr(self, "_tool_args_by_call_id"):
                 self._tool_args_by_call_id.clear()
+            if hasattr(self, "_refresh_workboard_from_session"):
+                self._refresh_workboard_from_session()
             self._refresh_workspace_options()
             self._refresh_sidebar_threads()
             if self.page:

@@ -106,6 +106,7 @@ class GUIApp(
         self.sidebar_sessions_by_id: dict[str, dict] = {}
         self.app_mode: str = "setup" if self.config.needs_setup else "chat"
         self.chat_shell: ft.Row | None = None
+        self.chat_workboard_row: ft.Row | None = None
         self.setup_view: ft.Container | None = None
         self.setup_error_text: ft.Text | None = None
         self.setup_base_url_field: ft.TextField | None = None
@@ -145,6 +146,16 @@ class GUIApp(
         self._composer_history_draft: str = ""
         self._composer_input_focused: bool = False
         self._pending_attachment_paths: list[str] = []
+        self.workboard_container: ft.Container | None = None
+        self.workboard_body: ft.Column | None = None
+        self.workboard_toggle_button: ft.IconButton | None = None
+        self.workboard_header_toggle_button: ft.IconButton | None = None
+        self.workboard_visible: bool = True
+        self.workboard_todos_column: ft.Column | None = None
+        self.workboard_plan_markdown: ft.Markdown | None = None
+        self.workboard_plan_empty_text: ft.Text | None = None
+        self.workboard_plan_section: ft.Container | None = None
+        self.workboard_has_content: bool = False
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -767,6 +778,191 @@ class GUIApp(
             self.empty_state_workspace_text.value = workspace_name
             self._safe_control_update(self.empty_state_workspace_text)
 
+    def _toggle_workboard(self):
+        if not self.workboard_has_content:
+            self._show_transient_notice("Workboard opens when a plan or checklist is available.")
+            return
+        self.workboard_visible = not self.workboard_visible
+        self._apply_workboard_state()
+
+    def _apply_workboard_state(self, update: bool = True):
+        show_panel = self.workboard_visible and self.workboard_has_content
+        if self.workboard_container is not None:
+            self.workboard_container.visible = show_panel
+            self.workboard_container.width = 360 if show_panel else 0
+        if self.workboard_toggle_button is not None:
+            self.workboard_toggle_button.icon = (
+                ft.Icons.CHEVRON_RIGHT_ROUNDED
+                if show_panel
+                else ft.Icons.CHEVRON_LEFT_ROUNDED
+            )
+            self.workboard_toggle_button.tooltip = (
+                "Collapse workboard"
+                if show_panel
+                else ("Expand workboard" if self.workboard_has_content else "No active workboard content")
+            )
+            self.workboard_toggle_button.disabled = not self.workboard_has_content
+            self.workboard_toggle_button.opacity = 1.0 if self.workboard_has_content else 0.45
+        if self.workboard_header_toggle_button is not None:
+            self.workboard_header_toggle_button.icon = (
+                ft.Icons.CHEVRON_RIGHT_ROUNDED
+                if show_panel
+                else ft.Icons.CHEVRON_LEFT_ROUNDED
+            )
+            self.workboard_header_toggle_button.tooltip = (
+                "Hide workboard"
+                if show_panel
+                else ("Show workboard" if self.workboard_has_content else "No active workboard content")
+            )
+            self.workboard_header_toggle_button.disabled = not self.workboard_has_content
+            self.workboard_header_toggle_button.opacity = 1.0 if self.workboard_has_content else 0.45
+        if update:
+            self._safe_page_update()
+
+    def _set_workboard_plan_text(self, plan_text: str | None):
+        text = (plan_text or "").strip()
+        if self.workboard_plan_markdown is not None:
+            self.workboard_plan_markdown.value = text
+        if self.workboard_plan_empty_text is not None:
+            self.workboard_plan_empty_text.visible = not bool(text)
+        if self.workboard_plan_section is not None:
+            self.workboard_plan_section.visible = bool(text)
+        self._safe_page_update()
+
+    def _render_workboard_todos_from_state(self, state: dict[str, Any] | None):
+        if self.workboard_todos_column is None:
+            return
+        controls: list[ft.Control] = []
+        if not isinstance(state, dict):
+            state = {}
+        scopes: list[str] = ["execution"]
+        show_planning = bool(
+            self.agent
+            and self.agent.session
+            and self.agent.session.show_planning_todos
+        )
+        if show_planning:
+            scopes.append("planning")
+
+        for scope in scopes:
+            entries = state.get(scope, [])
+            if not isinstance(entries, list):
+                entries = []
+            pending = [e for e in entries if not bool(e.get("completed", False))]
+            done = [e for e in entries if bool(e.get("completed", False))]
+            total = len(entries)
+            completed = len(done)
+            ratio = (completed / total) if total > 0 else 0.0
+
+            chips = ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Text(
+                            f"{completed}/{total} completed",
+                            size=TYPE_SM,
+                            color=SUCCESS,
+                            weight=WEIGHT_SEMIBOLD,
+                        ),
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                        border=ft.Border.all(1, SUCCESS_SOFT),
+                        border_radius=RADIUS_LG,
+                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.GREEN_300),
+                    ),
+                    ft.Container(
+                        content=ft.Text(
+                            f"{len(pending)} pending",
+                            size=TYPE_SM,
+                            color=WARNING,
+                            weight=WEIGHT_SEMIBOLD,
+                        ),
+                        padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                        border=ft.Border.all(1, WARNING_SOFT),
+                        border_radius=RADIUS_LG,
+                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER_300),
+                    ),
+                ],
+                spacing=8,
+                wrap=True,
+            )
+            task_rows: list[ft.Control] = []
+            for item in pending[:6]:
+                content = str(item.get("content", "")).strip()
+                if content:
+                    task_rows.append(ft.Text(f"□ {content}", size=TYPE_BODY, color=TEXT_PRIMARY))
+            if len(pending) > 6:
+                task_rows.append(ft.Text(f"+{len(pending) - 6} more pending", size=TYPE_SM, color=TEXT_MUTED))
+            if done:
+                task_rows.append(ft.Text("Done", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD))
+            for item in done[:3]:
+                content = str(item.get("content", "")).strip()
+                if content:
+                    task_rows.append(ft.Text(f"✓ {content}", size=TYPE_BODY, color=TEXT_SECONDARY))
+            if len(done) > 3:
+                task_rows.append(ft.Text(f"+{len(done) - 3} more completed", size=TYPE_SM, color=TEXT_MUTED))
+            if not task_rows:
+                task_rows.append(
+                    ft.Text(
+                        "No checklist items yet.",
+                        size=TYPE_SM,
+                        color=TEXT_MUTED,
+                    )
+                )
+            controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(
+                                "Execution checklist" if scope == "execution" else "Planning checklist",
+                                size=TYPE_TITLE,
+                                color=TEXT_PRIMARY,
+                                weight=WEIGHT_BOLD,
+                            ),
+                            chips,
+                            ft.ProgressBar(
+                                value=ratio,
+                                color=SUCCESS if scope == "execution" else ACCENT,
+                                bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE),
+                                bar_height=7,
+                            ),
+                            ft.Column(task_rows, spacing=6, tight=True),
+                        ],
+                        spacing=8,
+                        tight=True,
+                    ),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+                    border=ft.Border.all(1, BORDER),
+                    border_radius=RADIUS_MD,
+                    bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
+                )
+            )
+        self.workboard_todos_column.controls = controls
+        self._safe_control_update(self.workboard_todos_column)
+
+    def _refresh_workboard_from_session(self):
+        if not self.agent or not self.agent.session:
+            self.workboard_has_content = False
+            self.workboard_visible = False
+            self._render_workboard_todos_from_state(None)
+            self._set_workboard_plan_text(None)
+            self._apply_workboard_state(update=False)
+            return
+        session = self.agent.session
+        todos_state = session.export_todos_state()
+        plan_text = (session.pending_plan_text or "").strip()
+        has_todos = False
+        if isinstance(todos_state, dict):
+            for scope in ("planning", "execution"):
+                entries = todos_state.get(scope, [])
+                if isinstance(entries, list) and entries:
+                    has_todos = True
+                    break
+        self.workboard_has_content = bool(has_todos or plan_text)
+        if not self.workboard_has_content:
+            self.workboard_visible = False
+        self._render_workboard_todos_from_state(todos_state)
+        self._set_workboard_plan_text(plan_text)
+        self._apply_workboard_state(update=False)
+
     def _build_empty_state_title(self) -> str:
         now = datetime.now()
         hour = now.hour
@@ -920,6 +1116,7 @@ class GUIApp(
             self.active_session_id = self.agent.session.session_id
             self._set_current_session_title(self.agent.session.name)
             self._sync_plan_toggle_ui()
+            self._refresh_workboard_from_session()
 
     def _on_send(self, e):
         if self._is_turn_running:

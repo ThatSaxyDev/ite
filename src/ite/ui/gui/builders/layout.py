@@ -42,6 +42,15 @@ class LayoutBuilderMixin:
 
     def _build_ui(self, page: ft.Page):
         self.sidebar_root = self.build_sidebar()
+        self.chat_workboard_row = ft.Row(
+            [
+                self._build_chat_panel(),
+                ft.VerticalDivider(width=1, color=BORDER),
+                self._build_workboard_panel(),
+            ],
+            expand=True,
+            spacing=0,
+        )
         self.chat_shell = ft.Row(
             [
                 self.sidebar_root,
@@ -50,7 +59,7 @@ class LayoutBuilderMixin:
                     content=ft.Column(
                         [
                             self.build_header(),
-                            self._build_chat_panel(),
+                            self.chat_workboard_row,
                             self.build_composer(),
                         ],
                         expand=True,
@@ -78,7 +87,10 @@ class LayoutBuilderMixin:
         page.run_task(self._refresh_branch_options_async)
         self._start_branch_sync_watcher()
         self._apply_sidebar_state(update=False)
+        self._apply_workboard_state(update=False)
         self._apply_app_mode()
+        if hasattr(self, "_refresh_workboard_from_session"):
+            self._refresh_workboard_from_session()
         if hasattr(self, "_refresh_empty_state_copy"):
             self._refresh_empty_state_copy()
         if hasattr(self, "_refresh_empty_state_visibility"):
@@ -426,6 +438,17 @@ class LayoutBuilderMixin:
             no_wrap=True,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
+        self.workboard_header_toggle_button = ft.IconButton(
+            icon=ft.Icons.CHEVRON_RIGHT_ROUNDED,
+            tooltip="Hide workboard",
+            on_click=lambda e: self._toggle_workboard(),
+            icon_size=16,
+            icon_color=TEXT_SECONDARY,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
         self.header_workspace_text = ft.Text(
             f"Workspace: {self.config.cwd}",
             size=TYPE_SM,
@@ -442,6 +465,7 @@ class LayoutBuilderMixin:
                 [
                     self.header_session_text,
                     self.header_workspace_text,
+                    self.workboard_header_toggle_button,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -545,6 +569,81 @@ class LayoutBuilderMixin:
                 expand=True,
             ),
         )
+
+    def _build_workboard_panel(self) -> ft.Control:
+        self.workboard_toggle_button = ft.IconButton(
+            icon=ft.Icons.CHEVRON_RIGHT_ROUNDED,
+            tooltip="Collapse workboard",
+            on_click=lambda e: self._toggle_workboard(),
+            icon_size=16,
+            icon_color=TEXT_SECONDARY,
+            style=ft.ButtonStyle(
+                bgcolor={ft.ControlState.HOVERED: ft.Colors.with_opacity(0.08, ft.Colors.WHITE)},
+                shape=ft.RoundedRectangleBorder(radius=RADIUS_SM),
+            ),
+        )
+        self.workboard_todos_column = ft.Column(
+            [],
+            spacing=10,
+            tight=True,
+        )
+        self.workboard_plan_markdown = ft.Markdown(
+            "",
+            selectable=True,
+            extension_set="gitHubFlavored",
+        )
+        self.workboard_plan_empty_text = ft.Text(
+            "No active plan yet.",
+            size=TYPE_SM,
+            color=TEXT_MUTED,
+        )
+        self.workboard_plan_section = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Implementation plan", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
+                    self.workboard_plan_markdown,
+                ],
+                spacing=6,
+                tight=True,
+            ),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_MD,
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
+            visible=False,
+        )
+
+        self.workboard_body = ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text("Workboard", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
+                        ft.Container(expand=True),
+                        self.workboard_toggle_button,
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Divider(height=1, color=HAIRLINE),
+                ft.Text("Progress", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
+                self.workboard_todos_column,
+                ft.Text("Plan", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
+                self.workboard_plan_empty_text,
+                self.workboard_plan_section,
+            ],
+            spacing=8,
+            tight=True,
+            scroll=ft.ScrollMode.AUTO,
+            expand=True,
+        )
+
+        self.workboard_container = ft.Container(
+            width=360,
+            bgcolor=SURFACE_1,
+            border=ft.Border.only(left=ft.BorderSide(1, BORDER)),
+            padding=ft.Padding.only(left=10, right=10, top=12, bottom=12),
+            content=self.workboard_body,
+        )
+        return self.workboard_container
 
     def build_composer(self) -> ft.Control:
         model_choices = [

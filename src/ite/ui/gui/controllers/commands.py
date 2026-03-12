@@ -45,6 +45,8 @@ class CommandControllerMixin:
             await self._command_registry.dispatch(command, args, ctx)
             if command == "/branch" and self.page:
                 self.page.run_task(self._refresh_branch_options_async)
+            if hasattr(self, "_refresh_workboard_from_session"):
+                self._refresh_workboard_from_session()
 
             rendered = output.getvalue().strip()
             if rendered:

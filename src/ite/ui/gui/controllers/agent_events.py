@@ -68,11 +68,10 @@ class AgentEventControllerMixin:
         elif event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name")
             if tool_name == "todos":
-                scope = self._resolve_todo_scope_for_event(arguments=event.data.get("arguments"))
-                if self._should_hide_todo_scope(scope):
-                    if self._is_turn_running:
-                        self._show_thinking_indicator()
-                    return
+                # Todos render in Workboard; keep chat stream clean.
+                if self._is_turn_running:
+                    self._show_thinking_indicator()
+                return
             if tool_name in suppressed_tools:
                 return
             if plan_only_phase and tool_name != "todos":
@@ -89,10 +88,16 @@ class AgentEventControllerMixin:
             tool_name = event.data.get("name")
             if tool_name == "todos":
                 scope = self._resolve_todo_scope_for_event(metadata=event.data.get("metadata"))
-                if self._should_hide_todo_scope(scope):
-                    if self._is_turn_running:
-                        self._show_thinking_indicator()
-                    return
+                if hasattr(self, "_refresh_workboard_from_session"):
+                    self._refresh_workboard_from_session()
+                if not self._should_hide_todo_scope(scope):
+                    self._add_todo_compact_notice(
+                        event.data.get("metadata") if isinstance(event.data.get("metadata"), dict) else {},
+                        bool(event.data.get("success", False)),
+                    )
+                if self._is_turn_running:
+                    self._show_thinking_indicator()
+                return
             if tool_name in suppressed_tools:
                 if self._is_turn_running:
                     self._show_thinking_indicator()

@@ -684,13 +684,48 @@ class MessageBuilderMixin:
     def _add_plan_card(self, plan_text: str):
         if not self.messages_column or not self.page:
             return
-        # Plans are primary artifacts; render full content without preview clipping.
-        plan_body = ft.Markdown(
-            plan_text,
-            selectable=True,
-            extension_set="gitHubFlavored",
+        if hasattr(self, "_set_workboard_plan_text"):
+            self._set_workboard_plan_text(plan_text)
+        self._add_assistant_card(
+            "Plan Updated",
+            ft.Text(
+                "Implementation plan added to Workboard.",
+                color=TEXT_SECONDARY,
+            ),
         )
-        self._add_assistant_card("Plan", plan_body)
+
+    def _add_todo_compact_notice(self, metadata: dict[str, Any] | None, success: bool):
+        if not self.messages_column or not self.page:
+            return
+        md = metadata if isinstance(metadata, dict) else {}
+        if not success:
+            self._add_assistant_card(
+                "Checklist",
+                ft.Text("Could not update checklist.", color=ft.Colors.with_opacity(0.88, ft.Colors.RED_300)),
+            )
+            return
+
+        action = str(md.get("action", "list")).strip().lower()
+        scope = str(md.get("scope", "execution")).strip().lower()
+        completed = int(md.get("completed", 0) or 0)
+        total = int(md.get("total", 0) or 0)
+        scope_label = "Planning" if scope == "planning" else "Execution"
+        prefix = {
+            "add": "Checklist created",
+            "complete": "Checklist updated",
+            "reopen": "Checklist updated",
+            "remove": "Checklist updated",
+            "update": "Checklist updated",
+            "clear": "Checklist cleared",
+            "list": "Checklist refreshed",
+        }.get(action, "Checklist updated")
+        self._add_assistant_card(
+            "Checklist",
+            ft.Text(
+                f"{prefix} ({scope_label}: {completed}/{total} completed). See Workboard for details.",
+                color=TEXT_SECONDARY,
+            ),
+        )
 
     def _sanitize_cli_output(self, text: str) -> str:
         cleaned = re.sub(r"\x1b\[[0-9;]*m", "", text)

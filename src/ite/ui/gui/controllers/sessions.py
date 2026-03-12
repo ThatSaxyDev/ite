@@ -33,6 +33,8 @@ class SessionControllerMixin:
             self.agent.session = fresh
             if hasattr(self, "_sync_plan_toggle_ui"):
                 self._sync_plan_toggle_ui()
+            if hasattr(self, "_refresh_workboard_from_session"):
+                self._refresh_workboard_from_session()
 
             self.active_session_id = None
             self._set_current_session_title(None)
@@ -217,6 +219,8 @@ class SessionControllerMixin:
         self.agent.session = resumed
         if hasattr(self, "_sync_plan_toggle_ui"):
             self._sync_plan_toggle_ui()
+        if hasattr(self, "_refresh_workboard_from_session"):
+            self._refresh_workboard_from_session()
 
     def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]):
         if not self.messages_column or not self.page:
