@@ -191,6 +191,78 @@ Screen {
     margin-bottom: 1;
 }
 
+.block.plan.plan-question .card-title {
+    margin-bottom: 1;
+}
+
+.block.plan.plan-question {
+    height: auto;
+    min-height: 0;
+}
+
+.plan-question-prompt {
+    color: #dbe3f2;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+.plan-question-options {
+    layout: vertical;
+    height: auto;
+    min-height: 0;
+    margin-bottom: 1;
+}
+
+.plan-question-option {
+    margin-bottom: 1;
+    border: none;
+    background: #2b3243;
+    color: #e2e7f2;
+    text-style: bold;
+}
+
+.plan-question-option:hover {
+    background: #364058;
+}
+
+.plan-question-option.-primary {
+    background: #5dcf84;
+    color: #0f1a12;
+}
+
+.plan-question-option.-primary:hover {
+    background: #75de99;
+}
+
+.plan-question-custom-row {
+    height: auto;
+    min-height: 1;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+#pq-custom-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#pq-custom-submit {
+    border: none;
+    background: #2b3243;
+    color: #e2e7f2;
+    text-style: bold;
+}
+
+#pq-custom-submit:hover {
+    background: #364058;
+}
+
+.plan-question-status {
+    margin-top: 1;
+    color: #bcd3ff;
+    text-style: bold;
+}
+
 .plan-ready-actions {
     height: 1;
     min-height: 1;

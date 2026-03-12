@@ -358,6 +358,16 @@ class ReupApp(App):
         self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
+        self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
+        self._plan_question_card: Widget | None = None
+        self._plan_question_options: list[str] = []
+        self._plan_question_number: int = 0
+        self._plan_question_prompt: str = ""
+        self._plan_question_option_buttons: list[Button] = []
+        self._plan_question_custom_input: Input | None = None
+        self._plan_question_custom_submit: Button | None = None
+        self._plan_question_status: Static | None = None
+        self._plan_question_recommended_index: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -831,6 +841,35 @@ class ReupApp(App):
                     event.prevent_default()
                 return
 
+        if self._plan_question_future is not None and not self._plan_question_future.done():
+            if event.key in {"escape", "ctrl+c"}:
+                self.run_worker(
+                    self._resolve_plan_question_choice(
+                        selected_index=None, selected_option="", free_text=""
+                    ),
+                    exclusive=False,
+                )
+                event.stop()
+                if hasattr(event, "prevent_default"):
+                    event.prevent_default()
+                return
+
+            if event.key.isdigit():
+                idx = int(event.key) - 1
+                if 0 <= idx < len(self._plan_question_options):
+                    self.run_worker(
+                        self._resolve_plan_question_choice(
+                            selected_index=idx,
+                            selected_option=self._plan_question_options[idx],
+                            free_text="",
+                        ),
+                        exclusive=False,
+                    )
+                    event.stop()
+                    if hasattr(event, "prevent_default"):
+                        event.prevent_default()
+                    return
+
         focused = self.focused
         if not isinstance(focused, TextArea) or focused.id != "prompt":
             return
@@ -1062,6 +1101,10 @@ class ReupApp(App):
             await self._resume_snapshot(snapshot)
             return
 
+        if command == "/plan":
+            await self._run_plan_command_native(args)
+            return
+
         await self.ensure_agent()
         if not self.agent:
             self.post_system("Error", "Agent is not initialized", is_error=True)
@@ -1087,6 +1130,56 @@ class ReupApp(App):
         rendered = output.getvalue().strip()
         if rendered:
             self.post_system(f"Command {command}", rendered)
+
+    async def _run_plan_command_native(self, args: list[str]) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            self.post_system("Plan Mode", "No active session.", is_error=True)
+            return
+
+        session = self.agent.session
+
+        if not args:
+            enabled = "on" if session.plan_mode_enabled else "off"
+            pending = "yes" if session.has_pending_plan() else "no"
+            target_questions = int(getattr(session, "plan_target_questions", 3))
+            status_md = (
+                "## Plan Mode\n\n"
+                f"- **Status:** `{enabled}`\n"
+                f"- **Phase:** `{session.plan_phase}`\n"
+                f"- **Questions asked:** `{session.plan_questions_asked}`\n"
+                f"- **Question target:** `{target_questions}`\n"
+                f"- **Pending plan:** `{pending}`\n\n"
+                "Use `/plan on` or `/plan off`."
+            )
+            self.post_plan_note("Command `/plan`", status_md)
+            return
+
+        arg = args[0].lower()
+        if arg not in {"on", "off"}:
+            self.post_plan_note(
+                "Plan command usage",
+                "Invalid usage. Use `/plan`, `/plan on`, or `/plan off`.",
+            )
+            return
+
+        enable = arg == "on"
+        session.set_plan_mode(enable)
+        if enable:
+            session.set_plan_phase("idle")
+        else:
+            session.set_plan_phase("idle")
+
+        mode = "ON" if enable else "OFF"
+        details = (
+            "Planning flow is active; the agent will ask clarifying questions first."
+            if enable
+            else "Normal execution behavior is active."
+        )
+        self.post_plan_note(
+            "Plan Mode Updated",
+            f"## Plan Mode `{mode}`\n\n{details}",
+        )
 
     async def run_agent_message(self, message: str) -> None:
         await self.ensure_agent()
@@ -1247,6 +1340,166 @@ class ReupApp(App):
     @on(Button.Pressed, "#plan-ready-keep")
     def on_plan_ready_keep(self, _event: Button.Pressed) -> None:
         self._resolve_plan_ready_choice(False)
+
+    async def _present_plan_question_card(
+        self,
+        *,
+        question_number: int,
+        question: str,
+        options: list[str],
+        recommended_index: int | None,
+        allow_free_text: bool,
+    ) -> dict[str, Any]:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        loop = asyncio.get_running_loop()
+        self._plan_question_future = loop.create_future()
+        self._plan_question_options = list(options)
+        self._plan_question_number = max(1, question_number)
+        self._plan_question_prompt = question
+        self._plan_question_recommended_index = recommended_index
+
+        option_buttons: list[Button] = []
+        for idx, option in enumerate(options):
+            rec = " (recommended)" if recommended_index == idx else ""
+            btn = Button(
+                f"{idx + 1}. {option}{rec}",
+                id=f"pq-opt-{idx}",
+                variant="primary" if recommended_index == idx else "default",
+                classes="plan-question-option",
+            )
+            option_buttons.append(btn)
+        option_container = Container(*option_buttons, classes="plan-question-options")
+        self._plan_question_option_buttons = option_buttons
+
+        status = Static("", classes="plan-question-status")
+        status.display = False
+        self._plan_question_status = status
+
+        custom_input: Input | None = None
+        custom_submit: Button | None = None
+        if allow_free_text:
+            custom_input = Input(placeholder="Custom answer", id="pq-custom-input")
+            custom_submit = Button("Submit", id="pq-custom-submit", variant="default")
+            custom_row = Horizontal(
+                custom_input,
+                custom_submit,
+                classes="plan-question-custom-row",
+            )
+        else:
+            custom_row = Horizontal(classes="plan-question-custom-row")
+            custom_row.display = False
+        self._plan_question_custom_input = custom_input
+        self._plan_question_custom_submit = custom_submit
+
+        card = Container(
+            Static(f"Asking questions {self._plan_question_number}", classes="card-title"),
+            Static(question, classes="card-body plan-question-prompt"),
+            option_container,
+            custom_row,
+            status,
+            classes="block plan plan-question",
+        )
+        self._plan_question_card = card
+
+        await conversation.mount(card)
+        self._message_count += 1
+        self._refresh_empty_state()
+        conversation.scroll_end(animate=False)
+
+        # Focus recommended option first for keyboard flow.
+        if self._plan_question_option_buttons:
+            focus_idx = (
+                recommended_index
+                if isinstance(recommended_index, int)
+                and 0 <= recommended_index < len(self._plan_question_option_buttons)
+                else 0
+            )
+            self._plan_question_option_buttons[focus_idx].focus()
+        elif self._plan_question_custom_input is not None:
+            self._plan_question_custom_input.focus()
+
+        return await self._plan_question_future
+
+    async def _resolve_plan_question_choice(
+        self, *, selected_index: int | None, selected_option: str, free_text: str
+    ) -> None:
+        future = self._plan_question_future
+        if future is None or future.done():
+            return
+
+        free_text_clean = (free_text or "").strip()
+        result = {
+            "selected_option": selected_option,
+            "free_text": free_text_clean,
+            "selected_index": selected_index,
+        }
+
+        for button in self._plan_question_option_buttons:
+            button.disabled = True
+        if self._plan_question_custom_input is not None:
+            self._plan_question_custom_input.disabled = True
+        if self._plan_question_custom_submit is not None:
+            self._plan_question_custom_submit.disabled = True
+
+        answer_mark = (
+            "Custom"
+            if free_text_clean
+            else (f"Option {selected_index + 1}" if isinstance(selected_index, int) else "No answer")
+        )
+        answer_text = free_text_clean or selected_option or "No answer captured."
+        if self._plan_question_status is not None:
+            self._plan_question_status.update(
+                f"Captured · {answer_mark}\n{answer_text}"
+            )
+            self._plan_question_status.display = True
+
+        future.set_result(result)
+        self._plan_question_future = None
+        self._plan_question_options = []
+        self._plan_question_number = 0
+        self._plan_question_prompt = ""
+        self._plan_question_option_buttons = []
+        self._plan_question_custom_input = None
+        self._plan_question_custom_submit = None
+        self._plan_question_status = None
+        self._plan_question_recommended_index = None
+
+    @on(Button.Pressed)
+    async def on_plan_question_button_pressed(self, event: Button.Pressed) -> None:
+        if self._plan_question_future is None or self._plan_question_future.done():
+            return
+        button_id = event.button.id or ""
+        if button_id.startswith("pq-opt-"):
+            idx = int(button_id.split("-", 2)[2])
+            if 0 <= idx < len(self._plan_question_options):
+                await self._resolve_plan_question_choice(
+                    selected_index=idx,
+                    selected_option=self._plan_question_options[idx],
+                    free_text="",
+                )
+            return
+        if button_id == "pq-custom-submit":
+            value = (
+                self._plan_question_custom_input.value.strip()
+                if self._plan_question_custom_input is not None
+                else ""
+            )
+            await self._resolve_plan_question_choice(
+                selected_index=None,
+                selected_option="",
+                free_text=value,
+            )
+
+    @on(Input.Submitted, "#pq-custom-input")
+    async def on_plan_question_custom_submitted(self, event: Input.Submitted) -> None:
+        if self._plan_question_future is None or self._plan_question_future.done():
+            return
+        value = event.value.strip()
+        await self._resolve_plan_question_choice(
+            selected_index=None,
+            selected_option="",
+            free_text=value,
+        )
 
     def get_tool_kind(self, tool_name: str) -> str | None:
         if not self.agent or not self.agent.session:
@@ -1755,43 +2008,16 @@ class ReupApp(App):
                 )
             )
 
-            result = await self._open_modal(
-                PlanQuestionModal(
-                    question_number=question_number,
-                    question=question,
-                    options=options,
-                    recommended_index=recommended_index,
-                    allow_free_text=allow_free_text,
-                )
+            result = await self._present_plan_question_card(
+                question_number=question_number,
+                question=question,
+                options=options,
+                recommended_index=recommended_index,
+                allow_free_text=allow_free_text,
             )
 
             if not result:
                 return {"selected_option": "", "free_text": "", "selected_index": None}
-
-            selected_option = str(result.get("selected_option", "") or "").strip()
-            free_text = str(result.get("free_text", "") or "").strip()
-            selected_index = result.get("selected_index")
-            if free_text:
-                answer_text = free_text
-            elif selected_option:
-                answer_text = selected_option
-            else:
-                answer_text = "No answer captured."
-
-            answer_mark = "Custom" if free_text else (
-                f"Option {int(selected_index) + 1}" if isinstance(selected_index, int) else "Answer"
-            )
-            feedback = (
-                f"**Prompt**\n"
-                f"{question}\n\n"
-                f"**Captured · {answer_mark}**\n"
-                f"{answer_text}"
-            )
-            await self.add_assistant_card(
-                f"Captured answer {question_number}",
-                RichMarkdown(feedback),
-                css_class="plan",
-            )
             return result
         finally:
             self._set_loading_state("thinking", busy=True)
