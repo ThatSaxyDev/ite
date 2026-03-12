@@ -741,7 +741,10 @@ class MessageBuilderMixin:
             self._tool_args_by_call_id = {}
         self._tool_args_by_call_id[call_id] = arguments
 
-        args_text = "\n".join(f"{k}={v}" for k, v in arguments.items()) or "(no args)"
+        if name == "todos":
+            args_text = self._todo_start_hint(arguments)
+        else:
+            args_text = "\n".join(f"{k}={v}" for k, v in arguments.items()) or "(no args)"
         narrative = describe_tool_activity(
             name,
             arguments,
@@ -833,6 +836,11 @@ class MessageBuilderMixin:
             stage="complete",
             success=success,
         )
+        if name == "todos":
+            narrative = self._todo_completion_narrative(
+                success=success,
+                metadata=metadata if isinstance(metadata, dict) else {},
+            )
 
         code_mode = False
         language = self._guess_language(
@@ -853,6 +861,11 @@ class MessageBuilderMixin:
         elif diff:
             payload_block: ft.Control = self._build_diff_view(diff)
             code_mode = True
+        elif name == "todos":
+            payload_block = self._build_todo_payload(
+                payload=payload,
+                metadata=metadata if isinstance(metadata, dict) else {},
+            )
         elif code_mode:
             payload_block = self._build_colored_code_view(
                 content=code_content,
@@ -942,3 +955,146 @@ class MessageBuilderMixin:
         )
         self._safe_page_update()
         self._scroll_chat_to_bottom(animate=False, force=True)
+
+    def _todo_start_hint(self, arguments: dict[str, Any]) -> str:
+        scope = str(arguments.get("scope", "execution")).strip().lower()
+        action = str(arguments.get("action", "update")).strip().lower()
+        label = "planning checklist" if scope == "planning" else "task checklist"
+        if action == "add":
+            count = 0
+            items = arguments.get("items")
+            if isinstance(items, list):
+                count = len(items)
+            elif isinstance(arguments.get("content"), str) and arguments.get("content"):
+                count = 1
+            return f"Creating your {label}" + (f" with {count} task(s)." if count else ".")
+        if action == "complete":
+            return f"Marking a task complete in your {label}."
+        if action == "reopen":
+            return f"Reopening a task in your {label}."
+        if action == "remove":
+            return f"Removing a task from your {label}."
+        if action == "update":
+            return f"Updating a task in your {label}."
+        if action == "list":
+            return f"Refreshing your {label}."
+        if action == "clear":
+            return f"Clearing your {label}."
+        return f"Updating your {label}."
+
+    def _todo_completion_narrative(self, *, success: bool, metadata: dict[str, Any]) -> str:
+        if not success:
+            return "Could not update the checklist."
+        scope = str(metadata.get("scope", "execution")).strip().lower()
+        action = str(metadata.get("action", "list")).strip().lower()
+        label = "planning checklist" if scope == "planning" else "execution checklist"
+        if action == "add":
+            return f"Added tasks to your {label}."
+        if action == "complete":
+            return f"Marked a task complete in your {label}."
+        if action == "reopen":
+            return f"Reopened a task in your {label}."
+        if action == "remove":
+            return f"Removed a task from your {label}."
+        if action == "update":
+            return f"Updated a task in your {label}."
+        if action == "clear":
+            return f"Cleared your {label}."
+        return f"Refreshed your {label}."
+
+    def _build_todo_payload(self, payload: str, metadata: dict[str, Any]) -> ft.Control:
+        scope = str(metadata.get("scope", "execution")).strip().lower()
+        action = str(metadata.get("action", "list")).strip().lower()
+        pending = int(metadata.get("pending", 0) or 0)
+        completed = int(metadata.get("completed", 0) or 0)
+        total = int(metadata.get("total", 0) or 0)
+        message = str(metadata.get("message", "") or "").strip()
+        scope_label = "Planning" if scope == "planning" else "Execution"
+        title = f"{scope_label} checklist"
+        ratio = (completed / total) if total > 0 else 0.0
+
+        pending_items: list[str] = []
+        completed_items: list[str] = []
+        for raw in payload.splitlines():
+            stripped = raw.strip()
+            if stripped.startswith("☐"):
+                task_text = re.sub(r"^\[([^\]]+)\]\s*", "", stripped[1:].strip())
+                pending_items.append(task_text)
+            elif stripped.startswith("☑"):
+                task_text = re.sub(r"^\[([^\]]+)\]\s*", "", stripped[1:].strip())
+                completed_items.append(task_text)
+
+        chips = ft.Row(
+            [
+                ft.Container(
+                    content=ft.Text(
+                        f"{completed}/{total} completed",
+                        size=TYPE_SM,
+                        color=SUCCESS,
+                        weight=WEIGHT_SEMIBOLD,
+                    ),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border=ft.Border.all(1, SUCCESS_SOFT),
+                    border_radius=RADIUS_LG,
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.GREEN_300),
+                ),
+                ft.Container(
+                    content=ft.Text(
+                        f"{pending} pending",
+                        size=TYPE_SM,
+                        color=WARNING,
+                        weight=WEIGHT_SEMIBOLD,
+                    ),
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+                    border=ft.Border.all(1, WARNING_SOFT),
+                    border_radius=RADIUS_LG,
+                    bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.AMBER_300),
+                ),
+            ],
+            spacing=8,
+            wrap=True,
+        )
+
+        progress_bar = ft.ProgressBar(
+            value=ratio,
+            color=SUCCESS,
+            bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE),
+            bar_height=7,
+        )
+
+        lines: list[ft.Control] = [
+            ft.Text(title, size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
+            chips,
+            progress_bar,
+        ]
+        if action == "add":
+            lines.append(ft.Text("Checklist initialized", size=TYPE_SM, color=TEXT_SECONDARY))
+        elif action == "complete":
+            lines.append(ft.Text("Progress updated", size=TYPE_SM, color=TEXT_SECONDARY))
+        elif action == "clear":
+            lines.append(ft.Text("Checklist cleared", size=TYPE_SM, color=TEXT_SECONDARY))
+
+        if pending_items:
+            lines.append(ft.Text("Up next", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD))
+            for task_text in pending_items[:6]:
+                lines.append(ft.Text(f"□ {task_text}", size=TYPE_BODY, color=TEXT_PRIMARY))
+            if len(pending_items) > 6:
+                lines.append(ft.Text(f"+{len(pending_items) - 6} more pending", size=TYPE_SM, color=TEXT_MUTED))
+
+        if completed_items:
+            lines.append(ft.Text("Done", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD))
+            for task_text in completed_items[:4]:
+                lines.append(ft.Text(f"✓ {task_text}", size=TYPE_BODY, color=TEXT_SECONDARY))
+            if len(completed_items) > 4:
+                lines.append(ft.Text(f"+{len(completed_items) - 4} more completed", size=TYPE_SM, color=TEXT_MUTED))
+
+        if message:
+            lines.append(ft.Text(message, size=TYPE_SM, color=TEXT_MUTED))
+
+        return ft.Container(
+            content=ft.Column(lines, spacing=7, tight=True),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_MD,
+            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
+        )
