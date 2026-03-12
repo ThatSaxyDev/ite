@@ -587,15 +587,21 @@ class LayoutBuilderMixin:
             spacing=10,
             tight=True,
         )
+        self.workboard_todos_section = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Progress", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
+                    self.workboard_todos_column,
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            visible=False,
+        )
         self.workboard_plan_markdown = ft.Markdown(
             "",
             selectable=True,
             extension_set="gitHubFlavored",
-        )
-        self.workboard_plan_empty_text = ft.Text(
-            "No active plan yet.",
-            size=TYPE_SM,
-            color=TEXT_MUTED,
         )
         self.workboard_plan_section = ft.Container(
             content=ft.Column(
@@ -612,6 +618,17 @@ class LayoutBuilderMixin:
             bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
             visible=False,
         )
+        self.workboard_plan_wrapper = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("Plan", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
+                    self.workboard_plan_section,
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            visible=False,
+        )
 
         self.workboard_body = ft.Column(
             [
@@ -624,12 +641,9 @@ class LayoutBuilderMixin:
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 ft.Divider(height=1, color=HAIRLINE),
-                ft.Text("Progress", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
-                self.workboard_todos_column,
-                ft.Text("Plan", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
-                self.workboard_plan_empty_text,
-                self.workboard_plan_section,
-                ft.Container(height=18),
+                self.workboard_todos_section,
+                self.workboard_plan_wrapper,
+                ft.Container(height=26),
             ],
             spacing=8,
             tight=True,
@@ -641,7 +655,7 @@ class LayoutBuilderMixin:
             width=self.workboard_width,
             bgcolor=SURFACE_1,
             border=ft.Border.only(left=ft.BorderSide(1, BORDER)),
-            padding=ft.Padding.only(left=10, right=10, top=12, bottom=12),
+            padding=ft.Padding.only(left=10, right=10, top=12, bottom=0),
             content=self.workboard_body,
         )
         return self.workboard_container

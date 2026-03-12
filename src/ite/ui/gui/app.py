@@ -153,9 +153,10 @@ class GUIApp(
         self.workboard_header_toggle_button: ft.IconButton | None = None
         self.workboard_visible: bool = True
         self.workboard_todos_column: ft.Column | None = None
+        self.workboard_todos_section: ft.Container | None = None
         self.workboard_plan_markdown: ft.Markdown | None = None
-        self.workboard_plan_empty_text: ft.Text | None = None
         self.workboard_plan_section: ft.Container | None = None
+        self.workboard_plan_wrapper: ft.Container | None = None
         self.workboard_has_content: bool = False
         self.workboard_width: float = 560.0
         self.workboard_min_width: float = 420.0
@@ -844,10 +845,10 @@ class GUIApp(
         text = (plan_text or "").strip()
         if self.workboard_plan_markdown is not None:
             self.workboard_plan_markdown.value = text
-        if self.workboard_plan_empty_text is not None:
-            self.workboard_plan_empty_text.visible = not bool(text)
         if self.workboard_plan_section is not None:
             self.workboard_plan_section.visible = bool(text)
+        if self.workboard_plan_wrapper is not None:
+            self.workboard_plan_wrapper.visible = bool(text)
         self._safe_page_update()
 
     def _render_workboard_todos_from_state(self, state: dict[str, Any] | None):
@@ -869,6 +870,8 @@ class GUIApp(
             entries = state.get(scope, [])
             if not isinstance(entries, list):
                 entries = []
+            if len(entries) == 0:
+                continue
             pending = [e for e in entries if not bool(e.get("completed", False))]
             done = [e for e in entries if bool(e.get("completed", False))]
             total = len(entries)
@@ -920,14 +923,6 @@ class GUIApp(
                     task_rows.append(ft.Text(f"✓ {content}", size=TYPE_BODY, color=TEXT_SECONDARY))
             if len(done) > 3:
                 task_rows.append(ft.Text(f"+{len(done) - 3} more completed", size=TYPE_SM, color=TEXT_MUTED))
-            if not task_rows:
-                task_rows.append(
-                    ft.Text(
-                        "No checklist items yet.",
-                        size=TYPE_SM,
-                        color=TEXT_MUTED,
-                    )
-                )
             controls.append(
                 ft.Container(
                     content=ft.Column(
@@ -958,6 +953,9 @@ class GUIApp(
             )
         self.workboard_todos_column.controls = controls
         self._safe_control_update(self.workboard_todos_column)
+        if self.workboard_todos_section is not None:
+            self.workboard_todos_section.visible = bool(controls)
+            self._safe_control_update(self.workboard_todos_section)
 
     def _refresh_workboard_from_session(self):
         if not self.agent or not self.agent.session:
