@@ -147,7 +147,6 @@ class GUIApp(
         self._composer_input_focused: bool = False
         self._pending_attachment_paths: list[str] = []
         self.workboard_container: ft.Container | None = None
-        self.workboard_resize_handle: ft.Control | None = None
         self.workboard_body: ft.Column | None = None
         self.workboard_toggle_button: ft.IconButton | None = None
         self.workboard_header_toggle_button: ft.IconButton | None = None
@@ -159,8 +158,6 @@ class GUIApp(
         self.workboard_plan_wrapper: ft.Container | None = None
         self.workboard_has_content: bool = False
         self.workboard_width: float = 560.0
-        self.workboard_min_width: float = 420.0
-        self.workboard_max_width: float = 860.0
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -795,8 +792,6 @@ class GUIApp(
         if self.workboard_container is not None:
             self.workboard_container.visible = show_panel
             self.workboard_container.width = self.workboard_width if show_panel else 0
-        if self.workboard_resize_handle is not None:
-            self.workboard_resize_handle.visible = show_panel
         if self.workboard_toggle_button is not None:
             self.workboard_toggle_button.icon = (
                 ft.Icons.CHEVRON_RIGHT_ROUNDED
@@ -825,21 +820,6 @@ class GUIApp(
             self.workboard_header_toggle_button.opacity = 1.0 if self.workboard_has_content else 0.45
         if update:
             self._safe_page_update()
-
-    def _on_workboard_resize(self, e):
-        if not self.workboard_has_content or not self.workboard_visible:
-            return
-        delta_x = float(getattr(e, "delta_x", 0.0) or 0.0)
-        if abs(delta_x) < 0.01:
-            return
-        next_width = self.workboard_width - delta_x
-        self.workboard_width = max(
-            self.workboard_min_width,
-            min(self.workboard_max_width, next_width),
-        )
-        if self.workboard_container is not None:
-            self.workboard_container.width = self.workboard_width
-            self._safe_control_update(self.workboard_container)
 
     def _set_workboard_plan_text(self, plan_text: str | None):
         text = (plan_text or "").strip()

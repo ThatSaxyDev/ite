@@ -45,7 +45,7 @@ class LayoutBuilderMixin:
         self.chat_workboard_row = ft.Row(
             [
                 self._build_chat_panel(),
-                self._build_workboard_resize_handle(),
+                ft.VerticalDivider(width=1, color=BORDER),
                 self._build_workboard_panel(),
             ],
             expand=True,
@@ -560,7 +560,7 @@ class LayoutBuilderMixin:
         return ft.Container(
             expand=True,
             bgcolor=CANVAS,
-            padding=ft.Padding.only(right=20, left=20, top=16),
+            padding=ft.Padding.only(right=0, left=20, top=16),
             content=ft.Stack(
                 [
                     self.empty_state_container,
@@ -659,24 +659,6 @@ class LayoutBuilderMixin:
             content=self.workboard_body,
         )
         return self.workboard_container
-
-    def _build_workboard_resize_handle(self) -> ft.Control:
-        grip = ft.Container(
-            width=8,
-            content=ft.Container(
-                width=2,
-                expand=True,
-                bgcolor=ft.Colors.with_opacity(0.14, ft.Colors.WHITE),
-                border_radius=RADIUS_SM,
-            ),
-            alignment=ft.Alignment(0, 0),
-            padding=ft.Padding.symmetric(vertical=8),
-        )
-        self.workboard_resize_handle = ft.GestureDetector(
-            content=grip,
-            on_pan_update=lambda e: self._on_workboard_resize(e),
-        )
-        return self.workboard_resize_handle
 
     def build_composer(self) -> ft.Control:
         model_choices = [
