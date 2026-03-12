@@ -91,6 +91,9 @@ class AgentEventControllerMixin:
                 metadata = event.data.get("metadata") if isinstance(event.data.get("metadata"), dict) else {}
                 action = str(metadata.get("action", "")).strip().lower()
                 scope_name = str(metadata.get("scope", "")).strip().lower()
+                total = int(metadata.get("total", 0) or 0)
+                changed_ids = metadata.get("changed_ids", [])
+                changed_count = len(changed_ids) if isinstance(changed_ids, list) else 0
                 success = bool(event.data.get("success", False))
                 if hasattr(self, "_refresh_workboard_from_session"):
                     self._refresh_workboard_from_session()
@@ -98,6 +101,8 @@ class AgentEventControllerMixin:
                     success
                     and action == "add"
                     and scope_name == "execution"
+                    and total > 0
+                    and changed_count == total
                     and hasattr(self, "_open_workboard_if_available")
                 ):
                     self._open_workboard_if_available()

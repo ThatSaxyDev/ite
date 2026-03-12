@@ -299,27 +299,8 @@ class Agent:
         index: int,
     ) -> AsyncGenerator[AgentEvent, None]:
         todo_id = self._execution_seed_todo_id(session, index)
-        if not todo_id:
-            return
-        if self._is_execution_todo_already_completed(session, todo_id):
-            return
-
-        call_id = f"todos_exec_progress_{uuid.uuid4().hex[:8]}"
-        args = {"action": "complete", "scope": "execution", "id": todo_id}
-        yield AgentEvent.tool_call_start(call_id, "todos", args)
-        result = await session.tool_registry.invoke(
-            "todos",
-            args,
-            self.config.cwd,
-            session.hook_system,
-            session.approval_manager,
-            plan_mode_enabled=session.plan_mode_enabled,
-            plan_phase=session.plan_phase,
-            todo_execution_handoff_active=session.todo_execution_handoff_active,
-            set_plan_phase=session.set_plan_phase,
-            plan_question_callback=self.plan_question_callback,
-        )
-        yield AgentEvent.tool_call_complete(call_id, "todos", result)
+        async for e in self._complete_execution_todo_id(session, todo_id):
+            yield e
 
     def _execution_seed_todo_id(self, session: Session, index: int) -> str | None:
         if 0 <= index < len(session.execution_seed_ids):
@@ -348,6 +329,134 @@ class Agent:
                 continue
             return bool(item.get("completed", False))
         return False
+
+    def _execution_pending_items(self, session: Session) -> list[dict]:
+        state = session.export_todos_state()
+        execution = state.get("execution", []) if isinstance(state, dict) else []
+        if not isinstance(execution, list):
+            return []
+        pending: list[dict] = []
+        for item in execution:
+            if not isinstance(item, dict):
+                continue
+            if bool(item.get("completed", False)):
+                continue
+            pending.append(item)
+        return pending
+
+    def _next_pending_execution_todo_id(self, session: Session) -> str | None:
+        for item in self._execution_pending_items(session):
+            value = str(item.get("id", "")).strip()
+            if value:
+                return value
+        return None
+
+    def _find_pending_execution_todo_id_by_keywords(
+        self,
+        session: Session,
+        keywords: tuple[str, ...],
+    ) -> str | None:
+        for item in self._execution_pending_items(session):
+            content = str(item.get("content", "")).strip().lower()
+            if not content:
+                continue
+            if any(k in content for k in keywords):
+                value = str(item.get("id", "")).strip()
+                if value:
+                    return value
+        return None
+
+    async def _complete_execution_todo_id(
+        self,
+        session: Session,
+        todo_id: str | None,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        if not todo_id:
+            return
+        if self._is_execution_todo_already_completed(session, todo_id):
+            return
+
+        call_id = f"todos_exec_progress_{uuid.uuid4().hex[:8]}"
+        args = {"action": "complete", "scope": "execution", "id": todo_id}
+        yield AgentEvent.tool_call_start(call_id, "todos", args)
+        result = await session.tool_registry.invoke(
+            "todos",
+            args,
+            self.config.cwd,
+            session.hook_system,
+            session.approval_manager,
+            plan_mode_enabled=session.plan_mode_enabled,
+            plan_phase=session.plan_phase,
+            todo_execution_handoff_active=session.todo_execution_handoff_active,
+            set_plan_phase=session.set_plan_phase,
+            plan_question_callback=self.plan_question_callback,
+        )
+        yield AgentEvent.tool_call_complete(call_id, "todos", result)
+
+    async def _complete_execution_stage_todo(
+        self,
+        session: Session,
+        *,
+        stage: str,
+    ) -> AsyncGenerator[AgentEvent, None]:
+        verification_keywords = (
+            "test",
+            "tests",
+            "lint",
+            "build",
+            "check",
+            "verification",
+            "validate",
+            "validation",
+            "qa",
+        )
+        summary_keywords = (
+            "summary",
+            "summarize",
+            "outcome",
+            "changed file",
+            "changed files",
+            "report",
+            "final response",
+            "finalize",
+        )
+
+        if stage == "verification":
+            todo_id = self._find_pending_execution_todo_id_by_keywords(
+                session,
+                verification_keywords,
+            ) or self._next_pending_execution_todo_id(session)
+            async for e in self._complete_execution_todo_id(session, todo_id):
+                yield e
+            return
+
+        if stage == "summary":
+            todo_id = self._find_pending_execution_todo_id_by_keywords(
+                session,
+                summary_keywords,
+            ) or self._next_pending_execution_todo_id(session)
+            async for e in self._complete_execution_todo_id(session, todo_id):
+                yield e
+            return
+
+        # Default implementation stage: prefer non-verification/non-summary tasks.
+        todo_id: str | None = None
+        for item in self._execution_pending_items(session):
+            content = str(item.get("content", "")).strip().lower()
+            if not content:
+                continue
+            if any(k in content for k in verification_keywords):
+                continue
+            if any(k in content for k in summary_keywords):
+                continue
+            value = str(item.get("id", "")).strip()
+            if value:
+                todo_id = value
+                break
+        if not todo_id:
+            todo_id = self._next_pending_execution_todo_id(session)
+        async for e in self._complete_execution_todo_id(session, todo_id):
+            yield e
 
     def _is_verification_command(self, command: str) -> bool:
         cmd = (command or "").lower()
@@ -386,18 +495,27 @@ class Agent:
             return
 
         if tool_name in {"write_file", "edit", "apply_patch"}:
-            async for progress_event in self._complete_execution_seed_todo(session, 0):
+            async for progress_event in self._complete_execution_stage_todo(
+                session,
+                stage="implementation",
+            ):
                 yield progress_event
             return
 
         if tool_name == "shell":
             command = str(arguments.get("command", "")).strip()
             if self._is_verification_command(command):
-                async for progress_event in self._complete_execution_seed_todo(session, 1):
+                async for progress_event in self._complete_execution_stage_todo(
+                    session,
+                    stage="verification",
+                ):
                     yield progress_event
                 return
             # Non-verification shell work still counts as implementation progress.
-            async for progress_event in self._complete_execution_seed_todo(session, 0):
+            async for progress_event in self._complete_execution_stage_todo(
+                session,
+                stage="implementation",
+            ):
                 yield progress_event
 
     async def _agentic_loop(
@@ -585,7 +703,10 @@ class Agent:
                             yield AgentEvent.plan_ready(plan_text)
                     else:
                         if response_text:
-                            async for progress_event in self._complete_execution_seed_todo(session, 2):
+                            async for progress_event in self._complete_execution_stage_todo(
+                                session,
+                                stage="summary",
+                            ):
                                 yield progress_event
                             yield AgentEvent.text_complete(response_text)
                             session.loop_detector.record_action(
@@ -593,7 +714,10 @@ class Agent:
                             )
                         session.set_plan_phase("idle")
                 elif response_text:
-                    async for progress_event in self._complete_execution_seed_todo(session, 2):
+                    async for progress_event in self._complete_execution_stage_todo(
+                        session,
+                        stage="summary",
+                    ):
                         yield progress_event
                     yield AgentEvent.text_complete(response_text)
                     session.loop_detector.record_action(

@@ -829,6 +829,30 @@ class GUIApp(
         self.workboard_visible = True
         self._apply_workboard_state(update=True)
 
+    def _execution_todo_count(self) -> int:
+        if not self.agent or not self.agent.session:
+            return 0
+        state = self.agent.session.export_todos_state()
+        if not isinstance(state, dict):
+            return 0
+        execution = state.get("execution", [])
+        if not isinstance(execution, list):
+            return 0
+        return len(execution)
+
+    def _announce_initial_execution_todos_if_created(self, before_count: int):
+        after_count = self._execution_todo_count()
+        if before_count == 0 and after_count > 0:
+            self._refresh_workboard_from_session()
+            self._open_workboard_if_available()
+            self._add_assistant_card(
+                "Checklist",
+                ft.Text(
+                    f"Execution checklist created ({after_count} task(s)). Opened Workboard.",
+                    color=TEXT_SECONDARY,
+                ),
+            )
+
     def _set_workboard_plan_text(self, plan_text: str | None):
         text = (plan_text or "").strip()
         if self.workboard_plan_markdown is not None:
@@ -1287,11 +1311,13 @@ class GUIApp(
             and session.plan_phase == "awaiting_implementation_confirmation"
         ):
             self._plan_ready_prompt_open = False
+            before_count = self._execution_todo_count()
             session.seed_execution_todos_from_plan(session.pending_plan_text)
             session.clear_pending_plan()
             session.set_plan_mode(False)
             session.set_plan_phase("idle")
             self._sync_plan_toggle_ui()
+            self._announce_initial_execution_todos_if_created(before_count)
             return Agent.PLAN_EXECUTE_PROMPT
 
         self._add_assistant_card(
@@ -1995,6 +2021,7 @@ class GUIApp(
 
         if approved:
             # Approving exits plan mode and starts execution.
+            before_count = self._execution_todo_count()
             self.agent.session.seed_execution_todos_from_plan(
                 self.agent.session.pending_plan_text
             )
@@ -2005,6 +2032,7 @@ class GUIApp(
             self._plan_question_count = 0
             self._plan_ready_prompt_open = False
             self._sync_plan_toggle_ui()
+            self._announce_initial_execution_todos_if_created(before_count)
             status_text.value = "Approved. Plan mode off. Starting implementation."
             status_text.color = SUCCESS
             self._safe_page_update()

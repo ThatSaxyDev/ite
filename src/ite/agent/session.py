@@ -187,6 +187,9 @@ class Session:
         items: list[str] = []
         text = (plan_text or "").strip()
         for raw in text.splitlines():
+            if raw.startswith((" ", "\t")):
+                # Skip nested list lines; keep top-level milestones only.
+                continue
             line = raw.strip()
             if not line:
                 continue
@@ -203,7 +206,7 @@ class Session:
             if item in items:
                 continue
             items.append(item)
-            if len(items) >= 8:
+            if len(items) >= 6:
                 break
 
         if not items:
@@ -212,6 +215,26 @@ class Session:
                 "Run verification and tests",
                 "Summarize outcome and modified files",
             ]
+        else:
+            lowered = [i.lower() for i in items]
+            if not any(
+                ("test" in i)
+                or ("lint" in i)
+                or ("build" in i)
+                or ("verification" in i)
+                or ("validate" in i)
+                for i in lowered
+            ):
+                items.append("Run verification checks (tests/lint/build as applicable)")
+            if not any(
+                ("summary" in i)
+                or ("summarize" in i)
+                or ("outcome" in i)
+                or ("changed file" in i)
+                for i in lowered
+            ):
+                items.append("Summarize outcome and changed files")
+            items = items[:7]
 
         ids = tool.replace_scope_items("execution", items)
         self.execution_seed_ids = list(ids)
