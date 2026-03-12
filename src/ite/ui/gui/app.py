@@ -1083,6 +1083,7 @@ class GUIApp(
             and session.plan_phase == "awaiting_implementation_confirmation"
         ):
             self._plan_ready_prompt_open = False
+            session.seed_execution_todos_from_plan(session.pending_plan_text)
             session.clear_pending_plan()
             session.set_plan_mode(False)
             session.set_plan_phase("idle")
@@ -1790,6 +1791,9 @@ class GUIApp(
 
         if approved:
             # Approving exits plan mode and starts execution.
+            self.agent.session.seed_execution_todos_from_plan(
+                self.agent.session.pending_plan_text
+            )
             self.agent.session.set_plan_mode(False)
             self.agent.session.set_plan_phase("idle")
             self.agent.session.clear_pending_plan()

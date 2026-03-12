@@ -37,6 +37,8 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
                 pending_plan_text=session.pending_plan_text,
+                todos_state=session.export_todos_state(),
+                show_planning_todos=session.show_planning_todos,
             )
             session_manager.save_session(snapshot)
     except Exception:
@@ -136,6 +138,8 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
             plan_questions_asked=previous.plan_questions_asked,
             plan_target_questions=previous.plan_target_questions,
             pending_plan_text=previous.pending_plan_text,
+            todos_state=previous.export_todos_state(),
+            show_planning_todos=previous.show_planning_todos,
         )
         session_manager.save_session(snapshot)
 

@@ -35,6 +35,8 @@ class SessionSnapshot:
     plan_questions_asked: int = 0
     plan_target_questions: int = 3
     pending_plan_text: str | None = None
+    todos_state: dict[str, Any] | None = None
+    show_planning_todos: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +53,8 @@ class SessionSnapshot:
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
             "pending_plan_text": self.pending_plan_text,
+            "todos_state": self.todos_state,
+            "show_planning_todos": self.show_planning_todos,
         }
 
     @classmethod
@@ -69,6 +73,8 @@ class SessionSnapshot:
             plan_questions_asked=int(data.get("plan_questions_asked", 0)),
             plan_target_questions=int(data.get("plan_target_questions", 3)),
             pending_plan_text=data.get("pending_plan_text"),
+            todos_state=data.get("todos_state"),
+            show_planning_todos=bool(data.get("show_planning_todos", False)),
         )
 
 

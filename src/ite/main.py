@@ -1,5 +1,6 @@
 from ite.config.config import Config
 from pathlib import Path
+from typing import Any
 from ite.config.loader import load_config, ensure_workspace_layout
 import logging
 import sys
@@ -121,7 +122,7 @@ class CLI:
         self.tui.print_welcome(
             model=self.config.model_name,
             cwd=self.config.cwd,
-            commands=["/help", "/subagent", "/config", "/model", "/plan", "/branch", "/attach", "/exit"],
+            commands=["/help", "/subagent", "/config", "/model", "/plan", "/todos", "/branch", "/attach", "/exit"],
         )
         async with Agent(
             config=self.config,
@@ -504,6 +505,8 @@ class CLI:
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
                 pending_plan_text=session.pending_plan_text,
+                todos_state=session.export_todos_state(),
+                show_planning_todos=session.show_planning_todos,
             )
             session_manager.save_session(snapshot)
             # console.print(
@@ -543,6 +546,8 @@ class CLI:
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
                 pending_plan_text=session.pending_plan_text,
+                todos_state=session.export_todos_state(),
+                show_planning_todos=session.show_planning_todos,
             )
             session_manager.save_session(snapshot)
         except Exception:
@@ -623,6 +628,32 @@ class CLI:
             return None
         return tool.kind.value
 
+    def _resolve_todo_scope(
+        self,
+        *,
+        arguments: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        if metadata and isinstance(metadata.get("scope"), str):
+            return str(metadata["scope"]).strip().lower()
+        if arguments and isinstance(arguments.get("scope"), str):
+            return str(arguments["scope"]).strip().lower()
+        if (
+            self.agent
+            and self.agent.session
+            and self.agent.session.plan_mode_enabled
+            and self.agent.session.plan_phase != "executing"
+        ):
+            return "planning"
+        return "execution"
+
+    def _should_hide_planning_todos(self, scope: str) -> bool:
+        if scope != "planning":
+            return False
+        if not self.agent or not self.agent.session:
+            return True
+        return not bool(self.agent.session.show_planning_todos)
+
     async def _process_message(
         self,
         message: str,
@@ -682,7 +713,14 @@ class CLI:
                         and self.agent.session.plan_mode_enabled
                         and self.agent.session.plan_phase != "executing"
                     )
-                    if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"} or plan_only_phase:
+                    if tool_name == "todos":
+                        scope = self._resolve_todo_scope(arguments=event.data.get("arguments", {}))
+                        if self._should_hide_planning_todos(scope):
+                            self.tui.start_spinner("Running")
+                            continue
+                    if tool_name in {"memory", "plan_question", "web_search", "web_fetch"} or (
+                        plan_only_phase and tool_name != "todos"
+                    ):
                         self.tui.start_spinner("Running")
                         continue
                     tool_kind = self._get_tool_kind(tool_name)
@@ -703,7 +741,12 @@ class CLI:
                         and self.agent.session.plan_mode_enabled
                         and self.agent.session.plan_phase != "executing"
                     )
-                    if tool_name in {"memory", "plan_question", "todos", "web_search", "web_fetch"}:
+                    if tool_name == "todos":
+                        scope = self._resolve_todo_scope(metadata=event.data.get("metadata"))
+                        if self._should_hide_planning_todos(scope):
+                            self.tui.start_spinner("Thinking...")
+                            continue
+                    if tool_name in {"memory", "plan_question", "web_search", "web_fetch"}:
                         self.tui.start_spinner("Thinking...")
                         continue
                     if (
@@ -715,7 +758,11 @@ class CLI:
                         # Keep this out of user transcript to reduce noise.
                         self.tui.start_spinner("Thinking...")
                         continue
-                    if plan_only_phase and event.data.get("success", False):
+                    if (
+                        plan_only_phase
+                        and tool_name != "todos"
+                        and event.data.get("success", False)
+                    ):
                         self.tui.start_spinner("Thinking...")
                         continue
                     tool_kind = self._get_tool_kind(tool_name)
@@ -769,6 +816,9 @@ class CLI:
                     )
                     approved = self.tui.prompt_plan_implementation(asked_questions=asked)
                     if approved and self.agent and self.agent.session:
+                        self.agent.session.seed_execution_todos_from_plan(
+                            self.agent.session.pending_plan_text
+                        )
                         self.agent.session.clear_pending_plan()
                         self.agent.session.set_plan_phase("executing")
                         console.print("[dim]Plan approved · starting implementation[/dim]")

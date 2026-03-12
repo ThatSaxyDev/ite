@@ -11,6 +11,7 @@ from ite.context.manager import ContextManager
 from ite.client.llm_client import LLMClient
 from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
+from ite.tools.builtin.todo import TodosTool
 
 
 class Session:
@@ -43,6 +44,10 @@ class Session:
         self.plan_questions_asked: int = 0
         self.plan_target_questions: int = 3
         self.pending_plan_text: str | None = None
+        self.todo_execution_handoff_active: bool = False
+        self.show_planning_todos: bool = False
+        self.planning_seed_ids: list[str] = []
+        self.execution_seed_ids: list[str] = []
         self.pending_attachment_paths: list[str] = []
 
         self._turn_count = 0
@@ -155,3 +160,59 @@ class Session:
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
             "tool_discovery_errors": len(self.discovery_manager.errors),
         }
+
+    def _get_todos_tool(self) -> TodosTool | None:
+        tool = self.tool_registry.get("todos")
+        if isinstance(tool, TodosTool):
+            return tool
+        return None
+
+    def export_todos_state(self) -> dict[str, Any]:
+        tool = self._get_todos_tool()
+        if tool is None:
+            return {"version": 1, "planning": [], "execution": []}
+        return tool.export_state()
+
+    def restore_todos_state(self, state: dict[str, Any] | None) -> None:
+        tool = self._get_todos_tool()
+        if tool is None:
+            return
+        tool.load_state(state)
+
+    def seed_execution_todos_from_plan(self, plan_text: str | None) -> list[str]:
+        tool = self._get_todos_tool()
+        if tool is None:
+            return []
+
+        items: list[str] = []
+        text = (plan_text or "").strip()
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith(("- ", "* ")):
+                item = line[2:].strip()
+            else:
+                marker = line.split(".", 1)
+                if len(marker) == 2 and marker[0].isdigit():
+                    item = marker[1].strip()
+                else:
+                    continue
+            if len(item) < 4:
+                continue
+            if item in items:
+                continue
+            items.append(item)
+            if len(items) >= 8:
+                break
+
+        if not items:
+            items = [
+                "Implement approved plan changes",
+                "Run verification and tests",
+                "Summarize outcome and modified files",
+            ]
+
+        ids = tool.replace_scope_items("execution", items)
+        self.execution_seed_ids = list(ids)
+        return ids

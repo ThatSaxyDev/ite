@@ -194,6 +194,8 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
         plan_questions_asked=ctx.agent.session.plan_questions_asked,
         plan_target_questions=ctx.agent.session.plan_target_questions,
         pending_plan_text=ctx.agent.session.pending_plan_text,
+        todos_state=ctx.agent.session.export_todos_state(),
+        show_planning_todos=ctx.agent.session.show_planning_todos,
     )
     session_manager.save_session(session_snapshot)
 
@@ -314,6 +316,8 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
             plan_questions_asked=ctx.agent.session.plan_questions_asked,
             plan_target_questions=ctx.agent.session.plan_target_questions,
             pending_plan_text=ctx.agent.session.pending_plan_text,
+            todos_state=ctx.agent.session.export_todos_state(),
+            show_planning_todos=ctx.agent.session.show_planning_todos,
         )
         session_manager.save_checkpoint(current_snapshot)
 
@@ -337,6 +341,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     session.plan_questions_asked = snapshot.plan_questions_asked
     session.plan_target_questions = snapshot.plan_target_questions
     session.pending_plan_text = snapshot.pending_plan_text
+    session.show_planning_todos = snapshot.show_planning_todos
 
     await ctx.agent.session.client.close()
     await ctx.agent.session.mcp_manager.shutdown()
@@ -344,6 +349,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
 
     session.context_manager.set_messages(snapshot.messages)
     session.context_manager.total_usage = snapshot.total_usage
+    session.restore_todos_state(snapshot.todos_state)
     ctx.agent.session = session
 
     title = Text.assemble(("💾  ", ""), ("Resumed", "bold bright_white"))
@@ -380,6 +386,8 @@ async def cmd_checkpoint(ctx: CommandContext, args: list[str]) -> None:
         plan_questions_asked=ctx.agent.session.plan_questions_asked,
         plan_target_questions=ctx.agent.session.plan_target_questions,
         pending_plan_text=ctx.agent.session.pending_plan_text,
+        todos_state=ctx.agent.session.export_todos_state(),
+        show_planning_todos=ctx.agent.session.show_planning_todos,
     )
     checkpoint_id = session_manager.save_checkpoint(session_snapshot)
     title = Text.assemble(("💾  ", ""), ("Checkpoint created", "bold bright_white"))
@@ -467,6 +475,7 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
     session.plan_questions_asked = snapshot.plan_questions_asked
     session.plan_target_questions = snapshot.plan_target_questions
     session.pending_plan_text = snapshot.pending_plan_text
+    session.show_planning_todos = snapshot.show_planning_todos
 
     await ctx.agent.session.client.close()
     await ctx.agent.session.mcp_manager.shutdown()
@@ -474,6 +483,7 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
 
     session.context_manager.set_messages(snapshot.messages)
     session.context_manager.total_usage = snapshot.total_usage
+    session.restore_todos_state(snapshot.todos_state)
     ctx.agent.session = session
 
     title = Text.assemble(("💾  ", ""), ("Checkpoint Restored", "bold bright_white"))

@@ -5,6 +5,32 @@ from ..tokens import *
 
 
 class AgentEventControllerMixin:
+    def _resolve_todo_scope_for_event(
+        self,
+        *,
+        arguments: dict | None = None,
+        metadata: dict | None = None,
+    ) -> str:
+        if isinstance(metadata, dict) and isinstance(metadata.get("scope"), str):
+            return str(metadata.get("scope")).strip().lower()
+        if isinstance(arguments, dict) and isinstance(arguments.get("scope"), str):
+            return str(arguments.get("scope")).strip().lower()
+        if (
+            self.agent
+            and self.agent.session
+            and self.agent.session.plan_mode_enabled
+            and self.agent.session.plan_phase != "executing"
+        ):
+            return "planning"
+        return "execution"
+
+    def _should_hide_todo_scope(self, scope: str) -> bool:
+        if scope != "planning":
+            return False
+        if not self.agent or not self.agent.session:
+            return True
+        return not bool(self.agent.session.show_planning_todos)
+
     async def _handle_agent_event(self, event: AgentEvent):
         if not self.page:
             return
@@ -18,7 +44,7 @@ class AgentEventControllerMixin:
             and self.agent.session
             and self.agent.session.plan_phase != "executing"
         )
-        suppressed_tools = {"memory", "plan_question", "todos", "web_search", "web_fetch"}
+        suppressed_tools = {"memory", "plan_question", "web_search", "web_fetch"}
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
@@ -41,9 +67,15 @@ class AgentEventControllerMixin:
 
         elif event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name")
+            if tool_name == "todos":
+                scope = self._resolve_todo_scope_for_event(arguments=event.data.get("arguments"))
+                if self._should_hide_todo_scope(scope):
+                    if self._is_turn_running:
+                        self._show_thinking_indicator()
+                    return
             if tool_name in suppressed_tools:
                 return
-            if plan_only_phase:
+            if plan_only_phase and tool_name != "todos":
                 return
             self._hide_thinking_indicator()
             self._add_tool_call(
@@ -55,11 +87,17 @@ class AgentEventControllerMixin:
 
         elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name")
+            if tool_name == "todos":
+                scope = self._resolve_todo_scope_for_event(metadata=event.data.get("metadata"))
+                if self._should_hide_todo_scope(scope):
+                    if self._is_turn_running:
+                        self._show_thinking_indicator()
+                    return
             if tool_name in suppressed_tools:
                 if self._is_turn_running:
                     self._show_thinking_indicator()
                 return
-            if plan_only_phase and event.data.get("success", False):
+            if plan_only_phase and tool_name != "todos" and event.data.get("success", False):
                 if self._is_turn_running:
                     self._show_thinking_indicator()
                 return

@@ -122,8 +122,24 @@ def describe_tool_activity(
         return f"{verb} web fetch."
 
     if name == "todos":
-        action = str(args.get("action", "")).strip() or "update"
-        return f"{verb} todo list action: {action}."
+        action = str(args.get("action", "")).strip() or str(metadata.get("action", "")).strip() or "update"
+        scope = str(args.get("scope", "")).strip() or str(metadata.get("scope", "")).strip() or "execution"
+        label = "planning checklist" if scope == "planning" else "task list"
+        if action == "add":
+            return f"{verb} {label} setup."
+        if action == "complete":
+            return f"{verb} {label} progress."
+        if action == "reopen":
+            return f"{verb} reopen in {label}."
+        if action == "remove":
+            return f"{verb} cleanup in {label}."
+        if action == "update":
+            return f"{verb} item update in {label}."
+        if action == "clear":
+            return f"{verb} clear of {label}."
+        if action == "list":
+            return f"{verb} view of {label}."
+        return f"{verb} {label} update."
 
     if name == "memory":
         action = str(args.get("action", "")).strip() or "update"

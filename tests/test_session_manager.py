@@ -90,6 +90,12 @@ class SessionManagerCorruptionTests(unittest.TestCase):
             messages=[{"role": "user", "content": "hello"}],
             total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
             pending_plan_text="## Plan\n- step one",
+            todos_state={
+                "version": 1,
+                "planning": [{"id": "p1", "content": "clarify", "completed": False}],
+                "execution": [{"id": "e1", "content": "implement", "completed": False}],
+            },
+            show_planning_todos=True,
         )
 
         self.manager.save_session(snapshot)
@@ -101,6 +107,8 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertEqual(loaded["total_usage"]["total_tokens"], 2)
         self.assertIn("pending_plan_text", loaded)
         self.assertIn("step one", loaded["pending_plan_text"])
+        self.assertTrue(loaded["show_planning_todos"])
+        self.assertIn("todos_state", loaded)
 
 
 if __name__ == "__main__":

@@ -153,7 +153,7 @@ class TUI:
             "grep": ["path", "case_insensitive", "pattern"],
             "glob": ["path", "pattern"],
             "web_search": ["query", "max_results"],
-            "todos": ["action", "task", "due_date"],
+            "todos": ["action", "scope", "id", "content", "items", "new_content"],
             "memory": ["action", "key", "value"],
         }
 
@@ -861,6 +861,8 @@ class TUI:
             completed = metadata.get("completed", 0) if metadata else 0
             total = metadata.get("total", 0) if metadata else 0
             action = metadata.get("action", "") if metadata else ""
+            scope = metadata.get("scope", "execution") if metadata else "execution"
+            message = metadata.get("message", "") if metadata else ""
             output_display, was_truncated = self._truncate_for_tool(
                 name,
                 output,
@@ -874,9 +876,12 @@ class TUI:
                 filled = int((completed / total) * bar_width) if total else 0
                 bar = "█" * filled + "░" * (bar_width - filled)
                 header = Text()
-                header.append(f"Tasks: {completed}/{total} completed ", style="muted")
+                header.append(f"{scope.capitalize()} tasks: {completed}/{total} completed ", style="muted")
                 header.append(bar, style="green" if completed == total else "yellow")
                 blocks.append(header)
+                blocks.append(Text())
+            elif isinstance(scope, str):
+                blocks.append(Text(f"Scope: {scope}", style="muted"))
                 blocks.append(Text())
 
             # Render each line with styled checkboxes
@@ -899,6 +904,8 @@ class TUI:
 
             if action == "clear":
                 blocks.append(Text("  All todos cleared", style="muted"))
+            elif message:
+                blocks.append(Text(f"  {message}", style="muted"))
 
         elif name == "memory" and success:
             action = args.get("action", "")

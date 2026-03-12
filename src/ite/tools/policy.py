@@ -25,6 +25,7 @@ class ToolSelectionPolicy:
         metadata: ToolMetadata,
         plan_mode_enabled: bool,
         plan_phase: str,
+        todo_execution_handoff_active: bool = False,
     ) -> PolicyDecision:
         in_planing_phase = plan_mode_enabled and plan_phase != "executing"
         if in_planing_phase and not metadata.allowed_in_plan_mode:
@@ -39,6 +40,17 @@ class ToolSelectionPolicy:
                     "Use read/search tools first and execute mutating steps after approval."
                 ),
             )
+
+        if tool_name == "todos" and in_planing_phase:
+            scope = str(params.get("scope", "planning")).strip().lower() or "planning"
+            if scope == "execution" and not todo_execution_handoff_active:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Execution todos are blocked during planning phase. "
+                        "Use scope='planning' until plan execution handoff is active."
+                    ),
+                )
 
         if tool_name.startswith("subagent_"):
             goal = str(params.get("goal", "")).strip()

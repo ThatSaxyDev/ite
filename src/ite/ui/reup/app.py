@@ -576,6 +576,27 @@ class ReupApp(App):
             and self.agent.session.plan_phase != "executing"
         )
 
+    def _resolve_todo_scope_for_event(
+        self,
+        *,
+        arguments: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        if isinstance(metadata, dict) and isinstance(metadata.get("scope"), str):
+            return str(metadata.get("scope")).strip().lower()
+        if isinstance(arguments, dict) and isinstance(arguments.get("scope"), str):
+            return str(arguments.get("scope")).strip().lower()
+        if self._is_plan_only_phase():
+            return "planning"
+        return "execution"
+
+    def _should_hide_todo_scope(self, scope: str) -> bool:
+        if scope != "planning":
+            return False
+        if not self.agent or not self.agent.session:
+            return True
+        return not bool(self.agent.session.show_planning_todos)
+
     def _normalize_plan_execution_request(self, message: str) -> str | None:
         raw = message.strip()
         lowered = raw.lower()
@@ -594,6 +615,7 @@ class ReupApp(App):
 
         session = self.agent.session
         if session.plan_mode_enabled and session.plan_phase == "awaiting_implementation_confirmation":
+            session.seed_execution_todos_from_plan(session.pending_plan_text)
             session.clear_pending_plan()
             session.set_plan_mode(False)
             session.set_plan_phase("idle")
@@ -1038,6 +1060,7 @@ class ReupApp(App):
         resumed.plan_questions_asked = snapshot.plan_questions_asked
         resumed.plan_target_questions = snapshot.plan_target_questions
         resumed.pending_plan_text = snapshot.pending_plan_text
+        resumed.show_planning_todos = snapshot.show_planning_todos
 
         await self.agent.session.client.close()
         await self.agent.session.mcp_manager.shutdown()
@@ -1045,6 +1068,7 @@ class ReupApp(App):
 
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
+        resumed.restore_todos_state(snapshot.todos_state)
         resumed.approval_manager.confirmation_callback = self.confirmation_callback
         self.agent.session = resumed
         self.refresh_header()
@@ -1210,7 +1234,7 @@ class ReupApp(App):
 
     async def handle_agent_event(self, event: AgentEvent) -> None:
         plan_only_phase = self._is_plan_only_phase()
-        suppressed_tools = {"memory", "plan_question", "todos", "web_search", "web_fetch"}
+        suppressed_tools = {"memory", "plan_question", "web_search", "web_fetch"}
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
@@ -1242,7 +1266,15 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name", "tool")
-            if tool_name in suppressed_tools or plan_only_phase:
+            if tool_name == "todos":
+                scope = self._resolve_todo_scope_for_event(arguments=event.data.get("arguments"))
+                if self._should_hide_todo_scope(scope):
+                    self._set_loading_state("thinking", busy=True)
+                    return
+            if tool_name in suppressed_tools:
+                self._set_loading_state("thinking", busy=True)
+                return
+            if plan_only_phase and tool_name != "todos":
                 self._set_loading_state("thinking", busy=True)
                 return
             tool_kind = self.get_tool_kind(tool_name)
@@ -1257,10 +1289,15 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
+            if tool_name == "todos":
+                scope = self._resolve_todo_scope_for_event(metadata=event.data.get("metadata"))
+                if self._should_hide_todo_scope(scope):
+                    self._set_loading_state("thinking", busy=True)
+                    return
             if tool_name in suppressed_tools:
                 self._set_loading_state("thinking", busy=True)
                 return
-            if plan_only_phase and event.data.get("success", False):
+            if plan_only_phase and tool_name != "todos" and event.data.get("success", False):
                 self._set_loading_state("thinking", busy=True)
                 return
             tool_kind = self.get_tool_kind(tool_name)
@@ -1289,6 +1326,9 @@ class ReupApp(App):
                 )
             approved = await self._present_plan_ready_action_card()
             if approved and self.agent and self.agent.session:
+                self.agent.session.seed_execution_todos_from_plan(
+                    self.agent.session.pending_plan_text
+                )
                 self.agent.session.clear_pending_plan()
                 self.agent.session.set_plan_phase("executing")
                 await self.run_agent_message(Agent.PLAN_EXECUTE_PROMPT)
@@ -2096,6 +2136,8 @@ class ReupApp(App):
             plan_questions_asked=session.plan_questions_asked,
             plan_target_questions=session.plan_target_questions,
             pending_plan_text=session.pending_plan_text,
+            todos_state=session.export_todos_state(),
+            show_planning_todos=session.show_planning_todos,
         )
         SessionManager().save_session(snapshot)
 

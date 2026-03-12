@@ -96,12 +96,19 @@ class ToolRegistry:
         *,
         plan_mode_enabled: bool = False,
         plan_phase: str = "idle",
+        todo_execution_handoff_active: bool = False,
         set_plan_phase: Callable[[str], None] | None = None,
         plan_question_callback: (
             Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
         ) = None,
     ) -> ToolResult:
         started_at = time.perf_counter()
+        params = self._normalize_params_for_phase(
+            tool_name=name,
+            params=params,
+            plan_mode_enabled=plan_mode_enabled,
+            plan_phase=plan_phase,
+        )
         tool = self.get(name)
 
         if tool is None:
@@ -134,6 +141,7 @@ class ToolRegistry:
             metadata=metadata,
             plan_mode_enabled=plan_mode_enabled,
             plan_phase=plan_phase,
+            todo_execution_handoff_active=todo_execution_handoff_active,
         )
         if not policy_decision.allowed:
             result = ToolResult.error_result(
@@ -300,6 +308,27 @@ class ToolRegistry:
             tool_metadata=metadata,
         )
         return result
+
+    def _normalize_params_for_phase(
+        self,
+        *,
+        tool_name: str,
+        params: dict[str, Any],
+        plan_mode_enabled: bool,
+        plan_phase: str,
+    ) -> dict[str, Any]:
+        if tool_name != "todos":
+            return params
+
+        normalized = dict(params)
+        raw_scope = normalized.get("scope")
+        if isinstance(raw_scope, str) and raw_scope.strip():
+            normalized["scope"] = raw_scope.strip().lower()
+            return normalized
+
+        in_planning = plan_mode_enabled and plan_phase != "executing"
+        normalized["scope"] = "planning" if in_planning else "execution"
+        return normalized
 
     def _emit_telemetry(
         self,
