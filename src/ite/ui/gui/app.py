@@ -821,6 +821,14 @@ class GUIApp(
         if update:
             self._safe_page_update()
 
+    def _open_workboard_if_available(self):
+        if not self.workboard_has_content:
+            return
+        if self.workboard_visible:
+            return
+        self.workboard_visible = True
+        self._apply_workboard_state(update=True)
+
     def _set_workboard_plan_text(self, plan_text: str | None):
         text = (plan_text or "").strip()
         if self.workboard_plan_markdown is not None:

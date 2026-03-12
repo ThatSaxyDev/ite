@@ -88,12 +88,23 @@ class AgentEventControllerMixin:
             tool_name = event.data.get("name")
             if tool_name == "todos":
                 scope = self._resolve_todo_scope_for_event(metadata=event.data.get("metadata"))
+                metadata = event.data.get("metadata") if isinstance(event.data.get("metadata"), dict) else {}
+                action = str(metadata.get("action", "")).strip().lower()
+                scope_name = str(metadata.get("scope", "")).strip().lower()
+                success = bool(event.data.get("success", False))
                 if hasattr(self, "_refresh_workboard_from_session"):
                     self._refresh_workboard_from_session()
+                if (
+                    success
+                    and action == "add"
+                    and scope_name == "execution"
+                    and hasattr(self, "_open_workboard_if_available")
+                ):
+                    self._open_workboard_if_available()
                 if not self._should_hide_todo_scope(scope):
                     self._add_todo_compact_notice(
-                        event.data.get("metadata") if isinstance(event.data.get("metadata"), dict) else {},
-                        bool(event.data.get("success", False)),
+                        metadata,
+                        success,
                     )
                 if self._is_turn_running:
                     self._show_thinking_indicator()
@@ -149,4 +160,8 @@ class AgentEventControllerMixin:
             plan_text = event.data.get("plan_text", "")
             if isinstance(plan_text, str) and plan_text.strip():
                 self._add_plan_card(plan_text)
+                if hasattr(self, "_refresh_workboard_from_session"):
+                    self._refresh_workboard_from_session()
+                if hasattr(self, "_open_workboard_if_available"):
+                    self._open_workboard_if_available()
             await self._render_plan_ready_prompt()
