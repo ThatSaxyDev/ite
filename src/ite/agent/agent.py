@@ -535,6 +535,7 @@ class Agent:
             session.increment_turn()
 
             response_text = ""
+            execution_progress_eligible = False
 
             if session.context_manager.needs_compression():
                 trigger_tokens = session.context_manager.estimate_current_context_tokens()
@@ -703,22 +704,24 @@ class Agent:
                             yield AgentEvent.plan_ready(plan_text)
                     else:
                         if response_text:
-                            async for progress_event in self._complete_execution_stage_todo(
-                                session,
-                                stage="summary",
-                            ):
-                                yield progress_event
+                            if execution_progress_eligible:
+                                async for progress_event in self._complete_execution_stage_todo(
+                                    session,
+                                    stage="summary",
+                                ):
+                                    yield progress_event
                             yield AgentEvent.text_complete(response_text)
                             session.loop_detector.record_action(
                                 "response", text=response_text
                             )
                         session.set_plan_phase("idle")
                 elif response_text:
-                    async for progress_event in self._complete_execution_stage_todo(
-                        session,
-                        stage="summary",
-                    ):
-                        yield progress_event
+                    if execution_progress_eligible:
+                        async for progress_event in self._complete_execution_stage_todo(
+                            session,
+                            stage="summary",
+                        ):
+                            yield progress_event
                     yield AgentEvent.text_complete(response_text)
                     session.loop_detector.record_action(
                         "response", text=response_text
@@ -776,6 +779,9 @@ class Agent:
                     set_plan_phase=session.set_plan_phase,
                     plan_question_callback=self.plan_question_callback,
                 )
+
+                if result.success and tool_call.name not in {"todos", "plan_question"}:
+                    execution_progress_eligible = True
 
                 if tool_call.name == "plan_question" and result.success:
                     session.increment_plan_questions()
