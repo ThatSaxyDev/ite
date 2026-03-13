@@ -1074,7 +1074,7 @@ class GUIApp(
             return
         session = self.agent.session
         todos_state = session.export_todos_state()
-        plan_text = (session.pending_plan_text or "").strip()
+        plan_text = (session.current_plan_text() or "").strip()
         has_todos = False
         if isinstance(todos_state, dict):
             for scope in ("planning", "execution"):
@@ -1408,7 +1408,7 @@ class GUIApp(
             self._plan_ready_prompt_open = False
             before_count = self._execution_todo_count()
             session.seed_execution_todos_from_plan(session.pending_plan_text)
-            session.clear_pending_plan()
+            session.promote_pending_plan_to_active()
             session.set_plan_mode(False)
             session.set_plan_phase("idle")
             self._sync_plan_toggle_ui()
@@ -2122,7 +2122,7 @@ class GUIApp(
             )
             self.agent.session.set_plan_mode(False)
             self.agent.session.set_plan_phase("idle")
-            self.agent.session.clear_pending_plan()
+            self.agent.session.promote_pending_plan_to_active()
             self.agent.session.plan_questions_asked = 0
             self._plan_question_count = 0
             self._plan_ready_prompt_open = False

@@ -26,6 +26,8 @@ def _render_status(ctx: CommandContext) -> None:
         (str(getattr(session, "plan_target_questions", 3)), "bold cyan"),
         ("\nPending plan: ", "code"),
         ("yes", "bold green") if session.has_pending_plan() else ("no", "dim"),
+        ("\nActive plan: ", "code"),
+        ("yes", "bold green") if session.has_active_plan() else ("no", "dim"),
         ("\n\nUse ", "code"),
         ("/plan on", "green bold"),
         (" or ", "code"),
@@ -66,8 +68,9 @@ async def cmd_plan(ctx: CommandContext, args: list[str]) -> None:
     session.set_plan_mode(enable)
     if enable:
         session.set_plan_phase("idle")
-        if session.has_pending_plan():
-            preview_lines = (session.pending_plan_text or "").strip().splitlines()
+        if session.has_pending_plan() or session.has_active_plan():
+            preview_source = session.current_plan_text() or ""
+            preview_lines = preview_source.strip().splitlines()
             preview_text = "\n".join(preview_lines[:6]).strip() or "Saved plan available."
             if len(preview_lines) > 6:
                 preview_text += "\n..."
@@ -92,6 +95,8 @@ async def cmd_plan(ctx: CommandContext, args: list[str]) -> None:
                 default="refine",
             )
             if choice == "accept":
+                if session.has_active_plan() and not session.has_pending_plan():
+                    session.set_pending_plan(session.active_plan_text or "")
                 session.set_plan_phase("awaiting_implementation_confirmation")
                 ctx.console.print("[dim]Saved plan selected. Type 'implement plan' to execute it.[/dim]")
             elif choice == "refine":
@@ -99,6 +104,7 @@ async def cmd_plan(ctx: CommandContext, args: list[str]) -> None:
                 ctx.console.print("[dim]Saved plan kept. Send follow-up prompts to refine it.[/dim]")
             else:
                 session.clear_pending_plan()
+                session.clear_active_plan()
                 session.set_plan_phase("idle")
                 ctx.console.print("[dim]Saved plan discarded. Next prompt starts a new plan.[/dim]")
     else:

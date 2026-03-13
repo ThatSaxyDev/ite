@@ -44,6 +44,7 @@ class Session:
         self.plan_questions_asked: int = 0
         self.plan_target_questions: int = 3
         self.pending_plan_text: str | None = None
+        self.active_plan_text: str | None = None
         self.todo_execution_handoff_active: bool = False
         self.show_planning_todos: bool = False
         self.planning_seed_ids: list[str] = []
@@ -124,6 +125,29 @@ class Session:
     def has_pending_plan(self) -> bool:
         return bool(self.pending_plan_text and self.pending_plan_text.strip())
 
+    def set_active_plan(self, plan_text: str) -> None:
+        text = plan_text.strip()
+        self.active_plan_text = text if text else None
+
+    def clear_active_plan(self) -> None:
+        self.active_plan_text = None
+
+    def has_active_plan(self) -> bool:
+        return bool(self.active_plan_text and self.active_plan_text.strip())
+
+    def current_plan_text(self) -> str | None:
+        if self.has_pending_plan():
+            return self.pending_plan_text
+        if self.has_active_plan():
+            return self.active_plan_text
+        return None
+
+    def promote_pending_plan_to_active(self) -> None:
+        text = (self.pending_plan_text or "").strip()
+        if text:
+            self.active_plan_text = text
+        self.pending_plan_text = None
+
     def get_stats(self) -> dict[str, Any]:
         latest = self.context_manager.latest_usage
         total = self.context_manager.total_usage
@@ -155,6 +179,7 @@ class Session:
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
             "pending_plan_available": self.has_pending_plan(),
+            "active_plan_available": self.has_active_plan(),
             "pending_attachments": len(self.pending_attachment_paths),
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),

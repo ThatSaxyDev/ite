@@ -239,7 +239,7 @@ class CLI:
             session.plan_mode_enabled
             and session.plan_phase == "awaiting_implementation_confirmation"
         ):
-            session.clear_pending_plan()
+            session.promote_pending_plan_to_active()
             session.set_plan_mode(False)
             session.set_plan_phase("idle")
             return Agent.PLAN_EXECUTE_PROMPT
@@ -505,6 +505,7 @@ class CLI:
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
                 pending_plan_text=session.pending_plan_text,
+                active_plan_text=session.active_plan_text,
                 todos_state=session.export_todos_state(),
                 show_planning_todos=session.show_planning_todos,
             )
@@ -546,6 +547,7 @@ class CLI:
                 plan_questions_asked=session.plan_questions_asked,
                 plan_target_questions=session.plan_target_questions,
                 pending_plan_text=session.pending_plan_text,
+                active_plan_text=session.active_plan_text,
                 todos_state=session.export_todos_state(),
                 show_planning_todos=session.show_planning_todos,
             )
@@ -819,7 +821,7 @@ class CLI:
                         self.agent.session.seed_execution_todos_from_plan(
                             self.agent.session.pending_plan_text
                         )
-                        self.agent.session.clear_pending_plan()
+                        self.agent.session.promote_pending_plan_to_active()
                         self.agent.session.set_plan_phase("executing")
                         console.print("[dim]Plan approved · starting implementation[/dim]")
                         await self._process_message(
