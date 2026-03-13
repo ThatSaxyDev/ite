@@ -28,6 +28,14 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.commands import build_registry
 from ite.config.config import Config
+from ite.git.branches import (
+    BranchInfo,
+    checkout_branch,
+    create_and_checkout,
+    current_branch,
+    is_git_repo,
+    list_local_branches,
+)
 from ite.ui.tool_narrative import activity_title, describe_tool_activity
 
 from .adapters.registry import build_command_context
@@ -213,6 +221,71 @@ class SessionResumeModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class BranchPickerModal(ModalScreen[dict[str, str] | None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, current: str, branches: list[BranchInfo]) -> None:
+        super().__init__()
+        self._current = current
+        self._branches = branches
+        self._branch_names: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal branch-modal"):
+            yield Label("Switch Branch", classes="modal-title resume-title")
+            yield Static(
+                f"Current branch: {self._current}",
+                classes="modal-body resume-body",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(id="branches", classes="resume-table", cursor_type="row")
+            yield Input(placeholder="feature/my-branch", id="branch-name")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Switch", id="switch", variant="primary", disabled=True)
+                yield Button("Create", id="create", variant="success")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#branches", DataTable)
+        table.add_columns("Branch", "Current")
+        self._branch_names = []
+        for branch in self._branches:
+            self._branch_names.append(branch.name)
+            table.add_row(branch.name, "✓" if branch.is_current else "")
+        if self._branch_names:
+            table.move_cursor(row=0, column=0)
+            self.query_one("#switch", Button).disabled = False
+
+    @on(DataTable.RowHighlighted, "#branches")
+    def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
+        self.query_one("#switch", Button).disabled = False
+
+    @on(DataTable.RowSelected, "#branches")
+    def on_row_selected(self, event: DataTable.RowSelected) -> None:
+        if 0 <= event.cursor_row < len(self._branch_names):
+            self.dismiss({"action": "switch", "branch": self._branch_names[event.cursor_row]})
+
+    @on(Button.Pressed, "#switch")
+    def on_switch_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#branches", DataTable)
+        row = table.cursor_row
+        if 0 <= row < len(self._branch_names):
+            self.dismiss({"action": "switch", "branch": self._branch_names[row]})
+
+    @on(Button.Pressed, "#create")
+    def on_create_pressed(self, _event: Button.Pressed) -> None:
+        value = self.query_one("#branch-name", Input).value.strip()
+        self.dismiss({"action": "create", "branch": value})
+
+    @on(Input.Submitted, "#branch-name")
+    def on_branch_name_submitted(self, event: Input.Submitted) -> None:
+        self.dismiss({"action": "create", "branch": event.value.strip()})
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
 class ReupPromptTextArea(TextArea):
     class Submitted(Message):
         pass
@@ -369,6 +442,7 @@ class ReupApp(App):
         self._plan_question_status: Static | None = None
         self._plan_question_recommended_index: int | None = None
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
+        self._composer_branch_hitbox: tuple[int, int] = (0, 0)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -426,6 +500,15 @@ class ReupApp(App):
         plan_enabled = bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
         status_text = "on" if plan_enabled else "off"
         status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
+        branch_label = "no-git"
+        branch_style = "bold #9ca3af"
+        try:
+            cwd = Path(self.config.cwd).resolve()
+            if is_git_repo(cwd):
+                branch_label = current_branch(cwd)
+                branch_style = "bold #d1d5db"
+        except Exception:
+            pass
 
         text = Text(style="#d1d5db")
         text.append("Attach", style="bold #d1d5db")
@@ -438,13 +521,21 @@ class ReupApp(App):
         text.append(status_text, style=status_style)
         plan_end = len(text.plain)
         text.append("     ")
-        text.append("tui_re", style="bold #d1d5db")
+        branch_start = len(text.plain)
+        text.append(branch_label, style=branch_style)
+        branch_end = len(text.plain)
+        self._composer_branch_hitbox = (branch_start, branch_end)
         self._composer_plan_hitbox = (plan_start, plan_end)
         return text
 
     @on(events.Click, "#composer-meta-line")
     def on_composer_meta_line_click(self, event: events.Click) -> None:
+        branch_start, branch_end = self._composer_branch_hitbox
         start, end = self._composer_plan_hitbox
+        if branch_start <= event.x < branch_end:
+            self.run_worker(self._open_branch_picker_from_meta(), exclusive=False)
+            event.stop()
+            return
         if start <= event.x < end:
             self.run_worker(self._toggle_plan_mode_from_meta(), exclusive=False)
             event.stop()
@@ -456,6 +547,35 @@ class ReupApp(App):
         session = self.agent.session
         target = "off" if session.plan_mode_enabled else "on"
         await self._run_plan_command_native([target])
+
+    async def _open_branch_picker_from_meta(self) -> None:
+        cwd = Path(self.config.cwd).resolve()
+        if not await asyncio.to_thread(is_git_repo, cwd):
+            self.post_system("Branch", "Current workspace is not a git repository.", is_error=True)
+            return
+
+        branches = await asyncio.to_thread(list_local_branches, cwd)
+        current = await asyncio.to_thread(current_branch, cwd)
+        result = await self._open_modal(BranchPickerModal(current, branches))
+        if not result:
+            return
+
+        action = str(result.get("action", "")).strip().lower()
+        branch = str(result.get("branch", "")).strip()
+        if not branch:
+            self.post_system("Branch", "Branch name is required.", is_error=True)
+            return
+
+        if action == "create":
+            branch_result = await asyncio.to_thread(create_and_checkout, cwd, branch)
+        else:
+            branch_result = await asyncio.to_thread(checkout_branch, cwd, branch)
+
+        if branch_result.ok:
+            self.post_system("Branch", branch_result.message)
+        else:
+            self.post_system("Branch", branch_result.message, is_error=True)
+        self.refresh_header()
 
     def _build_empty_state_title(self) -> str:
         # Mirror GUI greeting logic so both surfaces stay consistent.
@@ -1186,6 +1306,10 @@ class ReupApp(App):
             await self._run_plan_command_native(args)
             return
 
+        if command == "/branch" and not args:
+            await self._open_branch_picker_from_meta()
+            return
+
         await self.ensure_agent()
         if not self.agent:
             self.post_system("Error", "Agent is not initialized", is_error=True)
@@ -1209,6 +1333,8 @@ class ReupApp(App):
             return
 
         rendered = output.getvalue().strip()
+        if command == "/branch":
+            self.refresh_header()
         if rendered:
             self.post_system(f"Command {command}", rendered)
 
