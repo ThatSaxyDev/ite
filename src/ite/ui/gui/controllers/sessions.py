@@ -191,10 +191,6 @@ class SessionControllerMixin:
                 self._clear_pending_attachments()
             self._set_current_session_title(snapshot.name)
             self._clear_chat_controls()
-            self._add_assistant_card(
-                "Loading Session",
-                ft.Text("Restoring recent messages...", color=TEXT_SECONDARY),
-            )
             render_limit = self.GUI_SESSION_RENDER_LIMIT
             hidden_count = max(0, len(snapshot.messages) - render_limit)
             rendered_messages = (
@@ -302,37 +298,6 @@ class SessionControllerMixin:
             )
             if self.active_session_id != expected_session_id:
                 return
-            if hidden_count > 0:
-                self._add_assistant_card(
-                    "Transcript",
-                    ft.Column(
-                        [
-                            ft.Text(
-                                f"Showing the latest {render_limit} messages for speed. "
-                                f"{hidden_count} older messages are available in the saved session. Historical tool steps are omitted here for speed.",
-                                color=TEXT_SECONDARY,
-                            ),
-                            ft.Row(
-                                [
-                                    ft.OutlinedButton(
-                                        "Load full transcript",
-                                        on_click=lambda _e, sid=expected_session_id: (
-                                            self.page.run_task(
-                                                self._load_full_transcript_for_active_session,
-                                                sid,
-                                            )
-                                            if self.page
-                                            else None
-                                        ),
-                                    )
-                                ],
-                                alignment=ft.MainAxisAlignment.START,
-                            ),
-                        ],
-                        tight=True,
-                        spacing=12,
-                    ),
-                )
             self._auto_scroll_enabled = True
             self._safe_control_update(self.messages_column)
             await asyncio.sleep(0)
@@ -369,13 +334,6 @@ class SessionControllerMixin:
             )
             if self.active_session_id != expected_session_id:
                 return
-            self._add_assistant_card(
-                "Transcript",
-                ft.Text(
-                    "Loaded older messages. Historical tool steps stay compact for speed.",
-                    color=TEXT_SECONDARY,
-                ),
-            )
             self._auto_scroll_enabled = True
             self._safe_control_update(self.messages_column)
             await asyncio.sleep(0)
@@ -447,12 +405,5 @@ class SessionControllerMixin:
         finally:
             self._defer_ui_updates = False
 
-        if omitted_tool_steps > 0:
-            self._append_chat_control(
-                self.build_system_log_message(
-                    "Transcript",
-                    f"Omitted {omitted_tool_steps} historical tool steps from the restored chat view for speed.",
-                )
-            )
         self._safe_control_update(self.messages_column)
         await asyncio.sleep(0)

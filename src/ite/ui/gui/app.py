@@ -162,6 +162,10 @@ class GUIApp(
         self.workboard_plan_wrapper: ft.Container | None = None
         self.workboard_has_content: bool = False
         self.workboard_width: float = 560.0
+        self._last_workboard_todos_signature: tuple | None = None
+        self._last_workboard_plan_text: str = ""
+        self._last_workboard_has_content: bool = False
+        self._last_workboard_visible: bool = True
         self.gui_state = GUIStateStore(initial_workspace=str(self.config.cwd.resolve()))
         self._bind_gui_state_store()
 
@@ -198,9 +202,28 @@ class GUIApp(
         workboard = state.workboard
         self.workboard_has_content = workboard.has_content
         if self.workboard_todos_section is not None or self.workboard_plan_section is not None:
-            self._render_workboard_todos_from_state(workboard.todos_state)
-            self._set_workboard_plan_text(workboard.plan_text)
-            self._apply_workboard_state(update=False)
+            todos_signature = self._compute_workboard_todos_signature(
+                workboard.todos_state,
+                workboard.show_planning_todos,
+            )
+            plan_text = (workboard.plan_text or "").strip()
+            should_refresh_content = (
+                todos_signature != self._last_workboard_todos_signature
+                or plan_text != self._last_workboard_plan_text
+            )
+            should_refresh_shell = (
+                workboard.has_content != self._last_workboard_has_content
+                or self.workboard_visible != self._last_workboard_visible
+            )
+            if should_refresh_content:
+                self._render_workboard_todos_from_state(workboard.todos_state)
+                self._set_workboard_plan_text(plan_text)
+                self._last_workboard_todos_signature = todos_signature
+                self._last_workboard_plan_text = plan_text
+            if should_refresh_shell or should_refresh_content:
+                self._apply_workboard_state(update=False)
+                self._last_workboard_has_content = workboard.has_content
+                self._last_workboard_visible = self.workboard_visible
 
     def _apply_loading_controls(self):
         is_busy = self._is_turn_running or self.loading_session_id is not None
@@ -921,7 +944,37 @@ class GUIApp(
             self.workboard_plan_section.visible = bool(text)
         if self.workboard_plan_wrapper is not None:
             self.workboard_plan_wrapper.visible = bool(text)
-        self._safe_page_update()
+        if self.workboard_plan_markdown is not None:
+            self._safe_control_update(self.workboard_plan_markdown)
+        if self.workboard_plan_section is not None:
+            self._safe_control_update(self.workboard_plan_section)
+        if self.workboard_plan_wrapper is not None:
+            self._safe_control_update(self.workboard_plan_wrapper)
+
+    def _compute_workboard_todos_signature(
+        self,
+        state: dict[str, Any] | None,
+        show_planning_todos: bool,
+    ) -> tuple:
+        if not isinstance(state, dict):
+            return (show_planning_todos, ())
+        scopes = ["execution"]
+        if show_planning_todos:
+            scopes.append("planning")
+        signature: list[tuple[str, tuple[tuple[str, bool], ...]]] = []
+        for scope in scopes:
+            entries = state.get(scope, [])
+            if not isinstance(entries, list):
+                entries = []
+            normalized = tuple(
+                (
+                    str(entry.get("content", "")).strip(),
+                    bool(entry.get("completed", False)),
+                )
+                for entry in entries
+            )
+            signature.append((scope, normalized))
+        return (show_planning_todos, tuple(signature))
 
     def _render_workboard_todos_from_state(self, state: dict[str, Any] | None):
         if self.workboard_todos_column is None:
