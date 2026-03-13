@@ -930,11 +930,7 @@ class GUIApp(
         if not isinstance(state, dict):
             state = {}
         scopes: list[str] = ["execution"]
-        show_planning = bool(
-            self.agent
-            and self.agent.session
-            and self.agent.session.show_planning_todos
-        )
+        show_planning = bool(self.gui_state.state.workboard.show_planning_todos)
         if show_planning:
             scopes.append("planning")
 
@@ -1136,9 +1132,13 @@ class GUIApp(
         session = self.agent.session
         todos_state = session.export_todos_state()
         plan_text = (session.current_plan_text() or "").strip()
+        show_planning = bool(session.show_planning_todos)
         has_todos = False
         if isinstance(todos_state, dict):
-            for scope in ("planning", "execution"):
+            visible_scopes = ["execution"]
+            if show_planning:
+                visible_scopes.append("planning")
+            for scope in visible_scopes:
                 entries = todos_state.get(scope, [])
                 if isinstance(entries, list) and entries:
                     has_todos = True
@@ -1146,7 +1146,7 @@ class GUIApp(
         self.gui_state.set_workboard_content(
             plan_text=plan_text,
             todos_state=todos_state,
-            show_planning_todos=bool(session.show_planning_todos),
+            show_planning_todos=show_planning,
             has_content=bool(has_todos or plan_text),
         )
 
