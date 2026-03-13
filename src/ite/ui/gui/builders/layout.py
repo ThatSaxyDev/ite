@@ -50,6 +50,7 @@ class LayoutBuilderMixin:
             ],
             expand=True,
             spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
         )
         self.chat_shell = ft.Row(
             [
@@ -603,15 +604,6 @@ class LayoutBuilderMixin:
             selectable=True,
             extension_set="gitHubFlavored",
         )
-        plan_scroll = ft.Container(
-            height=360,
-            content=ft.Column(
-                [self.workboard_plan_markdown],
-                spacing=0,
-                tight=True,
-                scroll=ft.ScrollMode.AUTO,
-            ),
-        )
         self.workboard_plan_section = ft.Container(
             content=ft.Column(
                 [
@@ -623,7 +615,7 @@ class LayoutBuilderMixin:
                         spacing=8,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    plan_scroll,
+                    self.workboard_plan_markdown,
                 ],
                 spacing=8,
                 tight=True,
@@ -646,18 +638,28 @@ class LayoutBuilderMixin:
             visible=False,
         )
 
+        workboard_header = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.DASHBOARD_CUSTOMIZE_ROUNDED, size=16, color=ACCENT),
+                            ft.Text("Workboard", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
+                            ft.Container(expand=True),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Divider(height=1, color=HAIRLINE),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            bgcolor=SURFACE_1,
+            padding=ft.Padding.only(bottom=4),
+        )
+
         self.workboard_body = ft.Column(
             [
-                ft.Row(
-                    [
-                        ft.Icon(ft.Icons.DASHBOARD_CUSTOMIZE_ROUNDED, size=16, color=ACCENT),
-                        ft.Text("Workboard", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
-                        ft.Container(expand=True),
-                        self.workboard_toggle_button,
-                    ],
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                ft.Divider(height=1, color=HAIRLINE),
                 self.workboard_todos_section,
                 self.workboard_plan_wrapper,
                 ft.Container(height=26),
@@ -670,10 +672,19 @@ class LayoutBuilderMixin:
 
         self.workboard_container = ft.Container(
             width=self.workboard_width,
+            expand=True,
             bgcolor=SURFACE_1,
             border=ft.Border.only(left=ft.BorderSide(1, BORDER)),
             padding=ft.Padding.only(left=10, right=10, top=12, bottom=0),
-            content=self.workboard_body,
+            content=ft.Column(
+                [
+                    workboard_header,
+                    self.workboard_body,
+                ],
+                spacing=0,
+                tight=True,
+                expand=True,
+            ),
         )
         return self.workboard_container
 
