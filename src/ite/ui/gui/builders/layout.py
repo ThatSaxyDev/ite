@@ -670,7 +670,7 @@ class LayoutBuilderMixin:
             [
                 self.workboard_todos_section,
                 self.workboard_plan_wrapper,
-                ft.Container(height=26),
+                ft.Container(height=35),
             ],
             spacing=8,
             tight=True,
