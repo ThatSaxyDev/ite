@@ -359,7 +359,9 @@ Screen {
 
 ConfirmModal,
 PlanQuestionModal,
-SessionResumeModal {
+SessionResumeModal,
+BranchPickerModal,
+AttachPickerModal {
     align: center middle;
     background: #06080f 58%;
 }
@@ -481,7 +483,31 @@ SessionResumeModal .modal {
     overflow: hidden;
 }
 
-SessionResumeModal .modal-list {
+BranchPickerModal .modal {
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+AttachPickerModal .modal {
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+SessionResumeModal .modal-list,
+BranchPickerModal .modal-list,
+AttachPickerModal .modal-list {
     height: 1fr;
     min-height: 12;
     max-height: 1fr;
@@ -493,7 +519,9 @@ SessionResumeModal .modal-list {
     overflow-y: auto;
 }
 
-SessionResumeModal .modal-title {
+SessionResumeModal .modal-title,
+BranchPickerModal .modal-title,
+AttachPickerModal .modal-title {
     text-align: center;
     text-style: bold;
     color: #c9a6ff;
@@ -501,7 +529,9 @@ SessionResumeModal .modal-title {
     margin-bottom: 1;
 }
 
-SessionResumeModal .modal-body {
+SessionResumeModal .modal-body,
+BranchPickerModal .modal-body,
+AttachPickerModal .modal-body {
     color: #d5d7e2;
     margin-bottom: 1;
 }
@@ -514,7 +544,9 @@ SessionResumeModal .resume-warning {
     margin-bottom: 1;
 }
 
-SessionResumeModal .modal-actions {
+SessionResumeModal .modal-actions,
+BranchPickerModal .modal-actions,
+AttachPickerModal .modal-actions {
     height: 1;
     min-height: 1;
     align-horizontal: right;
@@ -538,7 +570,9 @@ SessionResumeModal #resume:hover {
     color: #0f0e16;
 }
 
-SessionResumeModal #cancel {
+SessionResumeModal #cancel,
+BranchPickerModal #cancel,
+AttachPickerModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
@@ -547,12 +581,80 @@ SessionResumeModal #cancel {
     border: none;
 }
 
-SessionResumeModal #cancel:hover {
+SessionResumeModal #cancel:hover,
+BranchPickerModal #cancel:hover,
+AttachPickerModal #cancel:hover {
     background: #31374d;
 }
 
-SessionResumeModal .resume-table {
+SessionResumeModal .resume-table,
+BranchPickerModal .resume-table,
+AttachPickerModal .resume-table {
     height: 1fr;
+}
+
+BranchPickerModal #switch {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #b28af3;
+    color: #12111a;
+    border: none;
+}
+
+BranchPickerModal #switch:hover {
+    background: #c59df8;
+    color: #0f0e16;
+}
+
+BranchPickerModal #create {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: #5dcf84;
+    color: #0f1a12;
+    border: none;
+}
+
+BranchPickerModal #create:hover {
+    background: #75de99;
+}
+
+BranchPickerModal #branch-name {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+AttachPickerModal #attach-queue {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #b28af3;
+    color: #12111a;
+    border: none;
+}
+
+AttachPickerModal #attach-queue:hover {
+    background: #c59df8;
+    color: #0f0e16;
+}
+
+AttachPickerModal #attach-clear {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: #262b3d;
+    color: #e4e6ef;
+    border: none;
+}
+
+AttachPickerModal #attach-clear:hover {
+    background: #31374d;
+}
+
+#attach-status {
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 .modal-title {

@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from rich.console import Group
+from rich.cells import cell_len
 from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
@@ -36,6 +38,7 @@ from ite.git.branches import (
     is_git_repo,
     list_local_branches,
 )
+from ite.attachments import MAX_ATTACHMENTS
 from ite.ui.tool_narrative import activity_title, describe_tool_activity
 
 from .adapters.registry import build_command_context
@@ -231,18 +234,18 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
         self._branch_names: list[str] = []
 
     def compose(self) -> ComposeResult:
-        with Container(classes="modal resume-modal branch-modal"):
+        with Container(classes="modal resume-modal"):
             yield Label("Switch Branch", classes="modal-title resume-title")
             yield Static(
-                f"Current branch: {self._current}",
+                "Pick a branch to switch, or enter a name to create one.",
                 classes="modal-body resume-body",
             )
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="branches", classes="resume-table", cursor_type="row")
             yield Input(placeholder="feature/my-branch", id="branch-name")
             with Horizontal(classes="modal-actions resume-actions"):
-                yield Button("Switch", id="switch", variant="primary", disabled=True)
                 yield Button("Create", id="create", variant="success")
+                yield Button("Switch", id="switch", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
 
     async def on_mount(self) -> None:
@@ -280,6 +283,133 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
     @on(Input.Submitted, "#branch-name")
     def on_branch_name_submitted(self, event: Input.Submitted) -> None:
         self.dismiss({"action": "create", "branch": event.value.strip()})
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class AttachPickerModal(ModalScreen[list[str] | None]):
+    BINDINGS = [
+        ("escape", "dismiss", "Dismiss"),
+        ("space", "toggle_selected", "Toggle"),
+        ("enter", "toggle_selected", "Toggle"),
+    ]
+
+    def __init__(self, cwd: Path, queued_paths: list[str], files: list[Path]) -> None:
+        super().__init__()
+        self._cwd = cwd
+        self._files = files
+        self._selected_paths: set[str] = {self._path_key(Path(p)) for p in queued_paths}
+
+    @staticmethod
+    def _path_key(path: Path) -> str:
+        return str(path.expanduser().absolute())
+
+    @staticmethod
+    def _discover_files(cwd: Path) -> list[Path]:
+        skip_dirs = {
+            ".git",
+            ".venv",
+            "venv",
+            "node_modules",
+            "__pycache__",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
+            ".next",
+            "dist",
+            "build",
+            "coverage",
+            ".idea",
+            ".vscode",
+        }
+        files: list[Path] = []
+        for root, dirs, filenames in os.walk(cwd):
+            dirs[:] = [
+                name
+                for name in dirs
+                if name not in skip_dirs and not str(Path(root, name)).startswith(str(cwd / ".ite" / "tmp_attachments"))
+            ]
+            root_path = Path(root)
+            for filename in filenames:
+                if len(files) >= 250:
+                    return files
+                files.append(root_path / filename)
+        return files
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal attach-modal"):
+            yield Label("Attach Files", classes="modal-title resume-title")
+            yield Static(
+                f"Toggle files for the next message. Max {MAX_ATTACHMENTS} attachments.",
+                classes="modal-body resume-body",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(id="attachments", classes="resume-table", cursor_type="row")
+            yield Static("", id="attach-status")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Queue", id="attach-queue", variant="primary")
+                yield Button("Clear", id="attach-clear", variant="default")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#attachments", DataTable)
+        table.add_columns("", "File")
+        for path in self._files:
+            path_key = self._path_key(path)
+            marker = "[x]" if path_key in self._selected_paths else "[ ]"
+            try:
+                rel = str(path.relative_to(self._cwd))
+            except Exception:
+                rel = str(path)
+            table.add_row(marker, rel)
+        if self._files:
+            table.move_cursor(row=0, column=0)
+        table.focus()
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        status = self.query_one("#attach-status", Static)
+        count = len(self._selected_paths)
+        tone = "#5dcf84" if count <= MAX_ATTACHMENTS else "#e35d6a"
+        status.update(Text(f"Selected: {count}/{MAX_ATTACHMENTS}", style=f"bold {tone}"))
+
+    def _toggle_current_row(self) -> None:
+        table = self.query_one("#attachments", DataTable)
+        row = table.cursor_row
+        if row < 0 or row >= len(self._files):
+            return
+        path_key = self._path_key(self._files[row])
+        if path_key in self._selected_paths:
+            self._selected_paths.remove(path_key)
+            marker = "[ ]"
+        else:
+            if len(self._selected_paths) >= MAX_ATTACHMENTS:
+                return
+            self._selected_paths.add(path_key)
+            marker = "[x]"
+        table.update_cell_at((row, 0), marker)
+        self._refresh_status()
+
+    def action_toggle_selected(self) -> None:
+        self._toggle_current_row()
+
+    @on(DataTable.RowSelected, "#attachments")
+    def on_row_selected(self, _event: DataTable.RowSelected) -> None:
+        self._toggle_current_row()
+
+    @on(Button.Pressed, "#attach-queue")
+    def on_queue_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(sorted(self._selected_paths))
+
+    @on(Button.Pressed, "#attach-clear")
+    def on_clear_pressed(self, _event: Button.Pressed) -> None:
+        self._selected_paths.clear()
+        table = self.query_one("#attachments", DataTable)
+        for row in range(len(self._files)):
+            table.update_cell_at((row, 0), "[ ]")
+        self._refresh_status()
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
@@ -441,6 +571,7 @@ class ReupApp(App):
         self._plan_question_custom_submit: Button | None = None
         self._plan_question_status: Static | None = None
         self._plan_question_recommended_index: int | None = None
+        self._composer_attach_hitbox: tuple[int, int] = (0, 0)
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
 
@@ -502,6 +633,9 @@ class ReupApp(App):
         status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
         branch_label = "no-git"
         branch_style = "bold #9ca3af"
+        attachment_count = 0
+        if self.agent and self.agent.session:
+            attachment_count = len(self.agent.session.pending_attachment_paths)
         try:
             cwd = Path(self.config.cwd).resolve()
             if is_git_repo(cwd):
@@ -510,28 +644,58 @@ class ReupApp(App):
         except Exception:
             pass
 
+        cell_pos = 0
         text = Text(style="#d1d5db")
-        text.append("Attach", style="bold #d1d5db")
-        text.append("     ")
-        text.append(self.config.model_name, style="bold #d1d5db")
-        text.append("     ")
-        plan_start = len(text.plain)
+        attach_start = cell_pos
+        text.append("📎", style="bold #d1d5db")
+        cell_pos += cell_len("📎")
+        if attachment_count:
+            badge = f" {attachment_count}"
+            text.append(badge, style="bold #5dcf84")
+            cell_pos += cell_len(badge)
+        attach_end = cell_pos
+        self._composer_attach_hitbox = (attach_start, attach_end)
+        spacer = "     "
+        text.append(spacer)
+        cell_pos += cell_len(spacer)
+        model_text = self.config.model_name
+        text.append(model_text, style="bold #d1d5db")
+        cell_pos += cell_len(model_text)
+        text.append(spacer)
+        cell_pos += cell_len(spacer)
+        plan_start = cell_pos
         text.append("Plan", style="bold #d1d5db")
+        cell_pos += cell_len("Plan")
         text.append(" ")
+        cell_pos += 1
         text.append(status_text, style=status_style)
-        plan_end = len(text.plain)
-        text.append("     ")
-        branch_start = len(text.plain)
+        cell_pos += cell_len(status_text)
+        plan_end = cell_pos
+        text.append(spacer)
+        cell_pos += cell_len(spacer)
+        branch_start = cell_pos
+        git_prefix = "git "
+        text.append(git_prefix, style="bold #9ca3af")
+        cell_pos += cell_len(git_prefix)
         text.append(branch_label, style=branch_style)
-        branch_end = len(text.plain)
+        cell_pos += cell_len(branch_label)
+        branch_suffix = " ▾"
+        text.append(branch_suffix, style="bold #9ca3af")
+        cell_pos += cell_len(branch_suffix)
+        branch_end = cell_pos
         self._composer_branch_hitbox = (branch_start, branch_end)
         self._composer_plan_hitbox = (plan_start, plan_end)
         return text
 
     @on(events.Click, "#composer-meta-line")
     def on_composer_meta_line_click(self, event: events.Click) -> None:
+        attach_start, attach_end = self._composer_attach_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
         start, end = self._composer_plan_hitbox
+        if attach_start <= event.x < attach_end:
+            self.run_worker(self._open_attach_picker_from_meta(), exclusive=False)
+            event.stop()
+            return
         if branch_start <= event.x < branch_end:
             self.run_worker(self._open_branch_picker_from_meta(), exclusive=False)
             event.stop()
@@ -575,6 +739,19 @@ class ReupApp(App):
             self.post_system("Branch", branch_result.message)
         else:
             self.post_system("Branch", branch_result.message, is_error=True)
+        self.refresh_header()
+
+    async def _open_attach_picker_from_meta(self) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+        cwd = Path(self.config.cwd).resolve()
+        queued = list(self.agent.session.pending_attachment_paths)
+        files = await asyncio.to_thread(AttachPickerModal._discover_files, cwd)
+        selected = await self._open_modal(AttachPickerModal(cwd, queued, files))
+        if selected is None:
+            return
+        self.agent.session.pending_attachment_paths = list(selected)[:MAX_ATTACHMENTS]
         self.refresh_header()
 
     def _build_empty_state_title(self) -> str:
@@ -1310,6 +1487,10 @@ class ReupApp(App):
             await self._open_branch_picker_from_meta()
             return
 
+        if command == "/attach" and not args:
+            await self._open_attach_picker_from_meta()
+            return
+
         await self.ensure_agent()
         if not self.agent:
             self.post_system("Error", "Agent is not initialized", is_error=True)
@@ -1333,7 +1514,7 @@ class ReupApp(App):
             return
 
         rendered = output.getvalue().strip()
-        if command == "/branch":
+        if command in {"/branch", "/attach"}:
             self.refresh_header()
         if rendered:
             self.post_system(f"Command {command}", rendered)
