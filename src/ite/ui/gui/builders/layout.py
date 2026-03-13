@@ -603,19 +603,35 @@ class LayoutBuilderMixin:
             selectable=True,
             extension_set="gitHubFlavored",
         )
+        plan_scroll = ft.Container(
+            height=360,
+            content=ft.Column(
+                [self.workboard_plan_markdown],
+                spacing=0,
+                tight=True,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+        )
         self.workboard_plan_section = ft.Container(
             content=ft.Column(
                 [
-                    ft.Text("Implementation plan", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
-                    self.workboard_plan_markdown,
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.DESCRIPTION_ROUNDED, size=16, color=ACCENT),
+                            ft.Text("Implementation plan", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    plan_scroll,
                 ],
-                spacing=6,
+                spacing=8,
                 tight=True,
             ),
-            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=12),
             border=ft.Border.all(1, BORDER),
             border_radius=RADIUS_MD,
-            bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
+            bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE),
             visible=False,
         )
         self.workboard_plan_wrapper = ft.Container(
@@ -634,6 +650,7 @@ class LayoutBuilderMixin:
             [
                 ft.Row(
                     [
+                        ft.Icon(ft.Icons.DASHBOARD_CUSTOMIZE_ROUNDED, size=16, color=ACCENT),
                         ft.Text("Workboard", size=TYPE_TITLE, color=TEXT_PRIMARY, weight=WEIGHT_BOLD),
                         ft.Container(expand=True),
                         self.workboard_toggle_button,

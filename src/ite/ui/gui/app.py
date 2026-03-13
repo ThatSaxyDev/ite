@@ -878,6 +878,10 @@ class GUIApp(
         if show_planning:
             scopes.append("planning")
 
+        total_pending_all = 0
+        total_completed_all = 0
+        total_all = 0
+
         for scope in scopes:
             entries = state.get(scope, [])
             if not isinstance(entries, list):
@@ -888,28 +892,51 @@ class GUIApp(
             done = [e for e in entries if bool(e.get("completed", False))]
             total = len(entries)
             completed = len(done)
+            total_pending_all += len(pending)
+            total_completed_all += completed
+            total_all += total
             ratio = (completed / total) if total > 0 else 0.0
+
+            tone = SUCCESS if scope == "execution" else ACCENT
+            tone_soft = SUCCESS_SOFT if scope == "execution" else ACCENT_SOFT
 
             chips = ft.Row(
                 [
                     ft.Container(
-                        content=ft.Text(
-                            f"{completed}/{total} completed",
-                            size=TYPE_SM,
-                            color=SUCCESS,
-                            weight=WEIGHT_SEMIBOLD,
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_ROUNDED, size=13, color=tone),
+                                ft.Text(
+                                    f"{completed}/{total} completed",
+                                    size=TYPE_SM,
+                                    color=tone,
+                                    weight=WEIGHT_SEMIBOLD,
+                                ),
+                            ],
+                            spacing=6,
+                            tight=True,
                         ),
                         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-                        border=ft.Border.all(1, SUCCESS_SOFT),
+                        border=ft.Border.all(1, tone_soft),
                         border_radius=RADIUS_LG,
-                        bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.GREEN_300),
+                        bgcolor=ft.Colors.with_opacity(
+                            0.08,
+                            ft.Colors.GREEN_300 if scope == "execution" else ft.Colors.BLUE_300,
+                        ),
                     ),
                     ft.Container(
-                        content=ft.Text(
-                            f"{len(pending)} pending",
-                            size=TYPE_SM,
-                            color=WARNING,
-                            weight=WEIGHT_SEMIBOLD,
+                        content=ft.Row(
+                            [
+                                ft.Icon(ft.Icons.PENDING_ROUNDED, size=13, color=WARNING),
+                                ft.Text(
+                                    f"{len(pending)} pending",
+                                    size=TYPE_SM,
+                                    color=WARNING,
+                                    weight=WEIGHT_SEMIBOLD,
+                                ),
+                            ],
+                            spacing=6,
+                            tight=True,
                         ),
                         padding=ft.Padding.symmetric(horizontal=8, vertical=4),
                         border=ft.Border.all(1, WARNING_SOFT),
@@ -920,48 +947,116 @@ class GUIApp(
                 spacing=8,
                 wrap=True,
             )
-            task_rows: list[ft.Control] = []
+
+            pending_rows: list[ft.Control] = []
             for item in pending[:6]:
                 content = str(item.get("content", "")).strip()
                 if content:
-                    task_rows.append(ft.Text(f"□ {content}", size=TYPE_BODY, color=TEXT_PRIMARY))
+                    pending_rows.append(
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(ft.Icons.RADIO_BUTTON_UNCHECKED_ROUNDED, size=13, color=TEXT_MUTED),
+                                    ft.Text(content, size=TYPE_BODY, color=TEXT_PRIMARY, expand=True),
+                                ],
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.START,
+                            ),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            border=ft.Border.all(1, HAIRLINE),
+                            border_radius=RADIUS_SM,
+                            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.WHITE),
+                        )
+                    )
             if len(pending) > 6:
-                task_rows.append(ft.Text(f"+{len(pending) - 6} more pending", size=TYPE_SM, color=TEXT_MUTED))
-            if done:
-                task_rows.append(ft.Text("Done", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD))
+                pending_rows.append(ft.Text(f"+{len(pending) - 6} more pending", size=TYPE_SM, color=TEXT_MUTED))
+
+            done_rows: list[ft.Control] = []
             for item in done[:3]:
                 content = str(item.get("content", "")).strip()
                 if content:
-                    task_rows.append(ft.Text(f"✓ {content}", size=TYPE_BODY, color=TEXT_SECONDARY))
+                    done_rows.append(
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CHECK_ROUNDED, size=13, color=tone),
+                                ft.Text(content, size=TYPE_BODY, color=TEXT_SECONDARY, expand=True),
+                            ],
+                            spacing=8,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                        )
+                    )
             if len(done) > 3:
-                task_rows.append(ft.Text(f"+{len(done) - 3} more completed", size=TYPE_SM, color=TEXT_MUTED))
+                done_rows.append(ft.Text(f"+{len(done) - 3} more completed", size=TYPE_SM, color=TEXT_MUTED))
+
+            scope_label = "Execution checklist" if scope == "execution" else "Planning checklist"
             controls.append(
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Text(
-                                "Execution checklist" if scope == "execution" else "Planning checklist",
-                                size=TYPE_TITLE,
-                                color=TEXT_PRIMARY,
-                                weight=WEIGHT_BOLD,
+                            ft.Row(
+                                [
+                                    ft.Icon(
+                                        ft.Icons.TASK_ALT_ROUNDED if scope == "execution" else ft.Icons.ROUTE_ROUNDED,
+                                        size=16,
+                                        color=tone,
+                                    ),
+                                    ft.Text(
+                                        scope_label,
+                                        size=TYPE_TITLE,
+                                        color=TEXT_PRIMARY,
+                                        weight=WEIGHT_BOLD,
+                                    ),
+                                ],
+                                spacing=8,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             chips,
                             ft.ProgressBar(
                                 value=ratio,
-                                color=SUCCESS if scope == "execution" else ACCENT,
+                                color=tone,
                                 bgcolor=ft.Colors.with_opacity(0.12, ft.Colors.WHITE),
                                 bar_height=7,
                             ),
-                            ft.Column(task_rows, spacing=6, tight=True),
+                            ft.Text("Up next", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD),
+                            ft.Column(pending_rows, spacing=6, tight=True)
+                            if pending_rows
+                            else ft.Text("No pending tasks.", size=TYPE_SM, color=TEXT_MUTED),
+                            ft.Text("Done", size=TYPE_SM, color=TEXT_MUTED, weight=WEIGHT_SEMIBOLD)
+                            if done_rows
+                            else ft.Container(),
+                            ft.Column(done_rows, spacing=5, tight=True) if done_rows else ft.Container(),
                         ],
                         spacing=8,
                         tight=True,
                     ),
-                    padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=12),
                     border=ft.Border.all(1, BORDER),
                     border_radius=RADIUS_MD,
-                    bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.WHITE),
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.WHITE),
                 )
+            )
+        if total_all > 0:
+            controls.insert(
+                0,
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.INSIGHTS_ROUNDED, size=15, color=ACCENT),
+                            ft.Text(
+                                f"Overall: {total_completed_all}/{total_all} completed · {total_pending_all} pending",
+                                size=TYPE_SM,
+                                color=TEXT_SECONDARY,
+                                weight=WEIGHT_SEMIBOLD,
+                            ),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=8),
+                    border=ft.Border.all(1, HAIRLINE),
+                    border_radius=RADIUS_SM,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.WHITE),
+                ),
             )
         self.workboard_todos_column.controls = controls
         self._safe_control_update(self.workboard_todos_column)
