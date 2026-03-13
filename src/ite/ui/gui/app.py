@@ -820,7 +820,9 @@ class GUIApp(
         visible_controls = [
             c for c in self.messages_column.controls if c is not self.chat_bottom_spacer
         ]
-        should_show = (len(visible_controls) == 0) and (not self._is_turn_running)
+        is_switching = getattr(self, "loading_session_id", None) is not None
+        is_hydrating = getattr(self.gui_state.state.interaction, "is_hydrating_chat", False) if hasattr(self, "gui_state") else False
+        should_show = (len(visible_controls) == 0) and (not self._is_turn_running) and (not is_switching) and (not is_hydrating)
         self.empty_state_container.visible = should_show
         self._safe_control_update(self.empty_state_container)
 
@@ -1199,7 +1201,7 @@ class GUIApp(
         if not self.messages_column:
             return
         if self.chat_bottom_spacer is None:
-            self.chat_bottom_spacer = ft.Container(height=16)
+            self.chat_bottom_spacer = ft.Container(key="chat-bottom-anchor", height=16)
         controls = self.messages_column.controls
         if self.chat_bottom_spacer in controls:
             controls.remove(self.chat_bottom_spacer)

@@ -191,6 +191,10 @@ class SessionControllerMixin:
                 self._clear_pending_attachments()
             self._set_current_session_title(snapshot.name)
             self._clear_chat_controls()
+            self._add_assistant_card(
+                "Loading Session",
+                ft.Text("Restoring recent messages...", color=TEXT_SECONDARY),
+            )
             render_limit = self.GUI_SESSION_RENDER_LIMIT
             hidden_count = max(0, len(snapshot.messages) - render_limit)
             rendered_messages = (

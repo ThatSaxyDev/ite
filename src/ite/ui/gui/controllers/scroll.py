@@ -33,9 +33,9 @@ class ScrollControllerMixin:
             if force:
                 self._auto_scroll_enabled = True
             duration = 120 if animate else 0
-            # Multi-pass snap: handles layout lag when new controls are added.
-            for delay in (0.0, 0.03, 0.08):
-                if request_id != self._scroll_request_id:
+            # Multi-pass snap: repeated end-offset scroll is more stable here than anchor or giant offsets.
+            for delay in (0.0, 0.03, 0.08, 0.16):
+                if request_id and request_id != self._scroll_request_id:
                     return
                 if delay > 0:
                     await asyncio.sleep(delay)
