@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import shlex
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -754,6 +755,60 @@ class ReupApp(App):
         self.agent.session.pending_attachment_paths = list(selected)[:MAX_ATTACHMENTS]
         self.refresh_header()
 
+    def _queue_attachment_paths(self, paths: list[str]) -> int:
+        if not self.agent or not self.agent.session:
+            return 0
+        queue = self.agent.session.pending_attachment_paths
+        added = 0
+        for raw in paths:
+            path = str(Path(raw).expanduser().resolve())
+            if path in queue:
+                continue
+            if len(queue) >= MAX_ATTACHMENTS:
+                break
+            queue.append(path)
+            added += 1
+        return added
+
+    def _consume_dropped_path_text(self, message: str) -> bool:
+        if not self.agent or not self.agent.session:
+            return False
+        raw = (message or "").strip()
+        if not raw:
+            return False
+
+        candidates: list[str]
+        if "\n" in raw:
+            candidates = [
+                line.strip().strip('"').strip("'")
+                for line in raw.splitlines()
+                if line.strip()
+            ]
+        else:
+            try:
+                candidates = shlex.split(raw)
+            except ValueError:
+                candidates = [raw.strip().strip('"').strip("'")]
+
+        if not candidates or len(candidates) > MAX_ATTACHMENTS:
+            return False
+
+        paths: list[str] = []
+        for candidate in candidates:
+            if not any(sep in candidate for sep in ("/", "\\")) and not candidate.startswith("~"):
+                return False
+            path = Path(candidate).expanduser()
+            if not path.exists() or not path.is_file():
+                return False
+            paths.append(str(path))
+
+        added = self._queue_attachment_paths(paths)
+        self.refresh_header()
+        if added > 0:
+            noun = "file" if added == 1 else "files"
+            self.post_attachment_note(f"Queued {added} {noun} for the next message.")
+        return True
+
     def _build_empty_state_title(self) -> str:
         # Mirror GUI greeting logic so both surfaces stay consistent.
         now = datetime.now()
@@ -1307,6 +1362,9 @@ class ReupApp(App):
         self._composer_history_draft = ""
         prompt.text = ""
         self._resize_composer_for_prompt()
+
+        if self._consume_dropped_path_text(message):
+            return
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:
@@ -2270,6 +2328,16 @@ class ReupApp(App):
     def post_plan_note(self, title: str, markdown_text: str) -> None:
         self.run_worker(
             self.add_assistant_card(title, RichMarkdown(markdown_text), css_class="plan"),
+            exclusive=False,
+        )
+
+    def post_attachment_note(self, message: str) -> None:
+        self.run_worker(
+            self.add_assistant_card(
+                "Attachments",
+                Text(message, style="#d7deea"),
+                css_class="attachment",
+            ),
             exclusive=False,
         )
 

@@ -151,6 +151,26 @@ Screen {
     background: #2a1515;
 }
 
+.block.attachment {
+    border: none;
+    border-left: solid #4a89d8;
+    background: #111827 44%;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.block.attachment .card-title {
+    color: #9fc5ff;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.attachment .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
 .block.plan {
     border: none;
     border-left: solid #7c6bd7;
