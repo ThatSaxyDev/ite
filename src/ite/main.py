@@ -200,6 +200,7 @@ class CLI:
                             self.tui.stop_spinner()
                             self.tui.end_assistant()
                             console.print("\n[grey50]⏹ Response interrupted[/grey50]")
+                            await self._auto_save()
                         finally:
                             # Restore default so Ctrl+C works at the prompt
                             loop.remove_signal_handler(signal.SIGINT)

@@ -102,6 +102,8 @@ class GUIApp(
         self.sidebar_collapsed: bool = False
         self.active_session_id: str | None = None
         self.loading_session_id: str | None = None
+        self._session_hydration_task: asyncio.Task | None = None
+        self._hydrating_session_id: str | None = None
         self.sidebar_sessions_cache: list[dict] = []
         self.sidebar_sessions_by_id: dict[str, dict] = {}
         self.app_mode: str = "setup" if self.config.needs_setup else "chat"
@@ -1214,6 +1216,7 @@ class GUIApp(
                     )
                 else:
                     self._show_recovery_actions_card("Run interrupted unexpectedly.")
+                await self._auto_save()
         except Exception as e:
             if turn_id == self._active_turn_id:
                 self._add_message("system", f"Error: {str(e)}", is_error=True)

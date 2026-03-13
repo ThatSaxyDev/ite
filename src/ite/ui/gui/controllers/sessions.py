@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 from typing import Any
 from pathlib import Path
 import flet as ft
@@ -9,10 +10,20 @@ from ..tokens import *
 
 
 class SessionControllerMixin:
+    GUI_SESSION_RENDER_LIMIT = 80
+
+    def _cancel_session_hydration_task(self):
+        task = getattr(self, "_session_hydration_task", None)
+        if task and hasattr(task, "done") and hasattr(task, "cancel") and not task.done():
+            task.cancel()
+        self._session_hydration_task = None
+        self._hydrating_session_id = None
+
     async def _start_new_thread(self):
         """Start a fresh agent session instead of clearing the current one."""
         self._set_loading(True)
         try:
+            self._cancel_session_hydration_task()
             await self._cancel_active_turn_and_wait()
             await self._ensure_agent()
             if not self.agent or not self.agent.session:
@@ -142,8 +153,9 @@ class SessionControllerMixin:
     async def _open_session_from_sidebar(self, session_id: str):
         self._set_loading(True)
         try:
+            self._cancel_session_hydration_task()
             await self._cancel_active_turn_and_wait()
-            snapshot = SessionManager().load_session(session_id)
+            snapshot = await asyncio.to_thread(SessionManager().load_session, session_id)
             if snapshot is None:
                 self._add_message("system", f"Session not found: {session_id}", is_error=True)
                 return
@@ -172,7 +184,52 @@ class SessionControllerMixin:
                 self._clear_pending_attachments()
             self._refresh_sidebar_threads()
             self._set_current_session_title(snapshot.name)
-            self._hydrate_chat_from_snapshot(snapshot.messages)
+            render_limit = self.GUI_SESSION_RENDER_LIMIT
+            hidden_count = max(0, len(snapshot.messages) - render_limit)
+            rendered_messages = (
+                snapshot.messages[-render_limit:]
+                if hidden_count > 0
+                else snapshot.messages
+            )
+            await self._hydrate_chat_from_snapshot(
+                rendered_messages,
+                expected_session_id=snapshot.session_id,
+            )
+            self.loading_session_id = None
+            self._reset_turn_ui_state()
+            self._refresh_sidebar_threads()
+            self._set_loading(False)
+            if hidden_count > 0:
+                self._add_assistant_card(
+                    "Transcript",
+                    ft.Column(
+                        [
+                            ft.Text(
+                                f"Showing the latest {render_limit} messages for speed. "
+                                f"{hidden_count} older messages are available in the saved session.",
+                                color=TEXT_SECONDARY,
+                            ),
+                            ft.Row(
+                                [
+                                    ft.OutlinedButton(
+                                        "Load full transcript",
+                                        on_click=lambda _e, sid=snapshot.session_id: (
+                                            self.page.run_task(
+                                                self._load_full_transcript_for_active_session,
+                                                sid,
+                                            )
+                                            if self.page
+                                            else None
+                                        ),
+                                    )
+                                ],
+                                alignment=ft.MainAxisAlignment.START,
+                            ),
+                        ],
+                        tight=True,
+                        spacing=12,
+                    ),
+                )
             self._add_assistant_card(
                 "Session Loaded",
                 ft.Text(
@@ -180,59 +237,87 @@ class SessionControllerMixin:
                     color=TEXT_SECONDARY,
                 ),
             )
-            # First-load layout can lag one frame; force a second pass.
             await self._scroll_chat_to_bottom_async(animate=False, force=True)
             await asyncio.sleep(0.06)
             await self._scroll_chat_to_bottom_async(animate=False, force=True)
         except Exception as e:
             self._add_message("system", f"Error loading session: {e}", is_error=True)
         finally:
-            self.loading_session_id = None
-            self._reset_turn_ui_state()
-            self._refresh_sidebar_threads()
-            self._set_loading(False)
+            if self.loading_session_id == session_id:
+                self.loading_session_id = None
+                self._reset_turn_ui_state()
+                self._refresh_sidebar_threads()
+                self._set_loading(False)
 
     async def _resume_agent_session(self, snapshot):
-        if not self.agent or not self.agent.session:
+        if not self.agent:
             return
 
-        resumed = Session(config=self.config)
+        resumed = self.agent.session
+        if resumed is None:
+            resumed = Session(config=self.config)
+            await resumed.initialize()
+            self.agent.session = resumed
+
         resumed.session_id = snapshot.session_id
         resumed.name = snapshot.name
         resumed.created_at = snapshot.created_at
         resumed.updated_at = snapshot.updated_at
         resumed.turn_count = snapshot.turn_count
-        resumed.plan_mode_enabled = snapshot.plan_mode_enabled
-        resumed.plan_phase = snapshot.plan_phase
-        resumed.plan_questions_asked = snapshot.plan_questions_asked
-        resumed.plan_target_questions = snapshot.plan_target_questions
         resumed.pending_plan_text = snapshot.pending_plan_text
         resumed.active_plan_text = snapshot.active_plan_text
         resumed.show_planning_todos = snapshot.show_planning_todos
 
-        await self.agent.session.client.close()
-        await self.agent.session.mcp_manager.shutdown()
-        await resumed.initialize()
+        if resumed.context_manager is None:
+            await resumed.initialize()
 
+        resumed.set_plan_mode(snapshot.plan_mode_enabled)
+        resumed.plan_questions_asked = snapshot.plan_questions_asked
+        resumed.plan_target_questions = snapshot.plan_target_questions
+        resumed.set_plan_phase(snapshot.plan_phase)
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.approval_manager.confirmation_callback = self._gui_confirmation_callback
-        self.agent.session = resumed
         if hasattr(self, "_sync_plan_toggle_ui"):
             self._sync_plan_toggle_ui()
         if hasattr(self, "_refresh_workboard_from_session"):
             self._refresh_workboard_from_session()
 
-    def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]):
-        if not self.messages_column or not self.page:
+    async def _load_full_transcript_for_active_session(self, expected_session_id: str):
+        if (
+            not self.agent
+            or not self.agent.session
+            or self.active_session_id != expected_session_id
+        ):
+            return
+        try:
+            messages = self.agent.session.context_manager.get_messages()
+            await self._hydrate_chat_from_snapshot(
+                messages,
+                expected_session_id=expected_session_id,
+            )
+            if self.active_session_id != expected_session_id:
+                return
+            self._add_assistant_card(
+                "Transcript",
+                ft.Text(
+                    "Loaded full saved transcript.",
+                    color=TEXT_SECONDARY,
+                ),
+            )
+            await self._scroll_chat_to_bottom_async(animate=False, force=True)
+        except asyncio.CancelledError:
             return
 
-        max_render_messages = 220
-        hidden_count = max(0, len(messages) - max_render_messages)
-        rendered_messages = (
-            messages[-max_render_messages:] if hidden_count > 0 else messages
-        )
+    async def _hydrate_chat_from_snapshot(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        expected_session_id: str | None = None,
+    ):
+        if not self.messages_column or not self.page:
+            return
 
         self._clear_chat_controls()
         self._tool_call_row_indices.clear()
@@ -243,19 +328,24 @@ class SessionControllerMixin:
         self.streaming_text = ""
 
         tool_call_names: dict[str, str] = {}
+
+        def _tool_kind_for_name(tool_name: str) -> str | None:
+            if not self.agent or not self.agent.session:
+                return None
+            tool = self.agent.session.tool_registry.get(tool_name)
+            if not tool:
+                return None
+            return tool.kind.value
+
+        processed = 0
+        batch_size = 32
+
         self._defer_ui_updates = True
         try:
-            if hidden_count > 0:
-                self._add_assistant_card(
-                    "Transcript",
-                    ft.Text(
-                        f"Showing latest {max_render_messages} messages for performance "
-                        f"({hidden_count} older messages hidden).",
-                        color=TEXT_MUTED,
-                    ),
-                )
-
-            for message in rendered_messages:
+            for message in messages:
+                if expected_session_id and self.active_session_id != expected_session_id:
+                    return
+                processed += 1
                 role = message.get("role")
                 content = message.get("content", "")
 
@@ -272,13 +362,49 @@ class SessionControllerMixin:
                         self._append_chat_control(
                             self.build_chat_message("assistant", content)
                         )
+                    for tool_call in message.get("tool_calls") or []:
+                        call_id = str(tool_call.get("id", "") or "")
+                        function = tool_call.get("function", {}) or {}
+                        tool_name = str(function.get("name", "tool") or "tool")
+                        raw_args = function.get("arguments", "") or ""
+                        try:
+                            parsed_args = json.loads(raw_args) if raw_args else {}
+                        except Exception:
+                            parsed_args = {"raw": raw_args}
+
+                        tool_call_names[call_id] = tool_name
+                        self._add_tool_call(
+                            call_id,
+                            tool_name,
+                            parsed_args if isinstance(parsed_args, dict) else {},
+                            _tool_kind_for_name(tool_name),
+                        )
                     continue
 
                 if role == "tool":
-                    # Skip historical tool cards during hydration to keep thread switching responsive.
+                    call_id = str(message.get("tool_call_id", "") or "")
+                    tool_name = tool_call_names.get(call_id, "tool")
+                    output = content if isinstance(content, str) else str(content)
+                    success = not output.lstrip().startswith("Error:")
+                    self._update_tool_call(
+                        call_id,
+                        tool_name,
+                        success,
+                        output,
+                        None if success else output,
+                        None,
+                        None,
+                        None,
+                    )
                     continue
+
+                if processed % batch_size == 0:
+                    self._defer_ui_updates = False
+                    self._safe_page_update()
+                    await asyncio.sleep(0)
+                    self._defer_ui_updates = True
         finally:
             self._defer_ui_updates = False
 
         self._safe_page_update()
-        self._scroll_chat_to_bottom(animate=True, force=True)
+        await self._scroll_chat_to_bottom_async(animate=False, force=True)

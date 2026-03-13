@@ -1084,11 +1084,11 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
         self._message_count = 0
+        self._tool_widgets.clear()
+        self._tool_args_by_call_id.clear()
+        tool_call_names: dict[str, str] = {}
 
-        max_render = 220
-        rendered = messages[-max_render:]
-
-        for message in rendered:
+        for message in messages:
             role = message.get("role")
             content = message.get("content", "")
             if role == "system":
@@ -1096,8 +1096,43 @@ class ReupApp(App):
             if role == "user":
                 await self.add_assistant_card("You", RichMarkdown(str(content)), css_class="user")
                 continue
-            if role == "assistant" and content:
-                await self.add_assistant_card("iTE", RichMarkdown(str(content)), css_class="assistant")
+            if role == "assistant":
+                if content:
+                    await self.add_assistant_card("iTE", RichMarkdown(str(content)), css_class="assistant")
+                for tool_call in message.get("tool_calls") or []:
+                    call_id = str(tool_call.get("id", "") or "")
+                    function = tool_call.get("function", {}) or {}
+                    tool_name = str(function.get("name", "tool") or "tool")
+                    raw_args = function.get("arguments", "") or ""
+                    try:
+                        parsed_args = json.loads(raw_args) if raw_args else {}
+                    except Exception:
+                        parsed_args = {"raw": raw_args}
+                    tool_call_names[call_id] = tool_name
+                    await self.add_tool_call_start(
+                        call_id=call_id,
+                        name=tool_name,
+                        tool_kind=self.get_tool_kind(tool_name),
+                        arguments=parsed_args if isinstance(parsed_args, dict) else {},
+                    )
+                continue
+            if role == "tool":
+                call_id = str(message.get("tool_call_id", "") or "")
+                tool_name = tool_call_names.get(call_id, "tool")
+                output = content if isinstance(content, str) else str(content)
+                success = not output.lstrip().startswith("Error:")
+                await self.update_tool_call(
+                    call_id=call_id,
+                    name=tool_name,
+                    tool_kind=self.get_tool_kind(tool_name),
+                    success=success,
+                    output=output,
+                    error=None if success else output,
+                    metadata={},
+                    diff=None,
+                    truncated=False,
+                    exit_code=None,
+                )
         self._refresh_empty_state()
 
     async def run_command(self, command_line: str) -> None:
@@ -1222,6 +1257,7 @@ class ReupApp(App):
             await self.auto_save()
         except asyncio.CancelledError:
             self.post_system("Interrupted", "Turn was interrupted.")
+            await self.auto_save()
         finally:
             self._active_turn_task = None
             self._is_turn_running = False
