@@ -821,7 +821,12 @@ class GUIApp(
             self.workboard_header_toggle_button.disabled = not self.workboard_has_content
             self.workboard_header_toggle_button.opacity = 1.0 if self.workboard_has_content else 0.45
         if update:
-            self._safe_page_update()
+            if self.workboard_container is not None:
+                self._safe_control_update(self.workboard_container)
+            if self.workboard_toggle_button is not None:
+                self._safe_control_update(self.workboard_toggle_button)
+            if self.workboard_header_toggle_button is not None:
+                self._safe_control_update(self.workboard_header_toggle_button)
 
     def _open_workboard_if_available(self):
         if not self.workboard_has_content:

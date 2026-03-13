@@ -110,6 +110,68 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertTrue(loaded["show_planning_todos"])
         self.assertIn("todos_state", loaded)
 
+    def test_save_session_compacts_older_tool_payloads(self) -> None:
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Calling tool",
+                "tool_calls": [
+                    {
+                        "id": "call-old",
+                        "type": "function",
+                        "function": {
+                            "name": "shell",
+                            "arguments": "{\"command\":\"" + ("x" * 1200) + "\"}",
+                        },
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-old", "content": "A" * 4000},
+        ]
+        for i in range(14):
+            call_id = f"call-{i}"
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": f"Assistant {i}",
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": "shell",
+                                "arguments": "{\"command\":\"echo ok\"}",
+                            },
+                        }
+                    ],
+                }
+            )
+            messages.append(
+                {"role": "tool", "tool_call_id": call_id, "content": f"tool output {i}"}
+            )
+
+        snapshot = SessionSnapshot(
+            session_id="compact-check",
+            name="Compact Session",
+            created_at=datetime(2026, 3, 4, 11, 46, 7, 637365),
+            updated_at=datetime(2026, 3, 4, 11, 46, 52, 384048),
+            turn_count=1,
+            messages=messages,
+            total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        )
+
+        self.manager.save_session(snapshot)
+        file_path = self.manager.sessions_dir / "compact-check.json"
+        loaded = json.loads(file_path.read_text(encoding="utf-8"))
+
+        old_assistant = loaded["messages"][0]
+        old_tool = loaded["messages"][1]
+        recent_tool = loaded["messages"][-1]
+
+        self.assertLess(len(old_assistant["tool_calls"][0]["function"]["arguments"]), 500)
+        self.assertIn("trimmed in saved session", old_tool["content"])
+        self.assertEqual(recent_tool["content"], "tool output 13")
+
 
 if __name__ == "__main__":
     unittest.main()

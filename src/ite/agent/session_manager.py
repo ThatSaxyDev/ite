@@ -12,12 +12,97 @@ from ite.client.response import TokenUsage
 
 logger = logging.getLogger(__name__)
 
+SNAPSHOT_KEEP_FULL_TOOL_RESULTS = 12
+SNAPSHOT_KEEP_FULL_TOOL_CALL_ASSISTANT_MESSAGES = 12
+SNAPSHOT_MAX_OLD_TOOL_RESULT_CHARS = 480
+SNAPSHOT_MAX_OLD_TOOL_ARG_CHARS = 320
+SNAPSHOT_MAX_MESSAGE_CHARS = 12000
+
 REQUIRED_SESSION_FIELDS = (
     "session_id",
     "created_at",
     "updated_at",
     "turn_count",
 )
+
+
+def _truncate_text(value: Any, max_chars: int, suffix: str) -> str:
+    text = str(value or "")
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + suffix
+
+
+def _compact_messages_for_snapshot(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not messages:
+        return []
+
+    preserved_tool_result_indexes: set[int] = set()
+    preserved_tool_call_indexes: set[int] = set()
+
+    tool_results_kept = 0
+    assistant_tool_calls_kept = 0
+
+    for index in range(len(messages) - 1, -1, -1):
+        msg = messages[index]
+        role = msg.get("role")
+        if role == "tool" and tool_results_kept < SNAPSHOT_KEEP_FULL_TOOL_RESULTS:
+            preserved_tool_result_indexes.add(index)
+            tool_results_kept += 1
+        elif (
+            role == "assistant"
+            and msg.get("tool_calls")
+            and assistant_tool_calls_kept < SNAPSHOT_KEEP_FULL_TOOL_CALL_ASSISTANT_MESSAGES
+        ):
+            preserved_tool_call_indexes.add(index)
+            assistant_tool_calls_kept += 1
+
+    compacted: list[dict[str, Any]] = []
+    for index, msg in enumerate(messages):
+        entry = dict(msg)
+        role = entry.get("role")
+        content = entry.get("content", "")
+
+        if isinstance(content, str) and len(content) > SNAPSHOT_MAX_MESSAGE_CHARS:
+            entry["content"] = _truncate_text(
+                content,
+                SNAPSHOT_MAX_MESSAGE_CHARS,
+                "\n\n...[saved session content truncated]",
+            )
+
+        if role == "tool" and index not in preserved_tool_result_indexes:
+            original = str(entry.get("content", "") or "")
+            entry["content"] = _truncate_text(
+                original,
+                SNAPSHOT_MAX_OLD_TOOL_RESULT_CHARS,
+                "\n...[older tool output trimmed in saved session]",
+            )
+
+        if (
+            role == "assistant"
+            and entry.get("tool_calls")
+            and index not in preserved_tool_call_indexes
+        ):
+            compacted_tool_calls: list[dict[str, Any]] = []
+            for tool_call in entry.get("tool_calls") or []:
+                if not isinstance(tool_call, dict):
+                    continue
+                tool_call_copy = dict(tool_call)
+                function = dict(tool_call_copy.get("function") or {})
+                arguments = function.get("arguments", "")
+                if isinstance(arguments, str):
+                    function["arguments"] = _truncate_text(
+                        arguments,
+                        SNAPSHOT_MAX_OLD_TOOL_ARG_CHARS,
+                        "...",
+                    )
+                tool_call_copy["function"] = function
+                compacted_tool_calls.append(tool_call_copy)
+            entry["tool_calls"] = compacted_tool_calls
+
+        compacted.append(entry)
+
+    return compacted
 
 
 @dataclass
@@ -47,7 +132,7 @@ class SessionSnapshot:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
-            "messages": self.messages,
+            "messages": _compact_messages_for_snapshot(self.messages),
             "total_usage": self.total_usage.__dict__,
             "plan_mode_enabled": self.plan_mode_enabled,
             "plan_phase": self.plan_phase,
@@ -97,7 +182,7 @@ class SessionManager:
         )
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
                 f.flush()
                 os.fsync(f.fileno())
 

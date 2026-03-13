@@ -306,22 +306,5 @@ class WorkspaceControllerMixin:
         if self.loading_session_id == session_id:
             return
         self.loading_session_id = session_id
-        self.active_session_id = session_id
-        session = self.sidebar_sessions_by_id.get(session_id)
-        if session:
-            self._set_current_session_title(session.get("name") or "New thread")
-        if self.messages_column:
-            self._clear_chat_controls()
-            self._add_assistant_card(
-                "Loading Session",
-                ft.Row(
-                    [
-                        ft.ProgressRing(width=12, height=12, stroke_width=2, color=ACCENT),
-                        ft.Text("Loading selected thread...", size=TYPE_MD, color=TEXT_SECONDARY),
-                    ],
-                    spacing=8,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-            )
         self._render_sidebar_threads()
         self.page.run_task(self._open_session_from_sidebar, session_id)

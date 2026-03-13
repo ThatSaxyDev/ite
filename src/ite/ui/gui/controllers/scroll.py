@@ -49,4 +49,3 @@ class ScrollControllerMixin:
                     await self.messages_column.scroll_to(offset=-1, duration=duration)
         except Exception:
             pass
-

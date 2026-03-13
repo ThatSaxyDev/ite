@@ -184,6 +184,7 @@ class SessionControllerMixin:
                 self._clear_pending_attachments()
             self._refresh_sidebar_threads()
             self._set_current_session_title(snapshot.name)
+            self._clear_chat_controls()
             render_limit = self.GUI_SESSION_RENDER_LIMIT
             hidden_count = max(0, len(snapshot.messages) - render_limit)
             rendered_messages = (

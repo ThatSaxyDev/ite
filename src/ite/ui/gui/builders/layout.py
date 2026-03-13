@@ -427,8 +427,11 @@ class LayoutBuilderMixin:
             self.sidebar_footer.visible = not collapsed
 
         self._render_sidebar_threads()
-        if update and self.page:
-            self._safe_page_update()
+        if update:
+            if self.sidebar_root:
+                self._safe_control_update(self.sidebar_root)
+            if self.sidebar_toggle_button:
+                self._safe_control_update(self.sidebar_toggle_button)
 
     def build_header(self) -> ft.Control:
         self.header_session_text = ft.Text(
@@ -924,8 +927,8 @@ class LayoutBuilderMixin:
         is_busy = self._is_turn_running
         if self.input_field:
             self.input_field.disabled = is_busy
+            self._safe_control_update(self.input_field)
         if self.attach_button:
             self.attach_button.disabled = is_busy
+            self._safe_control_update(self.attach_button)
         self._refresh_action_button()
-        if self.page:
-            self._safe_page_update()
