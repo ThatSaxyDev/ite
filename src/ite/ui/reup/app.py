@@ -525,7 +525,7 @@ class ReupApp(App):
     TITLE = "iTE"
     BINDINGS = [
         Binding("ctrl+enter", "send", "Send"),
-        Binding("ctrl+c", "interrupt_or_quit", "Interrupt/Quit", priority=True),
+        Binding("ctrl+c", "interrupt_or_quit", "Interrupt", priority=True),
         Binding("ctrl+l", "clear_input", "Clear Input"),
         Binding("f1", "show_help", "Help"),
     ]
@@ -1126,7 +1126,7 @@ class ReupApp(App):
             await self.cancel_active_turn()
             self.post_system("Interrupted", "Stopped current run.")
         else:
-            self.exit()
+            self.post_system("Exit", "Use `/exit` or `/quit` to close reup.")
 
     async def action_send(self) -> None:
         await self.handle_send()
