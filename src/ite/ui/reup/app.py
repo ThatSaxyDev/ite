@@ -1179,9 +1179,8 @@ class ReupApp(App):
     async def action_interrupt_or_quit(self) -> None:
         if self._is_turn_running:
             await self.cancel_active_turn()
-            self.post_system("Interrupted", "Stopped current run.")
         else:
-            self.post_system("Exit", "Use `/exit` or `/quit` to close reup.")
+            self.post_notice("Exit", "Use `/exit` or `/quit` to close reup.")
 
     async def action_send(self) -> None:
         await self.handle_send()
@@ -1575,7 +1574,7 @@ class ReupApp(App):
         if command in {"/branch", "/attach", "/model"}:
             self.refresh_header()
         if rendered:
-            self.post_system(f"Command {command}", rendered)
+            self.post_notice(f"Command {command}", rendered)
 
     async def _run_plan_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -1643,7 +1642,7 @@ class ReupApp(App):
             await self._active_turn_task
             await self.auto_save()
         except asyncio.CancelledError:
-            self.post_system("Interrupted", "Turn was interrupted.")
+            self.post_notice("Interrupted", "Stopped current run.")
             await self.auto_save()
         finally:
             self._active_turn_task = None
@@ -2324,6 +2323,12 @@ class ReupApp(App):
     def post_system(self, title: str, message: str, is_error: bool = False) -> None:
         css_class = "system error" if is_error else "system"
         self.run_worker(self.add_assistant_card(title, message, css_class=css_class), exclusive=False)
+
+    def post_notice(self, title: str, message: str) -> None:
+        self.run_worker(
+            self.add_assistant_card(title, Text(message, style="#d7deea"), css_class="note"),
+            exclusive=False,
+        )
 
     def post_plan_note(self, title: str, markdown_text: str) -> None:
         self.run_worker(
