@@ -1620,6 +1620,88 @@ class ReupApp(App):
         except Exception:
             return path
 
+    def _todo_start_hint(self, arguments: dict[str, Any]) -> str:
+        scope = str(arguments.get("scope", "execution")).strip().lower()
+        action = str(arguments.get("action", "update")).strip().lower()
+        label = "planning checklist" if scope == "planning" else "task checklist"
+
+        if action == "add":
+            count = 0
+            items = arguments.get("items")
+            if isinstance(items, list):
+                count = len(items)
+            elif isinstance(arguments.get("content"), str) and arguments.get("content"):
+                count = 1
+            return f"Creating {label}" + (f" ({count} items)" if count else "")
+        if action == "complete":
+            return f"Marking item complete in {label}"
+        if action == "reopen":
+            return f"Reopening item in {label}"
+        if action == "remove":
+            return f"Removing item from {label}"
+        if action == "update":
+            return f"Updating item in {label}"
+        if action == "list":
+            return f"Refreshing {label}"
+        if action == "clear":
+            return f"Clearing {label}"
+        return "Updating checklist"
+
+    def _render_todo_payload(
+        self,
+        *,
+        output: str,
+        metadata: dict[str, Any] | None,
+    ) -> tuple[list[Any], bool]:
+        md = metadata if isinstance(metadata, dict) else {}
+        completed = md.get("completed", 0)
+        total = md.get("total", 0)
+        action = md.get("action", "")
+        scope = md.get("scope", "execution")
+        message = md.get("message", "")
+        output_display, was_truncated = self._truncate_for_tool(
+            "todos",
+            output,
+        )
+
+        blocks: list[Any] = []
+
+        if total > 0:
+            bar_width = 20
+            filled = int((completed / total) * bar_width) if total else 0
+            bar = "█" * filled + "░" * (bar_width - filled)
+            header = Text()
+            header.append(
+                f"{str(scope).capitalize()} tasks: {completed}/{total} completed ",
+                style="#8c97ab",
+            )
+            header.append(bar, style="green" if completed == total else "yellow")
+            blocks.append(header)
+            blocks.append(Text())
+        elif isinstance(scope, str):
+            blocks.append(Text(f"Scope: {scope}", style="#8c97ab"))
+            blocks.append(Text())
+
+        for line in output_display.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("☑"):
+                styled = Text()
+                styled.append("  ☑ ", style="bold green")
+                styled.append(stripped[1:].strip(), style="dim strike")
+                blocks.append(styled)
+            elif stripped.startswith("☐"):
+                styled = Text()
+                styled.append("  ☐ ", style="bold yellow")
+                styled.append(stripped[1:].strip(), style="white")
+                blocks.append(styled)
+
+        if action == "clear":
+            blocks.append(Text("  All todos cleared", style="#8c97ab"))
+        elif message:
+            blocks.append(Text(f"  {message}", style="#8c97ab"))
+
+        return blocks, was_truncated
+
     def _render_args_table(self, tool_name: str, args: dict[str, Any]) -> Table:
         table = Table.grid(padding=(0, 1))
         table.add_column(style="#7d8aa5", justify="right", no_wrap=True)
@@ -1894,7 +1976,9 @@ class ReupApp(App):
         narrative = describe_tool_activity(name, arguments, stage="start")
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab")]
-        if arguments:
+        if name == "todos":
+            blocks.extend([Text(""), Text(self._todo_start_hint(arguments), style="#d5d9e2")])
+        elif arguments:
             blocks.extend([Text(""), self._render_args_table(name, arguments)])
         else:
             blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
@@ -2018,6 +2102,13 @@ class ReupApp(App):
                 blocks.append(self._render_grep_output(output_display))
             else:
                 blocks.append(self._render_text_payload(output_display, success=success))
+        elif name == "todos" and success:
+            todo_blocks, was_truncated = self._render_todo_payload(
+                output=payload,
+                metadata=md,
+            )
+            local_truncated = local_truncated or was_truncated
+            blocks.extend(todo_blocks)
         else:
             output_display, was_truncated = self._truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
