@@ -368,6 +368,7 @@ class ReupApp(App):
         self._plan_question_custom_submit: Button | None = None
         self._plan_question_status: Static | None = None
         self._plan_question_recommended_index: int | None = None
+        self._composer_plan_hitbox: tuple[int, int] = (0, 0)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -421,8 +422,40 @@ class ReupApp(App):
         composer_meta_line = self.query_one("#composer-meta-line", Static)
         composer_meta_line.update(self._composer_meta_text())
 
-    def _composer_meta_text(self) -> str:
-        return f"Attach  {self.config.model_name}  Plan  tui_re"
+    def _composer_meta_text(self) -> Text:
+        plan_enabled = bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
+        status_text = "on" if plan_enabled else "off"
+        status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
+
+        text = Text(style="#d1d5db")
+        text.append("Attach", style="bold #d1d5db")
+        text.append("     ")
+        text.append(self.config.model_name, style="bold #d1d5db")
+        text.append("     ")
+        plan_start = len(text.plain)
+        text.append("Plan", style="bold #d1d5db")
+        text.append(" ")
+        text.append(status_text, style=status_style)
+        plan_end = len(text.plain)
+        text.append("     ")
+        text.append("tui_re", style="bold #d1d5db")
+        self._composer_plan_hitbox = (plan_start, plan_end)
+        return text
+
+    @on(events.Click, "#composer-meta-line")
+    def on_composer_meta_line_click(self, event: events.Click) -> None:
+        start, end = self._composer_plan_hitbox
+        if start <= event.x < end:
+            self.run_worker(self._toggle_plan_mode_from_meta(), exclusive=False)
+            event.stop()
+
+    async def _toggle_plan_mode_from_meta(self) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+        session = self.agent.session
+        target = "off" if session.plan_mode_enabled else "on"
+        await self._run_plan_command_native([target])
 
     def _build_empty_state_title(self) -> str:
         # Mirror GUI greeting logic so both surfaces stay consistent.
@@ -608,6 +641,7 @@ class ReupApp(App):
             session.promote_pending_plan_to_active()
             session.set_plan_mode(False)
             session.set_plan_phase("idle")
+            self.refresh_header()
             return Agent.PLAN_EXECUTE_PROMPT
 
         self.post_plan_note(
@@ -741,6 +775,7 @@ class ReupApp(App):
             if bool(choice):
                 session.set_plan_mode(True)
                 session.set_plan_phase("idle")
+                self.refresh_header()
                 self.post_plan_note("Plan mode enabled", "Planning mode is now active for this thread.")
             return message
 
@@ -758,6 +793,7 @@ class ReupApp(App):
             if bool(choice):
                 session.set_plan_mode(False)
                 session.set_plan_phase("idle")
+                self.refresh_header()
                 self.post_plan_note("Plan mode disabled", "Execution mode is now active.")
                 return message
 
@@ -1221,6 +1257,7 @@ class ReupApp(App):
             if enable
             else "Normal execution behavior is active."
         )
+        self.refresh_header()
         self.post_plan_note(
             "Plan Mode Updated",
             f"## Plan Mode `{mode}`\n\n{details}",
@@ -1353,9 +1390,11 @@ class ReupApp(App):
                 )
                 self.agent.session.promote_pending_plan_to_active()
                 self.agent.session.set_plan_phase("executing")
+                self.refresh_header()
                 await self.run_agent_message(Agent.PLAN_EXECUTE_PROMPT)
             elif self.agent and self.agent.session:
                 self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
+                self.refresh_header()
                 self.post_plan_note(
                     "Plan saved for refinement",
                     "Use `implement plan` any time to start execution.",

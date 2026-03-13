@@ -610,6 +610,7 @@ SessionResumeModal .resume-table {
     text-style: bold;
     text-wrap: nowrap;
     text-overflow: ellipsis;
+    pointer: pointer;
 }
 
 Markdown {
