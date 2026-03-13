@@ -1514,7 +1514,7 @@ class ReupApp(App):
             return
 
         rendered = output.getvalue().strip()
-        if command in {"/branch", "/attach"}:
+        if command in {"/branch", "/attach", "/model"}:
             self.refresh_header()
         if rendered:
             self.post_system(f"Command {command}", rendered)
