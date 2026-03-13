@@ -601,68 +601,15 @@ SessionResumeModal .resume-table {
     height: 1;
 }
 
-#composer-meta {
-    height: 3;
+#composer-meta-line {
+    height: 1;
+    min-height: 1;
     width: 1fr;
-    margin: 0 0 0 0;
-    align-vertical: middle;
-}
-
-.meta-icon {
-    width: auto;
-    color: #9ca3af;
-}
-
-.meta-chip {
-    width: auto;
-    margin-left: 2;
+    margin: 0 2 0 2;
     color: #d1d5db;
     text-style: bold;
-}
-
-#composer-meta .meta-chip:last-of-type {
-    margin-right: 2;
-}
-
-#meta-spacer {
-    width: 1fr;
-}
-
-#send {
-    width: 9;
-    min-width: 9;
-    height: 3;
-    border: round #e5e7eb;
-    background: #ffffff;
-    color: #000000;
-    text-style: bold;
-    margin-right: 1;
-    content-align: center middle;
-    text-opacity: 100%;
-}
-
-#send > .button--label {
-    color: #000000;
-    text-style: bold;
-    text-opacity: 100%;
-}
-
-#send:hover {
-    background: #ffffff;
-    color: #000000;
-}
-
-#send:hover > .button--label {
-    color: #000000;
-}
-
-#send:focus {
-    background: #ffffff;
-    color: #000000;
-}
-
-#send:focus > .button--label {
-    color: #000000;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
 }
 
 Markdown {

@@ -384,13 +384,7 @@ class ReupApp(App):
                 with Container(id="prompt-container"):
                     yield ReupPromptTextArea(id="prompt", language="markdown")
                     yield Static("", id="composer-gap")
-                    with Horizontal(id="composer-meta"):
-                        yield Static("📎", classes="meta-icon")
-                        yield Static(self.config.model_name, classes="meta-chip", id="model-chip")
-                        yield Static("Plan", classes="meta-chip")
-                        yield Static("", id="meta-spacer")
-                        yield Static("tui_re", classes="meta-chip")
-                        yield Button("Send", id="send", variant="default")
+                    yield Static("", id="composer-meta-line")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -424,8 +418,11 @@ class ReupApp(App):
         meta = self.query_one("#header-meta", Static)
         title.update(self._current_session_title())
         meta.update(f"Workspace: {self.config.cwd}")
-        model_chip = self.query_one("#model-chip", Static)
-        model_chip.update(self.config.model_name)
+        composer_meta_line = self.query_one("#composer-meta-line", Static)
+        composer_meta_line.update(self._composer_meta_text())
+
+    def _composer_meta_text(self) -> str:
+        return f"Attach  {self.config.model_name}  Plan  tui_re"
 
     def _build_empty_state_title(self) -> str:
         # Mirror GUI greeting logic so both surfaces stay consistent.
@@ -518,15 +515,7 @@ class ReupApp(App):
             self.query_one("#top-throbber", Static).update(" ")
 
         prompt = self.query_one("#prompt", TextArea)
-        send = self.query_one("#send", Button)
-
         prompt.disabled = busy
-        send.disabled = False
-        if busy:
-            send.label = "Stop"
-        else:
-            send.label = "Send"
-        send.variant = "default"
         self._refresh_empty_state()
 
     def _tick_top_indicator(self) -> None:
@@ -807,10 +796,6 @@ class ReupApp(App):
             self.exit()
 
     async def action_send(self) -> None:
-        await self.handle_send()
-
-    @on(Button.Pressed, "#send")
-    async def on_send_button(self, _event: Button.Pressed) -> None:
         await self.handle_send()
 
     @on(TextArea.Changed, "#prompt")
