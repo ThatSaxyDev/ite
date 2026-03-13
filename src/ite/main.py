@@ -5,16 +5,25 @@ from ite.config.loader import load_config, ensure_workspace_layout
 import logging
 import sys
 import re
+import shlex
 import select
 import termios
 from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
 from ite.agent.session_manager import SessionSnapshot, SessionManager
-from ite.attachments import AttachmentManager, build_user_model_content, build_user_text_with_manifest
+from ite.attachments import (
+    AttachmentManager,
+    MAX_ATTACHMENTS,
+    build_user_model_content,
+    build_user_text_with_manifest,
+)
 import click
 import asyncio
 import signal
+from rich.panel import Panel
+from rich.text import Text
+from rich import box
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -27,6 +36,82 @@ class CLI:
         self.tui = TUI(config=config, console=console)
         self._last_dispatched_message: str | None = None
         self._last_user_message_for_retry: str | None = None
+
+    def _queue_attachment_paths(self, paths: list[str]) -> int:
+        if not self.agent or not self.agent.session:
+            return 0
+        queue = self.agent.session.pending_attachment_paths
+        added = 0
+        for raw in paths:
+            path = str(Path(raw).expanduser().resolve())
+            if path in queue:
+                continue
+            if len(queue) >= MAX_ATTACHMENTS:
+                break
+            queue.append(path)
+            added += 1
+        return added
+
+    def _render_attachment_queue(self) -> None:
+        if not self.agent or not self.agent.session:
+            return
+        queue = self.agent.session.pending_attachment_paths
+        if not queue:
+            console.print("[dim]No queued attachments.[/dim]")
+            return
+        lines = [
+            f"{idx}. {Path(path).name}  [dim]{path}[/dim]"
+            for idx, path in enumerate(queue, start=1)
+        ]
+        console.print(
+            Panel(
+                "\n".join(lines),
+                title=Text("Queued Attachments", style="bold cyan"),
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
+    def _consume_dropped_path_text(self, message: str) -> bool:
+        if not self.agent or not self.agent.session:
+            return False
+        raw = (message or "").strip()
+        if not raw:
+            return False
+
+        candidates: list[str]
+        if "\n" in raw:
+            candidates = [
+                line.strip().strip('"').strip("'")
+                for line in raw.splitlines()
+                if line.strip()
+            ]
+        else:
+            try:
+                candidates = shlex.split(raw)
+            except ValueError:
+                candidates = [raw.strip().strip('"').strip("'")]
+
+        if not candidates or len(candidates) > MAX_ATTACHMENTS:
+            return False
+
+        paths: list[str] = []
+        for candidate in candidates:
+            if not any(sep in candidate for sep in ("/", "\\")) and not candidate.startswith("~"):
+                return False
+            path = Path(candidate).expanduser()
+            if not path.exists() or not path.is_file():
+                return False
+            paths.append(str(path))
+
+        added = self._queue_attachment_paths(paths)
+        if added <= 0:
+            console.print("[dim]No new files queued.[/dim]")
+        else:
+            console.print(f"[dim]Queued {added} attachment(s).[/dim]")
+        self._render_attachment_queue()
+        return True
 
     def _read_user_message(self) -> str:
         try:
@@ -136,6 +221,8 @@ class CLI:
                     try:
                         user_input = self._read_user_message()
                         if not user_input:
+                            continue
+                        if self._consume_dropped_path_text(user_input):
                             continue
                         if not self._confirm_before_send(user_input):
                             continue
@@ -459,6 +546,8 @@ class CLI:
 
     async def _handle_command(self, user_input: str) -> bool:
         """Handle CLI commands. Returns True if handled, False if it should be sent to agent."""
+        if self._consume_dropped_path_text(user_input):
+            return True
         if not user_input.startswith("/"):
             return False
 
