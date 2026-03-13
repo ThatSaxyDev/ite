@@ -560,12 +560,21 @@ class LayoutBuilderMixin:
         return ft.Container(
             expand=True,
             bgcolor=CANVAS,
-            padding=ft.Padding.only(right=0, left=20, top=16),
-            content=ft.Stack(
+            padding=ft.Padding.only(left=20, right=20, top=16),
+            content=ft.Row(
                 [
-                    self.empty_state_container,
-                    self.messages_column,
+                    ft.Container(
+                        width=CONTENT_LANE_WIDTH,
+                        content=ft.Stack(
+                            [
+                                self.empty_state_container,
+                                self.messages_column,
+                            ],
+                            expand=True,
+                        ),
+                    )
                 ],
+                alignment=ft.MainAxisAlignment.CENTER,
                 expand=True,
             ),
         )
