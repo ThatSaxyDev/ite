@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from pathlib import Path
 import flet as ft
 from datetime import datetime
@@ -7,6 +8,54 @@ from ..tokens import *
 
 
 class WorkspaceControllerMixin:
+    def _session_list_signature(self, sessions: list[dict]) -> list[tuple[str, str, str, int]]:
+        return [
+            (
+                str(s.get("session_id", "")),
+                str(s.get("name", "")),
+                str(s.get("updated_at", "")),
+                int(s.get("turn_count", 0) or 0),
+            )
+            for s in sessions
+        ]
+
+    async def _reload_sidebar_threads_async(self, workspace_path: str | None = None):
+        target_workspace = str(Path(workspace_path or self.config.cwd).resolve())
+        try:
+            sessions = await asyncio.to_thread(
+                SessionManager().list_sessions,
+                workspace_path=target_workspace,
+                include_legacy_unscoped=False,
+            )
+            sessions = [s for s in sessions if s.get("turn_count", 0) > 0][:20]
+            if str(self.config.cwd.resolve()) != target_workspace:
+                return
+            previous_signature = self._session_list_signature(self.sidebar_sessions_cache or [])
+            new_signature = self._session_list_signature(sessions)
+            self.sidebar_sessions_cache = sessions
+            self.sidebar_sessions_by_id = {
+                s.get("session_id", ""): s for s in sessions if s.get("session_id")
+            }
+            if hasattr(self, "_refresh_empty_state_copy"):
+                self._refresh_empty_state_copy()
+            if new_signature != previous_signature:
+                self._render_sidebar_threads(sessions)
+        finally:
+            current_task = asyncio.current_task()
+            if self._sidebar_refresh_task is current_task:
+                self._sidebar_refresh_task = None
+
+    def _schedule_sidebar_threads_refresh(self):
+        if not self.page:
+            return
+        existing = getattr(self, "_sidebar_refresh_task", None)
+        if existing and hasattr(existing, "done") and not existing.done():
+            return
+        self._sidebar_refresh_task = self.page.run_task(
+            self._reload_sidebar_threads_async,
+            str(self.config.cwd.resolve()),
+        )
+
     def _known_workspace_paths(self) -> list[str]:
         manager = SessionManager()
         current_workspace = str(self.config.cwd.resolve())
@@ -18,22 +67,8 @@ class WorkspaceControllerMixin:
     def _refresh_sidebar_threads(self):
         if not self.sidebar_threads_column:
             return
-
-        sessions = [
-            s
-            for s in SessionManager().list_sessions(
-                workspace_path=self.config.cwd,
-                include_legacy_unscoped=False,
-            )
-            if s.get("turn_count", 0) > 0
-        ][:20]
-        self.sidebar_sessions_cache = sessions
-        self.sidebar_sessions_by_id = {
-            s.get("session_id", ""): s for s in sessions if s.get("session_id")
-        }
-        if hasattr(self, "_refresh_empty_state_copy"):
-            self._refresh_empty_state_copy()
-        self._render_sidebar_threads(sessions)
+        self._render_sidebar_threads(self.sidebar_sessions_cache or [])
+        self._schedule_sidebar_threads_refresh()
 
     def _render_sidebar_threads(self, sessions: list[dict] | None = None):
         if not self.sidebar_threads_column:
@@ -45,8 +80,7 @@ class WorkspaceControllerMixin:
         controls: list[ft.Control] = []
         if self.sidebar_collapsed:
             self.sidebar_threads_column.controls = controls
-            if self.page:
-                self._safe_page_update()
+            self._safe_control_update(self.sidebar_threads_column)
             return
         if not sessions:
             if not self.sidebar_collapsed:
@@ -118,8 +152,7 @@ class WorkspaceControllerMixin:
                 )
 
         self.sidebar_threads_column.controls = controls
-        if self.page:
-            self._safe_page_update()
+        self._safe_control_update(self.sidebar_threads_column)
 
     def _refresh_workspace_options(self):
         if not self.workspace_selector:
@@ -142,8 +175,7 @@ class WorkspaceControllerMixin:
             for p in known
         ]
         self.workspace_selector.value = current_workspace
-        if self.page:
-            self._safe_page_update()
+        self._safe_control_update(self.workspace_selector)
 
     def _open_empty_state_workspace_dialog(self, e=None):
         if not self.page:
@@ -262,6 +294,7 @@ class WorkspaceControllerMixin:
         try:
             await self._cancel_active_turn_and_wait()
             self.config.cwd = target
+            self.gui_state.set_workspace(target)
             if self.header_workspace_text:
                 self.header_workspace_text.value = f"Workspace: {self.config.cwd}"
             if hasattr(self, "_refresh_empty_state_copy"):
@@ -270,8 +303,15 @@ class WorkspaceControllerMixin:
                 await self._shutdown_agent()
             if self.messages_column:
                 self._clear_chat_controls()
+            self.gui_state.session_loaded(
+                session_id=None,
+                title=None,
+                workspace=self.config.cwd,
+                visible_transcript_messages=[],
+                transcript_truncated=False,
+                pending_transcript_load=False,
+            )
             self._set_current_session_title(None)
-            self.active_session_id = None
             self._tool_call_row_indices.clear()
             if hasattr(self, "_tool_args_by_call_id"):
                 self._tool_args_by_call_id.clear()
@@ -305,6 +345,6 @@ class WorkspaceControllerMixin:
             return
         if self.loading_session_id == session_id:
             return
-        self.loading_session_id = session_id
+        self.gui_state.select_session(session_id)
         self._render_sidebar_threads()
         self.page.run_task(self._open_session_from_sidebar, session_id)

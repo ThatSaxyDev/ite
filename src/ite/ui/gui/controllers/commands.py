@@ -221,7 +221,14 @@ class CommandControllerMixin:
                 self.agent.session.context_manager.clear()
                 self.agent.session.loop_detector.clear()
                 self.agent.session.name = None
-            self.active_session_id = None
+            self.gui_state.session_loaded(
+                session_id=None,
+                title=None,
+                workspace=self.config.cwd,
+                visible_transcript_messages=[],
+                transcript_truncated=False,
+                pending_transcript_load=False,
+            )
             if self.messages_column and self.page:
                 self._clear_chat_controls()
                 self._safe_page_update()

@@ -382,7 +382,7 @@ class LayoutBuilderMixin:
         return sidebar
 
     def _toggle_sidebar(self):
-        self.sidebar_collapsed = not self.sidebar_collapsed
+        self.gui_state.toggle_sidebar()
         self._apply_sidebar_state()
 
     def _apply_sidebar_state(self, update: bool = True):
@@ -477,11 +477,7 @@ class LayoutBuilderMixin:
         )
 
     def _set_current_session_title(self, title: str | None):
-        normalized = (title or "").strip()
-        self.current_session_title = normalized if normalized else "New thread"
-        if self.header_session_text:
-            self.header_session_text.value = self.current_session_title
-            self._safe_control_update(self.header_session_text)
+        self.gui_state.set_current_session_title(title)
 
     def _build_chat_panel(self) -> ft.Control:
         self.messages_column = ft.Column(
@@ -924,11 +920,4 @@ class LayoutBuilderMixin:
             self._safe_control_update(self.send_button)
 
     def _set_loading(self, loading: bool):
-        is_busy = self._is_turn_running
-        if self.input_field:
-            self.input_field.disabled = is_busy
-            self._safe_control_update(self.input_field)
-        if self.attach_button:
-            self.attach_button.disabled = is_busy
-            self._safe_control_update(self.attach_button)
-        self._refresh_action_button()
+        self._apply_loading_controls()

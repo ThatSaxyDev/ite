@@ -29,6 +29,7 @@ from .controllers.approval import ApprovalControllerMixin
 from .controllers.sessions import SessionControllerMixin
 from .controllers.commands import CommandControllerMixin
 from .controllers.agent_events import AgentEventControllerMixin
+from .state import GUIState, GUIStateStore
 from .tokens import *
 
 
@@ -104,6 +105,7 @@ class GUIApp(
         self.loading_session_id: str | None = None
         self._session_hydration_task: asyncio.Task | None = None
         self._hydrating_session_id: str | None = None
+        self._sidebar_refresh_task: asyncio.Task | None = None
         self.sidebar_sessions_cache: list[dict] = []
         self.sidebar_sessions_by_id: dict[str, dict] = {}
         self.app_mode: str = "setup" if self.config.needs_setup else "chat"
@@ -160,6 +162,55 @@ class GUIApp(
         self.workboard_plan_wrapper: ft.Container | None = None
         self.workboard_has_content: bool = False
         self.workboard_width: float = 560.0
+        self.gui_state = GUIStateStore(initial_workspace=str(self.config.cwd.resolve()))
+        self._bind_gui_state_store()
+
+    def _bind_gui_state_store(self):
+        self.gui_state.subscribe("shell", self._on_gui_shell_state_changed)
+        self.gui_state.subscribe("interaction", self._on_gui_interaction_state_changed)
+        self.gui_state.subscribe("session_view", self._on_gui_session_view_state_changed)
+        self.gui_state.subscribe("workboard", self._on_gui_workboard_state_changed)
+
+    def _on_gui_shell_state_changed(self, state: GUIState) -> None:
+        shell = state.shell
+        self.active_session_id = shell.active_session_id
+        self.loading_session_id = shell.loading_session_id
+        self.sidebar_collapsed = shell.sidebar_collapsed
+        self.workboard_visible = shell.workboard_visible
+
+    def _on_gui_interaction_state_changed(self, state: GUIState) -> None:
+        interaction = state.interaction
+        self._is_turn_running = interaction.is_turn_running
+        self._apply_loading_controls()
+
+    def _on_gui_session_view_state_changed(self, state: GUIState) -> None:
+        session_view = state.session_view
+        self.current_session_title = session_view.current_session_title
+        if self.header_session_text:
+            self.header_session_text.value = self.current_session_title
+            self._safe_control_update(self.header_session_text)
+        workspace_text = f"Workspace: {session_view.current_workspace}"
+        if self.header_workspace_text and self.header_workspace_text.value != workspace_text:
+            self.header_workspace_text.value = workspace_text
+            self._safe_control_update(self.header_workspace_text)
+
+    def _on_gui_workboard_state_changed(self, state: GUIState) -> None:
+        workboard = state.workboard
+        self.workboard_has_content = workboard.has_content
+        if self.workboard_todos_section is not None or self.workboard_plan_section is not None:
+            self._render_workboard_todos_from_state(workboard.todos_state)
+            self._set_workboard_plan_text(workboard.plan_text)
+            self._apply_workboard_state(update=False)
+
+    def _apply_loading_controls(self):
+        is_busy = self._is_turn_running or self.loading_session_id is not None
+        if self.input_field:
+            self.input_field.disabled = is_busy
+            self._safe_control_update(self.input_field)
+        if self.attach_button:
+            self.attach_button.disabled = is_busy
+            self._safe_control_update(self.attach_button)
+        self._refresh_action_button()
 
     def _has_active_turn(self) -> bool:
         if self._is_turn_running:
@@ -786,7 +837,7 @@ class GUIApp(
         if not self.workboard_has_content:
             self._show_transient_notice("Workboard opens when a plan or checklist is available.")
             return
-        self.workboard_visible = not self.workboard_visible
+        self.gui_state.toggle_workboard()
         self._apply_workboard_state()
 
     def _apply_workboard_state(self, update: bool = True):
@@ -833,7 +884,7 @@ class GUIApp(
             return
         if self.workboard_visible:
             return
-        self.workboard_visible = True
+        self.gui_state.open_workboard()
         self._apply_workboard_state(update=True)
 
     def _execution_todo_count(self) -> int:
@@ -1073,11 +1124,12 @@ class GUIApp(
 
     def _refresh_workboard_from_session(self):
         if not self.agent or not self.agent.session:
-            self.workboard_has_content = False
-            self.workboard_visible = False
-            self._render_workboard_todos_from_state(None)
-            self._set_workboard_plan_text(None)
-            self._apply_workboard_state(update=False)
+            self.gui_state.set_workboard_content(
+                plan_text="",
+                todos_state=None,
+                show_planning_todos=False,
+                has_content=False,
+            )
             return
         session = self.agent.session
         todos_state = session.export_todos_state()
@@ -1089,12 +1141,12 @@ class GUIApp(
                 if isinstance(entries, list) and entries:
                     has_todos = True
                     break
-        self.workboard_has_content = bool(has_todos or plan_text)
-        if not self.workboard_has_content:
-            self.workboard_visible = False
-        self._render_workboard_todos_from_state(todos_state)
-        self._set_workboard_plan_text(plan_text)
-        self._apply_workboard_state(update=False)
+        self.gui_state.set_workboard_content(
+            plan_text=plan_text,
+            todos_state=todos_state,
+            show_planning_todos=bool(session.show_planning_todos),
+            has_content=bool(has_todos or plan_text),
+        )
 
     def _build_empty_state_title(self) -> str:
         now = datetime.now()
@@ -1194,7 +1246,7 @@ class GUIApp(
         try:
             if turn_id != self._active_turn_id:
                 return
-            self._is_turn_running = True
+            self.gui_state.set_turn_running(True)
             self._set_loading(True)
             self._add_user_attachment_preview(staged_attachments or [])
             self._add_message("user", (display_message if display_message is not None else message))
@@ -1230,7 +1282,7 @@ class GUIApp(
                 AttachmentManager(self.config.cwd).cleanup_turn(temp_attachment_turn_id)
             if turn_id == self._active_turn_id:
                 self._stop_requested_by_user = False
-                self._is_turn_running = False
+                self.gui_state.set_turn_running(False)
                 self._active_turn_task = None
                 self._hide_thinking_indicator()
                 self._set_loading(False)
@@ -1247,7 +1299,14 @@ class GUIApp(
         )
         await self.agent.__aenter__()
         if self.agent.session:
-            self.active_session_id = self.agent.session.session_id
+            self.gui_state.session_loaded(
+                session_id=self.agent.session.session_id,
+                title=self.agent.session.name,
+                workspace=self.config.cwd,
+                visible_transcript_messages=[],
+                transcript_truncated=False,
+                pending_transcript_load=False,
+            )
             self._set_current_session_title(self.agent.session.name)
             self._sync_plan_toggle_ui()
             self._refresh_workboard_from_session()
@@ -1440,7 +1499,7 @@ class GUIApp(
         if not task:
             if self._is_turn_running:
                 self._active_turn_id += 1
-                self._is_turn_running = False
+                self.gui_state.set_turn_running(False)
                 self._hide_thinking_indicator()
                 self._set_loading(False)
             return
@@ -1464,14 +1523,14 @@ class GUIApp(
             # If cancellation stalls, invalidate this turn so stale events cannot mutate UI.
             if timed_out:
                 self._active_turn_id += 1
-                self._is_turn_running = False
+                self.gui_state.set_turn_running(False)
                 self._hide_thinking_indicator()
                 self._set_loading(False)
             self._active_turn_task = None
 
     def _reset_turn_ui_state(self):
         self._active_turn_task = None
-        self._is_turn_running = False
+        self.gui_state.set_turn_running(False)
         self._clear_intent_assist_state()
         self._hide_thinking_indicator()
         self._set_loading(False)
