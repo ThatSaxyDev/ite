@@ -358,7 +358,7 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
         table.add_columns("", "File")
         for path in self._files:
             path_key = self._path_key(path)
-            marker = "[x]" if path_key in self._selected_paths else "[ ]"
+            marker = Text("[x]" if path_key in self._selected_paths else "[ ]")
             try:
                 rel = str(path.relative_to(self._cwd))
             except Exception:
@@ -383,12 +383,12 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
         path_key = self._path_key(self._files[row])
         if path_key in self._selected_paths:
             self._selected_paths.remove(path_key)
-            marker = "[ ]"
+            marker = Text("[ ]")
         else:
             if len(self._selected_paths) >= MAX_ATTACHMENTS:
                 return
             self._selected_paths.add(path_key)
-            marker = "[x]"
+            marker = Text("[x]")
         table.update_cell_at((row, 0), marker)
         self._refresh_status()
 
