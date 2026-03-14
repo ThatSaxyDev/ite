@@ -10,30 +10,27 @@ from ..tokens import *
 
 
 class MessageBuilderMixin:
-    def _chat_markdown_style_sheet(self) -> ft.MarkdownStyleSheet:
-        return ft.MarkdownStyleSheet(
-            p_text_style=ft.TextStyle(size=TYPE_BODY + 1, color=TEXT_PRIMARY, height=1.45),
-            p_padding=ft.Padding.only(bottom=10),
-            h1_text_style=ft.TextStyle(size=TYPE_H1 + 4, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
-            h1_padding=ft.Padding.only(top=6, bottom=12),
-            h2_text_style=ft.TextStyle(size=TYPE_H1 + 1, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
-            h2_padding=ft.Padding.only(top=4, bottom=10),
-            h3_text_style=ft.TextStyle(size=TYPE_TITLE + 2, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
-            h3_padding=ft.Padding.only(top=2, bottom=8),
-            strong_text_style=ft.TextStyle(weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
-            code_text_style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_BODY, color=ft.Colors.with_opacity(0.96, ft.Colors.CYAN_100)),
-            block_spacing=12,
-            list_indent=24,
-            list_bullet_padding=ft.Padding.only(right=8),
-        )
-
     def _build_chat_markdown(self, content: str) -> ft.Markdown:
         return ft.Markdown(
             content,
             selectable=True,
             extension_set="gitHubFlavored",
-            md_style_sheet=self._chat_markdown_style_sheet(),
         )
+
+    def _build_user_message_content(self, content: str) -> ft.Control:
+        simple_text = content.strip()
+        looks_like_markdown = bool(
+            re.search(r"(?m)^(#{1,6}\s|\* |\d+\.\s|>\s|```)", simple_text)
+        )
+        if "\n" not in simple_text and not looks_like_markdown:
+            return ft.Text(
+                simple_text,
+                size=TYPE_BODY + 1,
+                color=TEXT_PRIMARY,
+                weight=WEIGHT_MEDIUM,
+                selectable=True,
+            )
+        return self._build_chat_markdown(content)
 
     def _wrap_in_lane(self, content: ft.Control) -> ft.Control:
         return ft.Row(
@@ -656,7 +653,10 @@ class MessageBuilderMixin:
             bg = SURFACE_2 if role == "user" else SURFACE_1
             border_color = BORDER if not is_error else ft.Colors.with_opacity(0.28, ft.Colors.RED_300)
             bubble = ft.Container(
-                content=self._build_chat_markdown(content),
+                content=ft.Container(
+                    content=self._build_user_message_content(content) if role == "user" else self._build_chat_markdown(content),
+                    alignment=ft.Alignment(-1, 0),
+                ),
                 bgcolor=bg,
                 border_radius=RADIUS_MD,
                 padding=ft.Padding.symmetric(horizontal=12, vertical=8),
