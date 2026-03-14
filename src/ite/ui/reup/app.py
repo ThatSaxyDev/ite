@@ -1450,10 +1450,7 @@ class ReupApp(App):
         self.refresh_header()
 
         await self._hydrate_chat_from_snapshot(snapshot.messages)
-        self.post_system(
-            "Session Loaded",
-            f"{snapshot.name or snapshot.session_id} · {snapshot.turn_count} turns",
-        )
+        await self._remove_cards_by_title({"Session Loaded"})
 
     async def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -2362,6 +2359,19 @@ class ReupApp(App):
         self._message_count += 1
         self._refresh_empty_state()
         conversation.scroll_end(animate=False)
+
+    async def _remove_cards_by_title(self, titles: set[str]) -> None:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        for child in list(conversation.children):
+            try:
+                title_widget = child.query_one(".card-title", Static)
+            except Exception:
+                continue
+            renderable = getattr(title_widget, "renderable", "")
+            if str(renderable).strip() in titles:
+                await child.remove()
+                self._message_count = max(0, self._message_count - 1)
+        self._refresh_empty_state()
 
     async def add_tool_call_start(
         self,
