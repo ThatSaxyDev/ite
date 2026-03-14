@@ -3,6 +3,7 @@ import html2text
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
+from ite.tools.base import ToolMetadata, ToolRiskLevel
 from pydantic import BaseModel, Field
 
 
@@ -79,6 +80,18 @@ class WebFetchTool(Tool):
     kind = ToolKind.NETWORK
     schema = WebFetchParams
 
+    def is_mutating(self, params: dict) -> bool:
+        return False
+
+    def get_metadata(self, params: dict) -> ToolMetadata:
+        return ToolMetadata(
+            mutating=False,
+            risk_level=ToolRiskLevel.LOW,
+            allowed_in_plan_mode=True,
+            supports_subagent_use=True,
+            output_schema={"type": "string"},
+        )
+
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = WebFetchParams(**invocation.params)
 
@@ -131,8 +144,11 @@ class WebFetchTool(Tool):
             text,
             truncated=truncated,
             metadata={
+                "url": params.url,
                 "status_code": response.status_code,
                 "content_type": content_type.split(";")[0].strip(),
                 "content_length": len(response.content),
+                "provider": "direct_fetch",
+                "intent": "source retrieval",
             },
         )

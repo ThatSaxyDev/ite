@@ -8,37 +8,113 @@ import re
 from pathlib import Path
 from pydantic import BaseModel, Field
 from ite.tools.base import Tool, ToolKind, ToolInvocation, ToolResult
+from ite.tools.base import ToolMetadata, ToolRiskLevel
+from ite.safety.approval import classify_command_safety, CommandSafety
+import shlex
+
+
+_REDIRECT_OPERATORS = {">", ">>", "1>", "1>>", "2>", "2>>", "<", "<<", ">>>"}
+_SHELL_COMMAND_WORDS = {
+    "bash",
+    "sh",
+    "zsh",
+    "fish",
+    "python",
+    "python3",
+    "node",
+    "npm",
+    "pnpm",
+    "yarn",
+    "git",
+    "ls",
+    "cat",
+    "echo",
+    "pwd",
+    "find",
+    "grep",
+    "sed",
+    "awk",
+    "make",
+    "cargo",
+    "pip",
+    "pytest",
+}
+
+
+def _clean_shell_token(token: str) -> str:
+    cleaned = token.strip().strip("'\"")
+    if cleaned.startswith(("file://", "http://", "https://")):
+        return ""
+    return cleaned
 
 
 def _extract_paths_from_command(command: str) -> list[Path]:
-    """Extract file paths from a shell command string for sandbox validation.
-
-    Catches: absolute paths (/etc/passwd), home paths (~/Desktop),
-    and parent traversals (../../etc).
-    """
-    paths = []
-    # Expand ~ to actual home dir
+    """Extract likely filesystem paths from a shell command for sandbox validation."""
+    paths: list[Path] = []
+    seen: set[str] = set()
     home = Path.home()
+    redirect_targets: list[str] = []
 
-    # Split on whitespace, pipes, semicolons, &&, ||
-    tokens = re.split(r"[\s;|&]+", command)
+    for match in re.finditer(
+        r"(?:(?:^|[\s;&|])(?:\d*>>?|\d*<)\s*)(\"[^\"]+\"|'[^']+'|[^\s;&|]+)",
+        command,
+    ):
+        redirect_targets.append(match.group(1))
+
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        tokens = re.split(r"[\s;|&]+", command)
+
+    idx = 0
+    while idx < len(tokens):
+        token = tokens[idx]
+        if token in _REDIRECT_OPERATORS and idx + 1 < len(tokens):
+            redirect_targets.append(tokens[idx + 1])
+            idx += 2
+            continue
+        idx += 1
+
+    def add_path_token(raw: str) -> None:
+        token = _clean_shell_token(raw)
+        if not token:
+            return
+        if token.startswith("~"):
+            token = token.replace("~", str(home), 1)
+
+        looks_like_path = False
+        if token.startswith("/"):
+            looks_like_path = True
+        elif token.startswith(".") and ("/" in token or token in {".", ".."}):
+            looks_like_path = True
+        elif ".." in token and "/" in token:
+            looks_like_path = True
+        elif "/" in token and not token.startswith("-"):
+            looks_like_path = True
+
+        if not looks_like_path:
+            return
+
+        normalized = token.rstrip(";,)")
+        if normalized in seen:
+            return
+        seen.add(normalized)
+        paths.append(Path(normalized))
 
     for token in tokens:
-        # Strip quotes
-        token = token.strip("'\"")
-        if not token:
+        cleaned = _clean_shell_token(token)
+        if not cleaned or cleaned in _REDIRECT_OPERATORS:
             continue
+        if cleaned.startswith("-"):
+            continue
+        if "=" in cleaned and "/" not in cleaned and not cleaned.startswith(("~", ".")):
+            continue
+        if cleaned in _SHELL_COMMAND_WORDS:
+            continue
+        add_path_token(cleaned)
 
-        # Absolute paths
-        if token.startswith("/"):
-            paths.append(Path(token))
-        # Home-relative paths
-        elif token.startswith("~"):
-            expanded = token.replace("~", str(home), 1)
-            paths.append(Path(expanded))
-        # Parent traversals that escape cwd
-        elif ".." in token and "/" in token:
-            paths.append(Path(token))
+    for token in redirect_targets:
+        add_path_token(token)
 
     return paths
 
@@ -79,17 +155,38 @@ class ShellTool(Tool):
 
     schema = ShellParams
 
+    def is_mutating(self, params: dict[str, Any]) -> bool:
+        command = str(params.get("command", "")).strip()
+        return classify_command_safety(command) != CommandSafety.SAFE
+
+    def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
+        command = str(params.get("command", "")).strip()
+        safety = classify_command_safety(command)
+        risk_level = {
+            CommandSafety.SAFE: ToolRiskLevel.LOW,
+            CommandSafety.CAUTION: ToolRiskLevel.MEDIUM,
+            CommandSafety.DANGEROUS: ToolRiskLevel.HIGH,
+        }[safety]
+        return ToolMetadata(
+            mutating=self.is_mutating(params),
+            risk_level=risk_level,
+            allowed_in_plan_mode=safety == CommandSafety.SAFE,
+            supports_subagent_use=True,
+            output_schema={"type": "string"},
+        )
+
     async def get_confirmation(
         self, invocation: ToolInvocation
     ) -> ToolConfirmation | None:
         params = ShellParams(**invocation.params)
+        safety = classify_command_safety(params.command)
 
         for blocked in BLOCKED_COMMANDS:
             if blocked in params.command:
                 return ToolConfirmation(
                     tool_name=self.name,
                     params=invocation.params,
-                    description=f"Execute (BLOCKED): {params.command}",
+                    description=f"Execute shell command (blocked as dangerous): {params.command}",
                     command=params.command,
                     is_dangerous=True,
                 )
@@ -97,13 +194,14 @@ class ShellTool(Tool):
         return ToolConfirmation(
             tool_name=self.name,
             params=invocation.params,
-            description=f"Execute: {params.command}",
+            description=f"Execute shell command ({safety.value}): {params.command}",
             command=params.command,
-            is_dangerous=False,
+            is_dangerous=safety == CommandSafety.DANGEROUS,
         )
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = ShellParams(**invocation.params)
+        safety = classify_command_safety(params.command)
 
         command = params.command.lower().strip()
 
@@ -111,7 +209,11 @@ class ShellTool(Tool):
             if blocked in command:
                 return ToolResult.error_result(
                     f"Command blocked for safety reasons: '{params.command}'",
-                    metadata={"blocked": True},
+                    metadata={
+                        "blocked": True,
+                        "safety_classification": safety.value,
+                        "command": params.command,
+                    },
                 )
 
         if params.cwd:
@@ -169,6 +271,13 @@ class ShellTool(Tool):
             await process.wait()
             return ToolResult.error_result(
                 f"Command timed out after {params.timeout} seconds",
+                metadata={
+                    "command": params.command,
+                    "cwd": str(cwd),
+                    "timeout_seconds": params.timeout,
+                    "timed_out": True,
+                    "safety_classification": safety.value,
+                },
             )
 
         stdout = stdout_data.decode("utf-8", errors="replace")
@@ -176,26 +285,43 @@ class ShellTool(Tool):
 
         exit_code = process.returncode
 
-        output = ""
+        output_parts: list[str] = []
 
         if stdout.strip():
-            output += stdout.rstrip()
+            output_parts.append(stdout.rstrip())
 
         if stderr.strip():
-            output += "\n--- stderr ---"
-            output += stderr.rstrip()
+            stderr_block = stderr.rstrip()
+            if output_parts:
+                output_parts.append("--- STDERR ---\n" + stderr_block)
+            else:
+                output_parts.append(stderr_block)
 
+        output = "\n\n".join(output_parts)
         if exit_code != 0:
-            output += f"\nExit code: {exit_code}"
+            output = (output + "\n\n" if output else "") + f"Exit code: {exit_code}"
 
+        was_truncated = False
         if len(output) > 100 * 1024:
             output = output[: 100 * 1024] + "\n... [output truncated]"
+            was_truncated = True
 
         return ToolResult(
             success=exit_code == 0,
             error=stderr if exit_code != 0 else None,
             exit_code=exit_code,
             output=output,
+            truncated=was_truncated,
+            metadata={
+                "command": params.command,
+                "cwd": str(cwd),
+                "stdout_bytes": len(stdout_data),
+                "stderr_bytes": len(stderr_data),
+                "has_stdout": bool(stdout.strip()),
+                "has_stderr": bool(stderr.strip()),
+                "safety_classification": safety.value,
+                "timed_out": False,
+            },
         )
 
     def _build_environment(self) -> dict[str, str]:

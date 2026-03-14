@@ -810,8 +810,8 @@ class CLI:
                         if self._should_hide_planning_todos(scope):
                             self.tui.start_spinner("Running")
                             continue
-                    if tool_name in {"memory", "plan_question", "web_search", "web_fetch"} or (
-                        plan_only_phase and tool_name != "todos"
+                    if tool_name in {"memory", "plan_question"} or (
+                        plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}
                     ):
                         self.tui.start_spinner("Running")
                         continue
@@ -838,11 +838,12 @@ class CLI:
                         if self._should_hide_planning_todos(scope):
                             self.tui.start_spinner("Thinking...")
                             continue
-                    if tool_name in {"memory", "plan_question", "web_search", "web_fetch"}:
+                    if tool_name in {"memory", "plan_question"}:
                         self.tui.start_spinner("Thinking...")
                         continue
                     if (
                         plan_only_phase
+                        and tool_name not in {"web_search", "web_fetch"}
                         and not event.data.get("success", False)
                         and str(event.data.get("error") or "").startswith("Invalid parameters:")
                     ):
@@ -852,7 +853,7 @@ class CLI:
                         continue
                     if (
                         plan_only_phase
-                        and tool_name != "todos"
+                        and tool_name not in {"todos", "web_search", "web_fetch"}
                         and event.data.get("success", False)
                     ):
                         self.tui.start_spinner("Thinking...")

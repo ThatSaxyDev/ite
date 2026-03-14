@@ -1804,7 +1804,7 @@ class ReupApp(App):
 
     async def handle_agent_event(self, event: AgentEvent) -> None:
         plan_only_phase = self._is_plan_only_phase()
-        suppressed_tools = {"memory", "plan_question", "web_search", "web_fetch"}
+        suppressed_tools = {"memory", "plan_question"}
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
@@ -1844,7 +1844,7 @@ class ReupApp(App):
             if tool_name in suppressed_tools:
                 self._set_loading_state("thinking", busy=True)
                 return
-            if plan_only_phase and tool_name != "todos":
+            if plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}:
                 self._set_loading_state("thinking", busy=True)
                 return
             tool_kind = self.get_tool_kind(tool_name)
@@ -1867,7 +1867,11 @@ class ReupApp(App):
             if tool_name in suppressed_tools:
                 self._set_loading_state("thinking", busy=True)
                 return
-            if plan_only_phase and tool_name != "todos" and event.data.get("success", False):
+            if (
+                plan_only_phase
+                and tool_name not in {"todos", "web_search", "web_fetch"}
+                and event.data.get("success", False)
+            ):
                 self._set_loading_state("thinking", busy=True)
                 return
             tool_kind = self.get_tool_kind(tool_name)
@@ -2651,9 +2655,17 @@ class ReupApp(App):
             command = args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(Text(f"$ {command.strip()}", style="#8c97ab"))
+            summary_parts: list[str] = []
+            safety = md.get("safety_classification")
+            if isinstance(safety, str):
+                summary_parts.append(f"{safety} command")
             if exit_code is not None:
-                blocks.append(Text(f"exit code {exit_code}", style="#8c97ab"))
-            if command or exit_code is not None:
+                summary_parts.append(f"exit code {exit_code}")
+            if md.get("has_stderr"):
+                summary_parts.append("stderr captured")
+            if summary_parts:
+                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+            if command or summary_parts:
                 blocks.append(Text(""))
 
             output_display, was_truncated = self._truncate_for_tool(name, payload)
@@ -2662,6 +2674,40 @@ class ReupApp(App):
                 blocks.append(self._render_text_payload(output_display, success=success))
             else:
                 blocks.append(Text("No output", style="#8c97ab"))
+        elif name == "web_search" and success:
+            query = md.get("query") or args.get("query")
+            results_count = md.get("results")
+            provider = md.get("provider")
+            summary_parts: list[str] = []
+            if isinstance(query, str) and query.strip():
+                summary_parts.append(f"\"{query.strip()}\"")
+            if isinstance(results_count, int):
+                summary_parts.append(f"{results_count} result{'s' if results_count != 1 else ''}")
+            if isinstance(provider, str) and provider.strip():
+                summary_parts.append(provider)
+            if summary_parts:
+                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text(""))
+            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            blocks.append(self._render_text_payload(output_display, success=success))
+        elif name == "web_fetch" and success:
+            summary_parts: list[str] = []
+            url = md.get("url") or args.get("url")
+            status_code = md.get("status_code")
+            content_type = md.get("content_type")
+            if isinstance(status_code, int):
+                summary_parts.append(str(status_code))
+            if isinstance(content_type, str) and content_type.strip():
+                summary_parts.append(content_type.strip())
+            if isinstance(url, str) and url.strip():
+                summary_parts.append(url.strip())
+            if summary_parts:
+                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text(""))
+            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            blocks.append(self._render_text_payload(output_display, success=success))
         elif name in {"list_dir", "glob", "grep"}:
             output_display, was_truncated = self._truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated

@@ -701,8 +701,16 @@ class TUI:
             if isinstance(command, str) and command.strip():
                 blocks.append(Text(f"$ {command.strip()}", style="muted"))
 
+            summary_parts = []
+            safety = metadata.get("safety_classification")
+            if isinstance(safety, str):
+                summary_parts.append(f"{safety} command")
             if exit_code is not None:
-                blocks.append(self._summary_line(f"exit code {exit_code}"))
+                summary_parts.append(f"exit code {exit_code}")
+            if metadata.get("has_stderr"):
+                summary_parts.append("stderr captured")
+            if summary_parts:
+                blocks.append(self._summary_line(*summary_parts))
 
             output_display, was_truncated = self._truncate_for_tool(
                 name,
@@ -795,6 +803,7 @@ class TUI:
         elif name == "web_search" and success:
             results_count = metadata.get("results")
             query = args.get("query")
+            provider = metadata.get("provider")
             output_display, was_truncated = self._truncate_for_tool(
                 name,
                 output,
@@ -812,6 +821,8 @@ class TUI:
                     summary.append("1 result")
                 else:
                     summary.append(f"{results_count} results")
+            if isinstance(provider, str):
+                summary.append(provider)
 
             if summary:
                 blocks.append(Text(" • ".join(summary), style="muted"))
@@ -867,8 +878,7 @@ class TUI:
             status_code = metadata.get("status_code")
             content_type = metadata.get("content_type")
             content_length = metadata.get("content_length")
-
-            url = args.get("url")
+            url = metadata.get("url") or args.get("url")
 
             summary = []
 

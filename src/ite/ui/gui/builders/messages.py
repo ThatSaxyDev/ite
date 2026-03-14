@@ -470,8 +470,33 @@ class MessageBuilderMixin:
             if isinstance(actions, list):
                 chips.append(chip(f"{len(actions)} files changed"))
         elif name == "shell":
+            safety = metadata.get("safety_classification")
+            if isinstance(safety, str):
+                chips.append(chip(f"{safety} command"))
             if isinstance(exit_code, int):
                 chips.append(chip(f"exit code {exit_code}"))
+            if metadata.get("has_stderr"):
+                chips.append(chip("stderr captured"))
+        elif name == "web_search":
+            query = metadata.get("query")
+            provider = metadata.get("provider")
+            results = metadata.get("results")
+            if isinstance(query, str) and query.strip():
+                chips.append(chip(query.strip()))
+            if isinstance(results, int):
+                chips.append(chip(f"{results} result{'s' if results != 1 else ''}"))
+            if isinstance(provider, str) and provider.strip():
+                chips.append(chip(provider))
+        elif name == "web_fetch":
+            status_code = metadata.get("status_code")
+            content_type = metadata.get("content_type")
+            url = metadata.get("url")
+            if isinstance(status_code, int):
+                chips.append(chip(str(status_code)))
+            if isinstance(content_type, str) and content_type.strip():
+                chips.append(chip(content_type.strip()))
+            if isinstance(url, str) and url.strip():
+                chips.append(chip(url.strip()))
 
         if not chips:
             return None
@@ -921,6 +946,21 @@ class MessageBuilderMixin:
                 max_height=260,
                 line_limit=520,
                 markdown=False,
+            )
+        elif name == "web_search":
+            payload_block = self._build_scrollable_text_block(
+                payload,
+                max_height=240,
+                line_limit=420,
+                markdown=False,
+            )
+        elif name == "web_fetch":
+            content_type = metadata.get("content_type") if isinstance(metadata, dict) else ""
+            payload_block = self._build_scrollable_text_block(
+                payload,
+                max_height=260,
+                line_limit=520,
+                markdown=not (isinstance(content_type, str) and "json" in content_type),
             )
         elif self._looks_like_json(payload):
             try:

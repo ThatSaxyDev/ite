@@ -44,7 +44,7 @@ class AgentEventControllerMixin:
             and self.agent.session
             and self.agent.session.plan_phase != "executing"
         )
-        suppressed_tools = {"memory", "plan_question", "web_search", "web_fetch"}
+        suppressed_tools = {"memory", "plan_question"}
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
@@ -74,7 +74,7 @@ class AgentEventControllerMixin:
                 return
             if tool_name in suppressed_tools:
                 return
-            if plan_only_phase and tool_name != "todos":
+            if plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}:
                 return
             self._hide_thinking_indicator()
             self._add_tool_call(
@@ -118,7 +118,11 @@ class AgentEventControllerMixin:
                 if self._is_turn_running:
                     self._show_thinking_indicator()
                 return
-            if plan_only_phase and tool_name != "todos" and event.data.get("success", False):
+            if (
+                plan_only_phase
+                and tool_name not in {"todos", "web_search", "web_fetch"}
+                and event.data.get("success", False)
+            ):
                 if self._is_turn_running:
                     self._show_thinking_indicator()
                 return

@@ -14,6 +14,12 @@ class ApprovalDecision(str, Enum):
     NEEDS_CONFIRMATION = "needs_confirmation"
 
 
+class CommandSafety(str, Enum):
+    SAFE = "safe"
+    CAUTION = "caution"
+    DANGEROUS = "dangerous"
+
+
 @dataclass
 class ApprovalContext:
 
@@ -100,7 +106,10 @@ def _split_compound_command(command: str) -> list[str]:
 
 
 def is_dangerous_command(command: str) -> bool:
-    """A compound command is dangerous if ANY sub-command is dangerous."""
+    """A compound command is dangerous if the full command or any sub-command is dangerous."""
+    for pattern in DANGEROUS_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            return True
     for sub_cmd in _split_compound_command(command):
         for pattern in DANGEROUS_PATTERNS:
             if re.search(pattern, sub_cmd, re.IGNORECASE):
@@ -124,6 +133,14 @@ def is_safe_command(command: str) -> bool:
             return False
 
     return True
+
+
+def classify_command_safety(command: str) -> CommandSafety:
+    if is_dangerous_command(command):
+        return CommandSafety.DANGEROUS
+    if is_safe_command(command):
+        return CommandSafety.SAFE
+    return CommandSafety.CAUTION
 
 
 class ApprovalManager:

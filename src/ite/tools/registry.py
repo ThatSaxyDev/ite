@@ -17,6 +17,7 @@ import logging
 import time
 import json
 from ite.tools.base import Tool
+from ite.safety.approval import classify_command_safety
 
 logger = logging.getLogger(__name__)
 
@@ -225,14 +226,26 @@ class ToolRegistry:
                 )
 
                 decision = await approval_manager.check_approval(context)
+                approval_reason = None
+                if context.command:
+                    safety = classify_command_safety(context.command).value
+                    if decision == ApprovalDecision.REJECTED:
+                        approval_reason = (
+                            f"Shell command blocked by safety policy ({safety})."
+                        )
+                    elif decision == ApprovalDecision.NEEDS_CONFIRMATION:
+                        approval_reason = (
+                            f"Shell command requires approval before execution ({safety})."
+                        )
 
                 if decision == ApprovalDecision.REJECTED:
                     result = ToolResult.error_result(
-                        "Operation rejected by by safety policy",
+                        approval_reason or "Operation rejected by safety policy",
                         metadata={
                             "tool_name": name,
                             "tool_metadata": metadata.to_dict(),
                             "approval_decision": decision.value,
+                            "approval_reason": approval_reason,
                         },
                     )
                     await hook_system.trigger_after_tool(
@@ -255,11 +268,12 @@ class ToolRegistry:
 
                     if not approved:
                         result = ToolResult.error_result(
-                            "User rejected the operation",
+                            "Approval declined. Operation was not executed.",
                             metadata={
                                 "tool_name": name,
                                 "tool_metadata": metadata.to_dict(),
                                 "approval_decision": decision.value,
+                                "approval_reason": approval_reason,
                             },
                         )
 

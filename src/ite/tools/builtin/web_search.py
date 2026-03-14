@@ -1,4 +1,5 @@
 from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
+from ite.tools.base import ToolMetadata, ToolRiskLevel
 from pydantic import BaseModel, Field
 try:
     from ddgs import DDGS
@@ -21,6 +22,18 @@ class WebSearchTool(Tool):
     description = "Search the web for information. Returns search results with titles, URLs and snippets"
     kind = ToolKind.NETWORK
     schema = WebSearchParams
+
+    def is_mutating(self, params: dict) -> bool:
+        return False
+
+    def get_metadata(self, params: dict) -> ToolMetadata:
+        return ToolMetadata(
+            mutating=False,
+            risk_level=ToolRiskLevel.LOW,
+            allowed_in_plan_mode=True,
+            supports_subagent_use=True,
+            output_schema={"type": "string"},
+        )
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = WebSearchParams(**invocation.params)
@@ -45,6 +58,7 @@ class WebSearchTool(Tool):
                 metadata={
                     "query": params.query,
                     "results": 0,
+                    "provider": "duckduckgo",
                 },
             )
 
@@ -57,10 +71,18 @@ class WebSearchTool(Tool):
                 output_lines.append(f"  Snippet: {result['body']}")
             output_lines.append("")
 
+        top_urls = [
+            str(result.get("href", "")).strip()
+            for result in results[: params.max_results]
+            if str(result.get("href", "")).strip()
+        ]
         return ToolResult.success_result(
             "\n".join(output_lines),
             metadata={
                 "query": params.query,
                 "results": min(len(results), params.max_results),
+                "provider": "duckduckgo",
+                "top_urls": top_urls[:3],
+                "intent": "external research",
             },
         )
