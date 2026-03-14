@@ -1060,7 +1060,7 @@ class CLI:
 @click.version_option(version="0.0.5", prog_name="ite")
 @click.option(
     "--cwd",
-    "-c",
+    "-w",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="Current working directory",
 )
@@ -1068,23 +1068,24 @@ class CLI:
 @click.option("--api-key", "-k", help="API key for the LLM provider")
 @click.option("--base-url", "-u", help="Base URL for the OpenAI-compatible API")
 @click.option(
-    "--gui",
-    "-g",
+    "--desktop",
+    "-d",
     is_flag=True,
-    help="Launch GUI mode instead of TUI",
+    help="Launch the desktop app",
 )
 @click.option(
-    "--reup",
+    "--chat",
+    "-c",
     is_flag=True,
-    help="Launch the Textual-based reup TUI (experimental)",
+    help="Launch the chat-first terminal app",
 )
 def main(
     cwd: Path | None,
     model: str | None,
     api_key: str | None,
     base_url: str | None,
-    gui: bool = False,
-    reup: bool = False,
+    desktop: bool = False,
+    chat: bool = False,
 ):
     workspace_dir = cwd or Path.cwd()
     ensure_workspace_layout(workspace_dir)
@@ -1106,7 +1107,7 @@ def main(
     # Setup routing:
     # - TUI: keep terminal wizard behavior.
     # - GUI: launch GUI setup view instead of forcing terminal wizard first.
-    if not gui and config.needs_setup:
+    if not desktop and config.needs_setup:
         from ite.config.setup import run_setup_wizard
 
         config = run_setup_wizard(console, config)
@@ -1114,7 +1115,7 @@ def main(
     errors = config.validate()
     if errors:
         # In GUI mode missing_api_key is handled by the in-app setup flow.
-        if gui:
+        if desktop or chat:
             real_errors = [e for e in errors if e != "missing_api_key"]
         else:
             # For TUI the wizard should have already handled missing_api_key.
@@ -1124,10 +1125,10 @@ def main(
                 console.print(f"[error]{error}[/error]")
             sys.exit(1)
 
-    if gui:
+    if desktop:
         from ite.ui.gui import run_gui
         run_gui(config)
-    elif reup:
+    elif chat:
         from ite.ui.reup import run_reup
 
         run_reup(config)
