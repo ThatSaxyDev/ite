@@ -98,7 +98,7 @@ class Config(BaseModel):
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     hooks_enabled: bool = False
     hooks: list[HookConfig] = Field(default_factory=list)
-    approval: ApprovalPolicy = ApprovalPolicy.ON_REQUEST
+    approval: ApprovalPolicy = ApprovalPolicy.AUTO
 
     max_turns: int = 100
 
