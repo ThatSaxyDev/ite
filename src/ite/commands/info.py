@@ -1,10 +1,13 @@
-"""Info commands: /stats, /tools, /mcp."""
+"""Info commands: /stats, /tools, /mcp, /workboard."""
 
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+from rich.console import Group
+from rich.markdown import Markdown
+from rich.rule import Rule
 from rich import box
 
 
@@ -95,6 +98,179 @@ async def cmd_tools(ctx: CommandContext, args: list[str]) -> None:
             border_style="cyan",
             box=box.ROUNDED,
             padding=(1, 2),
+            )
+        )
+
+
+def _visible_workboard_scopes(show_planning_todos: bool) -> list[str]:
+    scopes = ["execution"]
+    if show_planning_todos:
+        scopes.append("planning")
+    return scopes
+
+
+def _todo_progress(state: dict[str, object], scopes: list[str]) -> tuple[int, int, int]:
+    total = 0
+    completed = 0
+    pending = 0
+    for scope in scopes:
+        entries = state.get(scope, [])
+        if not isinstance(entries, list):
+            continue
+        total += len(entries)
+        for entry in entries:
+            if bool(getattr(entry, "get", lambda *_: False)("completed", False)):
+                completed += 1
+            else:
+                pending += 1
+    return completed, pending, total
+
+
+def _render_workboard_scope(
+    scope: str,
+    entries: list[dict[str, object]],
+) -> Panel:
+    pending = [entry for entry in entries if not bool(entry.get("completed", False))]
+    completed = [entry for entry in entries if bool(entry.get("completed", False))]
+    total = len(entries)
+    done = len(completed)
+    title = "Execution checklist" if scope == "execution" else "Planning checklist"
+    tone = "green" if scope == "execution" else "cyan"
+
+    lines: list[Text] = [
+        Text.assemble(
+            (f"{done}/{total} completed", f"bold {tone}"),
+            ("  ", ""),
+            (f"{len(pending)} pending", "yellow"),
+        )
+    ]
+
+    if pending:
+        lines.append(Text("Up next", style="muted"))
+        for entry in pending[:6]:
+            content = str(entry.get("content", "")).strip()
+            if content:
+                lines.append(Text.assemble(("  ☐ ", "muted"), (content, "code")))
+        if len(pending) > 6:
+            lines.append(Text(f"  +{len(pending) - 6} more pending", style="muted"))
+
+    if completed:
+        if pending:
+            lines.append(Text(""))
+        lines.append(Text("Done", style="muted"))
+        for entry in completed[:3]:
+            content = str(entry.get("content", "")).strip()
+            if content:
+                lines.append(Text.assemble(("  ☑ ", tone), (content, "dim")))
+        if len(completed) > 3:
+            lines.append(Text(f"  +{len(completed) - 3} more completed", style="muted"))
+
+    return Panel(
+        Group(*lines),
+        title=Text(title, style=f"bold {tone}"),
+        title_align="left",
+        border_style=tone,
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+
+async def cmd_workboard(ctx: CommandContext, args: list[str]) -> None:
+    if not ctx.agent or not ctx.agent.session:
+        ctx.console.print("[error]No active session[/error]")
+        return
+
+    session = ctx.agent.session
+    state = session.export_todos_state()
+    if not isinstance(state, dict):
+        state = {}
+    show_planning_todos = bool(session.show_planning_todos)
+    scopes = _visible_workboard_scopes(show_planning_todos)
+    completed, pending, total = _todo_progress(state, scopes)
+    plan_text = (session.current_plan_text() or "").strip()
+
+    summary = Panel(
+        Group(
+            Text.assemble(
+            ("Plan mode: ", "code"),
+            ("on", "bold cyan") if session.plan_mode_enabled else ("off", "dim"),
+            ("  •  ", "muted"),
+            ("Phase: ", "code"),
+            (str(session.plan_phase), "bold cyan"),
+            ("  •  ", "muted"),
+            ("Planning todos: ", "code"),
+            ("shown", "bold cyan") if show_planning_todos else ("hidden", "dim"),
+            ),
+            Text.assemble(
+                ("Overall progress: ", "code"),
+                (f"{completed}/{total} completed", "bold green") if total else ("0/0 completed", "dim"),
+                ("  •  ", "muted"),
+                (f"{pending} pending", "yellow") if total else ("0 pending", "dim"),
+            ),
+        ),
+        title=Text("Summary", style="bold cyan"),
+        title_align="left",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+    sections: list[object] = [summary, Rule(style="grey35")]
+
+    rendered_any_scope = False
+    for scope in scopes:
+        entries = state.get(scope, [])
+        if not isinstance(entries, list) or not entries:
+            continue
+        rendered_any_scope = True
+        sections.append(_render_workboard_scope(scope, entries))
+
+    if not rendered_any_scope:
+        sections.append(
+            Panel(
+                Text("No visible todos.", style="muted"),
+                title=Text("Checklists", style="bold bright_white"),
+                title_align="left",
+                border_style="grey35",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
+    sections.append(Rule(style="grey35"))
+    if plan_text:
+        sections.append(
+            Panel(
+                Markdown(plan_text),
+                title=Text("Implementation Plan", style="bold bright_white"),
+                title_align="left",
+                border_style="bright_white",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+    else:
+        sections.append(
+            Panel(
+                Text("No current plan saved.", style="muted"),
+                title=Text("Implementation Plan", style="bold bright_white"),
+                title_align="left",
+                border_style="grey35",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
+    title = Text.assemble(("▣ ", "cyan"), ("Workboard", "bold bright_white"))
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Group(*sections),
+            title=title,
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
         )
     )
 
@@ -154,6 +330,10 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/stats", description="Show session statistics",
         handler=cmd_stats,
+    ))
+    registry.register(Command(
+        name="/workboard", description="Show current plan and visible todos together",
+        handler=cmd_workboard,
     ))
     registry.register(Command(
         name="/tools", description="List available tools",
