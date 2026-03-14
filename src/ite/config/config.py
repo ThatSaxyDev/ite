@@ -6,9 +6,13 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from enum import Enum
 
+DEFAULT_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_API_KEY = "ollama"
+DEFAULT_MODEL_NAME = "minimax-m2.5:cloud"
+
 
 class ModelConfig(BaseModel):
-    name: str = Field(default="gpt-4o-mini")
+    name: str = Field(default=DEFAULT_MODEL_NAME)
     temperature: float = Field(default=1, ge=0.0, le=2.0)
     context_window: int = 256_000
 

@@ -67,10 +67,10 @@ To distribute ITE, you can build a wheel file:
    python -m build
    ```
 
-This generates `dist/ite-0.0.4-py3-none-any.whl`, which can be shared and installed anywhere:
+This generates `dist/ite-0.0.5-py3-none-any.whl`, which can be shared and installed anywhere:
 
 ```bash
-pipx install ite-0.0.4-py3-none-any.whl
+pipx install ite-0.0.5-py3-none-any.whl
 ```
 
 ## Usage

@@ -1,7 +1,7 @@
 """First-run setup wizard for ITE."""
 
 from ite.config.loader import save_system_config
-from ite.config.config import Config
+from ite.config.config import Config, DEFAULT_API_KEY, DEFAULT_BASE_URL
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.text import Text
@@ -69,37 +69,42 @@ def run_setup_wizard(console: Console, config: Config) -> Config:
     console.print()
     console.print("  [grey70]Provider base URLs:[/grey70]")
     console.print(
-        "    [grey50]OpenRouter[/grey50]  [grey70]→  https://openrouter.ai/api/v1[/grey70]"
+        f"    [grey50]Ollama[/grey50]     [grey70]→  {DEFAULT_BASE_URL}[/grey70]"
     )
     console.print(
-        "    [grey50]DeepSeek[/grey50]   [grey70]→  https://api.deepseek.com[/grey70]"
+        "    [grey50]OpenRouter[/grey50]  [grey70]→  https://openrouter.ai/api/v1[/grey70]"
     )
     console.print(
         "    [grey50]OpenAI[/grey50]     [grey70]→  https://api.openai.com/v1[/grey70]"
     )
     console.print(
-        "    [grey50]Ollama[/grey50]     [grey70]→  http://localhost:11434/v1[/grey70]"
+        "    [grey50]DeepSeek[/grey50]   [grey70]→  https://api.deepseek.com[/grey70]"
     )
     console.print()
 
-    base_url = console.input("  [bold cyan]❯[/bold cyan] Base URL: ").strip()
+    base_url = console.input(
+        f"  [bold cyan]❯[/bold cyan] Base URL [grey50]({DEFAULT_BASE_URL})[/grey50]: "
+    ).strip()
 
     if not base_url:
-        base_url = "https://openrouter.ai/api/v1"
+        base_url = DEFAULT_BASE_URL
         console.print(f"    [grey70]→ {base_url}[/grey70]")
 
     # ── API Key ──
     console.print()
-    api_key = ""
-    while not api_key:
-        api_key = console.input("  [bold cyan]❯[/bold cyan] API key: ").strip()
-        if not api_key:
-            console.print("  [bold red]✗[/bold red] API key is required. Please try again.")
+    api_key = console.input(
+        f"  [bold cyan]❯[/bold cyan] API key [grey50]({DEFAULT_API_KEY})[/grey50]: "
+    ).strip()
+    if not api_key:
+        api_key = DEFAULT_API_KEY
+        console.print(f"    [grey70]→ {api_key}[/grey70]")
 
     # ── Model ──
     console.print()
     console.print("  [grey70]Model name as listed by your provider[/grey70]")
-    model_name = console.input("  [bold cyan]❯[/bold cyan] Model: ").strip()
+    model_name = console.input(
+        f"  [bold cyan]❯[/bold cyan] Model [grey50]({config.model.name})[/grey50]: "
+    ).strip()
 
     if not model_name:
         model_name = config.model.name

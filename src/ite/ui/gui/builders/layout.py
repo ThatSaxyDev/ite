@@ -98,6 +98,8 @@ class LayoutBuilderMixin:
             self._refresh_empty_state_visibility()
 
     def build_setup_view(self) -> ft.Control:
+        from ite.config.config import DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_MODEL_NAME
+
         def _format_approval_label(value: str) -> str:
             return value.replace("_", " ").title()
 
@@ -117,7 +119,7 @@ class LayoutBuilderMixin:
         )
         self.setup_base_url_field = ft.TextField(
             label="Base URL",
-            value=self.config.base_url or "https://openrouter.ai/api/v1",
+            value=self.config.base_url or DEFAULT_BASE_URL,
             border_radius=RADIUS_SM,
             border_color=BORDER,
             focused_border_color=ACCENT,
@@ -130,7 +132,7 @@ class LayoutBuilderMixin:
             label="API Key",
             password=True,
             can_reveal_password=True,
-            value=self.config.api_key or "",
+            value=self.config.api_key or DEFAULT_API_KEY,
             border_radius=RADIUS_SM,
             border_color=BORDER,
             focused_border_color=ACCENT,
@@ -141,7 +143,7 @@ class LayoutBuilderMixin:
         )
         self.setup_model_field = ft.TextField(
             label="Model",
-            value=self.config.model_name,
+            value=self.config.model_name or DEFAULT_MODEL_NAME,
             border_radius=RADIUS_SM,
             border_color=BORDER,
             focused_border_color=ACCENT,

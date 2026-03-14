@@ -18,6 +18,7 @@ from ite.attachments import (
 from ite.commands import build_registry
 from ite.config.config import Config
 from ite.config.loader import save_system_config
+from ite.config.config import DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_MODEL_NAME
 from ite.tools.base import ToolConfirmation
 from ite.ui.tool_narrative import progress_label
 
@@ -1697,11 +1698,11 @@ class GUIApp(
 
     async def _open_setup_view(self):
         if self.setup_base_url_field:
-            self.setup_base_url_field.value = self.config.base_url or "https://openrouter.ai/api/v1"
+            self.setup_base_url_field.value = self.config.base_url or DEFAULT_BASE_URL
         if self.setup_api_key_field:
-            self.setup_api_key_field.value = self.config.api_key or ""
+            self.setup_api_key_field.value = self.config.api_key or DEFAULT_API_KEY
         if self.setup_model_field:
-            self.setup_model_field.value = self.config.model_name
+            self.setup_model_field.value = self.config.model_name or DEFAULT_MODEL_NAME
         if self.approval_selector:
             self.approval_selector.value = self.config.approval.value
         if self.setup_error_text:
@@ -1720,16 +1721,9 @@ class GUIApp(
     async def _submit_setup_view(self):
         if not self.setup_base_url_field or not self.setup_api_key_field or not self.setup_model_field:
             return
-        base_url = self.setup_base_url_field.value.strip() or "https://openrouter.ai/api/v1"
-        api_key = self.setup_api_key_field.value.strip()
-        model_name = self.setup_model_field.value.strip() or self.config.model.name
-
-        if not api_key:
-            if self.setup_error_text:
-                self.setup_error_text.value = "API key is required."
-                self.setup_error_text.visible = True
-            self._safe_page_update()
-            return
+        base_url = self.setup_base_url_field.value.strip() or DEFAULT_BASE_URL
+        api_key = self.setup_api_key_field.value.strip() or DEFAULT_API_KEY
+        model_name = self.setup_model_field.value.strip() or self.config.model.name or DEFAULT_MODEL_NAME
 
         if not self._is_valid_base_url(base_url):
             if self.setup_error_text:

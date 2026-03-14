@@ -31,7 +31,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.commands import build_registry
-from ite.config.config import Config
+from ite.config.config import Config, DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_MODEL_NAME
 from ite.config.config import ApprovalPolicy
 from ite.config.loader import save_global_approval_mode, save_system_config
 from ite.git.branches import (
@@ -435,18 +435,18 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 classes="modal-body setup-body",
             )
             yield Input(
-                value=self._config.base_url or "https://openrouter.ai/api/v1",
-                placeholder="https://openrouter.ai/api/v1",
+                value=self._config.base_url or DEFAULT_BASE_URL,
+                placeholder=DEFAULT_BASE_URL,
                 id="setup-base-url",
             )
             yield Input(
-                value=self._config.api_key or "",
+                value=self._config.api_key or DEFAULT_API_KEY,
                 placeholder="API key",
                 password=True,
                 id="setup-api-key",
             )
             yield Input(
-                value=self._config.model_name,
+                value=self._config.model_name or DEFAULT_MODEL_NAME,
                 placeholder="Model",
                 id="setup-model",
             )
@@ -482,14 +482,10 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self.query_one("#setup-error", Static).update(message)
 
     def _submit(self) -> None:
-        base_url = self.query_one("#setup-base-url", Input).value.strip() or "https://openrouter.ai/api/v1"
-        api_key = self.query_one("#setup-api-key", Input).value.strip()
-        model_name = self.query_one("#setup-model", Input).value.strip() or self._config.model_name
+        base_url = self.query_one("#setup-base-url", Input).value.strip() or DEFAULT_BASE_URL
+        api_key = self.query_one("#setup-api-key", Input).value.strip() or DEFAULT_API_KEY
+        model_name = self.query_one("#setup-model", Input).value.strip() or self._config.model_name or DEFAULT_MODEL_NAME
         approval_raw = self.query_one("#setup-approval", Input).value.strip() or self._config.approval.value
-
-        if not api_key:
-            self._set_error("API key is required.")
-            return
 
         parsed = urlparse(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -560,7 +556,7 @@ class ReupTUIAdapter:
         model: str = "",
         cwd: str = "",
         commands: list[str] | None = None,
-        version: str = "0.0.4",
+        version: str = "0.0.5",
     ) -> None:
         msg = f"ITE Reup ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
         if commands:
