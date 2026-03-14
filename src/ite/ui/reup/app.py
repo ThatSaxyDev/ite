@@ -911,6 +911,11 @@ class ReupApp(App):
         frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
         self._top_spinner_index += 1
         throbber.update(frame)
+        for call_id in getattr(self, "_running_shell_call_ids", set()):
+            card = self._tool_widgets.get(call_id)
+            args = self._tool_args_by_call_id.get(call_id, {})
+            if card is not None:
+                card.update(self._render_shell_running_card(args))
 
     def _with_implementation_plan_title(self, plan_text: str) -> str:
         text = (plan_text or "").strip()
@@ -2446,6 +2451,91 @@ class ReupApp(App):
                 )
         return Syntax(text, language, theme="monokai", word_wrap=True)
 
+    def _split_shell_payload(self, payload: str) -> tuple[str, str]:
+        marker = "\n\n--- STDERR ---\n"
+        if marker in payload:
+            stdout, stderr = payload.split(marker, 1)
+            return stdout.strip(), stderr.strip()
+        if payload.startswith("--- STDERR ---\n"):
+            return "", payload.replace("--- STDERR ---\n", "", 1).strip()
+        return payload.strip(), ""
+
+    def _shell_spinner_frame(self) -> str:
+        frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        return frames[self._top_spinner_index % len(frames)]
+
+    def _render_shell_command_line(self, command: str, cwd: str | None = None) -> Table:
+        table = Table.grid(expand=True)
+        table.add_column(width=2)
+        table.add_column(ratio=1)
+        table.add_row(
+            Text("$", style="bold #7cc7ff"),
+            Text(command.strip() or "(no command)", style="#dbe4f2"),
+        )
+        if isinstance(cwd, str) and cwd.strip():
+            table.add_row(
+                Text(""),
+                Text(f"in {self._display_path(cwd.strip())}", style="#8c97ab"),
+            )
+        return table
+
+    def _render_shell_running_card(self, arguments: dict[str, Any]) -> Group:
+        command = str(arguments.get("command", "")).strip()
+        cwd = arguments.get("cwd") if isinstance(arguments.get("cwd"), str) else None
+        header = Text()
+        header.append(f"{self._shell_spinner_frame()} ", style="bold #9bc7ff")
+        header.append("Running in shell", style="bold #9bc7ff")
+        header.append("  live", style="#8c97ab")
+        return Group(
+            header,
+            Text(""),
+            Text(describe_tool_activity("shell", arguments, stage="start"), style="#8c97ab"),
+            Text(""),
+            self._render_shell_command_line(command, cwd),
+        )
+
+    def _render_shell_result_payload(
+        self,
+        *,
+        payload: str,
+        metadata: dict[str, Any] | None,
+        exit_code: int | None,
+    ) -> list[Any]:
+        md = metadata if isinstance(metadata, dict) else {}
+        stdout_text, stderr_text = self._split_shell_payload(payload)
+        blocks: list[Any] = []
+
+        summary = Text()
+        safety = md.get("safety_classification")
+        if isinstance(safety, str) and safety.strip():
+            summary.append(f"{safety} command", style="#8c97ab")
+        if exit_code is not None:
+            if summary.plain:
+                summary.append("  •  ", style="#667084")
+            summary.append(f"exit {exit_code}", style="#8c97ab")
+        if md.get("timed_out"):
+            if summary.plain:
+                summary.append("  •  ", style="#667084")
+            summary.append("timed out", style="#f5b54f")
+        if summary.plain:
+            blocks.extend([summary, Text("")])
+
+        if stdout_text:
+            blocks.append(Text("stdout", style="bold #7ad69f"))
+            blocks.append(self._render_text_payload(stdout_text, success=True))
+            blocks.append(Text(""))
+        if stderr_text:
+            blocks.append(Text("stderr", style="bold #f5b54f"))
+            blocks.append(self._render_text_payload(stderr_text, success=False))
+            blocks.append(Text(""))
+
+        if not stdout_text and not stderr_text:
+            blocks.append(Text("No output", style="#8c97ab"))
+        elif blocks and isinstance(blocks[-1], Text) and blocks[-1].plain == "":
+            blocks.pop()
+
+        return blocks
+
     async def stream_assistant_delta(self, content: str) -> None:
         self._streaming_buffer += content
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -2556,11 +2646,17 @@ class ReupApp(App):
         else:
             blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
 
-        header = Text()
-        header.append("⌛ ", style="bold #9bc7ff")
-        header.append(title_text, style="bold #9bc7ff")
-        header.append("  running", style="#8c97ab")
-        card.update(Group(header, Text(""), *blocks))
+        if name == "shell":
+            running_shells = getattr(self, "_running_shell_call_ids", set())
+            running_shells.add(call_id)
+            self._running_shell_call_ids = running_shells
+            card.update(self._render_shell_running_card(arguments))
+        else:
+            header = Text()
+            header.append("⌛ ", style="bold #9bc7ff")
+            header.append(title_text, style="bold #9bc7ff")
+            header.append("  running", style="#8c97ab")
+            card.update(Group(header, Text(""), *blocks))
         self._tool_widgets[call_id] = card
 
         await conversation.mount(card)
@@ -2609,6 +2705,8 @@ class ReupApp(App):
         border_style = "#2f9e63" if success else "#b23a3a"
         title_style = "bold #a9ebbe" if success else "bold #ffb0b0"
         title_text = activity_title(name, stage="complete", success=success)
+        running_shells = getattr(self, "_running_shell_call_ids", set())
+        running_shells.discard(call_id)
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab"), Text("")]
 
@@ -2654,26 +2752,22 @@ class ReupApp(App):
         elif name == "shell":
             command = args.get("command")
             if isinstance(command, str) and command.strip():
-                blocks.append(Text(f"$ {command.strip()}", style="#8c97ab"))
-            summary_parts: list[str] = []
-            safety = md.get("safety_classification")
-            if isinstance(safety, str):
-                summary_parts.append(f"{safety} command")
-            if exit_code is not None:
-                summary_parts.append(f"exit code {exit_code}")
-            if md.get("has_stderr"):
-                summary_parts.append("stderr captured")
-            if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
-            if command or summary_parts:
+                blocks.append(
+                    self._render_shell_command_line(
+                        command.strip(),
+                        md.get("cwd") if isinstance(md.get("cwd"), str) else None,
+                    )
+                )
                 blocks.append(Text(""))
-
             output_display, was_truncated = self._truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            if output_display.strip():
-                blocks.append(self._render_text_payload(output_display, success=success))
-            else:
-                blocks.append(Text("No output", style="#8c97ab"))
+            blocks.extend(
+                self._render_shell_result_payload(
+                    payload=output_display,
+                    metadata=md,
+                    exit_code=exit_code,
+                )
+            )
         elif name == "web_search" and success:
             query = md.get("query") or args.get("query")
             results_count = md.get("results")
@@ -2741,7 +2835,13 @@ class ReupApp(App):
 
         header = Text()
         header.append(f"{icon} ", style=title_style)
-        header.append(title_text, style=title_style)
+        if name == "shell":
+            header.append(
+                "Shell result" if success else "Shell command failed",
+                style=title_style,
+            )
+        else:
+            header.append(title_text, style=title_style)
         header.append(
             "  "
             + status
