@@ -226,6 +226,112 @@ Screen {
     padding: 0 1 0 1;
 }
 
+.block.workboard {
+    border: none;
+    border-left: solid #7c6bd7;
+    background: #13172a 46%;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.workboard .card-title {
+    color: #c9a6ff;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.block.workboard .card-body {
+    margin-top: 0;
+    padding: 0;
+}
+
+.workboard-root {
+    layout: vertical;
+    height: auto;
+}
+
+.workboard-stack {
+    layout: vertical;
+    height: auto;
+}
+
+.workboard-section {
+    layout: vertical;
+    height: auto;
+    border: round #394053;
+    background: #0f1420 55%;
+    padding: 1 1 1 1;
+    margin-bottom: 1;
+}
+
+.workboard-section.compact {
+    background: #101622 45%;
+}
+
+.workboard-section.summary {
+    border: round #4f5f80;
+    background: #101826 62%;
+}
+
+.workboard-section.execution {
+    border: round #2f7d57;
+    background: #0f1a17 58%;
+}
+
+.workboard-section.planning {
+    border: round #3476a8;
+    background: #0f1720 58%;
+}
+
+.workboard-section.plan {
+    border: round #7563cf;
+    background: #151729 64%;
+    margin-top: 1;
+}
+
+.workboard-section.muted {
+    border: round #394053;
+    background: #11161f 42%;
+}
+
+.workboard-section-title {
+    color: #d7deea;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.workboard-section.summary .workboard-section-title {
+    color: #b8d8ff;
+}
+
+.workboard-section.execution .workboard-section-title {
+    color: #91e0b5;
+}
+
+.workboard-section.planning .workboard-section-title {
+    color: #8fcdf5;
+}
+
+.workboard-section.plan .workboard-section-title {
+    color: #d7b8ff;
+}
+
+.workboard-section Markdown {
+    layout: stream;
+    margin: 0;
+    padding: 0;
+}
+
+.workboard-section.plan MarkdownFence {
+    background: #121830;
+    border: round #3a4368;
+}
+
+.workboard-empty {
+    color: #98a3b6;
+}
+
 .plan-body Markdown {
     layout: stream;
     margin: 0;

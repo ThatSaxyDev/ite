@@ -1537,6 +1537,10 @@ class ReupApp(App):
             await self._run_plan_command_native(args)
             return
 
+        if command == "/workboard":
+            await self._run_workboard_command_native()
+            return
+
         if command == "/branch" and not args:
             await self._open_branch_picker_from_meta()
             return
@@ -1622,6 +1626,152 @@ class ReupApp(App):
         self.post_plan_note(
             "Plan Mode Updated",
             f"## Plan Mode `{mode}`\n\n{details}",
+        )
+
+    async def _run_workboard_command_native(self) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            self.post_system("Workboard", "No active session.", is_error=True)
+            return
+
+        session = self.agent.session
+        todos_state = session.export_todos_state()
+        if not isinstance(todos_state, dict):
+            todos_state = {}
+
+        show_planning = bool(session.show_planning_todos)
+        scopes = ["execution"]
+        if show_planning:
+            scopes.append("planning")
+
+        total = 0
+        completed = 0
+        pending = 0
+        for scope in scopes:
+            entries = todos_state.get(scope, [])
+            if not isinstance(entries, list):
+                continue
+            total += len(entries)
+            for entry in entries:
+                if bool(entry.get("completed", False)):
+                    completed += 1
+                else:
+                    pending += 1
+
+        plan_text = (session.current_plan_text() or "").strip()
+        body = self._build_workboard_body(
+            plan_mode_enabled=session.plan_mode_enabled,
+            plan_phase=str(session.plan_phase),
+            show_planning=show_planning,
+            completed=completed,
+            pending=pending,
+            total=total,
+            todos_state=todos_state,
+            scopes=scopes,
+            plan_text=plan_text,
+        )
+        await self.add_assistant_card("Workboard", body, css_class="workboard")
+
+    def _build_workboard_body(
+        self,
+        *,
+        plan_mode_enabled: bool,
+        plan_phase: str,
+        show_planning: bool,
+        completed: int,
+        pending: int,
+        total: int,
+        todos_state: dict[str, Any],
+        scopes: list[str],
+        plan_text: str,
+    ) -> Widget:
+        sections: list[Widget] = []
+
+        summary_md = (
+            f"- **Plan mode:** `{'on' if plan_mode_enabled else 'off'}`\n"
+            f"- **Phase:** `{plan_phase}`\n"
+            f"- **Planning todos:** `{'shown' if show_planning else 'hidden'}`\n"
+            f"- **Overall progress:** `{completed}/{total} completed` · `{pending} pending`"
+        )
+        sections.append(self._make_workboard_section("Summary", RichMarkdown(summary_md), tone="summary"))
+
+        checklist_children: list[Widget] = []
+        rendered_any_scope = False
+        for scope in scopes:
+            entries = todos_state.get(scope, [])
+            if not isinstance(entries, list) or not entries:
+                continue
+            rendered_any_scope = True
+            done_entries = [entry for entry in entries if bool(entry.get("completed", False))]
+            pending_entries = [entry for entry in entries if not bool(entry.get("completed", False))]
+            scope_title = "Execution Checklist" if scope == "execution" else "Planning Checklist"
+            lines = [
+                f"**{len(done_entries)}/{len(entries)} completed** · **{len(pending_entries)} pending**",
+            ]
+            if pending_entries:
+                lines.extend(["", "**Up next**"])
+                for entry in pending_entries[:6]:
+                    content = str(entry.get("content", "")).strip()
+                    if content:
+                        lines.append(f"- [ ] {content}")
+                if len(pending_entries) > 6:
+                    lines.append(f"- `{len(pending_entries) - 6} more pending`")
+            if done_entries:
+                lines.extend(["", "**Done**"])
+                for entry in done_entries[:3]:
+                    content = str(entry.get("content", "")).strip()
+                    if content:
+                        lines.append(f"- [x] {content}")
+                if len(done_entries) > 3:
+                    lines.append(f"- `{len(done_entries) - 3} more completed`")
+            checklist_children.append(
+                self._make_workboard_section(
+                    scope_title,
+                    RichMarkdown("\n".join(lines)),
+                    tone="execution" if scope == "execution" else "planning",
+                    compact=True,
+                )
+            )
+
+        if not rendered_any_scope:
+            checklist_children.append(
+                self._make_workboard_section(
+                    "Checklists",
+                    Static("No visible todos.", classes="workboard-empty"),
+                    tone="muted",
+                    compact=True,
+                )
+            )
+
+        sections.append(Vertical(*checklist_children, classes="workboard-stack"))
+
+        plan_body: Widget
+        if plan_text:
+            plan_body = RichMarkdown(plan_text)
+        else:
+            plan_body = Static("No current plan saved.", classes="workboard-empty")
+        sections.append(self._make_workboard_section("Implementation Plan", plan_body, tone="plan"))
+
+        return Vertical(*sections, classes="workboard-root")
+
+    def _make_workboard_section(
+        self,
+        title: str,
+        body: Widget | Any,
+        *,
+        tone: str,
+        compact: bool = False,
+    ) -> Widget:
+        body_widget = body if isinstance(body, Widget) else Static()
+        if not isinstance(body, Widget):
+            body_widget.update(body)
+        classes = f"workboard-section {tone}"
+        if compact:
+            classes += " compact"
+        return Container(
+            Static(title, classes="workboard-section-title"),
+            body_widget if isinstance(body_widget, Widget) else Static(),
+            classes=classes,
         )
 
     async def run_agent_message(self, message: str) -> None:
@@ -2346,8 +2496,13 @@ class ReupApp(App):
     async def add_assistant_card(self, title: str, body: Any, css_class: str = "assistant") -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
 
-        body_widget = Static(classes=f"card-body {css_class}-body")
-        body_widget.update(body if not isinstance(body, str) else str(body))
+        if isinstance(body, Widget):
+            body_widget = body
+            body_widget.add_class("card-body")
+            body_widget.add_class(f"{css_class}-body")
+        else:
+            body_widget = Static(classes=f"card-body {css_class}-body")
+            body_widget.update(body if not isinstance(body, str) else str(body))
 
         card = Container(
             Static(title, classes="card-title"),
