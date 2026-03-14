@@ -2906,7 +2906,7 @@ class ReupApp(App):
         header.append(f"{icon} ", style=title_style)
         if name == "shell":
             header.append(
-                "Shell result" if success else "Shell command failed",
+                "Command finished" if success else "Command failed",
                 style=title_style,
             )
         else:

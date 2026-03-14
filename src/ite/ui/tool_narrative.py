@@ -12,29 +12,29 @@ def activity_title(
     running = stage == "start"
     done = bool(success)
     if name == "read_file":
-        return "Reading file" if running else ("Read file" if done else "Read failed")
+        return "Reading file" if running else ("Completed reading" if done else "Read failed")
     if name == "write_file":
-        return "Writing file" if running else ("Wrote file" if done else "Write failed")
+        return "Writing file" if running else ("Saved file" if done else "Write failed")
     if name == "edit":
-        return "Editing file" if running else ("Edited file" if done else "Edit failed")
+        return "Editing file" if running else ("Updated file" if done else "Edit failed")
     if name == "apply_patch":
-        return "Applying multi-file patch" if running else ("Applied patch" if done else "Patch failed")
+        return "Applying patch" if running else ("Applied patch" if done else "Patch failed")
     if name == "list_dir":
-        return "Listing directory" if running else ("Listed directory" if done else "List failed")
+        return "Checking folder" if running else ("Checked folder" if done else "List failed")
     if name == "grep":
-        return "Searching code" if running else ("Searched code" if done else "Search failed")
+        return "Searching code" if running else ("Finished searching code" if done else "Search failed")
     if name == "glob":
-        return "Finding files" if running else ("Found files" if done else "File search failed")
+        return "Finding files" if running else ("Found matching files" if done else "File search failed")
     if name == "shell":
-        return "Running command" if running else ("Command completed" if done else "Command failed")
+        return "Running command" if running else ("Command finished" if done else "Command failed")
     if name.startswith("subagent_"):
-        return "Delegating to specialist" if running else ("Specialist completed" if done else "Specialist failed")
+        return "Asking specialist" if running else ("Specialist finished" if done else "Specialist failed")
     if name == "web_search":
-        return "Searching web" if running else ("Web search completed" if done else "Web search failed")
+        return "Searching web" if running else ("Web search finished" if done else "Web search failed")
     if name == "web_fetch":
-        return "Fetching page" if running else ("Fetch completed" if done else "Fetch failed")
+        return "Fetching page" if running else ("Fetched page" if done else "Fetch failed")
     if name == "todos":
-        return "Updating task list" if running else ("Task list updated" if done else "Task list update failed")
+        return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else "Memory update failed")
     return "Running tool" if running else ("Tool completed" if done else "Tool failed")
@@ -50,7 +50,6 @@ def describe_tool_activity(
 ) -> str:
     args = args or {}
     metadata = metadata or {}
-    verb = "Running" if stage == "start" else ("Completed" if success else "Failed")
 
     if name == "read_file":
         path = _path(args, metadata)
@@ -59,94 +58,214 @@ def describe_tool_activity(
             shown_end = metadata.get("shown_end")
             total = metadata.get("total_lines")
             if all(isinstance(x, int) for x in [shown_start, shown_end, total]):
-                return f"{verb} reading {path} (lines {shown_start}-{shown_end} of {total})."
+                prefix = "Completed reading" if success else "Failed to read"
+                return f"{prefix} {path} (lines {shown_start}-{shown_end} of {total})."
         offset = args.get("offset", 1)
         limit = args.get("limit")
         if isinstance(limit, int):
             end_line = int(offset) + limit - 1
-            return f"{verb} read of {path} from line {offset} to {end_line}."
-        return f"{verb} read of {path}."
+            if stage == "start":
+                return f"Reading {path} from line {offset} to {end_line}."
+            if success:
+                return f"Completed reading {path} from line {offset} to {end_line}."
+            return f"Failed to read {path} from line {offset} to {end_line}."
+        if stage == "start":
+            return f"Reading {path}."
+        if success:
+            return f"Completed reading {path}."
+        return f"Failed to read {path}."
 
     if name == "write_file":
-        return f"{verb} write to {_path(args, metadata)}."
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Writing {path}."
+        if success:
+            return f"Saved {path}."
+        return f"Failed to write {path}."
 
     if name == "edit":
-        return f"{verb} edit on {_path(args, metadata)}."
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Editing {path}."
+        if success:
+            return f"Updated {path}."
+        return f"Failed to edit {path}."
 
     if name == "apply_patch":
         actions = metadata.get("actions")
         if isinstance(actions, list):
-            return f"{verb} patch across {len(actions)} file(s)."
-        return f"{verb} multi-file patch operation."
+            if stage == "start":
+                return f"Applying changes across {len(actions)} file(s)."
+            if success:
+                return f"Applied changes across {len(actions)} file(s)."
+            return f"Failed to apply changes across {len(actions)} file(s)."
+        if stage == "start":
+            return "Applying patch."
+        if success:
+            return "Applied patch."
+        return "Failed to apply patch."
 
     if name == "shell":
         command = str(args.get("command", "")).strip()
         if command:
-            return f"{verb} shell command: `{_trim(command, 100)}`."
-        return f"{verb} shell command."
+            if stage == "start":
+                return f"Running command: `{_trim(command, 100)}`."
+            if success:
+                return f"Finished command: `{_trim(command, 100)}`."
+            return f"Command failed: `{_trim(command, 100)}`."
+        if stage == "start":
+            return "Running command."
+        if success:
+            return "Finished command."
+        return "Command failed."
 
     if name == "grep":
         pattern = str(args.get("pattern", "")).strip()
         target = _path(args, metadata)
         if pattern:
-            return f"{verb} search for `{_trim(pattern, 60)}` in {target}."
-        return f"{verb} code search in {target}."
+            if stage == "start":
+                return f"Searching {target} for `{_trim(pattern, 60)}`."
+            if success:
+                return f"Finished searching {target} for `{_trim(pattern, 60)}`."
+            return f"Search failed for `{_trim(pattern, 60)}` in {target}."
+        if stage == "start":
+            return f"Searching code in {target}."
+        if success:
+            return f"Finished searching code in {target}."
+        return f"Search failed in {target}."
 
     if name == "glob":
         pattern = str(args.get("pattern", "")).strip()
         target = _path(args, metadata)
         if pattern:
-            return f"{verb} file pattern search `{_trim(pattern, 60)}` in {target}."
-        return f"{verb} file pattern search in {target}."
+            if stage == "start":
+                return f"Looking for `{_trim(pattern, 60)}` in {target}."
+            if success:
+                return f"Found matches for `{_trim(pattern, 60)}` in {target}."
+            return f"File search failed for `{_trim(pattern, 60)}` in {target}."
+        if stage == "start":
+            return f"Looking for files in {target}."
+        if success:
+            return f"Finished looking for files in {target}."
+        return f"File search failed in {target}."
 
     if name == "list_dir":
-        return f"{verb} directory listing for {_path(args, metadata)}."
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Checking {path}."
+        if success:
+            return f"Checked {path}."
+        return f"Failed to check {path}."
 
     if name.startswith("subagent_"):
         subagent = name.replace("subagent_", "", 1)
         goal = str(args.get("goal", "")).strip()
         if goal:
-            return f"{verb} subagent `{subagent}` for: {_trim(goal, 110)}"
-        return f"{verb} subagent `{subagent}`."
+            if stage == "start":
+                return f"Asking specialist `{subagent}` to help with: {_trim(goal, 110)}"
+            if success:
+                return f"Specialist `{subagent}` finished: {_trim(goal, 110)}"
+            return f"Specialist `{subagent}` failed: {_trim(goal, 110)}"
+        if stage == "start":
+            return f"Asking specialist `{subagent}`."
+        if success:
+            return f"Specialist `{subagent}` finished."
+        return f"Specialist `{subagent}` failed."
 
     if name == "web_search":
         query = str(args.get("query", "")).strip()
         if query:
-            return f"{verb} web search for: {_trim(query, 90)}"
-        return f"{verb} web search."
+            if stage == "start":
+                return f"Searching the web for: {_trim(query, 90)}"
+            if success:
+                return f"Finished web search for: {_trim(query, 90)}"
+            return f"Web search failed for: {_trim(query, 90)}"
+        if stage == "start":
+            return "Searching the web."
+        if success:
+            return "Finished web search."
+        return "Web search failed."
 
     if name == "web_fetch":
         url = str(args.get("url", "")).strip()
         if url:
-            return f"{verb} fetch of {_trim(url, 90)}."
-        return f"{verb} web fetch."
+            if stage == "start":
+                return f"Fetching {_trim(url, 90)}."
+            if success:
+                return f"Fetched {_trim(url, 90)}."
+            return f"Failed to fetch {_trim(url, 90)}."
+        if stage == "start":
+            return "Fetching page."
+        if success:
+            return "Fetched page."
+        return "Fetch failed."
 
     if name == "todos":
         action = str(args.get("action", "")).strip() or str(metadata.get("action", "")).strip() or "update"
         scope = str(args.get("scope", "")).strip() or str(metadata.get("scope", "")).strip() or "execution"
-        label = "planning checklist" if scope == "planning" else "task list"
+        label = "planning checklist" if scope == "planning" else "checklist"
         if action == "add":
-            return f"{verb} {label} setup."
+            if stage == "start":
+                return f"Setting up {label}."
+            if success:
+                return f"Set up {label}."
+            return f"Failed to set up {label}."
         if action == "complete":
-            return f"{verb} {label} progress."
+            if stage == "start":
+                return f"Updating {label} progress."
+            if success:
+                return f"Updated {label} progress."
+            return f"Failed to update {label} progress."
         if action == "reopen":
-            return f"{verb} reopen in {label}."
+            if stage == "start":
+                return f"Reopening an item in {label}."
+            if success:
+                return f"Reopened an item in {label}."
+            return f"Failed to reopen an item in {label}."
         if action == "remove":
-            return f"{verb} cleanup in {label}."
+            if stage == "start":
+                return f"Removing an item from {label}."
+            if success:
+                return f"Removed an item from {label}."
+            return f"Failed to remove an item from {label}."
         if action == "update":
-            return f"{verb} item update in {label}."
+            if stage == "start":
+                return f"Updating an item in {label}."
+            if success:
+                return f"Updated an item in {label}."
+            return f"Failed to update an item in {label}."
         if action == "clear":
-            return f"{verb} clear of {label}."
+            if stage == "start":
+                return f"Clearing {label}."
+            if success:
+                return f"Cleared {label}."
+            return f"Failed to clear {label}."
         if action == "list":
-            return f"{verb} view of {label}."
-        return f"{verb} {label} update."
+            if stage == "start":
+                return f"Refreshing {label}."
+            if success:
+                return f"Refreshed {label}."
+            return f"Failed to refresh {label}."
+        if stage == "start":
+            return f"Updating {label}."
+        if success:
+            return f"Updated {label}."
+        return f"Failed to update {label}."
 
     if name == "memory":
         action = str(args.get("action", "")).strip() or "update"
         key = str(args.get("key", "")).strip()
         if key:
-            return f"{verb} memory action `{action}` for key `{_trim(key, 40)}`."
-        return f"{verb} memory action `{action}`."
+            if stage == "start":
+                return f"Updating memory `{_trim(key, 40)}`."
+            if success:
+                return f"Updated memory `{_trim(key, 40)}`."
+            return f"Failed to update memory `{_trim(key, 40)}`."
+        if stage == "start":
+            return f"Running memory action `{action}`."
+        if success:
+            return f"Completed memory action `{action}`."
+        return f"Failed memory action `{action}`."
 
     return f"{verb} tool `{name}`."
 

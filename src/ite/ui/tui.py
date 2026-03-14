@@ -131,7 +131,7 @@ class TUI:
                 Markdown(self._assistant_buffer.strip()),
                 border_style="bright_white",
                 box=box.HEAVY,
-                padding=(1, 2),
+                padding=(0, 1),
             )
             self.console.print(panel)
         self._assistant_stream_open = False
@@ -255,7 +255,6 @@ class TUI:
             panel = Panel(
                 Group(
                     Text(narrative, style="muted"),
-                    Text(),
                     Text(hint, style="code"),
                 ),
                 title=title,
@@ -264,7 +263,7 @@ class TUI:
                 subtitle_align="right",
                 border_style=border_style,
                 box=box.ROUNDED,
-                padding=(1, 2),
+                padding=(0, 1),
             )
             self.console.print()
             self.console.print(panel)
@@ -273,7 +272,6 @@ class TUI:
         panel = Panel(
             Group(
                 Text(narrative, style="muted"),
-                Text(),
                 self._render_args_table(name, display_args)
                 if display_args
                 else Text("(no args)", style="muted"),
@@ -284,7 +282,7 @@ class TUI:
             subtitle_align="right",
             border_style=border_style,
             box=box.ROUNDED,
-            padding=(1, 2),
+            padding=(0, 1),
         )
 
         self.console.print()
@@ -330,28 +328,34 @@ class TUI:
             return text, False
 
         max_lines_by_tool = {
-            "read_file": 20,
-            "write_file": 30,
-            "edit": 30,
-            "list_dir": 24,
-            "glob": 24,
-            "grep": 40,
-            "shell": 30,
-            "web_fetch": 36,
+            "read_file": 16,
+            "write_file": 18,
+            "edit": 18,
+            "list_dir": 10,
+            "glob": 10,
+            "grep": 24,
+            "shell": 18,
+            "web_fetch": 24,
+            "web_search": 18,
+            "todos": 14,
+            "memory": 12,
         }
         max_chars_by_tool = {
-            "read_file": 3200,
-            "write_file": 4400,
-            "edit": 4400,
-            "list_dir": 2200,
-            "glob": 2200,
-            "grep": 5600,
-            "shell": 4200,
-            "web_fetch": 5200,
+            "read_file": 2600,
+            "write_file": 2400,
+            "edit": 2400,
+            "list_dir": 900,
+            "glob": 900,
+            "grep": 2800,
+            "shell": 2200,
+            "web_fetch": 3200,
+            "web_search": 2200,
+            "todos": 1600,
+            "memory": 1200,
         }
 
-        max_lines = max_lines_by_tool.get(name, 28)
-        max_chars = max_chars_by_tool.get(name, 4200)
+        max_lines = max_lines_by_tool.get(name, 16)
+        max_chars = max_chars_by_tool.get(name, 1800)
 
         clipped = text
         was_truncated = False
@@ -614,8 +618,6 @@ class TUI:
         primary_path = None
         local_truncated = False
         blocks = []
-        blocks.append(Text(narrative, style="muted"))
-        blocks.append(Text())
 
         if isinstance(metadata, dict) and isinstance(metadata.get("path"), str):
             primary_path = metadata.get("path")
@@ -645,7 +647,6 @@ class TUI:
                 header = "".join(header_parts)
 
                 blocks.append(Text(header, style="muted"))
-                blocks.append(Text())
                 blocks.append(
                     Syntax(
                         code_display,
@@ -657,6 +658,7 @@ class TUI:
                     )
                 )
             else:
+                blocks.append(Text(narrative, style="muted"))
                 output_display, was_truncated = self._truncate_for_tool(
                     name,
                     output,
@@ -673,6 +675,7 @@ class TUI:
                 )
 
         elif name in {"write_file", "edit"} and success and diff:
+            blocks.append(Text(narrative, style="muted"))
             output_line = output.strip() if output.strip() else "Completed"
             blocks.append(Text(output_line, style="muted"))
             if isinstance(metadata, dict):
@@ -698,6 +701,7 @@ class TUI:
             blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
 
         elif name == "shell" and success:
+            blocks.append(Text(narrative, style="muted"))
             command = args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(Text(f"$ {command.strip()}", style="muted"))
@@ -725,6 +729,7 @@ class TUI:
                 blocks.append(Text("No output", style="muted"))
 
         elif name == "list_dir" and success:
+            blocks.append(Text(narrative, style="muted"))
             entries = metadata.get("entries")
             path = metadata.get("path")
             summary = []
@@ -750,6 +755,7 @@ class TUI:
                 blocks.append(Text("No output", style="muted"))
 
         elif name == "grep" and success:
+            blocks.append(Text(narrative, style="muted"))
             matches = metadata.get("matches")
             files_searched = metadata.get("files_searched")
             summary = []
@@ -782,6 +788,7 @@ class TUI:
                 blocks.append(Text("No output", style="muted"))
 
         elif name == "glob" and success:
+            blocks.append(Text(narrative, style="muted"))
             matches = metadata.get("matches")
 
             if isinstance(matches, int):
@@ -802,6 +809,7 @@ class TUI:
                 blocks.append(Text("No output", style="muted"))
 
         elif name == "web_search" and success:
+            blocks.append(Text(narrative, style="muted"))
             results_count = metadata.get("results")
             query = args.get("query")
             provider = metadata.get("provider")
@@ -854,7 +862,7 @@ class TUI:
             result_table.add_column(style="muted", justify="right", width=3)
             result_table.add_column()
 
-            max_results_rows = 12
+            max_results_rows = 8
             for i, r in enumerate(results[:max_results_rows], start=1):
                 title_text = Text()
                 title_text.append(r.get("title", ""), style="highlight")
@@ -876,6 +884,7 @@ class TUI:
             blocks.append(result_table)
 
         elif name == "web_fetch" and success:
+            blocks.append(Text(narrative, style="muted"))
             status_code = metadata.get("status_code")
             content_type = metadata.get("content_type")
             content_length = metadata.get("content_length")
@@ -913,6 +922,7 @@ class TUI:
                 blocks.append(Markdown(output_display))
 
         elif name == "todos" and success:
+            blocks.append(Text(narrative, style="muted"))
             completed = metadata.get("completed", 0) if metadata else 0
             total = metadata.get("total", 0) if metadata else 0
             action = metadata.get("action", "") if metadata else ""
@@ -963,6 +973,7 @@ class TUI:
                 blocks.append(Text(f"  {message}", style="muted"))
 
         elif name == "memory" and success:
+            blocks.append(Text(narrative, style="muted"))
             action = args.get("action", "")
             key = args.get("key", "")
             output_display, was_truncated = self._truncate_for_tool(
@@ -1030,8 +1041,10 @@ class TUI:
         elif name.startswith("subagent_"):
             rendered = self._render_subagent_payload(output)
             if rendered is not None:
+                blocks.append(Text(narrative, style="muted"))
                 blocks.extend(rendered)
             elif output.strip():
+                blocks.append(Text(narrative, style="muted"))
                 output_display, was_truncated = self._truncate_for_tool(
                     name,
                     output,
@@ -1043,6 +1056,7 @@ class TUI:
                 blocks.append(Text("No output", style="muted"))
 
         else:
+            blocks.append(Text(narrative, style="muted"))
             if error and not success:
                 blocks.append(Text(error, style="error"))
 
@@ -1076,7 +1090,7 @@ class TUI:
             subtitle_align="right",
             border_style=border_style,
             box=box.HEAVY,
-            padding=(1, 2),
+            padding=(0, 1),
         )
 
         self.console.print()

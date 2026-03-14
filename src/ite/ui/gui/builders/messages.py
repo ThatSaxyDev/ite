@@ -1191,7 +1191,7 @@ class MessageBuilderMixin:
                     [
                         self._shell_state_icon(state_text, state_color),
                         ft.Text(
-                            "Shell result" if success else "Shell command failed",
+                            "Command finished" if success else "Command failed",
                             size=TYPE_BODY,
                             weight=WEIGHT_BOLD,
                             color=TEXT_PRIMARY,
