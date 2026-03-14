@@ -59,6 +59,155 @@ class MessageBuilderMixin:
             return ft.Icons.CHECK_CIRCLE_ROUNDED
         return ft.Icons.CANCEL_ROUNDED
 
+    def _shell_state_icon(self, state: str, color: str) -> ft.Control:
+        if state == "running":
+            return ft.ProgressRing(width=16, height=16, stroke_width=2.2, color=color)
+        icon = ft.Icons.CHECK_CIRCLE_ROUNDED if state == "done" else ft.Icons.ERROR_OUTLINE_ROUNDED
+        return ft.Icon(icon, size=16, color=color)
+
+    def _split_shell_output(self, payload: str) -> tuple[str, str]:
+        marker = "\n\n--- STDERR ---\n"
+        if marker in payload:
+            stdout, stderr = payload.split(marker, 1)
+            return stdout.strip(), stderr.strip()
+        if payload.startswith("--- STDERR ---\n"):
+            return "", payload.replace("--- STDERR ---\n", "", 1).strip()
+        return payload.strip(), ""
+
+    def _build_shell_command_surface(
+        self,
+        command: str,
+        *,
+        cwd: str | None = None,
+        prefix: str = "$",
+    ) -> ft.Control:
+        meta_bits: list[ft.Control] = []
+        if isinstance(cwd, str) and cwd.strip():
+            meta_bits.append(
+                ft.Text(
+                    cwd.strip(),
+                    size=TYPE_SM,
+                    color=TEXT_MUTED,
+                    selectable=True,
+                )
+            )
+
+        return ft.Container(
+            bgcolor=SURFACE_1,
+            border=ft.Border.all(1, BORDER),
+            border_radius=RADIUS_SM,
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text(
+                                prefix,
+                                style=ft.TextStyle(
+                                    font_family=FONT_MONO,
+                                    size=TYPE_BODY,
+                                    color=ACCENT,
+                                    weight=WEIGHT_BOLD,
+                                ),
+                            ),
+                            ft.Text(
+                                command or "(no command)",
+                                style=ft.TextStyle(
+                                    font_family=FONT_MONO,
+                                    size=TYPE_BODY,
+                                    color=TEXT_PRIMARY,
+                                ),
+                                selectable=True,
+                                expand=True,
+                            ),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.START,
+                    ),
+                    ft.Row(meta_bits, spacing=8, wrap=True) if meta_bits else ft.Container(),
+                ],
+                spacing=8 if meta_bits else 0,
+                tight=True,
+            ),
+        )
+
+    def _build_shell_stream_section(
+        self,
+        title: str,
+        content: str,
+        *,
+        tone: str,
+        max_height: int = 210,
+    ) -> ft.Control:
+        accent = SUCCESS if tone == "stdout" else ft.Colors.with_opacity(0.92, ft.Colors.AMBER_200)
+        subtitle = "Output" if tone == "stdout" else "Warnings / errors"
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text(title, size=TYPE_SM, color=accent, weight=WEIGHT_BOLD),
+                            ft.Text(subtitle, size=TYPE_SM, color=TEXT_MUTED),
+                        ],
+                        spacing=8,
+                    ),
+                    self._build_tool_payload_surface(
+                        self._build_scrollable_text_block(
+                            content,
+                            max_height=max_height,
+                            line_limit=520,
+                            markdown=False,
+                        ),
+                        code_mode=True,
+                    ),
+                ],
+                spacing=SPACE_XS,
+                tight=True,
+            )
+        )
+
+    def _build_shell_result_view(
+        self,
+        payload: str,
+        metadata: dict[str, Any] | None,
+        exit_code: int | None,
+    ) -> ft.Control:
+        md = metadata if isinstance(metadata, dict) else {}
+        stdout_text, stderr_text = self._split_shell_output(payload)
+        sections: list[ft.Control] = []
+
+        if stdout_text:
+            sections.append(self._build_shell_stream_section("stdout", stdout_text, tone="stdout"))
+        if stderr_text:
+            sections.append(self._build_shell_stream_section("stderr", stderr_text, tone="stderr"))
+        if not sections:
+            sections.append(self._build_empty_output_hint())
+
+        footer_bits: list[ft.Control] = []
+        if isinstance(exit_code, int):
+            footer_bits.append(
+                ft.Text(
+                    f"exit code {exit_code}",
+                    size=TYPE_SM,
+                    color=TEXT_MUTED,
+                )
+            )
+        if md.get("timed_out"):
+            footer_bits.append(
+                ft.Text(
+                    "timed out",
+                    size=TYPE_SM,
+                    color=ft.Colors.with_opacity(0.92, ft.Colors.AMBER_200),
+                    weight=WEIGHT_SEMIBOLD,
+                )
+            )
+
+        return ft.Column(
+            sections + ([ft.Row(footer_bits, spacing=12, wrap=True)] if footer_bits else []),
+            spacing=SPACE_SM,
+            tight=True,
+        )
+
     def _build_tool_payload_surface(self, inner: ft.Control, *, code_mode: bool = False) -> ft.Container:
         return ft.Container(
             content=inner,
@@ -840,48 +989,76 @@ class MessageBuilderMixin:
         state_color = ACCENT
         border_color = ACCENT_SOFT
         status_bg = ft.Colors.with_opacity(0.1, ACCENT)
-        icon_name = self._tool_status_icon(state)
-        card = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(icon_name, size=16, color=state_color),
-                            ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
-                            ft.Container(expand=True),
-                            ft.Text(
-                                f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
-                                size=TYPE_SM,
-                                color=TEXT_MUTED,
-                            ),
-                            self._build_status_chip(
-                                state,
-                                state_color,
-                                border_color,
-                                status_bg,
-                            ),
-                        ]
-                    ),
-                    ft.Divider(height=1, color=HAIRLINE),
-                    ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
-                    self._build_tool_payload_surface(
-                        self._build_scrollable_text_block(
-                            args_text,
-                            max_height=140,
-                            line_limit=180,
-                            markdown=False,
-                        )
-                    ),
-                ],
-                spacing=SPACE_MD,
-                tight=True,
-            ),
-            border=ft.Border.all(1, border_color),
-            border_radius=RADIUS_SM,
-            padding=ft.Padding.symmetric(horizontal=CARD_PAD_X, vertical=CARD_PAD_Y),
-            width=SPECIAL_CARD_WIDTH,
-            bgcolor=SURFACE_ELEVATED,
-        )
+        if name == "shell":
+            command = str(arguments.get("command", "")).strip()
+            cwd = arguments.get("cwd")
+            card = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                self._shell_state_icon(state, state_color),
+                                ft.Text("Running in shell", size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
+                                ft.Container(expand=True),
+                                self._build_status_chip("live", state_color, border_color, status_bg),
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+                        self._build_shell_command_surface(command, cwd=str(cwd) if isinstance(cwd, str) else None),
+                    ],
+                    spacing=SPACE_MD,
+                    tight=True,
+                ),
+                border=ft.Border.all(1, border_color),
+                border_radius=RADIUS_SM,
+                padding=ft.Padding.symmetric(horizontal=CARD_PAD_X, vertical=CARD_PAD_Y),
+                width=SPECIAL_CARD_WIDTH,
+                bgcolor=SURFACE_ELEVATED,
+            )
+        else:
+            icon_name = self._tool_status_icon(state)
+            card = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(icon_name, size=16, color=state_color),
+                                ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
+                                ft.Container(expand=True),
+                                ft.Text(
+                                    f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
+                                    size=TYPE_SM,
+                                    color=TEXT_MUTED,
+                                ),
+                                self._build_status_chip(
+                                    state,
+                                    state_color,
+                                    border_color,
+                                    status_bg,
+                                ),
+                            ]
+                        ),
+                        ft.Divider(height=1, color=HAIRLINE),
+                        ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+                        self._build_tool_payload_surface(
+                            self._build_scrollable_text_block(
+                                args_text,
+                                max_height=140,
+                                line_limit=180,
+                                markdown=False,
+                            )
+                        ),
+                    ],
+                    spacing=SPACE_MD,
+                    tight=True,
+                ),
+                border=ft.Border.all(1, border_color),
+                border_radius=RADIUS_SM,
+                padding=ft.Padding.symmetric(horizontal=CARD_PAD_X, vertical=CARD_PAD_Y),
+                width=SPECIAL_CARD_WIDTH,
+                bgcolor=SURFACE_ELEVATED,
+            )
         row = self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
         row_index = self._append_chat_control(row)
         if row_index is not None:
@@ -910,7 +1087,6 @@ class MessageBuilderMixin:
         state_text = "done" if success else "failed"
         state_color = SUCCESS if success else DANGER
         payload = (output or error or "No output").strip() or "No output"
-        icon_name = self._tool_status_icon(state_text)
         args = {}
         if hasattr(self, "_tool_args_by_call_id"):
             args = self._tool_args_by_call_id.get(call_id, {})
@@ -966,11 +1142,10 @@ class MessageBuilderMixin:
         elif name == "apply_patch" and success and isinstance(metadata, dict) and isinstance(metadata.get("actions"), list):
             payload_block = self._build_patch_actions_view(metadata.get("actions") or [])
         elif name == "shell":
-            payload_block = self._build_scrollable_text_block(
+            payload_block = self._build_shell_result_view(
                 payload,
-                max_height=260,
-                line_limit=520,
-                markdown=False,
+                metadata if isinstance(metadata, dict) else {},
+                exit_code,
             )
         elif name == "web_search":
             payload_block = self._build_scrollable_text_block(
@@ -1010,33 +1185,67 @@ class MessageBuilderMixin:
         title_text = activity_title(name, stage="complete", success=success)
         summary_row = self._build_meta_summary(name, metadata if isinstance(metadata, dict) else None, exit_code)
 
-        content_items: list[ft.Control] = [
-            ft.Row(
-                [
-                    ft.Icon(icon_name, size=16, color=state_color),
-                    ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
-                    ft.Container(expand=True),
-                    ft.Text(
-                        f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
-                        size=TYPE_SM,
-                        color=TEXT_MUTED,
-                    ),
-                    self._build_status_chip(
-                        state_text,
-                        state_color,
-                        SUCCESS_SOFT if success else DANGER_SOFT,
-                        ft.Colors.with_opacity(
-                            0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+        if name == "shell":
+            content_items = [
+                ft.Row(
+                    [
+                        self._shell_state_icon(state_text, state_color),
+                        ft.Text(
+                            "Shell result" if success else "Shell command failed",
+                            size=TYPE_BODY,
+                            weight=WEIGHT_BOLD,
+                            color=TEXT_PRIMARY,
                         ),
-                    ),
-                ]
-            ),
-            ft.Divider(height=1, color=HAIRLINE),
-            ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
-        ]
+                        ft.Container(expand=True),
+                        self._build_status_chip(
+                            "done" if success else "failed",
+                            state_color,
+                            SUCCESS_SOFT if success else DANGER_SOFT,
+                            ft.Colors.with_opacity(
+                                0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+                self._build_shell_command_surface(
+                    str(args.get("command", "")).strip(),
+                    cwd=str(metadata.get("cwd")) if isinstance(metadata, dict) and isinstance(metadata.get("cwd"), str) else None,
+                ),
+            ]
+        else:
+            icon_name = self._tool_status_icon(state_text)
+            content_items = [
+                ft.Row(
+                    [
+                        ft.Icon(icon_name, size=16, color=state_color),
+                        ft.Text(title_text, size=TYPE_BODY, weight=WEIGHT_BOLD, color=TEXT_PRIMARY),
+                        ft.Container(expand=True),
+                        ft.Text(
+                            f"{name} #{call_id[:8]}" if getattr(self.config, "debug", False) else "",
+                            size=TYPE_SM,
+                            color=TEXT_MUTED,
+                        ),
+                        self._build_status_chip(
+                            state_text,
+                            state_color,
+                            SUCCESS_SOFT if success else DANGER_SOFT,
+                            ft.Colors.with_opacity(
+                                0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+                            ),
+                        ),
+                    ]
+                ),
+                ft.Divider(height=1, color=HAIRLINE),
+                ft.Text(narrative, size=TYPE_SM, color=TEXT_SECONDARY),
+            ]
         if summary_row is not None:
             content_items.append(summary_row)
-        content_items.append(self._build_tool_payload_surface(payload_block, code_mode=code_mode))
+        if name == "shell":
+            content_items.append(payload_block)
+        else:
+            content_items.append(self._build_tool_payload_surface(payload_block, code_mode=code_mode))
 
         card = ft.Container(
             content=ft.Column(
