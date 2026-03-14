@@ -123,6 +123,22 @@ class CommandControllerMixin:
             )
             return True
 
+        if command == "/workboard":
+            if hasattr(self, "_refresh_workboard_from_session"):
+                self._refresh_workboard_from_session()
+            if getattr(self, "workboard_has_content", False):
+                if hasattr(self, "_open_workboard_if_available"):
+                    self._open_workboard_if_available()
+                return True
+            self._add_assistant_card(
+                "Workboard",
+                ft.Text(
+                    "There are no visible tasks or saved plans right now.",
+                    color=TEXT_SECONDARY,
+                ),
+            )
+            return True
+
         if command == "/plan":
             await self._ensure_agent()
             if not self.agent or not self.agent.session:
