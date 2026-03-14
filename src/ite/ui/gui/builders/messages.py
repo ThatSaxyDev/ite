@@ -10,6 +10,31 @@ from ..tokens import *
 
 
 class MessageBuilderMixin:
+    def _chat_markdown_style_sheet(self) -> ft.MarkdownStyleSheet:
+        return ft.MarkdownStyleSheet(
+            p_text_style=ft.TextStyle(size=TYPE_BODY + 1, color=TEXT_PRIMARY, height=1.45),
+            p_padding=ft.Padding.only(bottom=10),
+            h1_text_style=ft.TextStyle(size=TYPE_H1 + 4, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+            h1_padding=ft.Padding.only(top=6, bottom=12),
+            h2_text_style=ft.TextStyle(size=TYPE_H1 + 1, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+            h2_padding=ft.Padding.only(top=4, bottom=10),
+            h3_text_style=ft.TextStyle(size=TYPE_TITLE + 2, weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+            h3_padding=ft.Padding.only(top=2, bottom=8),
+            strong_text_style=ft.TextStyle(weight=ft.FontWeight.W_700, color=TEXT_PRIMARY),
+            code_text_style=ft.TextStyle(font_family=FONT_MONO, size=TYPE_BODY, color=ft.Colors.with_opacity(0.96, ft.Colors.CYAN_100)),
+            block_spacing=12,
+            list_indent=24,
+            list_bullet_padding=ft.Padding.only(right=8),
+        )
+
+    def _build_chat_markdown(self, content: str) -> ft.Markdown:
+        return ft.Markdown(
+            content,
+            selectable=True,
+            extension_set="gitHubFlavored",
+            md_style_sheet=self._chat_markdown_style_sheet(),
+        )
+
     def _wrap_in_lane(self, content: ft.Control) -> ft.Control:
         return ft.Row(
             [
@@ -622,16 +647,16 @@ class MessageBuilderMixin:
     def build_chat_message(self, role: str, content: str, is_error: bool = False) -> ft.Control:
         if role == "assistant" and not is_error:
             bubble = ft.Container(
-                content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
+                content=self._build_chat_markdown(content),
                 border_radius=RADIUS_SM,
-                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                 width=ASSISTANT_MESSAGE_WIDTH - 20,
             )
         else:
             bg = SURFACE_2 if role == "user" else SURFACE_1
             border_color = BORDER if not is_error else ft.Colors.with_opacity(0.28, ft.Colors.RED_300)
             bubble = ft.Container(
-                content=ft.Markdown(content, selectable=True, extension_set="gitHubFlavored"),
+                content=self._build_chat_markdown(content),
                 bgcolor=bg,
                 border_radius=RADIUS_MD,
                 padding=ft.Padding.symmetric(horizontal=12, vertical=8),
@@ -765,11 +790,11 @@ class MessageBuilderMixin:
 
         if self.streaming_markdown is None or self.streaming_container is None:
             self.streaming_text = ""
-            self.streaming_markdown = ft.Markdown("", selectable=True, extension_set="gitHubFlavored")
+            self.streaming_markdown = self._build_chat_markdown("")
             self.streaming_container = ft.Container(
                 content=self.streaming_markdown,
                 border_radius=RADIUS_SM,
-                padding=ft.Padding.symmetric(horizontal=6, vertical=4),
+                padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                 width=ASSISTANT_MESSAGE_WIDTH - 20,
             )
             self._append_chat_control(
