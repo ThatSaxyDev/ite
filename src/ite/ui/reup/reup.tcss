@@ -35,17 +35,6 @@ Screen {
     text-style: bold;
 }
 
-#top-throbber {
-    width: 1;
-    height: 1;
-    margin-left: 2;
-    margin-right: 0;
-    color: #c6e2ff;
-    text-align: center;
-    content-align: center middle;
-    text-style: bold;
-}
-
 #header-meta {
     width: 1fr;
     text-align: right;

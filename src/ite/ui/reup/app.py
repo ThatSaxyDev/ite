@@ -559,7 +559,8 @@ class ReupApp(App):
         self._suppress_history_reset_once: bool = False
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
-        self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
+        self._top_spinner_frames: tuple[str, ...] = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        self._top_state_text: str = ""
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -582,7 +583,6 @@ class ReupApp(App):
             with Horizontal(id="topbar"):
                 yield Static("New thread", id="title")
                 yield Static("idle", id="run-state")
-                yield Static("·", id="top-throbber")
                 yield Static("", id="header-meta")
             with Container(id="chat-panel"):
                 yield VerticalScroll(id="conversation")
@@ -894,24 +894,26 @@ class ReupApp(App):
 
     def _set_loading_state(self, state: str, busy: bool) -> None:
         state_widget = self.query_one("#run-state", Static)
-        state_widget.update(state if busy else "")
+        self._top_state_text = state
+        if busy:
+            frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
+            state_widget.update(f"{state}  {frame}")
+        else:
+            state_widget.update("")
         self._top_busy = busy
-        if not busy:
-            self.query_one("#top-throbber", Static).update(" ")
 
         prompt = self.query_one("#prompt", TextArea)
         prompt.disabled = busy
         self._refresh_empty_state()
 
     def _tick_top_indicator(self) -> None:
-        throbber = self.query_one("#top-throbber", Static)
+        state_widget = self.query_one("#run-state", Static)
         if not self._top_busy:
-            throbber.update(" ")
+            state_widget.update("")
             return
-        bold_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-        frame = bold_frames[self._top_spinner_index % len(bold_frames)]
+        frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
         self._top_spinner_index += 1
-        throbber.update(frame)
+        state_widget.update(f"{self._top_state_text}  {frame}")
         for call_id in getattr(self, "_running_shell_call_ids", set()):
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
@@ -2338,28 +2340,34 @@ class ReupApp(App):
             return "", False
 
         max_lines_by_tool = {
-            "read_file": 28,
-            "write_file": 40,
-            "edit": 40,
-            "list_dir": 32,
-            "glob": 32,
-            "grep": 52,
-            "shell": 42,
-            "web_fetch": 46,
+            "read_file": 16,
+            "write_file": 18,
+            "edit": 18,
+            "list_dir": 10,
+            "glob": 10,
+            "grep": 24,
+            "shell": 18,
+            "web_fetch": 24,
+            "web_search": 18,
+            "todos": 14,
+            "memory": 12,
         }
         max_chars_by_tool = {
-            "read_file": 4200,
-            "write_file": 5200,
-            "edit": 5200,
-            "list_dir": 3200,
-            "glob": 3200,
-            "grep": 7200,
-            "shell": 6400,
-            "web_fetch": 7200,
+            "read_file": 2600,
+            "write_file": 2400,
+            "edit": 2400,
+            "list_dir": 900,
+            "glob": 900,
+            "grep": 2800,
+            "shell": 2200,
+            "web_fetch": 3200,
+            "web_search": 2200,
+            "todos": 1600,
+            "memory": 1200,
         }
 
-        max_lines = max_lines_by_tool.get(name, 36)
-        max_chars = max_chars_by_tool.get(name, 5600)
+        max_lines = max_lines_by_tool.get(name, 16)
+        max_chars = max_chars_by_tool.get(name, 1800)
 
         clipped = text
         was_truncated = False
