@@ -19,6 +19,7 @@ from ite.commands import build_registry
 from ite.config.config import Config
 from ite.config.loader import save_system_config
 from ite.tools.base import ToolConfirmation
+from ite.ui.tool_narrative import progress_label
 
 from .builders.layout import LayoutBuilderMixin
 from .builders.messages import MessageBuilderMixin
@@ -134,6 +135,7 @@ class GUIApp(
         self.thinking_text: ft.Text | None = None
         self.thinking_spinner: ft.ProgressRing | None = None
         self._thinking_task: asyncio.Task | None = None
+        self._thinking_label_base: str = "Thinking"
 
         self._command_registry = build_registry()
         self._auto_scroll_enabled = True
@@ -1305,7 +1307,15 @@ class GUIApp(
             self._set_loading(True)
             self._add_user_attachment_preview(staged_attachments or [])
             self._add_message("user", (display_message if display_message is not None else message))
-            self._show_thinking_indicator()
+            self._show_thinking_indicator(
+                progress_label(
+                    plan_mode=bool(
+                        self.agent
+                        and self.agent.session
+                        and self.agent.session.plan_mode_enabled
+                    )
+                )
+            )
             await self._ensure_agent()
 
             if not self.agent:
@@ -1590,10 +1600,13 @@ class GUIApp(
         self._hide_thinking_indicator()
         self._set_loading(False)
 
-    def _show_thinking_indicator(self):
+    def _show_thinking_indicator(self, label: str | None = None):
         if not self.messages_column or not self._is_page_alive():
             return
+        self._thinking_label_base = (label or "Thinking").strip() or "Thinking"
         if self.thinking_row:
+            if self.thinking_text is not None:
+                self.thinking_text.value = self._thinking_label_base
             try:
                 self._remove_chat_control(self.thinking_row)
             except Exception:
@@ -1609,7 +1622,7 @@ class GUIApp(
             stroke_width=1,
             color=TEXT_MUTED,
         )
-        self.thinking_text = ft.Text("Thinking", size=TYPE_SM, color=TEXT_MUTED)
+        self.thinking_text = ft.Text(self._thinking_label_base, size=TYPE_SM, color=TEXT_MUTED)
         bubble = ft.Container(
             content=ft.Row(
                 [self.thinking_spinner, self.thinking_text],
@@ -1630,11 +1643,12 @@ class GUIApp(
             self._thinking_task = self.page.run_task(self._animate_thinking_text)
 
     async def _animate_thinking_text(self):
-        phases = ["Thinking", "Thinking.", "Thinking..", "Thinking..."]
+        suffixes = ["", ".", "..", "..."]
         i = 0
         try:
             while self._is_turn_running and self.thinking_text and self._is_page_alive():
-                self.thinking_text.value = phases[i % len(phases)]
+                base = self._thinking_label_base or "Thinking"
+                self.thinking_text.value = f"{base}{suffixes[i % len(suffixes)]}"
                 if not self._safe_control_update(self.thinking_text):
                     return
                 i += 1
@@ -1661,6 +1675,7 @@ class GUIApp(
         self.thinking_row = None
         self.thinking_text = None
         self.thinking_spinner = None
+        self._thinking_label_base = "Thinking"
         self._safe_page_update()
 
     def _on_close(self, e):

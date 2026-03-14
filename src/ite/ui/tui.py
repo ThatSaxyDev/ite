@@ -1121,6 +1121,41 @@ class TUI:
 
         return response.lower() in {"y", "yes"}
 
+    def recoverable_sandbox_note(self, tool_name: str, error: str) -> None:
+        path_text = ""
+        match = re.search(r"Access denied: (.+?) is outside the project sandbox", error or "")
+        if match:
+            path_text = match.group(1)
+
+        body = [
+            Text(
+                "Blocked exploratory read outside the workspace sandbox.",
+                style="muted",
+            ),
+            Text(),
+        ]
+        if path_text:
+            body.append(Text(path_text, style="warning"))
+            body.append(Text())
+        body.append(
+            Text(
+                "Continuing with allowed files inside the current workspace.",
+                style="code",
+            )
+        )
+
+        self.console.print()
+        self.console.print(
+            Panel(
+                Group(*body),
+                title=Text(f"{tool_name} blocked, recovered", style="warning"),
+                title_align="left",
+                border_style="warning",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+
     def prompt_plan_question(
         self,
         *,

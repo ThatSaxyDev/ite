@@ -1,10 +1,28 @@
 from __future__ import annotations
 from ite.agent.events import AgentEventType, AgentEvent
 import flet as ft
+from ite.ui.tool_narrative import progress_label
 from ..tokens import *
 
 
 class AgentEventControllerMixin:
+    def _progress_indicator_label(
+        self,
+        *,
+        tool_name: str | None = None,
+        arguments: dict | None = None,
+        metadata: dict | None = None,
+        phase: str = "reasoning",
+        plan_only_phase: bool = False,
+    ) -> str:
+        return progress_label(
+            tool_name=tool_name,
+            arguments=arguments,
+            metadata=metadata,
+            phase=phase,
+            plan_mode=plan_only_phase,
+        )
+
     def _resolve_todo_scope_for_event(
         self,
         *,
@@ -63,14 +81,22 @@ class AgentEventControllerMixin:
             # by PLAN_READY to avoid duplicate plan cards.
             # If the turn is still running after this text block, show activity again.
             if self._is_turn_running:
-                self._show_thinking_indicator()
+                self._show_thinking_indicator(
+                    self._progress_indicator_label(plan_only_phase=plan_only_phase)
+                )
 
         elif event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name")
             if tool_name == "todos":
                 # Todos render in Workboard; keep chat stream clean.
                 if self._is_turn_running:
-                    self._show_thinking_indicator()
+                    self._show_thinking_indicator(
+                        self._progress_indicator_label(
+                            tool_name=tool_name,
+                            arguments=event.data.get("arguments", {}),
+                            plan_only_phase=plan_only_phase,
+                        )
+                    )
                 return
             if tool_name in suppressed_tools:
                 return
@@ -112,11 +138,25 @@ class AgentEventControllerMixin:
                         success,
                     )
                 if self._is_turn_running:
-                    self._show_thinking_indicator()
+                    self._show_thinking_indicator(
+                        self._progress_indicator_label(
+                            tool_name=tool_name,
+                            metadata=event.data.get("metadata"),
+                            phase="post_tool",
+                            plan_only_phase=plan_only_phase,
+                        )
+                    )
                 return
             if tool_name in suppressed_tools:
                 if self._is_turn_running:
-                    self._show_thinking_indicator()
+                    self._show_thinking_indicator(
+                        self._progress_indicator_label(
+                            tool_name=tool_name,
+                            metadata=event.data.get("metadata"),
+                            phase="post_tool",
+                            plan_only_phase=plan_only_phase,
+                        )
+                    )
                 return
             if (
                 plan_only_phase
@@ -124,7 +164,14 @@ class AgentEventControllerMixin:
                 and event.data.get("success", False)
             ):
                 if self._is_turn_running:
-                    self._show_thinking_indicator()
+                    self._show_thinking_indicator(
+                        self._progress_indicator_label(
+                            tool_name=tool_name,
+                            metadata=event.data.get("metadata"),
+                            phase="post_tool",
+                            plan_only_phase=plan_only_phase,
+                        )
+                    )
                 return
             self._update_tool_call(
                 event.data.get("call_id", ""),
@@ -138,7 +185,14 @@ class AgentEventControllerMixin:
             )
             # Tool finished but the turn may continue with more reasoning/calls.
             if self._is_turn_running:
-                self._show_thinking_indicator()
+                self._show_thinking_indicator(
+                    self._progress_indicator_label(
+                        tool_name=tool_name,
+                        metadata=event.data.get("metadata"),
+                        phase="post_tool",
+                        plan_only_phase=plan_only_phase,
+                    )
+                )
 
         elif event.type == AgentEventType.AGENT_ERROR:
             self._hide_thinking_indicator()

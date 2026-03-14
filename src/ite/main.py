@@ -24,6 +24,7 @@ import signal
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
+from ite.ui.tool_narrative import progress_label
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -36,6 +37,46 @@ class CLI:
         self.tui = TUI(config=config, console=console)
         self._last_dispatched_message: str | None = None
         self._last_user_message_for_retry: str | None = None
+        self._pending_recoverable_tool_failures: list[dict[str, Any]] = []
+
+    def _is_recoverable_sandbox_read_failure(
+        self,
+        *,
+        tool_name: str,
+        success: bool,
+        error: str | None,
+    ) -> bool:
+        if success:
+            return False
+        if tool_name not in {"list_dir", "glob", "grep", "read_file"}:
+            return False
+        message = str(error or "")
+        return "outside the project sandbox" in message.lower()
+
+    def _flush_pending_tool_failures(self) -> None:
+        while self._pending_recoverable_tool_failures:
+            pending = self._pending_recoverable_tool_failures.pop(0)
+            tool_kind = self._get_tool_kind(pending.get("name", ""))
+            self.tui.tool_call_complete(
+                call_id=pending.get("call_id", ""),
+                name=pending.get("name", ""),
+                tool_kind=tool_kind,
+                success=pending.get("success", False),
+                output=pending.get("output", ""),
+                error=pending.get("error"),
+                metadata=pending.get("metadata"),
+                diff=pending.get("diff"),
+                truncated=pending.get("truncated", False),
+                exit_code=pending.get("exit_code"),
+            )
+
+    def _mark_pending_tool_failures_recovered(self) -> None:
+        while self._pending_recoverable_tool_failures:
+            pending = self._pending_recoverable_tool_failures.pop(0)
+            self.tui.recoverable_sandbox_note(
+                pending.get("name", "tool"),
+                str(pending.get("error") or ""),
+            )
 
     def _queue_attachment_paths(self, paths: list[str]) -> int:
         if not self.agent or not self.agent.session:
@@ -757,9 +798,14 @@ class CLI:
 
         assistant_streaming = False
         final_response: str | None = None
+        self._pending_recoverable_tool_failures = []
 
         # Start spinner while waiting for LLM
-        self.tui.start_spinner("Thinking...")
+        self.tui.start_spinner(
+            progress_label(
+                plan_mode=bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
+            )
+        )
         try:
             async for event in self.agent.run(message, user_model_content=user_model_content):
                 if event.type == AgentEventType.TEXT_DELTA:
@@ -773,6 +819,8 @@ class CLI:
                 elif event.type == AgentEventType.TEXT_COMPLETE:
                     final_response = event.data.get("content")
                     self.tui.stop_spinner()
+                    if final_response:
+                        self._mark_pending_tool_failures_recovered()
                     if assistant_streaming:
                         self.tui.end_assistant()
                         assistant_streaming = False
@@ -785,6 +833,7 @@ class CLI:
 
                 elif event.type == AgentEventType.AGENT_ERROR:
                     self.tui.stop_spinner()
+                    self._flush_pending_tool_failures()
                     error = event.data.get("error", "Unknown error")
                     if "Maximum turns" in str(error):
                         console.print("\n[warning]Turn limit reached before completion.[/warning]")
@@ -808,12 +857,24 @@ class CLI:
                     if tool_name == "todos":
                         scope = self._resolve_todo_scope(arguments=event.data.get("arguments", {}))
                         if self._should_hide_planning_todos(scope):
-                            self.tui.start_spinner("Running")
+                            self.tui.start_spinner(
+                                progress_label(
+                                    tool_name=tool_name,
+                                    arguments=event.data.get("arguments", {}),
+                                    plan_mode=plan_only_phase,
+                                )
+                            )
                             continue
                     if tool_name in {"memory", "plan_question"} or (
                         plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}
                     ):
-                        self.tui.start_spinner("Running")
+                        self.tui.start_spinner(
+                            progress_label(
+                                tool_name=tool_name,
+                                arguments=event.data.get("arguments", {}),
+                                plan_mode=plan_only_phase,
+                            )
+                        )
                         continue
                     tool_kind = self._get_tool_kind(tool_name)
                     self.tui.tool_call_start(
@@ -822,7 +883,13 @@ class CLI:
                         tool_kind,
                         event.data.get("arguments", {}),
                     )
-                    self.tui.start_spinner("Running")
+                    self.tui.start_spinner(
+                        progress_label(
+                            tool_name=tool_name,
+                            arguments=event.data.get("arguments", {}),
+                            plan_mode=plan_only_phase,
+                        )
+                    )
 
                 elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
                     self.tui.stop_spinner()
@@ -836,10 +903,24 @@ class CLI:
                     if tool_name == "todos":
                         scope = self._resolve_todo_scope(metadata=event.data.get("metadata"))
                         if self._should_hide_planning_todos(scope):
-                            self.tui.start_spinner("Thinking...")
+                            self.tui.start_spinner(
+                                progress_label(
+                                    tool_name=tool_name,
+                                    metadata=event.data.get("metadata"),
+                                    phase="post_tool",
+                                    plan_mode=plan_only_phase,
+                                )
+                            )
                             continue
                     if tool_name in {"memory", "plan_question"}:
-                        self.tui.start_spinner("Thinking...")
+                        self.tui.start_spinner(
+                            progress_label(
+                                tool_name=tool_name,
+                                metadata=event.data.get("metadata"),
+                                phase="post_tool",
+                                plan_mode=plan_only_phase,
+                            )
+                        )
                         continue
                     if (
                         plan_only_phase
@@ -849,15 +930,49 @@ class CLI:
                     ):
                         # In planning phase, model may probe tool schemas with partial calls.
                         # Keep this out of user transcript to reduce noise.
-                        self.tui.start_spinner("Thinking...")
+                        self.tui.start_spinner(
+                            progress_label(
+                                tool_name=tool_name,
+                                metadata=event.data.get("metadata"),
+                                phase="post_tool",
+                                plan_mode=plan_only_phase,
+                            )
+                        )
                         continue
                     if (
                         plan_only_phase
                         and tool_name not in {"todos", "web_search", "web_fetch"}
                         and event.data.get("success", False)
                     ):
-                        self.tui.start_spinner("Thinking...")
+                        self._mark_pending_tool_failures_recovered()
+                        self.tui.start_spinner(
+                            progress_label(
+                                tool_name=tool_name,
+                                metadata=event.data.get("metadata"),
+                                phase="post_tool",
+                                plan_mode=plan_only_phase,
+                            )
+                        )
                         continue
+                    if self._is_recoverable_sandbox_read_failure(
+                        tool_name=tool_name,
+                        success=event.data.get("success", False),
+                        error=event.data.get("error"),
+                    ):
+                        self._pending_recoverable_tool_failures.append(dict(event.data))
+                        self.tui.start_spinner(
+                            progress_label(
+                                tool_name=tool_name,
+                                metadata=event.data.get("metadata"),
+                                phase="post_tool",
+                                plan_mode=plan_only_phase,
+                            )
+                        )
+                        continue
+                    if event.data.get("success", False):
+                        self._mark_pending_tool_failures_recovered()
+                    else:
+                        self._flush_pending_tool_failures()
                     tool_kind = self._get_tool_kind(tool_name)
                     self.tui.tool_call_complete(
                         call_id=event.data.get("call_id", ""),
@@ -872,7 +987,14 @@ class CLI:
                         exit_code=event.data.get("exit_code"),
                     )
                     # Restart spinner while LLM processes tool results
-                    self.tui.start_spinner("Thinking...")
+                    self.tui.start_spinner(
+                        progress_label(
+                            tool_name=tool_name,
+                            metadata=event.data.get("metadata"),
+                            phase="post_tool",
+                            plan_mode=plan_only_phase,
+                        )
+                    )
 
                 elif event.type == AgentEventType.LOOP_DETECTED:
                     self.tui.stop_spinner()
@@ -890,7 +1012,7 @@ class CLI:
                     console.print(
                         f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
                     )
-                    self.tui.start_spinner("Thinking...")
+                    self.tui.start_spinner(progress_label(plan_mode=plan_only_phase))
 
                 elif event.type == AgentEventType.PLAN_READY:
                     self.tui.stop_spinner()
@@ -928,6 +1050,7 @@ class CLI:
 
             return final_response
         finally:
+            self._flush_pending_tool_failures()
             self.tui.stop_spinner()
             if attachment_turn_id:
                 AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)

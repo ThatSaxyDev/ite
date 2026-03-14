@@ -151,6 +151,52 @@ def describe_tool_activity(
     return f"{verb} tool `{name}`."
 
 
+def progress_label(
+    *,
+    tool_name: str | None = None,
+    arguments: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    phase: str = "reasoning",
+    plan_mode: bool = False,
+) -> str:
+    args = arguments or {}
+    md = metadata or {}
+    if not tool_name:
+        return "Planning" if plan_mode else "Thinking"
+
+    name = tool_name
+    label = "Working"
+    if name == "list_dir":
+        label = "Exploring workspace"
+    elif name == "grep":
+        label = "Searching code"
+    elif name == "glob":
+        label = "Finding files"
+    elif name == "read_file":
+        path = _path(args, md)
+        label = "Reading file" if path != "the workspace" else "Reading workspace files"
+    elif name == "shell":
+        label = "Running command"
+    elif name == "web_search":
+        label = "Researching web"
+    elif name == "web_fetch":
+        label = "Reading source"
+    elif name == "todos":
+        scope = str(args.get("scope", "")).strip() or str(md.get("scope", "")).strip()
+        label = "Updating planning checklist" if scope == "planning" else "Updating checklist"
+    elif name == "memory":
+        label = "Updating memory"
+    elif name.startswith("subagent_"):
+        label = "Delegating to specialist"
+
+    if phase == "post_tool":
+        if name in {"list_dir", "grep", "glob", "read_file", "web_search", "web_fetch"}:
+            return label
+        return "Planning next step" if plan_mode else "Reviewing results"
+
+    return label
+
+
 def _path(args: dict[str, Any], metadata: dict[str, Any]) -> str:
     value = args.get("path")
     if isinstance(value, str) and value.strip():

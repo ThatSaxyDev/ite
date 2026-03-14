@@ -111,6 +111,7 @@ class ReadFileTool(Tool):
             if token_count > self.MAX_OUTPUT_TOKENS:
                 output = truncate_text(
                     output,
+                    self.config.model_name,
                     self.MAX_OUTPUT_TOKENS,
                     suffix=f"\n... [truncated] {total_lines} lines in total",
                 )

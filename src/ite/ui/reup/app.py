@@ -40,7 +40,7 @@ from ite.git.branches import (
     list_local_branches,
 )
 from ite.attachments import MAX_ATTACHMENTS
-from ite.ui.tool_narrative import activity_title, describe_tool_activity
+from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
 
@@ -917,6 +917,22 @@ class ReupApp(App):
             if card is not None:
                 card.update(self._render_shell_running_card(args))
 
+    def _progress_state_label(
+        self,
+        *,
+        tool_name: str | None = None,
+        arguments: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+        phase: str = "reasoning",
+    ) -> str:
+        return progress_label(
+            tool_name=tool_name,
+            arguments=arguments,
+            metadata=metadata,
+            phase=phase,
+            plan_mode=self._is_plan_only_phase(),
+        ).lower()
+
     def _with_implementation_plan_title(self, plan_text: str) -> str:
         text = (plan_text or "").strip()
         if not text:
@@ -1788,7 +1804,7 @@ class ReupApp(App):
         await self.add_user_message(message)
         self._active_turn_task = asyncio.create_task(self._agent_turn(message))
         self._is_turn_running = True
-        self._set_loading_state("thinking", busy=True)
+        self._set_loading_state(self._progress_state_label(), busy=True)
 
         try:
             await self._active_turn_task
@@ -1844,16 +1860,40 @@ class ReupApp(App):
             if tool_name == "todos":
                 scope = self._resolve_todo_scope_for_event(arguments=event.data.get("arguments"))
                 if self._should_hide_todo_scope(scope):
-                    self._set_loading_state("thinking", busy=True)
+                    self._set_loading_state(
+                        self._progress_state_label(
+                            tool_name=tool_name,
+                            arguments=event.data.get("arguments", {}),
+                        ),
+                        busy=True,
+                    )
                     return
             if tool_name in suppressed_tools:
-                self._set_loading_state("thinking", busy=True)
+                self._set_loading_state(
+                    self._progress_state_label(
+                        tool_name=tool_name,
+                        arguments=event.data.get("arguments", {}),
+                    ),
+                    busy=True,
+                )
                 return
             if plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}:
-                self._set_loading_state("thinking", busy=True)
+                self._set_loading_state(
+                    self._progress_state_label(
+                        tool_name=tool_name,
+                        arguments=event.data.get("arguments", {}),
+                    ),
+                    busy=True,
+                )
                 return
             tool_kind = self.get_tool_kind(tool_name)
-            self._set_loading_state("running tool", busy=True)
+            self._set_loading_state(
+                self._progress_state_label(
+                    tool_name=tool_name,
+                    arguments=event.data.get("arguments", {}),
+                ),
+                busy=True,
+            )
             await self.add_tool_call_start(
                 call_id=event.data.get("call_id", ""),
                 name=tool_name,
@@ -1867,17 +1907,38 @@ class ReupApp(App):
             if tool_name == "todos":
                 scope = self._resolve_todo_scope_for_event(metadata=event.data.get("metadata"))
                 if self._should_hide_todo_scope(scope):
-                    self._set_loading_state("thinking", busy=True)
+                    self._set_loading_state(
+                        self._progress_state_label(
+                            tool_name=tool_name,
+                            metadata=event.data.get("metadata"),
+                            phase="post_tool",
+                        ),
+                        busy=True,
+                    )
                     return
             if tool_name in suppressed_tools:
-                self._set_loading_state("thinking", busy=True)
+                self._set_loading_state(
+                    self._progress_state_label(
+                        tool_name=tool_name,
+                        metadata=event.data.get("metadata"),
+                        phase="post_tool",
+                    ),
+                    busy=True,
+                )
                 return
             if (
                 plan_only_phase
                 and tool_name not in {"todos", "web_search", "web_fetch"}
                 and event.data.get("success", False)
             ):
-                self._set_loading_state("thinking", busy=True)
+                self._set_loading_state(
+                    self._progress_state_label(
+                        tool_name=tool_name,
+                        metadata=event.data.get("metadata"),
+                        phase="post_tool",
+                    ),
+                    busy=True,
+                )
                 return
             tool_kind = self.get_tool_kind(tool_name)
             await self.update_tool_call(
@@ -1892,7 +1953,14 @@ class ReupApp(App):
                 truncated=event.data.get("truncated", False),
                 exit_code=event.data.get("exit_code"),
             )
-            self._set_loading_state("thinking", busy=True)
+            self._set_loading_state(
+                self._progress_state_label(
+                    tool_name=tool_name,
+                    metadata=event.data.get("metadata"),
+                    phase="post_tool",
+                ),
+                busy=True,
+            )
             return
 
         if event.type == AgentEventType.PLAN_READY:
