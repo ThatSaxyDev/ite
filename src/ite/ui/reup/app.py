@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+from urllib.parse import urlparse
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.commands import build_registry
 from ite.config.config import Config
+from ite.config.config import ApprovalPolicy
+from ite.config.loader import save_global_approval_mode, save_system_config
 from ite.git.branches import (
     BranchInfo,
     checkout_branch,
@@ -417,6 +420,99 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
         self.dismiss(None)
 
 
+class SetupModal(ModalScreen[dict[str, str] | None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, config: Config) -> None:
+        super().__init__()
+        self._config = config
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal setup-modal"):
+            yield Label("Setup ITE", classes="modal-title setup-title")
+            yield Static(
+                "Connect your provider credentials to start using reup.",
+                classes="modal-body setup-body",
+            )
+            yield Input(
+                value=self._config.base_url or "https://openrouter.ai/api/v1",
+                placeholder="https://openrouter.ai/api/v1",
+                id="setup-base-url",
+            )
+            yield Input(
+                value=self._config.api_key or "",
+                placeholder="API key",
+                password=True,
+                id="setup-api-key",
+            )
+            yield Input(
+                value=self._config.model_name,
+                placeholder="Model",
+                id="setup-model",
+            )
+            yield Input(
+                value=self._config.approval.value,
+                placeholder="Approval mode (auto, on_request, auto_edit, ...)",
+                id="setup-approval",
+            )
+            yield Static("", id="setup-error", classes="setup-error")
+            with Horizontal(classes="modal-actions setup-actions"):
+                yield Button("Cancel", id="cancel", variant="default")
+                yield Button("Continue", id="continue", variant="primary")
+
+    async def on_mount(self) -> None:
+        self.query_one("#setup-api-key", Input).focus()
+
+    @on(Button.Pressed, "#continue")
+    def on_continue_pressed(self, _event: Button.Pressed) -> None:
+        self._submit()
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+    @on(Input.Submitted, "#setup-base-url")
+    @on(Input.Submitted, "#setup-api-key")
+    @on(Input.Submitted, "#setup-model")
+    @on(Input.Submitted, "#setup-approval")
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self._submit()
+
+    def _set_error(self, message: str) -> None:
+        self.query_one("#setup-error", Static).update(message)
+
+    def _submit(self) -> None:
+        base_url = self.query_one("#setup-base-url", Input).value.strip() or "https://openrouter.ai/api/v1"
+        api_key = self.query_one("#setup-api-key", Input).value.strip()
+        model_name = self.query_one("#setup-model", Input).value.strip() or self._config.model_name
+        approval_raw = self.query_one("#setup-approval", Input).value.strip() or self._config.approval.value
+
+        if not api_key:
+            self._set_error("API key is required.")
+            return
+
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            self._set_error("Base URL must be a valid http/https URL.")
+            return
+
+        try:
+            approval = ApprovalPolicy(approval_raw)
+        except ValueError:
+            valid = ", ".join(policy.value for policy in ApprovalPolicy)
+            self._set_error(f"Approval must be one of: {valid}")
+            return
+
+        self.dismiss(
+            {
+                "base_url": base_url,
+                "api_key": api_key,
+                "model_name": model_name,
+                "approval": approval.value,
+            }
+        )
+
+
 class ReupPromptTextArea(TextArea):
     class Submitted(Message):
         pass
@@ -595,12 +691,18 @@ class ReupApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        await self.ensure_agent()
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
         self.set_interval(0.1, self._tick_top_indicator)
+        if self.config.needs_setup:
+            result = await self._open_modal(SetupModal(self.config))
+            if not result:
+                self.exit()
+                return
+            await self._apply_setup_result(result)
+        await self.ensure_agent()
         self.query_one("#prompt", TextArea).focus()
 
     async def on_unmount(self) -> None:
@@ -905,6 +1007,26 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         prompt.disabled = busy
         self._refresh_empty_state()
+
+    async def _apply_setup_result(self, result: dict[str, str]) -> None:
+        try:
+            save_system_config(
+                api_key=result["api_key"],
+                base_url=result["base_url"],
+                model_name=result["model_name"],
+            )
+            save_global_approval_mode(result["approval"])
+        except Exception as exc:
+            self.post_system("Setup failed", str(exc), is_error=True)
+            self.exit()
+            return
+
+        self.config.api_key = result["api_key"]
+        self.config.base_url = result["base_url"]
+        self.config.model.name = result["model_name"]
+        self.config.approval = ApprovalPolicy(result["approval"])
+        self.refresh_header()
+        self.post_notice("Setup complete", "Saved credentials and defaults. Reup is ready.")
 
     def _tick_top_indicator(self) -> None:
         state_widget = self.query_one("#run-state", Static)
