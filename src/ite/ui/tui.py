@@ -111,6 +111,7 @@ class TUI:
         self._streamed_line_count = 0
         self._assistant_stream_open = True
         self.console.print()
+        self.console.print()
 
     def end_assistant(self) -> None:
         if self._assistant_stream_open and self._assistant_buffer:
@@ -125,16 +126,9 @@ class TUI:
                 )
                 self.console.file.flush()
 
-            title = Text.assemble(
-                ("⏺ ", "muted"),
-                ("ite", "bold bright_white"),
-            )
-
             # Render the final styled markdown in a panel
             panel = Panel(
                 Markdown(self._assistant_buffer.strip()),
-                title=title,
-                title_align="left",
                 border_style="bright_white",
                 box=box.HEAVY,
                 padding=(1, 2),
