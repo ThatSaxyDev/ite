@@ -82,7 +82,14 @@ class TUI:
         """Show an animated spinner with a message."""
         if self._spinner_running:
             return
-        spinner = Spinner("dots", text=Text(f" {message}...", style="muted"))
+        spinner = Spinner(
+            "dots2",
+            text=Text.assemble(
+                (" ", "assistant"),
+                (f"{message}...", "assistant"),
+            ),
+            style="assistant",
+        )
         self._spinner_live = Live(
             spinner,
             console=self.console,

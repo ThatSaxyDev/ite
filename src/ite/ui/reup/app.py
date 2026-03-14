@@ -908,7 +908,8 @@ class ReupApp(App):
         if not self._top_busy:
             throbber.update(" ")
             return
-        frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
+        bold_frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        frame = bold_frames[self._top_spinner_index % len(bold_frames)]
         self._top_spinner_index += 1
         throbber.update(frame)
         for call_id in getattr(self, "_running_shell_call_ids", set()):

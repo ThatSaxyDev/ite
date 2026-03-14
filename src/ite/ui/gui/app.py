@@ -1617,12 +1617,17 @@ class GUIApp(
             return
 
         self.thinking_spinner = ft.ProgressRing(
-            width=8,
-            height=8,
-            stroke_width=1,
-            color=TEXT_MUTED,
+            width=10,
+            height=10,
+            stroke_width=1.8,
+            color=TEXT_SECONDARY,
         )
-        self.thinking_text = ft.Text(self._thinking_label_base, size=TYPE_SM, color=TEXT_MUTED)
+        self.thinking_text = ft.Text(
+            self._thinking_label_base,
+            size=TYPE_BODY,
+            color=TEXT_SECONDARY,
+            weight=WEIGHT_SEMIBOLD,
+        )
         bubble = ft.Container(
             content=ft.Row(
                 [self.thinking_spinner, self.thinking_text],
@@ -1632,7 +1637,7 @@ class GUIApp(
             bgcolor=SURFACE_ELEVATED,
             border_radius=RADIUS_SM,
             padding=ft.Padding.symmetric(horizontal=10, vertical=8),
-            width=160,
+            width=220,
         )
         self.thinking_row = ft.Row([bubble], alignment=ft.MainAxisAlignment.START)
         self.thinking_row = self._wrap_in_lane(self.thinking_row)
