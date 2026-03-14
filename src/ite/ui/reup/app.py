@@ -559,7 +559,7 @@ class ReupApp(App):
         self._suppress_history_reset_once: bool = False
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
-        self._top_spinner_frames: tuple[str, ...] = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+        self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
         self._top_state_text: str = ""
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
