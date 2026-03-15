@@ -8,6 +8,7 @@ from ite.hooks.hook_system import HookSystem
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.apply_patch import ApplyPatchTool
 from ite.tools.discovery import ToolDiscoveryManager
+from ite.tools.policy import ToolSelectionPolicy
 from ite.tools.registry import ToolRegistry
 from ite.tools.registry import _validate_subagent_definition
 from ite.tools.registry import create_default_registry
@@ -51,6 +52,56 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result.success)
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "grep")
+
+    def test_read_only_subagent_allowed_in_plan_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            tool = SubagentTool(
+                config,
+                SubagentDefinition(
+                    name="codebase_investigator",
+                    description="Investigate codebase",
+                    goal_prompt="Use read tools only.",
+                    allowed_tools=["read_file", "grep", "glob", "list_dir"],
+                ),
+            )
+            metadata = tool.get_metadata({"goal": "review architecture"})
+            self.assertTrue(metadata.allowed_in_plan_mode)
+
+            decision = ToolSelectionPolicy().evaluate(
+                tool_name=tool.name,
+                params={"goal": "review architecture"},
+                metadata=metadata,
+                plan_mode_enabled=True,
+                plan_phase="asking_questions",
+            )
+            self.assertTrue(decision.allowed)
+
+    def test_mutating_subagent_still_blocked_in_plan_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            tool = SubagentTool(
+                config,
+                SubagentDefinition(
+                    name="mutating_helper",
+                    description="Mutates code",
+                    goal_prompt="Use edit tools.",
+                    allowed_tools=["read_file", "edit"],
+                ),
+            )
+            metadata = tool.get_metadata({"goal": "make changes"})
+            self.assertFalse(metadata.allowed_in_plan_mode)
+
+            decision = ToolSelectionPolicy().evaluate(
+                tool_name=tool.name,
+                params={"goal": "make changes"},
+                metadata=metadata,
+                plan_mode_enabled=True,
+                plan_phase="asking_questions",
+            )
+            self.assertFalse(decision.allowed)
 
 
 class DiscoveryAndSubagentValidationTests(unittest.TestCase):

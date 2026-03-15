@@ -67,10 +67,11 @@ class SubagentTool(Tool):
     schema = SubagentParams
 
     def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
+        mutating = self.is_mutating(params)
         return ToolMetadata(
-            mutating=self.is_mutating(params),
+            mutating=mutating,
             risk_level=ToolRiskLevel.MEDIUM,
-            allowed_in_plan_mode=False,
+            allowed_in_plan_mode=not mutating,
             supports_subagent_use=False,
             output_schema={
                 "type": "object",
