@@ -119,6 +119,37 @@ def extract_preference_controls(message: str) -> dict[str, Any]:
     return controls
 
 
+def should_reject_durable_memory_capture(store: str, value: str) -> bool:
+    if store not in {"long_term", "semantic"}:
+        return False
+
+    text = _clean_value(value).lower()
+    if not text:
+        return True
+
+    weak_markers = (
+        "thinking out loud",
+        "maybe ",
+        "maybe,",
+        "might ",
+        "perhaps ",
+        "or maybe not",
+        "considering ",
+        "i guess",
+        "probably ",
+        "not sure",
+        "could use",
+        "could be",
+    )
+    if any(marker in text for marker in weak_markers):
+        return True
+
+    if "?" in text:
+        return True
+
+    return False
+
+
 def _clean_value(value: str) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+", " ", text).strip()

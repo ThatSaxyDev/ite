@@ -10,6 +10,7 @@ from ite.memory import (
     extract_preference_controls,
     is_memory_probe,
     parse_explicit_memory_instruction,
+    should_reject_durable_memory_capture,
 )
 from ite.memory.manager import MemoryManager
 from ite.tools.base import ToolInvocation
@@ -227,6 +228,39 @@ class MemoryManagerTests(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_memory_tool_rejects_speculative_durable_memory(self) -> None:
+        workspace = self.base_path / "ws-tool-guard"
+        workspace.mkdir()
+        config = Config(cwd=workspace, api_key="test")
+
+        async def run() -> None:
+            session = Session(config=config)
+            await session.initialize()
+            tool = session.tool_registry.get("memory")
+            self.assertIsInstance(tool, MemoryTool)
+            assert isinstance(tool, MemoryTool)
+
+            result = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "action": "set",
+                        "store": "semantic",
+                        "key": "storage",
+                        "value": "I'm just thinking out loud, maybe we could use Redis, or maybe not.",
+                    },
+                    cwd=workspace,
+                )
+            )
+            self.assertTrue(result.success)
+            self.assertEqual(result.metadata.get("stored"), False)
+
+            manager = MemoryManager(workspace, session_id=session.session_id)
+            self.assertEqual(manager.list_entries("semantic"), [])
+
+        import asyncio
+
+        asyncio.run(run())
+
     def test_explicit_memory_parser_routes_supported_phrases(self) -> None:
         session_note = parse_explicit_memory_instruction(
             "For this session only, remember the phrase: mango submarine velvet."
@@ -266,6 +300,18 @@ class MemoryManagerTests(unittest.TestCase):
                 "answer_length": "short",
                 "bullet_style": "avoid",
             },
+        )
+        self.assertTrue(
+            should_reject_durable_memory_capture(
+                "semantic",
+                "I'm just thinking out loud, maybe we could use Redis, or maybe not.",
+            )
+        )
+        self.assertFalse(
+            should_reject_durable_memory_capture(
+                "semantic",
+                "Use pytest for tests.",
+            )
         )
 
 

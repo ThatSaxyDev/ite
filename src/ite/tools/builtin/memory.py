@@ -1,6 +1,6 @@
 import json
 from ite.config.loader import get_data_dir
-from ite.memory import MemoryManager, VALID_STORES
+from ite.memory import MemoryManager, VALID_STORES, should_reject_durable_memory_capture
 from ite.tools.base import Tool, ToolInvocation, ToolKind, ToolResult
 from pydantic import BaseModel, Field
 
@@ -126,8 +126,16 @@ class MemoryTool(Tool):
             return ToolResult.error_result(
                 "`key` and `value` are required for 'set' action"
             )
+        if should_reject_durable_memory_capture(store, params.value):
+            return ToolResult.success_result(
+                f"[{store}] Skipped weak or speculative memory: {params.key}",
+                metadata={"stored": False, "reason": "weak_or_speculative"},
+            )
         manager.set_entry(store, params.key, params.value, source="memory_tool")
-        return ToolResult.success_result(f"[{store}] Set: {params.key}")
+        return ToolResult.success_result(
+            f"[{store}] Set: {params.key}",
+            metadata={"stored": True},
+        )
 
     def _handle_get(self, manager: MemoryManager, store: str, params: MemoryParams) -> ToolResult:
         if not params.key:
