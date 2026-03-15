@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from ite.config.loader import get_data_dir
+from ite.memory.intent import is_memory_probe, parse_explicit_memory_instruction
 
 VALID_STORES = ("short_term", "long_term", "episodic", "semantic")
 MAX_EPISODIC_ENTRIES = 50
@@ -70,6 +71,28 @@ def _lexical_score(query: str, haystack: str) -> float:
     matches = sum(1 for token in tokens if token in haystack)
     score += min(matches / max(len(tokens), 1), 1.0) * 0.5
     return min(score, 1.0)
+
+
+def _query_profile(query: str) -> dict[str, bool]:
+    text = _normalize_text(query).lower()
+    return {
+        "has_query": bool(text),
+        "wants_memory": any(
+            token in text
+            for token in (
+                "remember",
+                "memory",
+                "last time",
+                "previous",
+                "decide",
+                "decided",
+                "focus",
+                "focused",
+                "working on",
+                "session",
+            )
+        ),
+    }
 
 
 class MemoryManager:
@@ -332,6 +355,7 @@ class MemoryManager:
 
     def load_prompt_memory(self, current_user_text: str | None = None, *, limit: int = 5) -> dict[str, Any] | None:
         query = current_user_text or ""
+        profile = _query_profile(query)
         candidates: list[dict[str, Any]] = []
 
         for store in ("short_term", "semantic", "long_term"):
@@ -350,11 +374,22 @@ class MemoryManager:
                     {
                         "store": store,
                         "record": record,
+                        "base_score": base,
                         "score": base + hotness * 0.35 + store_boost,
                     }
                 )
 
         for episode in self.list_episodes():
+            summary_text = str(episode.get("summary", "") or "")
+            lowered_summary = summary_text.lower()
+            if parse_explicit_memory_instruction(summary_text) is not None:
+                continue
+            if is_memory_probe(summary_text):
+                continue
+            if "for this session only, remember" in lowered_summary:
+                continue
+            if "remember this for this workspace" in lowered_summary:
+                continue
             base = _lexical_score(query, f"{episode.get('summary', '')} {episode.get('detail', '')}")
             hotness = _hotness_score(
                 int(episode.get("access_count", 0) or 0),
@@ -364,6 +399,7 @@ class MemoryManager:
                 {
                     "store": "episodic",
                     "record": episode,
+                    "base_score": base,
                     "score": base + hotness * 0.35 + 0.1,
                 }
             )
@@ -374,14 +410,34 @@ class MemoryManager:
         candidates.sort(key=lambda item: item["score"], reverse=True)
         selected: list[dict[str, Any]] = []
         seen: set[str] = set()
+        long_term_selected = 0
         for candidate in candidates:
             record = candidate["record"]
+            store = str(candidate["store"])
+            base_score = float(candidate.get("base_score", 0.0) or 0.0)
+
+            if profile["has_query"]:
+                if store == "long_term":
+                    if long_term_selected >= 1:
+                        continue
+                elif store == "short_term":
+                    if base_score < 0.12 and not profile["wants_memory"]:
+                        continue
+                elif store == "semantic":
+                    if base_score < 0.1:
+                        continue
+                elif store == "episodic":
+                    if base_score < 0.12 and not profile["wants_memory"]:
+                        continue
+
             summary = str(record.get("summary") or record.get("value") or "").strip().lower()
-            dedupe_key = f"{candidate['store']}:{summary}"
+            dedupe_key = f"{store}:{summary}"
             if not summary or dedupe_key in seen:
                 continue
             seen.add(dedupe_key)
             selected.append(candidate)
+            if store == "long_term":
+                long_term_selected += 1
             if len(selected) >= limit:
                 break
 

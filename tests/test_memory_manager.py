@@ -6,7 +6,7 @@ from unittest.mock import patch
 from ite.agent.session import Session
 from ite.config.config import Config
 from ite.context.manager import ContextManager
-from ite.memory import parse_explicit_memory_instruction
+from ite.memory import is_memory_probe, parse_explicit_memory_instruction
 from ite.memory.manager import MemoryManager
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.memory import MemoryTool
@@ -94,6 +94,23 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertIn("# Remembered Context", system_prompt)
         self.assertIn("absolute file paths", system_prompt.lower())
 
+    def test_prompt_memory_ignores_polluted_episodic_memory_prompts(self) -> None:
+        workspace = self.base_path / "ws-episodic"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+        manager.append_episode(
+            "Session exited (2 turns): For this session only, remember the phrase: mango submarine velvet",
+            source="session_exit",
+        )
+
+        bundle = manager.load_prompt_memory(
+            "What phrase should you remember for this session only?"
+        )
+
+        if bundle is None:
+            return
+        self.assertEqual(bundle["episodic"], [])
+
     def test_memory_tool_short_term_follows_session_id(self) -> None:
         workspace = self.base_path / "ws-tool"
         workspace.mkdir()
@@ -177,6 +194,9 @@ class MemoryManagerTests(unittest.TestCase):
             parse_explicit_memory_instruction(
                 "Do not remember this: I am considering switching to Go."
             )
+        )
+        self.assertTrue(
+            is_memory_probe("What phrase should you remember for this session only?")
         )
 
 

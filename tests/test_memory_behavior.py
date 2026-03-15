@@ -78,6 +78,26 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("no workspace testing memory stored", other_response.lower())
 
+    async def test_explicit_memory_instruction_bypasses_model_turn(self) -> None:
+        workspace = self.base_path / "ws-explicit"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        async def fail_if_called(*args, **kwargs):
+            raise AssertionError("LLM should not be called for explicit memory capture")
+            yield  # pragma: no cover
+
+        agent.session.client.chat_completion = fail_if_called  # type: ignore[method-assign]
+
+        response = await self._collect_text(
+            agent.run("For this session only, remember the phrase: mango submarine velvet.")
+        )
+        self.assertIn("stored", response.lower())
+        self.assertIn("mango submarine velvet", response.lower())
+
     async def _collect_text(self, events) -> str:
         content = ""
         async for event in events:

@@ -53,6 +53,16 @@ class Agent:
                 explicit_memory.value,
                 source=explicit_memory.source,
             )
+            session.context_manager.add_user_message(message)
+            confirmation = self._explicit_memory_confirmation(explicit_memory)
+            session.context_manager.add_assistant_message(confirmation)
+            await session.hook_system.trigger_after_agent(
+                user_message=message,
+                agent_response=confirmation,
+            )
+            yield AgentEvent.text_complete(confirmation)
+            yield AgentEvent.agent_end(confirmation)
+            return
         session.context_manager.add_user_message(message)
         is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
         session.todo_execution_handoff_active = is_execution_handoff
@@ -88,6 +98,15 @@ class Agent:
         )
 
         yield AgentEvent.agent_end(final_response)
+
+    def _explicit_memory_confirmation(self, instruction) -> str:
+        if instruction.store == "short_term":
+            return f'Got it - stored "{instruction.value}" for this session.'
+        if instruction.store == "semantic":
+            return f'Got it - stored "{instruction.value}" for this workspace.'
+        if instruction.store == "long_term":
+            return f'Got it - I will remember: "{instruction.value}".'
+        return "Stored."
 
     async def _seed_planning_todos_if_needed(
         self,

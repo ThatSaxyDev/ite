@@ -67,6 +67,20 @@ def parse_explicit_memory_instruction(message: str) -> ExplicitMemoryInstruction
     return None
 
 
+def is_memory_probe(message: str) -> bool:
+    text = _clean_value(message).lower()
+    if not text:
+        return False
+    patterns = (
+        "what phrase should you remember",
+        "what should you remember",
+        "what do you remember",
+        "what did we decide last time",
+        "what are we focused on right now",
+    )
+    return any(pattern in text for pattern in patterns)
+
+
 def _clean_value(value: str) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+", " ", text).strip()

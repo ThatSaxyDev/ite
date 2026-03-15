@@ -11,7 +11,7 @@ from ite.context.manager import ContextManager
 from ite.client.llm_client import LLMClient
 from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
-from ite.memory import MemoryManager
+from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
 from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.todo import TodosTool
 
@@ -133,6 +133,10 @@ class Session:
 
         recent_user = self._latest_user_message_text()
         if recent_user:
+            if parse_explicit_memory_instruction(recent_user) is not None:
+                return ""
+            if is_memory_probe(recent_user):
+                return ""
             return recent_user
 
         return ""
