@@ -200,12 +200,9 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
     )
     session_manager.save_session(session_snapshot)
 
-    from ite.tools.builtin.memory import MemoryTool
-
-    MemoryTool.append_episodic_entry(
-        summary=f"Session saved ({ctx.agent.session.turn_count} turns)",
-        cwd=str(ctx.config.cwd),
-        key=ctx.agent.session.session_id,
+    ctx.agent.session.record_lifecycle_episode(
+        f"Session saved ({ctx.agent.session.turn_count} turns)",
+        source="session_save",
     )
     title = Text.assemble(("💾  ", ""), ("Session saved", "bold bright_white"))
     ctx.console.print()

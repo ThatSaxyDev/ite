@@ -99,6 +99,14 @@ class Session:
 
         return self._turn_count
 
+    def record_lifecycle_episode(self, summary: str, *, source: str) -> None:
+        self.memory_manager.append_episode(
+            summary,
+            detail=summary,
+            source=source,
+            session_id=self.session_id,
+        )
+
     def set_plan_mode(self, enabled: bool) -> None:
         self.plan_mode_enabled = enabled
         if enabled:

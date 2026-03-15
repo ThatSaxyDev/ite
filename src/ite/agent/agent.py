@@ -555,6 +555,10 @@ class Agent:
 
                 if summary:
                     session.context_manager.replace_with_summary(summary)
+                    session.record_lifecycle_episode(
+                        f"Context compacted after {session.turn_count} turns",
+                        source="context_compaction",
+                    )
                     compacted_tokens = (
                         session.context_manager.estimate_current_context_tokens()
                     )

@@ -43,6 +43,10 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
                 show_planning_todos=session.show_planning_todos,
             )
             session_manager.save_session(snapshot)
+            session.record_lifecycle_episode(
+                f"Session exited ({session.turn_count} turns)",
+                source="session_exit",
+            )
     except Exception:
         pass
 
@@ -141,6 +145,10 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
             show_planning_todos=previous.show_planning_todos,
         )
         session_manager.save_session(snapshot)
+        previous.record_lifecycle_episode(
+            f"Started new session after {previous.turn_count} turns",
+            source="session_new",
+        )
 
     old_callback = previous.approval_manager.confirmation_callback
     await previous.client.close()
