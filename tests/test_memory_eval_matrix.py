@@ -44,6 +44,27 @@ class _EvalModel:
         prompt = system_prompt.lower()
         user = latest_user.lower()
 
+        if "what language switch am i considering?" in user:
+            return (
+                "You are considering switching to Go."
+                if "switching to go" in prompt
+                else "No remembered language switch."
+            )
+
+        if "what have we decided about storage?" in user:
+            return (
+                "We decided to use Redis."
+                if "redis" in prompt
+                else "No storage decision recorded."
+            )
+
+        if "how should you answer architecture questions by default?" in user:
+            return (
+                "No durable architecture-specific preference is stored."
+                if "architecture" not in prompt or "more detail" not in prompt
+                else "Architecture questions should get more detail."
+            )
+
         if "what phrase should you remember for this session only?" in user:
             return (
                 "The phrase is mango submarine velvet."
@@ -69,6 +90,9 @@ class _EvalModel:
         if "what is 17 times 19?" in user:
             return "323"
 
+        if "do not remember this" in user:
+            return "Okay, I will not store that."
+
         if "remember" in user or "from now on" in user:
             return "Stored."
 
@@ -90,6 +114,9 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         await self._scenario_long_term_preference()
         await self._scenario_preference_update()
         await self._scenario_irrelevant_recall_restraint()
+        await self._scenario_do_not_remember_opt_out()
+        await self._scenario_speculative_statement_not_captured()
+        await self._scenario_conditional_preference_not_flattened()
 
     async def _scenario_session_isolation(self) -> None:
         workspace = self.base_path / "session-isolation"
@@ -168,6 +195,51 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.response.strip(), "323")
         self.assertNotIn("mango submarine velvet", result.system_prompt.lower())
         self.assertNotIn("pytest", result.system_prompt.lower())
+
+    async def _scenario_do_not_remember_opt_out(self) -> None:
+        workspace = self.base_path / "do-not-remember"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(agent, "Do not remember this: I am considering switching to Go.")
+
+        fresh, _ = await self._make_agent(workspace)
+        result = await self._run_turn(fresh, "What language switch am I considering?")
+        self.assertIn("no remembered language switch", result.response.lower())
+        self.assertNotIn("switching to go", result.system_prompt.lower())
+
+    async def _scenario_speculative_statement_not_captured(self) -> None:
+        workspace = self.base_path / "speculative"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(
+            agent,
+            "I'm just thinking out loud, maybe we could use Redis, or maybe not.",
+        )
+
+        fresh, _ = await self._make_agent(workspace)
+        result = await self._run_turn(fresh, "What have we decided about storage?")
+        self.assertIn("no storage decision recorded", result.response.lower())
+        self.assertNotIn("redis", result.system_prompt.lower())
+
+    async def _scenario_conditional_preference_not_flattened(self) -> None:
+        workspace = self.base_path / "conditional-preference"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(
+            agent,
+            "I like short answers for debugging, but for architecture I want more detail.",
+        )
+
+        fresh, _ = await self._make_agent(workspace)
+        result = await self._run_turn(
+            fresh,
+            "How should you answer architecture questions by default?",
+        )
+        self.assertIn("no durable architecture-specific preference", result.response.lower())
+        self.assertNotIn("more detail", result.system_prompt.lower())
 
     async def _make_agent(self, workspace: Path) -> tuple[Agent, _EvalModel]:
         agent = Agent(Config(cwd=workspace, api_key="test"))
