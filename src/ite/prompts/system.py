@@ -35,7 +35,12 @@ def get_system_prompt(
         parts.append(_get_user_instructions_section(config.user_instructions))
 
     if user_memory:
-        parts.append(_get_memory_section(user_memory))
+        controls_section = _get_controls_section(user_memory.get("controls", {}))
+        if controls_section:
+            parts.append(controls_section)
+        memory_section = _get_memory_section(user_memory)
+        if memory_section:
+            parts.append(memory_section)
     if plan_mode_enabled:
         parts.append(_get_plan_mode_section(plan_phase))
     # Operational guidelines
@@ -281,6 +286,42 @@ def _get_memory_section(memory: dict) -> str:
 {body}
 
 Use this information to personalize your responses and maintain consistency."""
+
+
+def _get_controls_section(controls: dict) -> str:
+    if not controls:
+        return ""
+
+    instructions: list[str] = []
+
+    answer_length = str(controls.get("answer_length", "")).strip()
+    if answer_length == "short":
+        instructions.append("Keep answers short by default.")
+    elif answer_length == "detailed":
+        instructions.append("Give detailed answers by default.")
+
+    bullet_style = str(controls.get("bullet_style", "")).strip()
+    if bullet_style == "avoid":
+        instructions.append("Avoid bullet lists unless the user explicitly asks for them.")
+    elif bullet_style == "helpful":
+        instructions.append("Use bullet lists when they materially improve clarity.")
+    elif bullet_style == "default":
+        instructions.append("Use bullet lists by default when explaining or organizing information.")
+
+    file_paths = str(controls.get("file_paths", "")).strip()
+    if file_paths == "absolute":
+        instructions.append("Use absolute file paths when referencing files.")
+
+    explanation_style = str(controls.get("explanation_style", "")).strip()
+    if explanation_style == "step_by_step":
+        instructions.append("Prefer step-by-step explanations for complex guidance.")
+
+    if not instructions:
+        return ""
+
+    lines = ["# Active Response Controls", "", "Apply these user preferences unless the user overrides them in the current request."]
+    lines.extend(f"- {instruction}" for instruction in instructions)
+    return "\n".join(lines)
 
 
 def _get_tool_guidelines_section(tools: list[Tool]) -> str:

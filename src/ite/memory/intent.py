@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -79,6 +80,43 @@ def is_memory_probe(message: str) -> bool:
         "what are we focused on right now",
     )
     return any(pattern in text for pattern in patterns)
+
+
+def extract_preference_controls(message: str) -> dict[str, Any]:
+    text = _clean_value(message).lower()
+    if not text:
+        return {}
+
+    controls: dict[str, Any] = {}
+
+    if any(phrase in text for phrase in ("keep answers short", "short answers", "concise answers")):
+        controls["answer_length"] = "short"
+    elif any(
+        phrase in text
+        for phrase in (
+            "detailed answers",
+            "more detail",
+            "step-by-step answers",
+            "detailed step-by-step answers",
+            "verbose answers",
+        )
+    ):
+        controls["answer_length"] = "detailed"
+
+    if "avoid bullet lists" in text or "avoid bullets" in text:
+        controls["bullet_style"] = "avoid"
+    elif "bullet lists by default" in text or "use bullet lists by default" in text:
+        controls["bullet_style"] = "default"
+    elif "bullet lists when helpful" in text or "use bullet lists when helpful" in text:
+        controls["bullet_style"] = "helpful"
+
+    if "absolute file paths" in text:
+        controls["file_paths"] = "absolute"
+
+    if "step-by-step" in text:
+        controls["explanation_style"] = "step_by_step"
+
+    return controls
 
 
 def _clean_value(value: str) -> str:

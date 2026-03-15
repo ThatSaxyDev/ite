@@ -6,7 +6,11 @@ from unittest.mock import patch
 from ite.agent.session import Session
 from ite.config.config import Config
 from ite.context.manager import ContextManager
-from ite.memory import is_memory_probe, parse_explicit_memory_instruction
+from ite.memory import (
+    extract_preference_controls,
+    is_memory_probe,
+    parse_explicit_memory_instruction,
+)
 from ite.memory.manager import MemoryManager
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.memory import MemoryTool
@@ -91,8 +95,34 @@ class MemoryManagerTests(unittest.TestCase):
         messages = context_manager.get_messages()
         system_prompt = messages[0]["content"]
 
-        self.assertIn("# Remembered Context", system_prompt)
+        self.assertIn("# Active Response Controls", system_prompt)
         self.assertIn("absolute file paths", system_prompt.lower())
+
+    def test_newer_preference_controls_override_older_ones(self) -> None:
+        workspace = self.base_path / "ws-controls"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+
+        manager.set_entry(
+            "long_term",
+            "pref_short",
+            "Keep answers short and avoid bullet lists",
+            source="test",
+        )
+        manager.set_entry(
+            "long_term",
+            "pref_detailed",
+            "Give detailed answers with bullet lists when helpful",
+            source="test",
+        )
+
+        bundle = manager.load_prompt_memory("Explain the architecture of this repo.")
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        self.assertEqual(bundle["controls"]["answer_length"], "detailed")
+        self.assertEqual(bundle["controls"]["bullet_style"], "helpful")
+        self.assertEqual(bundle["long_term"], {})
 
     def test_prompt_memory_ignores_polluted_episodic_memory_prompts(self) -> None:
         workspace = self.base_path / "ws-episodic"
@@ -197,6 +227,15 @@ class MemoryManagerTests(unittest.TestCase):
         )
         self.assertTrue(
             is_memory_probe("What phrase should you remember for this session only?")
+        )
+        self.assertEqual(
+            extract_preference_controls(
+                "From now on, keep answers short and avoid bullet lists."
+            ),
+            {
+                "answer_length": "short",
+                "bullet_style": "avoid",
+            },
         )
 
 

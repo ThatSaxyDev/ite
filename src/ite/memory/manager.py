@@ -10,7 +10,11 @@ from typing import Any
 from uuid import uuid4
 
 from ite.config.loader import get_data_dir
-from ite.memory.intent import is_memory_probe, parse_explicit_memory_instruction
+from ite.memory.intent import (
+    extract_preference_controls,
+    is_memory_probe,
+    parse_explicit_memory_instruction,
+)
 
 VALID_STORES = ("short_term", "long_term", "episodic", "semantic")
 MAX_EPISODIC_ENTRIES = 50
@@ -93,6 +97,11 @@ def _query_profile(query: str) -> dict[str, bool]:
             )
         ),
     }
+
+
+def _updated_sort_key(record: dict[str, Any]) -> tuple[int, str]:
+    updated_at = str(record.get("updated_at") or "")
+    return (1 if updated_at else 0, updated_at)
 
 
 class MemoryManager:
@@ -357,9 +366,12 @@ class MemoryManager:
         query = current_user_text or ""
         profile = _query_profile(query)
         candidates: list[dict[str, Any]] = []
+        controls = self._build_active_controls()
 
         for store in ("short_term", "semantic", "long_term"):
             for record in self.list_entries(store):
+                if store == "long_term" and extract_preference_controls(str(record.get("value", ""))):
+                    continue
                 base = _lexical_score(query, f"{record.get('key', '')} {record.get('summary', '')} {record.get('value', '')}")
                 hotness = _hotness_score(
                     int(record.get("access_count", 0) or 0),
@@ -404,47 +416,43 @@ class MemoryManager:
                 }
             )
 
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda item: item["score"], reverse=True)
         selected: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        long_term_selected = 0
-        for candidate in candidates:
-            record = candidate["record"]
-            store = str(candidate["store"])
-            base_score = float(candidate.get("base_score", 0.0) or 0.0)
+        if candidates:
+            candidates.sort(key=lambda item: item["score"], reverse=True)
+            seen: set[str] = set()
+            long_term_selected = 0
+            for candidate in candidates:
+                record = candidate["record"]
+                store = str(candidate["store"])
+                base_score = float(candidate.get("base_score", 0.0) or 0.0)
 
-            if profile["has_query"]:
+                if profile["has_query"]:
+                    if store == "long_term":
+                        if long_term_selected >= 1:
+                            continue
+                    elif store == "short_term":
+                        if base_score < 0.12 and not profile["wants_memory"]:
+                            continue
+                    elif store == "semantic":
+                        if base_score < 0.1:
+                            continue
+                    elif store == "episodic":
+                        if base_score < 0.12 and not profile["wants_memory"]:
+                            continue
+
+                summary = str(record.get("summary") or record.get("value") or "").strip().lower()
+                dedupe_key = f"{store}:{summary}"
+                if not summary or dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                selected.append(candidate)
                 if store == "long_term":
-                    if long_term_selected >= 1:
-                        continue
-                elif store == "short_term":
-                    if base_score < 0.12 and not profile["wants_memory"]:
-                        continue
-                elif store == "semantic":
-                    if base_score < 0.1:
-                        continue
-                elif store == "episodic":
-                    if base_score < 0.12 and not profile["wants_memory"]:
-                        continue
-
-            summary = str(record.get("summary") or record.get("value") or "").strip().lower()
-            dedupe_key = f"{store}:{summary}"
-            if not summary or dedupe_key in seen:
-                continue
-            seen.add(dedupe_key)
-            selected.append(candidate)
-            if store == "long_term":
-                long_term_selected += 1
-            if len(selected) >= limit:
-                break
-
-        if not selected:
-            return None
+                    long_term_selected += 1
+                if len(selected) >= limit:
+                    break
 
         bundle = {
+            "controls": controls,
             "short_term": {},
             "long_term": {},
             "episodic": [],
@@ -495,5 +503,49 @@ class MemoryManager:
         if episodic_dirty:
             self._save_episodes(episodic_updates)
 
-        has_data = any(bundle["short_term"]) or any(bundle["long_term"]) or any(bundle["semantic"]) or bool(bundle["episodic"])
+        has_data = (
+            bool(bundle["controls"])
+            or any(bundle["short_term"])
+            or any(bundle["long_term"])
+            or any(bundle["semantic"])
+            or bool(bundle["episodic"])
+        )
         return bundle if has_data else None
+
+    def _build_active_controls(self) -> dict[str, Any]:
+        controls: dict[str, Any] = {}
+        sources: dict[str, str] = {}
+        entries = sorted(self.list_entries("long_term"), key=_updated_sort_key)
+        touched_keys: list[str] = []
+
+        for record in entries:
+            record_controls = extract_preference_controls(str(record.get("value", "")))
+            if not record_controls:
+                continue
+            key = str(record.get("key", "")).strip()
+            summary = str(record.get("summary") or record.get("value") or "").strip()
+            for control_key, control_value in record_controls.items():
+                controls[control_key] = control_value
+                if summary:
+                    sources[control_key] = summary
+            if key:
+                touched_keys.append(key)
+
+        if touched_keys:
+            entries_by_key = self._load_entries("long_term")
+            dirty = False
+            for key in touched_keys:
+                record = entries_by_key.get(key)
+                if record is None:
+                    continue
+                record["access_count"] = int(record.get("access_count", 0) or 0) + 1
+                entries_by_key[key] = record
+                dirty = True
+            if dirty:
+                self._save_entries("long_term", entries_by_key)
+
+        if not controls:
+            return {}
+
+        controls["sources"] = sources
+        return controls

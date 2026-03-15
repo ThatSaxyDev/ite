@@ -61,8 +61,9 @@ class _EvalModel:
         if "explain the architecture of this repo." in user:
             return (
                 "Short answer: session, tools, context."
-                if "keep answers short and avoid bullet lists" in prompt
-                else "The architecture uses sessions, tools, and context."
+                if "keep answers short by default." in prompt
+                and "avoid bullet lists unless the user explicitly asks for them." in prompt
+                else "Detailed answer:\n- sessions\n- tools\n- context"
             )
 
         if "what is 17 times 19?" in user:
@@ -87,6 +88,7 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         await self._scenario_session_isolation()
         await self._scenario_workspace_persistence()
         await self._scenario_long_term_preference()
+        await self._scenario_preference_update()
         await self._scenario_irrelevant_recall_restraint()
 
     async def _scenario_session_isolation(self) -> None:
@@ -129,7 +131,30 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         fresh, _ = await self._make_agent(workspace)
         result = await self._run_turn(fresh, "Explain the architecture of this repo.")
         self.assertIn("short answer", result.response.lower())
-        self.assertIn("keep answers short and avoid bullet lists", result.system_prompt.lower())
+        self.assertIn("keep answers short by default.", result.system_prompt.lower())
+        self.assertIn(
+            "avoid bullet lists unless the user explicitly asks for them.",
+            result.system_prompt.lower(),
+        )
+
+    async def _scenario_preference_update(self) -> None:
+        workspace = self.base_path / "preference-update"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(agent, "From now on, keep answers short and avoid bullet lists.")
+        await self._run_turn(
+            agent,
+            "From now on, give detailed answers with bullet lists when helpful.",
+        )
+
+        fresh, _ = await self._make_agent(workspace)
+        result = await self._run_turn(fresh, "Explain the architecture of this repo.")
+        self.assertIn("detailed answer", result.response.lower())
+        self.assertIn("sessions", result.response.lower())
+        self.assertIn("give detailed answers by default.", result.system_prompt.lower())
+        self.assertIn("use bullet lists when they materially improve clarity.", result.system_prompt.lower())
+        self.assertNotIn("keep answers short by default.", result.system_prompt.lower())
 
     async def _scenario_irrelevant_recall_restraint(self) -> None:
         workspace = self.base_path / "restraint"
