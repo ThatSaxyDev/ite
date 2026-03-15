@@ -580,7 +580,8 @@ class CLI:
         if plan_enabled and self._detect_execution_intent(message):
             console.print(
                 "\n[bold bright_white]Execution suggestion:[/bold bright_white] "
-                "[dim]This looks like execution while Plan mode is ON.[/dim]"
+                "[dim]This looks like execution while Plan mode is ON. "
+                "Choose option 1 below or type /plan off to leave Plan mode.[/dim]"
             )
             choice = self._prompt_intent_choice(
                 "1) Turn Plan mode off and continue  2) Stay in Plan mode",
@@ -593,9 +594,12 @@ class CLI:
             if choice == "1":
                 session.set_plan_mode(False)
                 session.set_plan_phase("idle")
-                console.print("[dim]Plan mode disabled.[/dim]")
+                console.print("[dim]Plan mode disabled. You can also do this manually with /plan off.[/dim]")
                 return message
-            console.print("[dim]Staying in plan mode; will continue with planning flow.[/dim]")
+            console.print(
+                "[dim]Staying in plan mode; will continue with planning flow. "
+                "Type /plan off whenever you want to start execution instead.[/dim]"
+            )
             return (
                 f"{message}\n\n"
                 "Stay in plan mode. Do not execute changes yet. "
@@ -1064,7 +1068,8 @@ class CLI:
                             "awaiting_implementation_confirmation"
                         )
                         console.print(
-                            "[dim]Plan mode remains enabled. Next: send follow-up guidance to refine this plan. or type 'implement plan' later.[/dim]"
+                            "[dim]Plan mode remains enabled. Next: send follow-up guidance to refine this plan, "
+                            "type 'implement plan' later, or type /plan off to leave Plan mode manually.[/dim]"
                         )
 
             return final_response

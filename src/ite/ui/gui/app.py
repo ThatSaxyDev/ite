@@ -379,7 +379,10 @@ class GUIApp(
             secondary_action = lambda _e: self.page.run_task(self._intent_send_without_switch) if self.page else None
         else:
             title = "Run In Execution Mode?"
-            body = "This prompt looks like execution while Plan mode is ON."
+            body = (
+                "This prompt looks like execution while Plan mode is ON. "
+                "Choose the execution option below or type /plan off to leave Plan mode manually."
+            )
             primary_label = "Turn Off Plan Mode & Continue"
             secondary_label = "Stay in Plan Mode"
             primary_action = lambda _e: self.page.run_task(self._intent_disable_plan_mode_and_send) if self.page else None
@@ -464,7 +467,7 @@ class GUIApp(
                 self._add_assistant_card(
                     "Plan Mode",
                     ft.Text(
-                        "Plan mode remains enabled. I will ask clarifying questions and produce a plan.",
+                        "Plan mode remains enabled. I will ask clarifying questions and produce a plan. Type /plan off whenever you want to leave Plan mode manually.",
                         color=TEXT_SECONDARY,
                     ),
                 )
@@ -2319,7 +2322,7 @@ class GUIApp(
                         color=TEXT_SECONDARY,
                     ),
                     ft.Text(
-                        "Or type 'implement plan' later to execute this exact plan.",
+                        "Or type 'implement plan' later to execute this exact plan, or type /plan off to leave Plan mode manually.",
                         size=TYPE_MD,
                         color=TEXT_MUTED,
                     ),

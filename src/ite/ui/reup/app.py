@@ -1277,7 +1277,7 @@ class ReupApp(App):
             choice = await self._open_modal(
                 ConfirmModal(
                     title="Run In Execution Mode?",
-                    body="This prompt looks like execution while Plan mode is ON.",
+                    body="This prompt looks like execution while Plan mode is ON. Choose the execution option below or type /plan off to leave Plan mode manually.",
                     yes_label="Turn Off Plan Mode",
                     no_label="Stay in Plan Mode",
                 )
@@ -1293,7 +1293,7 @@ class ReupApp(App):
 
             self.post_plan_note(
                 "Staying in plan mode",
-                "Continuing in planning mode. I will ask clarifying questions before execution.",
+                "Continuing in planning mode. I will ask clarifying questions before execution. Type /plan off whenever you want to start executing instead.",
             )
             return (
                 f"{message}\n\n"
