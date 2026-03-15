@@ -556,7 +556,7 @@ class ReupTUIAdapter:
         model: str = "",
         cwd: str = "",
         commands: list[str] | None = None,
-        version: str = "0.0.6",
+        version: str = "0.0.7",
     ) -> None:
         msg = f"ITE Reup ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
         if commands:

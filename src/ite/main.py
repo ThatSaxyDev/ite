@@ -7,7 +7,12 @@ import sys
 import re
 import shlex
 import select
-import termios
+
+# termios is POSIX-only (Unix/Linux/macOS). Windows does not have this module.
+try:
+    import termios
+except ImportError:
+    termios = None  # type: ignore
 from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
@@ -169,7 +174,11 @@ class CLI:
             # First, wait briefly for follow-up lines to appear.
             saw_more = False
             for _ in range(20):  # ~200ms
-                readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                try:
+                    readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                except OSError:
+                    # select.select doesn't work with stdin on Windows
+                    break
                 if readable:
                     saw_more = True
                     break
@@ -178,7 +187,11 @@ class CLI:
 
             quiet_for = 0.0
             while quiet_for < settle_s and len(lines) < 2048:
-                readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                try:
+                    readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                except OSError:
+                    # select.select doesn't work with stdin on Windows
+                    break
                 if not readable:
                     quiet_for += poll_s
                     continue
@@ -223,7 +236,11 @@ class CLI:
         poll_s = 0.01
         try:
             while quiet_for < settle_s:
-                readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                try:
+                    readable, _, _ = select.select([sys.stdin], [], [], poll_s)
+                except OSError:
+                    # select.select doesn't work with stdin on Windows
+                    break
                 if not readable:
                     quiet_for += poll_s
                     continue
@@ -237,6 +254,8 @@ class CLI:
     def _flush_stdin_input_queue(self) -> None:
         """Force-clear unread terminal input bytes when possible (POSIX)."""
         try:
+            if termios is None:
+                return
             if not sys.stdin or not sys.stdin.isatty():
                 return
             termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
@@ -1057,7 +1076,7 @@ class CLI:
 
 
 @click.command()
-@click.version_option(version="0.0.6", prog_name="ite")
+@click.version_option(version="0.0.7", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",
