@@ -1,12 +1,17 @@
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from ite.agent.agent import Agent
+from ite.commands import CommandContext
+from ite.commands.info import cmd_memory
 from ite.agent.events import AgentEventType
 from ite.client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage
 from ite.config.config import Config
+from ite.ui.tui import TUI
+from rich.console import Console
 
 
 class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
@@ -152,6 +157,31 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("\n-", response)
         self.assertNotIn("\n*", response)
         self.assertIn("sessions; tools; context", response.lower())
+
+    async def test_memory_command_shows_active_controls(self) -> None:
+        workspace = self.base_path / "ws-memory-command"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        await self._drain(agent.run("From now on, keep answers short and avoid bullet lists."))
+        console = Console(record=True, file=StringIO())
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=TUI(config=agent.config, console=console),
+            console=console,
+        )
+
+        await cmd_memory(ctx, [])
+        rendered = console.export_text()
+        self.assertIn("active controls", rendered.lower())
+        self.assertIn("answer length", rendered.lower())
+        self.assertIn("short", rendered.lower())
+        self.assertIn("bullet style", rendered.lower())
+        self.assertIn("avoid", rendered.lower())
 
     async def _collect_text(self, events) -> str:
         content = ""

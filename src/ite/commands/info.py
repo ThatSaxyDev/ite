@@ -1,7 +1,8 @@
-"""Info commands: /stats, /tools, /mcp, /workboard."""
+"""Info commands: /stats, /tools, /mcp, /workboard, /memory."""
 
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
+from ite.memory import MemoryManager
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -326,6 +327,142 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
         )
 
 
+def _memory_records_table(title: str, records: list[dict], *, tone: str) -> Panel:
+    if not records:
+        body = Text("No entries.", style="dim")
+    else:
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="cyan bold", min_width=18)
+        table.add_column(style="code")
+        for record in records:
+            table.add_row(
+                str(record.get("key", "")),
+                str(record.get("summary") or record.get("value") or ""),
+            )
+        body = table
+
+    return Panel(
+        body,
+        title=Text(title, style=f"bold {tone}"),
+        title_align="left",
+        border_style=tone,
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+
+async def cmd_memory(ctx: CommandContext, args: list[str]) -> None:
+    if not ctx.agent or not ctx.agent.session:
+        ctx.console.print("[error]No active session[/error]")
+        return
+
+    session = ctx.agent.session
+    manager = MemoryManager(ctx.config.cwd, session_id=session.session_id)
+    controls = manager.load_active_controls()
+    long_term = manager.list_entries("long_term")
+    semantic = manager.list_entries("semantic")
+    short_term = manager.list_entries("short_term")
+    episodic = manager.list_episodes()[-5:]
+
+    control_lines: list[Text] = []
+    sources = controls.get("sources", {}) if isinstance(controls, dict) else {}
+    visible_controls = {
+        key: value
+        for key, value in controls.items()
+        if key != "sources"
+    } if isinstance(controls, dict) else {}
+
+    if visible_controls:
+        for key, value in visible_controls.items():
+            source = str(sources.get(key, "")).strip() if isinstance(sources, dict) else ""
+            label = key.replace("_", " ")
+            control_lines.append(
+                Text.assemble(
+                    (f"{label}: ", "code"),
+                    (str(value), "bold cyan"),
+                    (f"  ← {source}", "dim") if source else ("", ""),
+                )
+            )
+    else:
+        control_lines.append(Text("No active controls.", style="dim"))
+
+    recent_history = []
+    for episode in episodic:
+        timestamp = str(episode.get("timestamp", ""))[:16].replace("T", " ")
+        recent_history.append(
+            Text.assemble(
+                (f"{timestamp}: ", "code"),
+                (str(episode.get("summary", "")), "code"),
+            )
+        )
+    if not recent_history:
+        recent_history = [Text("No recent episodes.", style="dim")]
+
+    summary = Panel(
+        Group(
+            Text.assemble(
+                ("Session ID: ", "code"),
+                (session.session_id, "bold cyan"),
+                ("  •  ", "muted"),
+                ("Workspace: ", "code"),
+                (str(ctx.config.cwd), "bold cyan"),
+            ),
+            Text.assemble(
+                ("Long-term: ", "code"),
+                (str(len(long_term)), "bold cyan"),
+                ("  •  ", "muted"),
+                ("Semantic: ", "code"),
+                (str(len(semantic)), "bold cyan"),
+                ("  •  ", "muted"),
+                ("Short-term: ", "code"),
+                (str(len(short_term)), "bold cyan"),
+                ("  •  ", "muted"),
+                ("Recent episodes shown: ", "code"),
+                (str(len(episodic)), "bold cyan"),
+            ),
+        ),
+        title=Text("Summary", style="bold cyan"),
+        title_align="left",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Group(
+                summary,
+                Rule(style="grey35"),
+                Panel(
+                    Group(*control_lines),
+                    title=Text("Active Controls", style="bold green"),
+                    title_align="left",
+                    border_style="green",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                ),
+                _memory_records_table("Long-Term Memory", long_term, tone="cyan"),
+                _memory_records_table("Workspace Memory", semantic, tone="magenta"),
+                _memory_records_table("Session Memory", short_term, tone="yellow"),
+                Panel(
+                    Group(*recent_history),
+                    title=Text("Recent Episodes", style="bold bright_white"),
+                    title_align="left",
+                    border_style="bright_white",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                ),
+            ),
+            title=Text("🧠 Memory", style="bold bright_white"),
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/stats", description="Show session statistics",
@@ -342,4 +479,8 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/mcp", description="Show MCP server status",
         handler=cmd_mcp,
+    ))
+    registry.register(Command(
+        name="/memory", description="Inspect active controls and stored memory",
+        handler=cmd_memory,
     ))
