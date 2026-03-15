@@ -338,6 +338,13 @@ class MemoryManager:
     def list_entries(self, store: str) -> list[dict[str, Any]]:
         return [entries for _, entries in sorted(self._load_entries(store).items())]
 
+    def latest_entry(self, store: str) -> dict[str, Any] | None:
+        entries = self.list_entries(store)
+        if not entries:
+            return None
+        entries.sort(key=_updated_sort_key, reverse=True)
+        return entries[0]
+
     def clear_store(self, store: str) -> int:
         if store == "episodic":
             episodes = self._load_episodes()
@@ -581,3 +588,12 @@ class MemoryManager:
 
     def load_active_controls(self) -> dict[str, Any]:
         return self._build_active_controls()
+
+    def debug_prompt_memory(self, query: str | None, *, limit: int = 5) -> dict[str, Any]:
+        return self.load_prompt_memory(query, limit=limit) or {
+            "controls": {},
+            "short_term": {},
+            "long_term": {},
+            "episodic": [],
+            "semantic": {},
+        }

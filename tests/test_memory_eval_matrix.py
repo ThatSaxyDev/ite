@@ -110,6 +110,7 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_eval_matrix(self) -> None:
         await self._scenario_session_isolation()
+        await self._scenario_exact_session_recall()
         await self._scenario_workspace_persistence()
         await self._scenario_long_term_preference()
         await self._scenario_preference_update()
@@ -147,6 +148,22 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         other_workspace, _ = await self._make_agent(workspace_b)
         other = await self._run_turn(other_workspace, "What test tool should we use here?")
         self.assertIn("no workspace testing memory stored", other.response.lower())
+
+    async def _scenario_exact_session_recall(self) -> None:
+        workspace = self.base_path / "exact-session-recall"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(agent, "For this session only, remember the phrase: mango submarine velvet.")
+
+        async def fail_if_called(*args, **kwargs):
+            raise AssertionError("LLM should not be called for exact session recall")
+            yield  # pragma: no cover
+
+        assert agent.session is not None
+        agent.session.client.chat_completion = fail_if_called  # type: ignore[method-assign]
+        result = await self._run_turn(agent, "What phrase should you remember for this session only?")
+        self.assertEqual(result.response.strip(), "mango submarine velvet")
 
     async def _scenario_long_term_preference(self) -> None:
         workspace = self.base_path / "long-term"

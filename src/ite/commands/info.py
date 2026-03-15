@@ -358,6 +358,99 @@ async def cmd_memory(ctx: CommandContext, args: list[str]) -> None:
 
     session = ctx.agent.session
     manager = MemoryManager(ctx.config.cwd, session_id=session.session_id)
+    if args and args[0].lower() == "prompt":
+        query = " ".join(args[1:]).strip()
+        if not query:
+            ctx.console.print("[error]Usage: /memory prompt <query>[/error]")
+            return
+        bundle = manager.debug_prompt_memory(query)
+        controls = bundle.get("controls", {}) if isinstance(bundle, dict) else {}
+        sections: list[object] = [
+            Panel(
+                Text.assemble(
+                    ("Query: ", "code"),
+                    (query, "bold cyan"),
+                ),
+                title=Text("Prompt Query", style="bold cyan"),
+                title_align="left",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        ]
+        control_lines = []
+        visible_controls = {
+            key: value for key, value in controls.items() if key != "sources"
+        } if isinstance(controls, dict) else {}
+        if visible_controls:
+            for key, value in visible_controls.items():
+                control_lines.append(
+                    Text.assemble(
+                        (f"{key.replace('_', ' ')}: ", "code"),
+                        (str(value), "bold green"),
+                    )
+                )
+        else:
+            control_lines.append(Text("No active controls selected.", style="dim"))
+
+        sections.extend(
+            [
+                Panel(
+                    Group(*control_lines),
+                    title=Text("Selected Controls", style="bold green"),
+                    title_align="left",
+                    border_style="green",
+                    box=box.ROUNDED,
+                    padding=(1, 2),
+                ),
+                _memory_records_table(
+                    "Selected Long-Term Memory",
+                    [{"key": k, "summary": v} for k, v in (bundle.get("long_term", {}) or {}).items()],
+                    tone="cyan",
+                ),
+                _memory_records_table(
+                    "Selected Workspace Memory",
+                    [{"key": k, "summary": v} for k, v in (bundle.get("semantic", {}) or {}).items()],
+                    tone="magenta",
+                ),
+                _memory_records_table(
+                    "Selected Session Memory",
+                    [{"key": k, "summary": v} for k, v in (bundle.get("short_term", {}) or {}).items()],
+                    tone="yellow",
+                ),
+            ]
+        )
+        episodes = bundle.get("episodic", []) if isinstance(bundle, dict) else []
+        episode_lines = [
+            Text.assemble(
+                (f"{str(ep.get('timestamp', ''))[:16].replace('T', ' ')}: ", "code"),
+                (str(ep.get("summary", "")), "code"),
+            )
+            for ep in episodes
+        ] or [Text("No episodic entries selected.", style="dim")]
+        sections.append(
+            Panel(
+                Group(*episode_lines),
+                title=Text("Selected Episodes", style="bold bright_white"),
+                title_align="left",
+                border_style="bright_white",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+        ctx.console.print()
+        ctx.console.print(
+            Panel(
+                Group(*sections),
+                title=Text("🧠 Prompt Memory Debug", style="bold bright_white"),
+                title_align="left",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+        return
+
     controls = manager.load_active_controls()
     long_term = manager.list_entries("long_term")
     semantic = manager.list_entries("semantic")

@@ -13,6 +13,11 @@ class ExplicitMemoryInstruction:
     source: str = "explicit_user_instruction"
 
 
+@dataclass
+class ExactRecallProbe:
+    kind: str
+
+
 def parse_explicit_memory_instruction(message: str) -> ExplicitMemoryInstruction | None:
     text = (message or "").strip()
     if not text:
@@ -80,6 +85,17 @@ def is_memory_probe(message: str) -> bool:
         "what are we focused on right now",
     )
     return any(pattern in text for pattern in patterns)
+
+
+def parse_exact_recall_probe(message: str) -> ExactRecallProbe | None:
+    text = _clean_value(message).lower()
+    if not text:
+        return None
+
+    if "what phrase should you remember for this session only" in text:
+        return ExactRecallProbe(kind="session_phrase")
+
+    return None
 
 
 def extract_preference_controls(message: str) -> dict[str, Any]:

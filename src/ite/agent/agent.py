@@ -13,7 +13,7 @@ from ite.client.response import TokenUsage
 from ite.tools.base import ToolConfirmation
 from typing import Awaitable, Callable
 from ite.prompts.system import create_loop_breaker_prompt
-from ite.memory import parse_explicit_memory_instruction
+from ite.memory import parse_exact_recall_probe, parse_explicit_memory_instruction
 import re
 
 
@@ -62,6 +62,18 @@ class Agent:
             )
             yield AgentEvent.text_complete(confirmation)
             yield AgentEvent.agent_end(confirmation)
+            return
+        exact_recall = parse_exact_recall_probe(message)
+        if exact_recall is not None:
+            session.context_manager.add_user_message(message)
+            recall = self._exact_recall_response(session, exact_recall)
+            session.context_manager.add_assistant_message(recall)
+            await session.hook_system.trigger_after_agent(
+                user_message=message,
+                agent_response=recall,
+            )
+            yield AgentEvent.text_complete(recall)
+            yield AgentEvent.agent_end(recall)
             return
         session.context_manager.add_user_message(message)
         is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
@@ -156,6 +168,16 @@ class Agent:
         if instruction.store == "long_term":
             return f'Got it - I will remember: "{instruction.value}".'
         return "Stored."
+
+    def _exact_recall_response(self, session: Session, probe) -> str:
+        if probe.kind == "session_phrase":
+            record = session.memory_manager.latest_entry("short_term")
+            if record is None:
+                return "No session phrase stored."
+            value = str(record.get("value") or "").strip()
+            value = re.sub(r"^the phrase:\s*", "", value, flags=re.IGNORECASE)
+            return value or "No session phrase stored."
+        return "No exact recall available."
 
     async def _seed_planning_todos_if_needed(
         self,

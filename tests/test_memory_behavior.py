@@ -103,6 +103,28 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("stored", response.lower())
         self.assertIn("mango submarine velvet", response.lower())
 
+    async def test_exact_session_phrase_recall_bypasses_model_turn(self) -> None:
+        workspace = self.base_path / "ws-exact-recall"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        await self._drain(
+            agent.run("For this session only, remember the phrase: mango submarine velvet.")
+        )
+
+        async def fail_if_called(*args, **kwargs):
+            raise AssertionError("LLM should not be called for exact session phrase recall")
+            yield  # pragma: no cover
+
+        agent.session.client.chat_completion = fail_if_called  # type: ignore[method-assign]
+        response = await self._collect_text(
+            agent.run("What phrase should you remember for this session only?")
+        )
+        self.assertEqual(response.strip(), "mango submarine velvet")
+
     async def test_long_term_preferences_are_rendered_as_active_controls(self) -> None:
         workspace = self.base_path / "ws-controls"
         workspace.mkdir()
@@ -182,6 +204,32 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("short", rendered.lower())
         self.assertIn("bullet style", rendered.lower())
         self.assertIn("avoid", rendered.lower())
+
+    async def test_memory_prompt_command_shows_selected_bundle(self) -> None:
+        workspace = self.base_path / "ws-memory-prompt"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        await self._drain(agent.run("Remember this for this workspace: use pytest for tests."))
+        await self._drain(agent.run("From now on, keep answers short and avoid bullet lists."))
+
+        console = Console(record=True, file=StringIO())
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=TUI(config=agent.config, console=console),
+            console=console,
+        )
+
+        await cmd_memory(ctx, ["prompt", "What", "test", "tool", "should", "we", "use", "here?"])
+        rendered = console.export_text().lower()
+        self.assertIn("prompt memory debug", rendered)
+        self.assertIn("selected controls", rendered)
+        self.assertIn("selected workspace memory", rendered)
+        self.assertIn("pytest", rendered)
 
     async def test_memory_command_drops_superseded_preferences(self) -> None:
         workspace = self.base_path / "ws-memory-supersede"
