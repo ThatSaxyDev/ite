@@ -333,7 +333,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
             ctx.tui.cwd = target_workspace
 
     session = Session(config=ctx.config)
-    session.session_id = snapshot.session_id
+    session.set_session_id(snapshot.session_id)
     session.name = snapshot.name
     session.created_at = snapshot.created_at
     session.updated_at = snapshot.updated_at

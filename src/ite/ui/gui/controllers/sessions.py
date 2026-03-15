@@ -238,7 +238,7 @@ class SessionControllerMixin:
             await resumed.initialize()
             self.agent.session = resumed
 
-        resumed.session_id = snapshot.session_id
+        resumed.set_session_id(snapshot.session_id)
         resumed.name = snapshot.name
         resumed.created_at = snapshot.created_at
         resumed.updated_at = snapshot.updated_at

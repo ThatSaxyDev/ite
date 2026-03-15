@@ -11,6 +11,8 @@ from ite.context.manager import ContextManager
 from ite.client.llm_client import LLMClient
 from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
+from ite.memory import MemoryManager
+from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.todo import TodosTool
 
 
@@ -21,8 +23,11 @@ class Session:
     ):
         self.config = config
         self.client = LLMClient(config=self.config)
+        self.session_id = str(uuid.uuid4())
         self.tool_registry = create_default_registry(config)
         self.context_manager: ContextManager | None = None
+        self.memory_manager = MemoryManager(self.config.cwd, session_id=self.session_id)
+        self._sync_memory_tool_session()
         self.discovery_manager = ToolDiscoveryManager(
             self.config,
             self.tool_registry,
@@ -35,7 +40,6 @@ class Session:
         )
         self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)
-        self.session_id = str(uuid.uuid4())
         self.name: str | None = None
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
@@ -69,22 +73,25 @@ class Session:
             config=self.config,
             user_memory=self._load_memory(),
             tools=self.tool_registry.get_tools(),
+            memory_provider=self._load_prompt_memory,
         )
         self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
     def _load_memory(self) -> dict | None:
-        from ite.tools.builtin.memory import MemoryTool
+        return self._load_prompt_memory(None)
 
-        memory = MemoryTool.load_all_memory(str(self.config.cwd))
+    def _load_prompt_memory(self, current_user_text: str | None) -> dict | None:
+        return self.memory_manager.load_prompt_memory(current_user_text)
 
-        # Return None if all stores are empty
-        has_data = (
-            memory.get("long_term")
-            or memory.get("short_term")
-            or memory.get("episodic")
-            or memory.get("semantic")
-        )
-        return memory if has_data else None
+    def set_session_id(self, session_id: str) -> None:
+        self.session_id = session_id
+        self.memory_manager.set_session_id(session_id)
+        self._sync_memory_tool_session()
+
+    def _sync_memory_tool_session(self) -> None:
+        tool = self.tool_registry.get("memory")
+        if isinstance(tool, MemoryTool):
+            tool.set_session_id(self.session_id)
 
     def increment_turn(self) -> int:
         self._turn_count += 1

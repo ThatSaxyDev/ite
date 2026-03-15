@@ -2,6 +2,7 @@
 
 import sys
 from ite.commands import Command, CommandContext, CommandRegistry
+from ite.memory import MemoryManager
 from rich.panel import Panel
 from rich.text import Text
 from rich.markdown import Markdown
@@ -46,11 +47,7 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
         pass
 
     try:
-        from ite.tools.builtin.memory import MemoryTool
-
-        st_path = MemoryTool(ctx.config)._get_memory_path("short_term")
-        if st_path.exists():
-            st_path.unlink()
+        MemoryManager(ctx.config.cwd, session_id=ctx.agent.session.session_id).clear_session_short_term()
     except Exception:
         pass
 

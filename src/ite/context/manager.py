@@ -8,6 +8,7 @@ from typing import Any
 from ite.utils.text import count_tokens
 from ite.prompts.system import get_system_prompt
 from dataclasses import dataclass
+from typing import Callable
 
 
 @dataclass
@@ -47,10 +48,12 @@ class ContextManager:
         config: Config,
         user_memory: dict | None = None,
         tools: list[Tool] | None = None,
+        memory_provider: Callable[[str | None], dict | None] | None = None,
     ) -> None:
         self.config = config
         self._user_memory = user_memory
         self._tools = tools
+        self._memory_provider = memory_provider
         self._model_name = self.config.model_name
         self._messages: list(MessageItem) = []
         self._latest_usage = TokenUsage()
@@ -202,9 +205,13 @@ class ContextManager:
     def get_messages(self) -> list(dict[str, Any]):
         messages = []
 
+        user_memory = self._user_memory
+        if self._memory_provider:
+            user_memory = self._memory_provider(self._latest_user_message_text())
+
         system_prompt = get_system_prompt(
             self.config,
-            self._user_memory,
+            user_memory,
             self._tools,
             plan_mode_enabled=self._plan_mode_enabled,
             plan_phase=self._plan_phase,
@@ -221,6 +228,12 @@ class ContextManager:
             messages.append(item.to_dict())
 
         return messages
+
+    def _latest_user_message_text(self) -> str | None:
+        for item in reversed(self._messages):
+            if item.role == "user" and item.content.strip():
+                return item.content
+        return None
 
     def needs_compression(self) -> bool:
         if self.message_count < self.COMPACTION_MIN_MESSAGES:

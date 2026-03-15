@@ -13,6 +13,7 @@ from ite.client.response import TokenUsage
 from ite.tools.base import ToolConfirmation
 from typing import Awaitable, Callable
 from ite.prompts.system import create_loop_breaker_prompt
+from ite.memory import parse_explicit_memory_instruction
 import re
 
 
@@ -44,6 +45,14 @@ class Agent:
 
         await session.hook_system.trigger_before_agent(user_message=message)
         yield AgentEvent.agent_start(message)
+        explicit_memory = parse_explicit_memory_instruction(message)
+        if explicit_memory is not None:
+            session.memory_manager.set_entry(
+                explicit_memory.store,
+                explicit_memory.key,
+                explicit_memory.value,
+                source=explicit_memory.source,
+            )
         session.context_manager.add_user_message(message)
         is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
         session.todo_execution_handoff_active = is_execution_handoff
