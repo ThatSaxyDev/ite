@@ -123,6 +123,36 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertEqual(bundle["controls"]["answer_length"], "detailed")
         self.assertEqual(bundle["controls"]["bullet_style"], "helpful")
         self.assertEqual(bundle["long_term"], {})
+        long_term_entries = manager.list_entries("long_term")
+        self.assertEqual(len(long_term_entries), 1)
+        self.assertEqual(long_term_entries[0]["key"], "pref_detailed")
+
+    def test_preference_superseding_keeps_unrelated_long_term_entries(self) -> None:
+        workspace = self.base_path / "ws-controls-mixed"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+
+        manager.set_entry(
+            "long_term",
+            "pref_short",
+            "Keep answers short and avoid bullet lists",
+            source="test",
+        )
+        manager.set_entry(
+            "long_term",
+            "pref_paths",
+            "Use absolute file paths in explanations",
+            source="test",
+        )
+        manager.set_entry(
+            "long_term",
+            "pref_detailed",
+            "Give detailed answers with bullet lists when helpful",
+            source="test",
+        )
+
+        long_term_entries = {record["key"] for record in manager.list_entries("long_term")}
+        self.assertEqual(long_term_entries, {"pref_detailed", "pref_paths"})
 
     def test_prompt_memory_ignores_polluted_episodic_memory_prompts(self) -> None:
         workspace = self.base_path / "ws-episodic"

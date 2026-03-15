@@ -276,6 +276,12 @@ class MemoryManager:
         source: str = "memory_tool",
     ) -> dict[str, Any]:
         entries = self._load_entries(store)
+        if store == "long_term":
+            entries = self._supersede_overlapping_long_term_preferences(
+                entries,
+                key=key,
+                value=value,
+            )
         existing = entries.get(key, {})
         record = self._normalize_record(key, existing or value, scope=store, default_source=source)
         record["value"] = value
@@ -285,6 +291,29 @@ class MemoryManager:
         entries[key] = record
         self._save_entries(store, entries)
         return record
+
+    def _supersede_overlapping_long_term_preferences(
+        self,
+        entries: dict[str, dict[str, Any]],
+        *,
+        key: str,
+        value: str,
+    ) -> dict[str, dict[str, Any]]:
+        new_controls = extract_preference_controls(value)
+        if not new_controls:
+            return entries
+
+        updated_entries = dict(entries)
+        control_keys = set(new_controls)
+        for existing_key, record in list(updated_entries.items()):
+            if existing_key == key:
+                continue
+            existing_controls = extract_preference_controls(str(record.get("value", "")))
+            if not existing_controls:
+                continue
+            if control_keys.intersection(existing_controls):
+                del updated_entries[existing_key]
+        return updated_entries
 
     def get_entry(self, store: str, key: str, *, increment_access: bool = True) -> dict[str, Any] | None:
         entries = self._load_entries(store)

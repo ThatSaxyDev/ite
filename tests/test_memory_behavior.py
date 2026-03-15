@@ -183,6 +183,33 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("bullet style", rendered.lower())
         self.assertIn("avoid", rendered.lower())
 
+    async def test_memory_command_drops_superseded_preferences(self) -> None:
+        workspace = self.base_path / "ws-memory-supersede"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        await self._drain(agent.run("From now on, keep answers short and avoid bullet lists."))
+        await self._drain(
+            agent.run("From now on, give detailed answers with bullet lists when helpful.")
+        )
+
+        console = Console(record=True, file=StringIO())
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=TUI(config=agent.config, console=console),
+            console=console,
+        )
+
+        await cmd_memory(ctx, [])
+        rendered = console.export_text().lower()
+        self.assertIn("detailed", rendered)
+        self.assertIn("helpful", rendered)
+        self.assertNotIn("keep answers short and avoid bullet lists", rendered)
+
     async def _collect_text(self, events) -> str:
         content = ""
         async for event in events:
