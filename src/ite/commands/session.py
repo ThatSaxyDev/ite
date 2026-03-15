@@ -201,7 +201,9 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
     session_manager.save_session(session_snapshot)
 
     ctx.agent.session.record_lifecycle_episode(
-        f"Session saved ({ctx.agent.session.turn_count} turns)",
+        ctx.agent.session.build_lifecycle_summary(
+            f"Session saved ({ctx.agent.session.turn_count} turns)"
+        ),
         source="session_save",
     )
     title = Text.assemble(("💾  ", ""), ("Session saved", "bold bright_white"))

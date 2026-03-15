@@ -44,7 +44,9 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
             )
             session_manager.save_session(snapshot)
             session.record_lifecycle_episode(
-                f"Session exited ({session.turn_count} turns)",
+                session.build_lifecycle_summary(
+                    f"Session exited ({session.turn_count} turns)"
+                ),
                 source="session_exit",
             )
     except Exception:
@@ -146,7 +148,9 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
         )
         session_manager.save_session(snapshot)
         previous.record_lifecycle_episode(
-            f"Started new session after {previous.turn_count} turns",
+            previous.build_lifecycle_summary(
+                f"Started new session after {previous.turn_count} turns"
+            ),
             source="session_new",
         )
 

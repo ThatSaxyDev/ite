@@ -107,6 +107,62 @@ class Session:
             session_id=self.session_id,
         )
 
+    def build_lifecycle_summary(self, event: str, focus_hint: str | None = None) -> str:
+        focus = (focus_hint or "").strip() or self._derive_current_focus()
+        if focus:
+            return f"{event}: {focus}"
+        return event
+
+    def _derive_current_focus(self) -> str:
+        plan_text = (self.current_plan_text() or "").strip()
+        if plan_text:
+            first = self._first_meaningful_line(plan_text)
+            if first:
+                return first
+
+        todos_state = self.export_todos_state()
+        execution = todos_state.get("execution", []) if isinstance(todos_state, dict) else []
+        if isinstance(execution, list):
+            for entry in execution:
+                if not isinstance(entry, dict):
+                    continue
+                if not bool(entry.get("completed", False)):
+                    content = str(entry.get("content", "")).strip()
+                    if content:
+                        return content
+
+        recent_user = self._latest_user_message_text()
+        if recent_user:
+            return recent_user
+
+        return ""
+
+    def _latest_user_message_text(self) -> str:
+        if not self.context_manager:
+            return ""
+        messages = self.context_manager.get_messages()
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                content = str(message.get("content", "")).strip()
+                if content:
+                    return content
+        return ""
+
+    def _first_meaningful_line(self, text: str) -> str:
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                continue
+            if line.startswith(("- ", "* ")):
+                return line[2:].strip()
+            parts = line.split(".", 1)
+            if len(parts) == 2 and parts[0].isdigit():
+                return parts[1].strip()
+            return line
+        return ""
+
     def set_plan_mode(self, enabled: bool) -> None:
         self.plan_mode_enabled = enabled
         if enabled:

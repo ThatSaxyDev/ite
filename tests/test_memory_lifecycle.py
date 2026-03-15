@@ -48,7 +48,7 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await cmd_save(ctx, [])
 
         episodes = agent.session.memory_manager.list_episodes()
-        self.assertTrue(any("Session saved (1 turns)" in ep["summary"] for ep in episodes))
+        self.assertTrue(any("Session saved (1 turns): hello" in ep["summary"] for ep in episodes))
 
     async def test_context_compaction_records_episode(self) -> None:
         workspace = self.base_path / "ws-compact"
@@ -77,7 +77,13 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(AgentEventType.CONTEXT_COMPACTED, events)
         episodes = session.memory_manager.list_episodes()
-        self.assertTrue(any("Context compacted after" in ep["summary"] for ep in episodes))
+        self.assertTrue(
+            any(
+                "Context compacted after" in ep["summary"]
+                and "trigger compaction" in ep["summary"]
+                for ep in episodes
+            )
+        )
 
     async def _fake_chat_completion(self, messages, tools=None, stream=True):
         yield StreamEvent(

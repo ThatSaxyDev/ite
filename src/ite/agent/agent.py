@@ -554,9 +554,13 @@ class Agent:
                 )
 
                 if summary:
+                    lifecycle_focus = session._derive_current_focus()
                     session.context_manager.replace_with_summary(summary)
                     session.record_lifecycle_episode(
-                        f"Context compacted after {session.turn_count} turns",
+                        session.build_lifecycle_summary(
+                            f"Context compacted after {session.turn_count} turns",
+                            focus_hint=lifecycle_focus,
+                        ),
                         source="context_compaction",
                     )
                     compacted_tokens = (
