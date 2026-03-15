@@ -99,6 +99,55 @@ class Agent:
 
         yield AgentEvent.agent_end(final_response)
 
+    def _apply_response_controls(self, session: Session, user_message: str, response_text: str) -> str:
+        text = (response_text or "").strip()
+        if not text:
+            return response_text
+
+        controls = session.memory_manager.load_active_controls()
+        bullet_style = str(controls.get("bullet_style", "")).strip()
+        user_text = (user_message or "").lower()
+        user_explicitly_wants_bullets = any(
+            phrase in user_text
+            for phrase in (
+                "bullet",
+                "bullets",
+                "bullet list",
+                "bullet lists",
+                "list them",
+                "as a list",
+            )
+        )
+
+        if bullet_style == "avoid" and not user_explicitly_wants_bullets:
+            text = self._flatten_bullets(text)
+
+        return text
+
+    def _flatten_bullets(self, text: str) -> str:
+        lines = [line.rstrip() for line in text.splitlines()]
+        flattened: list[str] = []
+        bullet_parts: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+            if re.match(r"^[-*]\s+", stripped):
+                bullet_parts.append(re.sub(r"^[-*]\s+", "", stripped))
+                continue
+
+            if bullet_parts:
+                flattened.append("; ".join(part.rstrip(".") for part in bullet_parts) + ".")
+                bullet_parts = []
+
+            flattened.append(line)
+
+        if bullet_parts:
+            flattened.append("; ".join(part.rstrip(".") for part in bullet_parts) + ".")
+
+        compacted = "\n".join(part for part in flattened if part.strip())
+        compacted = re.sub(r"\n{3,}", "\n\n", compacted)
+        return compacted.strip()
+
     def _explicit_memory_confirmation(self, instruction) -> str:
         if instruction.store == "short_term":
             return f'Got it - stored "{instruction.value}" for this session.'
@@ -674,8 +723,14 @@ class Agent:
                     )
                     continue
 
-            session.context_manager.add_assistant_message(
+            controlled_response_text = self._apply_response_controls(
+                session,
+                latest_user_text,
                 response_text,
+            )
+
+            session.context_manager.add_assistant_message(
+                controlled_response_text,
                 [
                     {
                         "id": tc.call_id,
@@ -716,7 +771,7 @@ class Agent:
                                 f"ask {remaining} more now."
                             )
                             continue
-                        if not response_text.strip():
+                        if not controlled_response_text.strip():
                             session.set_plan_phase("writing_plan")
                             session.context_manager.add_user_message(
                                 "Now write the complete final implementation plan with the required "
@@ -726,7 +781,7 @@ class Agent:
                         session.set_plan_phase(
                             "awaiting_implementation_confirmation"
                         )
-                        plan_text = self._select_plan_text(session, response_text)
+                        plan_text = self._select_plan_text(session, controlled_response_text)
                         if plan_text.strip():
                             session.set_pending_plan(plan_text)
                             async for progress_event in self._complete_planning_seed_todo(session, 1):
@@ -739,39 +794,39 @@ class Agent:
                             )
                             yield AgentEvent.plan_ready(plan_text)
                     else:
-                        if response_text:
+                        if controlled_response_text:
                             if execution_progress_eligible:
                                 async for progress_event in self._complete_execution_stage_todo(
                                     session,
                                     stage="summary",
                                 ):
                                     yield progress_event
-                            yield AgentEvent.text_complete(response_text)
+                            yield AgentEvent.text_complete(controlled_response_text)
                             session.loop_detector.record_action(
-                                "response", text=response_text
+                                "response", text=controlled_response_text
                             )
                         session.set_plan_phase("idle")
-                elif response_text:
+                elif controlled_response_text:
                     if execution_progress_eligible:
                         async for progress_event in self._complete_execution_stage_todo(
                             session,
                             stage="summary",
                         ):
                             yield progress_event
-                    yield AgentEvent.text_complete(response_text)
+                    yield AgentEvent.text_complete(controlled_response_text)
                     session.loop_detector.record_action(
-                        "response", text=response_text
+                        "response", text=controlled_response_text
                     )
                 return
 
-            if response_text:
+            if controlled_response_text:
                 in_plan_questioning = (
                     session.plan_mode_enabled
                     and session.plan_phase != "executing"
                 )
                 if not in_plan_questioning:
-                    yield AgentEvent.text_complete(response_text)
-                session.loop_detector.record_action("response", text=response_text)
+                    yield AgentEvent.text_complete(controlled_response_text)
+                session.loop_detector.record_action("response", text=controlled_response_text)
 
             tool_call_results: list[ToolResultMessage] = []
             skipped_plan_validation_errors: list[str] = []

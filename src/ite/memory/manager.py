@@ -549,3 +549,6 @@ class MemoryManager:
 
         controls["sources"] = sources
         return controls
+
+    def load_active_controls(self) -> dict[str, Any]:
+        return self._build_active_controls()

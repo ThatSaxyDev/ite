@@ -841,7 +841,7 @@ class CLI:
                     if final_response:
                         self._mark_pending_tool_failures_recovered()
                     if assistant_streaming:
-                        self.tui.end_assistant()
+                        self.tui.end_assistant(final_response)
                         assistant_streaming = False
                     elif final_response:
                         # Plan mode may suppress text deltas before final output.

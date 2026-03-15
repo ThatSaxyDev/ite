@@ -118,6 +118,41 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
             system_prompt.lower(),
         )
 
+    async def test_bullets_are_flattened_when_avoid_bullets_preference_is_active(self) -> None:
+        workspace = self.base_path / "ws-bullets"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        async def stubborn_bullets(messages, tools=None, stream=True):
+            latest_user = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    latest_user = str(msg.get("content", ""))
+                    break
+            if "explain the architecture of this repo." in latest_user.lower():
+                text = "Detailed answer:\n- sessions\n- tools\n- context"
+            else:
+                text = "Stored."
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(text),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = stubborn_bullets  # type: ignore[method-assign]
+
+        await self._drain(agent.run("From now on, keep answers short and avoid bullet lists."))
+        response = await self._collect_text(agent.run("Explain the architecture of this repo."))
+        self.assertNotIn("\n-", response)
+        self.assertNotIn("\n*", response)
+        self.assertIn("sessions; tools; context", response.lower())
+
     async def _collect_text(self, events) -> str:
         content = ""
         async for event in events:

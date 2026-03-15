@@ -113,8 +113,9 @@ class TUI:
         self.console.print()
         self.console.print()
 
-    def end_assistant(self) -> None:
-        if self._assistant_stream_open and self._assistant_buffer:
+    def end_assistant(self, final_content: str | None = None) -> None:
+        render_content = (final_content if final_content is not None else self._assistant_buffer).strip()
+        if self._assistant_stream_open and render_content:
             # Erase the raw streamed lines
             lines_to_clear = self._streamed_line_count + 1
             if lines_to_clear > 0:
@@ -128,7 +129,7 @@ class TUI:
 
             # Render the final styled markdown in a panel
             panel = Panel(
-                Markdown(self._assistant_buffer.strip()),
+                Markdown(render_content),
                 border_style="bright_white",
                 box=box.HEAVY,
                 padding=(0, 1),

@@ -141,6 +141,12 @@ def _get_operational_section() -> str:
     """Generate operational guidelines."""
     return """# Operational Guidelines
 
+## Preference Precedence
+
+- Active user response controls override the default stylistic guidance in this prompt unless the user overrides them in the current request.
+- If an active control says to avoid bullet lists, do not use bullet lists just because the surrounding system prompt uses them for internal guidance.
+- Treat formatting defaults in this prompt as fallback behavior only.
+
 ## Tone and Style (CLI Interaction)
 
 - **Concise & Direct:** Adopt a professional, direct, and concise tone suitable for a CLI environment.
