@@ -258,6 +258,33 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("helpful", rendered)
         self.assertNotIn("keep answers short and avoid bullet lists", rendered)
 
+    async def test_conditional_preferences_change_controls_by_query(self) -> None:
+        workspace = self.base_path / "ws-conditional"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        agent.session.client.chat_completion = self._fake_chat_completion  # type: ignore[method-assign]
+
+        await self._drain(
+            agent.run(
+                "Remember this preference: for debugging, keep answers short; for architecture, give detailed answers."
+            )
+        )
+
+        debug_response = await self._collect_text(
+            agent.run("We have a failing auth test. What should I check first?")
+        )
+        architecture_response = await self._collect_text(
+            agent.run("Explain the architecture of this repo.")
+        )
+        self.assertIn("short answer", debug_response.lower())
+        self.assertIn("detailed answer", architecture_response.lower())
+
+        debug_prompt = agent.session.context_manager.get_messages()[0]["content"]
+        self.assertIn("matches: architecture", debug_prompt.lower())
+
     async def _collect_text(self, events) -> str:
         content = ""
         async for event in events:
@@ -302,13 +329,23 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
                 return "Use pytest for tests."
             return "No workspace testing memory stored."
 
+        if "we have a failing auth test. what should i check first?" in user_text:
+            if "keep answers short by default." in prompt_text:
+                return "Short answer: check the failing assertion and auth setup."
+            return "Detailed answer:\n- inspect auth setup\n- inspect assertion"
+
         if "explain the architecture of this repo." in user_text:
+            if (
+                "give detailed answers by default." in prompt_text
+                or "matches: architecture" in prompt_text
+            ):
+                return "Detailed answer:\n- sessions\n- tools\n- context"
             if (
                 "keep answers short by default." in prompt_text
                 and "avoid bullet lists unless the user explicitly asks for them." in prompt_text
             ):
                 return "Short answer: session, tools, context."
-            return "Detailed answer:\n- sessions\n- tools\n- context"
+            return "The architecture uses sessions, tools, and context."
 
         if "remember" in user_text:
             return "Stored."

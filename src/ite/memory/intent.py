@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -11,6 +11,7 @@ class ExplicitMemoryInstruction:
     key: str
     value: str
     source: str = "explicit_user_instruction"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -71,6 +72,15 @@ def parse_explicit_memory_instruction(message: str) -> ExplicitMemoryInstruction
             )
 
     return None
+
+
+def parse_explicit_memory_instructions(message: str) -> list[ExplicitMemoryInstruction]:
+    conditional = extract_conditional_preference_instructions(message)
+    if conditional:
+        return conditional
+
+    single = parse_explicit_memory_instruction(message)
+    return [single] if single is not None else []
 
 
 def is_memory_probe(message: str) -> bool:
@@ -166,6 +176,61 @@ def should_reject_durable_memory_capture(store: str, value: str) -> bool:
     return False
 
 
+def extract_conditional_preference_instructions(
+    message: str,
+) -> list[ExplicitMemoryInstruction]:
+    text = _clean_value(message)
+    if not text:
+        return []
+
+    if not re.match(
+        r"^\s*(remember this preference|update that preference)[:\s]+",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        return []
+
+    remainder = re.sub(
+        r"^\s*(remember this preference|update that preference)[:\s]+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    if not remainder:
+        return []
+
+    instructions: list[ExplicitMemoryInstruction] = []
+    clauses = [clause.strip() for clause in re.split(r"\s*;\s*", remainder) if clause.strip()]
+    for clause in clauses:
+        match = re.match(r"^\s*for\s+([^,]+),\s*(.+?)\s*$", clause, flags=re.IGNORECASE)
+        if not match:
+            continue
+        condition = _normalize_condition(match.group(1))
+        if not condition:
+            continue
+        body = _clean_value(match.group(2))
+        controls = extract_preference_controls(body)
+        if not controls:
+            continue
+        instructions.append(
+            ExplicitMemoryInstruction(
+                store="long_term",
+                key=f"preference_{condition}",
+                value=body,
+                metadata={
+                    "conditional_preferences": [
+                        {
+                            "condition": condition,
+                            "controls": controls,
+                            "raw": body,
+                        }
+                    ]
+                },
+            )
+        )
+    return instructions
+
+
 def _clean_value(value: str) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+", " ", text).strip()
@@ -178,3 +243,19 @@ def _derive_key(prefix: str, value: str) -> str:
         normalized = "note"
     parts = [part for part in normalized.split("_") if part][:8]
     return f"{prefix}_{'_'.join(parts)}"
+
+
+def _normalize_condition(value: str) -> str | None:
+    text = _clean_value(value).lower()
+    if not text:
+        return None
+
+    if "debug" in text:
+        return "debugging"
+    if "architect" in text:
+        return "architecture"
+    if "implement" in text or "coding" in text or "build" in text:
+        return "implementation"
+    if "explain" in text or "explanation" in text:
+        return "explanation"
+    return None

@@ -384,11 +384,22 @@ async def cmd_memory(ctx: CommandContext, args: list[str]) -> None:
         } if isinstance(controls, dict) else {}
         if visible_controls:
             for key, value in visible_controls.items():
+                if key == "matched_contexts":
+                    continue
                 control_lines.append(
                     Text.assemble(
                         (f"{key.replace('_', ' ')}: ", "code"),
                         (str(value), "bold green"),
                     )
+                )
+            matched_contexts = controls.get("matched_contexts", []) if isinstance(controls, dict) else []
+            if matched_contexts:
+                control_lines.insert(
+                    0,
+                    Text.assemble(
+                        ("matched contexts: ", "code"),
+                        (", ".join(str(item) for item in matched_contexts), "bold green"),
+                    ),
                 )
         else:
             control_lines.append(Text("No active controls selected.", style="dim"))
@@ -467,6 +478,8 @@ async def cmd_memory(ctx: CommandContext, args: list[str]) -> None:
 
     if visible_controls:
         for key, value in visible_controls.items():
+            if key == "matched_contexts":
+                continue
             source = str(sources.get(key, "")).strip() if isinstance(sources, dict) else ""
             label = key.replace("_", " ")
             control_lines.append(
@@ -475,6 +488,15 @@ async def cmd_memory(ctx: CommandContext, args: list[str]) -> None:
                     (str(value), "bold cyan"),
                     (f"  ← {source}", "dim") if source else ("", ""),
                 )
+            )
+        matched_contexts = controls.get("matched_contexts", []) if isinstance(controls, dict) else []
+        if matched_contexts:
+            control_lines.insert(
+                0,
+                Text.assemble(
+                    ("matched contexts: ", "code"),
+                    (", ".join(str(item) for item in matched_contexts), "bold cyan"),
+                ),
             )
     else:
         control_lines.append(Text("No active controls.", style="dim"))

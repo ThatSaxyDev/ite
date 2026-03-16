@@ -13,7 +13,12 @@ from ite.client.response import TokenUsage
 from ite.tools.base import ToolConfirmation
 from typing import Awaitable, Callable
 from ite.prompts.system import create_loop_breaker_prompt
-from ite.memory import parse_exact_recall_probe, parse_explicit_memory_instruction
+from ite.memory import (
+    parse_exact_recall_probe,
+    parse_explicit_memory_instruction,
+    parse_explicit_memory_instructions,
+    resolve_response_intent,
+)
 import re
 
 
@@ -45,16 +50,19 @@ class Agent:
 
         await session.hook_system.trigger_before_agent(user_message=message)
         yield AgentEvent.agent_start(message)
-        explicit_memory = parse_explicit_memory_instruction(message)
-        if explicit_memory is not None:
-            session.memory_manager.set_entry(
-                explicit_memory.store,
-                explicit_memory.key,
-                explicit_memory.value,
-                source=explicit_memory.source,
-            )
+        explicit_instructions = parse_explicit_memory_instructions(message)
+        if explicit_instructions:
+            explicit_memory = explicit_instructions[0]
+            for instruction in explicit_instructions:
+                session.memory_manager.set_entry(
+                    instruction.store,
+                    instruction.key,
+                    instruction.value,
+                    source=instruction.source,
+                    metadata=instruction.metadata,
+                )
             session.context_manager.add_user_message(message)
-            confirmation = self._explicit_memory_confirmation(explicit_memory)
+            confirmation = self._explicit_memory_confirmation(explicit_memory, count=len(explicit_instructions))
             session.context_manager.add_assistant_message(confirmation)
             await session.hook_system.trigger_after_agent(
                 user_message=message,
@@ -116,20 +124,10 @@ class Agent:
         if not text:
             return response_text
 
-        controls = session.memory_manager.load_active_controls()
+        controls = session.memory_manager.load_active_controls(user_message)
         bullet_style = str(controls.get("bullet_style", "")).strip()
-        user_text = (user_message or "").lower()
-        user_explicitly_wants_bullets = any(
-            phrase in user_text
-            for phrase in (
-                "bullet",
-                "bullets",
-                "bullet list",
-                "bullet lists",
-                "list them",
-                "as a list",
-            )
-        )
+        user_intent = resolve_response_intent(user_message)
+        user_explicitly_wants_bullets = user_intent.explicitly_wants_bullets
 
         if bullet_style == "avoid" and not user_explicitly_wants_bullets:
             text = self._flatten_bullets(text)
@@ -160,7 +158,9 @@ class Agent:
         compacted = re.sub(r"\n{3,}", "\n\n", compacted)
         return compacted.strip()
 
-    def _explicit_memory_confirmation(self, instruction) -> str:
+    def _explicit_memory_confirmation(self, instruction, *, count: int = 1) -> str:
+        if count > 1 and instruction.store == "long_term":
+            return f"Got it - stored {count} conditional preferences."
         if instruction.store == "short_term":
             return f'Got it - stored "{instruction.value}" for this session.'
         if instruction.store == "semantic":

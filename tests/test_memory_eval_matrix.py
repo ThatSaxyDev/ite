@@ -60,9 +60,9 @@ class _EvalModel:
 
         if "how should you answer architecture questions by default?" in user:
             return (
-                "No durable architecture-specific preference is stored."
-                if "architecture" not in prompt or "more detail" not in prompt
-                else "Architecture questions should get more detail."
+                "Architecture questions should get more detail."
+                if "give detailed answers by default." in prompt
+                else "No durable architecture-specific preference is stored."
             )
 
         if "what phrase should you remember for this session only?" in user:
@@ -79,12 +79,25 @@ class _EvalModel:
                 else "No workspace testing memory stored."
             )
 
+        if "we have a failing auth test. what should i check first?" in user:
+            return (
+                "Short answer: check the failing assertion and auth setup."
+                if "keep answers short by default." in prompt
+                else "Detailed answer: inspect auth setup in detail."
+            )
+
         if "explain the architecture of this repo." in user:
             return (
-                "Short answer: session, tools, context."
-                if "keep answers short by default." in prompt
-                and "avoid bullet lists unless the user explicitly asks for them." in prompt
-                else "Detailed answer:\n- sessions\n- tools\n- context"
+                "Detailed answer:\n- sessions\n- tools\n- context"
+                if "give detailed answers by default." in prompt
+                else "Short answer: session, tools, context."
+            )
+
+        if "explain what this codebase is about extensively." in user:
+            return (
+                "Detailed answer: this codebase is a terminal coding agent with sessions, tools, memory, and UI layers."
+                if "give detailed answers by default." in prompt
+                else "Short answer: it is a terminal coding agent."
             )
 
         if "what is 17 times 19?" in user:
@@ -113,11 +126,12 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         await self._scenario_exact_session_recall()
         await self._scenario_workspace_persistence()
         await self._scenario_long_term_preference()
+        await self._scenario_current_request_can_override_short_preference()
         await self._scenario_preference_update()
         await self._scenario_irrelevant_recall_restraint()
         await self._scenario_do_not_remember_opt_out()
         await self._scenario_speculative_statement_not_captured()
-        await self._scenario_conditional_preference_not_flattened()
+        await self._scenario_conditional_preferences_apply_by_context()
 
     async def _scenario_session_isolation(self) -> None:
         workspace = self.base_path / "session-isolation"
@@ -200,6 +214,17 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("use bullet lists when they materially improve clarity.", result.system_prompt.lower())
         self.assertNotIn("keep answers short by default.", result.system_prompt.lower())
 
+    async def _scenario_current_request_can_override_short_preference(self) -> None:
+        workspace = self.base_path / "request-override"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(agent, "From now on, keep answers short and avoid bullet lists.")
+
+        result = await self._run_turn(agent, "Explain what this codebase is about extensively.")
+        self.assertIn("detailed answer", result.response.lower())
+        self.assertIn("give detailed answers by default.", result.system_prompt.lower())
+
     async def _scenario_irrelevant_recall_restraint(self) -> None:
         workspace = self.base_path / "restraint"
         workspace.mkdir()
@@ -240,23 +265,30 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no storage decision recorded", result.response.lower())
         self.assertNotIn("redis", result.system_prompt.lower())
 
-    async def _scenario_conditional_preference_not_flattened(self) -> None:
+    async def _scenario_conditional_preferences_apply_by_context(self) -> None:
         workspace = self.base_path / "conditional-preference"
         workspace.mkdir()
 
         agent, _ = await self._make_agent(workspace)
         await self._run_turn(
             agent,
-            "I like short answers for debugging, but for architecture I want more detail.",
+            "Remember this preference: for debugging, keep answers short; for architecture, give detailed answers.",
         )
 
-        fresh, _ = await self._make_agent(workspace)
-        result = await self._run_turn(
-            fresh,
-            "How should you answer architecture questions by default?",
+        debug_result = await self._run_turn(
+            agent,
+            "We have a failing auth test. What should I check first?",
         )
-        self.assertIn("no durable architecture-specific preference", result.response.lower())
-        self.assertNotIn("more detail", result.system_prompt.lower())
+        architecture_result = await self._run_turn(
+            agent,
+            "Explain the architecture of this repo.",
+        )
+        self.assertIn("short answer", debug_result.response.lower())
+        self.assertIn("keep answers short by default.", debug_result.system_prompt.lower())
+        self.assertIn("debugging", debug_result.system_prompt.lower())
+        self.assertIn("detailed answer", architecture_result.response.lower())
+        self.assertIn("give detailed answers by default.", architecture_result.system_prompt.lower())
+        self.assertIn("architecture", architecture_result.system_prompt.lower())
 
     async def _make_agent(self, workspace: Path) -> tuple[Agent, _EvalModel]:
         agent = Agent(Config(cwd=workspace, api_key="test"))

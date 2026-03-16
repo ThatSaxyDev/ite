@@ -7,9 +7,12 @@ from ite.agent.session import Session
 from ite.config.config import Config
 from ite.context.manager import ContextManager
 from ite.memory import (
+    extract_conditional_preference_instructions,
     extract_preference_controls,
     is_memory_probe,
+    parse_explicit_memory_instructions,
     parse_explicit_memory_instruction,
+    resolve_response_intent,
     should_reject_durable_memory_capture,
 )
 from ite.memory.manager import MemoryManager
@@ -154,6 +157,66 @@ class MemoryManagerTests(unittest.TestCase):
 
         long_term_entries = {record["key"] for record in manager.list_entries("long_term")}
         self.assertEqual(long_term_entries, {"pref_detailed", "pref_paths"})
+
+    def test_conditional_preferences_apply_by_query_context(self) -> None:
+        workspace = self.base_path / "ws-conditional"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+
+        instructions = parse_explicit_memory_instructions(
+            "Remember this preference: for debugging, keep answers short; for architecture, give detailed answers."
+        )
+        for instruction in instructions:
+            manager.set_entry(
+                instruction.store,
+                instruction.key,
+                instruction.value,
+                source="test",
+                metadata=instruction.metadata,
+            )
+
+        debug_bundle = manager.load_prompt_memory(
+            "We have a failing auth test. What should I check first?"
+        )
+        architecture_bundle = manager.load_prompt_memory(
+            "Explain the architecture of session and memory handling."
+        )
+
+        assert debug_bundle is not None
+        assert architecture_bundle is not None
+        self.assertEqual(debug_bundle["controls"]["answer_length"], "short")
+        self.assertIn("debugging", debug_bundle["controls"]["matched_contexts"])
+        self.assertEqual(architecture_bundle["controls"]["answer_length"], "detailed")
+        self.assertIn("architecture", architecture_bundle["controls"]["matched_contexts"])
+
+    def test_current_request_detail_intent_overrides_short_default(self) -> None:
+        workspace = self.base_path / "ws-request-intent"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+
+        manager.set_entry(
+            "long_term",
+            "pref_short",
+            "Keep answers short and avoid bullet lists",
+            source="test",
+        )
+
+        bundle = manager.load_prompt_memory("Explain what this codebase is about extensively.")
+
+        assert bundle is not None
+        self.assertEqual(bundle["controls"]["answer_length"], "detailed")
+        self.assertEqual(bundle["controls"]["sources"]["answer_length"], "current request")
+
+    def test_response_intent_resolves_contexts_and_request_controls(self) -> None:
+        debug_intent = resolve_response_intent("We have a failing auth test. What should I check first?")
+        architecture_intent = resolve_response_intent(
+            "Explain what this codebase is about extensively."
+        )
+
+        self.assertIn("debugging", debug_intent.contexts)
+        self.assertEqual(architecture_intent.requested_controls["answer_length"], "detailed")
+        self.assertIn("architecture", architecture_intent.contexts)
+        self.assertIn("explanation", architecture_intent.contexts)
 
     def test_prompt_memory_ignores_polluted_episodic_memory_prompts(self) -> None:
         workspace = self.base_path / "ws-episodic"
@@ -301,6 +364,12 @@ class MemoryManagerTests(unittest.TestCase):
                 "bullet_style": "avoid",
             },
         )
+        conditional = extract_conditional_preference_instructions(
+            "Remember this preference: for debugging, keep answers short; for architecture, give detailed answers."
+        )
+        self.assertEqual(len(conditional), 2)
+        self.assertEqual(conditional[0].key, "preference_debugging")
+        self.assertEqual(conditional[1].key, "preference_architecture")
         self.assertTrue(
             should_reject_durable_memory_capture(
                 "semantic",

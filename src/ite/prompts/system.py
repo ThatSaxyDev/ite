@@ -299,6 +299,10 @@ def _get_controls_section(controls: dict) -> str:
         return ""
 
     instructions: list[str] = []
+    matched_contexts = controls.get("matched_contexts", []) if isinstance(controls, dict) else []
+    if matched_contexts:
+        context_label = ", ".join(str(item) for item in matched_contexts)
+        instructions.append(f"These controls apply because the current request matches: {context_label}.")
 
     answer_length = str(controls.get("answer_length", "")).strip()
     if answer_length == "short":

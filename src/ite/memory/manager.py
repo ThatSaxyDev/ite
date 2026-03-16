@@ -15,6 +15,7 @@ from ite.memory.intent import (
     is_memory_probe,
     parse_explicit_memory_instruction,
 )
+from ite.memory.response_intent import resolve_response_intent
 
 VALID_STORES = ("short_term", "long_term", "episodic", "semantic")
 MAX_EPISODIC_ENTRIES = 50
@@ -210,6 +211,7 @@ class MemoryManager:
             record.setdefault("updated_at", None)
             record.setdefault("access_count", 0)
             record.setdefault("source", default_source)
+            record.setdefault("conditional_preferences", [])
         return record
 
     def _load_entries(self, store: str) -> dict[str, dict[str, Any]]:
@@ -274,6 +276,7 @@ class MemoryManager:
         value: str,
         *,
         source: str = "memory_tool",
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         entries = self._load_entries(store)
         if store == "long_term":
@@ -281,6 +284,7 @@ class MemoryManager:
                 entries,
                 key=key,
                 value=value,
+                metadata=metadata,
             )
         existing = entries.get(key, {})
         record = self._normalize_record(key, existing or value, scope=store, default_source=source)
@@ -288,6 +292,9 @@ class MemoryManager:
         record["summary"] = _make_summary(value)
         record["updated_at"] = _now_iso()
         record["source"] = source
+        if metadata:
+            for meta_key, meta_value in metadata.items():
+                record[meta_key] = meta_value
         entries[key] = record
         self._save_entries(store, entries)
         return record
@@ -298,7 +305,31 @@ class MemoryManager:
         *,
         key: str,
         value: str,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, dict[str, Any]]:
+        conditional_specs = list((metadata or {}).get("conditional_preferences") or [])
+        if conditional_specs:
+            updated_entries = dict(entries)
+            new_pairs = {
+                (str(spec.get("condition", "")), control_key)
+                for spec in conditional_specs
+                for control_key in dict(spec.get("controls", {}))
+            }
+            for existing_key, record in list(updated_entries.items()):
+                if existing_key == key:
+                    continue
+                existing_specs = list(record.get("conditional_preferences") or [])
+                if not existing_specs:
+                    continue
+                existing_pairs = {
+                    (str(spec.get("condition", "")), control_key)
+                    for spec in existing_specs
+                    for control_key in dict(spec.get("controls", {}))
+                }
+                if new_pairs.intersection(existing_pairs):
+                    del updated_entries[existing_key]
+            return updated_entries
+
         new_controls = extract_preference_controls(value)
         if not new_controls:
             return entries
@@ -402,7 +433,7 @@ class MemoryManager:
         query = current_user_text or ""
         profile = _query_profile(query)
         candidates: list[dict[str, Any]] = []
-        controls = self._build_active_controls()
+        controls = self._build_active_controls(query)
 
         for store in ("short_term", "semantic", "long_term"):
             for record in self.list_entries(store):
@@ -548,18 +579,43 @@ class MemoryManager:
         )
         return bundle if has_data else None
 
-    def _build_active_controls(self) -> dict[str, Any]:
+    def _build_active_controls(self, query: str | None = None) -> dict[str, Any]:
         controls: dict[str, Any] = {}
         sources: dict[str, str] = {}
+        intent = resolve_response_intent(query or "")
+        query_contexts = list(intent.contexts)
+        requested_controls = dict(intent.requested_controls)
+        applied_contexts: list[str] = []
         entries = sorted(self.list_entries("long_term"), key=_updated_sort_key)
         touched_keys: list[str] = []
 
         for record in entries:
+            key = str(record.get("key", "")).strip()
+            summary = str(record.get("summary") or record.get("value") or "").strip()
+            conditional_specs = list(record.get("conditional_preferences") or [])
+            if conditional_specs:
+                matched = False
+                for spec in conditional_specs:
+                    condition = str(spec.get("condition", "")).strip()
+                    if query_contexts and condition not in query_contexts:
+                        continue
+                    spec_controls = dict(spec.get("controls", {}))
+                    if not spec_controls:
+                        continue
+                    for control_key, control_value in spec_controls.items():
+                        controls[control_key] = control_value
+                        if summary:
+                            sources[control_key] = summary
+                    matched = True
+                    if condition:
+                        applied_contexts.append(condition)
+                if matched and key:
+                    touched_keys.append(key)
+                continue
+
             record_controls = extract_preference_controls(str(record.get("value", "")))
             if not record_controls:
                 continue
-            key = str(record.get("key", "")).strip()
-            summary = str(record.get("summary") or record.get("value") or "").strip()
             for control_key, control_value in record_controls.items():
                 controls[control_key] = control_value
                 if summary:
@@ -580,14 +636,20 @@ class MemoryManager:
             if dirty:
                 self._save_entries("long_term", entries_by_key)
 
+        for control_key, control_value in requested_controls.items():
+            controls[control_key] = control_value
+            sources[control_key] = "current request"
+
         if not controls:
             return {}
 
         controls["sources"] = sources
+        if applied_contexts:
+            controls["matched_contexts"] = list(dict.fromkeys(applied_contexts))
         return controls
 
-    def load_active_controls(self) -> dict[str, Any]:
-        return self._build_active_controls()
+    def load_active_controls(self, query: str | None = None) -> dict[str, Any]:
+        return self._build_active_controls(query)
 
     def debug_prompt_memory(self, query: str | None, *, limit: int = 5) -> dict[str, Any]:
         return self.load_prompt_memory(query, limit=limit) or {
