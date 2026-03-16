@@ -1,148 +1,352 @@
-# ITE - AI Coding Agent
+# ITE Overview
 
-ITE (Interactive Terminal Agent) is a CLI-based AI coding assistant that helps developers accomplish tasks through natural language commands. It leverages large language models (LLMs) with a rich set of tools for file operations, code execution, and task management.
+ITE is a local-first coding agent with three user-facing surfaces built on the same core runtime:
 
-## Overview
+- `ite` launches the legacy Rich terminal UI.
+- `ite --chat` launches the Textual chat UI (`reup`).
+- `ite --desktop` launches the Flet desktop GUI.
 
-ITE operates as an autonomous agent that:
-- Executes tasks iteratively until completion or max turns reached
-- Uses tools to interact with the filesystem, run shell commands, and manage code
-- Supports both single-prompt and interactive CLI modes
-- Integrates with MCP (Model Context Protocol) servers for extended capabilities
+All three surfaces share the same agent loop, session model, tool registry, approval policy, sandboxing, planning mode, todo system, and attachment staging.
 
-## Architecture
+## Launch Model
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         CLI (main.py)                        │
-│                    Interactive / Single Mode                 │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                     Agent (agent/agent.py)                    │
-│              Main agentic loop & orchestration               │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                    Session (agent/session.py)                │
-│      Tool Registry │ LLM Client │ Context Manager           │
-└──────────┬──────────────────────┬────────────────────────────┘
-           │                      │
-    ┌──────▼──────┐      ┌───────▼──────┐
-    │    Tools    │      │   Context    │
-    │ (tools/*)   │      │ (context/*)  │
-    └─────────────┘      └──────────────┘
-```
+The CLI entrypoint lives in `src/ite/main.py`.
 
-## Core Components
+Current launch flags:
 
-### Agent (`agent/`)
-- **agent.py** - Main `Agent` class implementing the agentic loop (LLM calls → tool execution → repeat)
-- **session.py** - `Session` management including tool registry, LLM client, and context
-- **events.py** - Event types for streaming responses (text deltas, tool calls, errors)
+- `ite`
+  Starts the legacy terminal UI.
+- `ite --chat` or `ite -c`
+  Starts the Textual chat app.
+- `ite --desktop` or `ite -d`
+  Starts the desktop GUI.
+- `ite --cwd /path/to/workspace` or `ite -w /path/to/workspace`
+  Sets the workspace root before loading config and starting the UI.
 
-### Client (`client/`)
-- **llm_client.py** - OpenAI-compatible API client with streaming support, retries, and rate limiting
-- **response.py** - Response parsing for tool calls, tokens, and streaming events
+## First-Run Setup
 
-### Config (`config/`)
-- **config.py** - Pydantic models for configuration (model, shell environment, MCP servers)
-- **loader.py** - Configuration loading from environment and `.ite/` directory
+ITE supports first-run setup, but the flow differs slightly by surface.
 
-### Tools (`tools/`)
-- **registry.py** - `ToolRegistry` for registering and invoking tools
-- **base.py** - Base `Tool` class and `ToolResult` types
-- **builtin/** - Built-in tools:
-  - `read_file`, `write_file`, `edit_file` - File operations
-  - `shell` - Execute shell commands
-  - `grep`, `glob` - Search and discovery
-  - `list_dir` - Directory listing
-  - `memory`, `todo` - Task management
-  - `web_search`, `web_fetch` - Web utilities
-- **subagent.py** - Subagent tool for delegating to specialized agents
-- **subagent_loader.py** - Loads user-defined subagents from `.ite/subagents/`
-- **mcp/** - MCP server integration
-- **discovery.py** - Tool discovery manager
+- Legacy TUI:
+  Uses `src/ite/config/setup.py` to run a terminal setup wizard before the app starts.
+- Chat (`reup`):
+  Currently goes through the same legacy terminal setup wizard on first run, then launches the Textual app.
+- Desktop GUI:
+  Skips the terminal wizard and opens an in-app setup screen.
 
-### Context (`context/`)
-- **manager.py** - Message history and context management for LLM conversations
+Default startup values are:
 
-### Prompts (`prompts/`)
-- **system.py** - Dynamic system prompt generation with environment info, tool guidelines, and operational instructions
+- Base URL: `http://localhost:11434/v1`
+- API key: `ollama`
+- Model: `minimax-m2.5:cloud`
+- Approval policy default: `auto`
 
-### UI (`ui/`)
-- **tui.py** - Rich-based terminal UI for interactive mode with streaming display
+System config is stored with `platformdirs` under the user config directory. Project-local config may also be loaded from the workspace.
 
-## Configuration
+## High-Level Architecture
 
-ITE is configured via:
-1. **Environment Variables**:
-   - `API_KEY` - LLM API key
-   - `BASE_URL` - LLM API endpoint
-   - `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc. (alternative keys)
-
-2. **`.ite/config.toml`** (optional):
-   ```toml
-   [model]
-   name = "gpt-4o"
-   temperature = 1.0
-
-   [shell_environment]
-   ignore_default_excludes = false
-   exclude_patterns = ["*KEY*", "*SECRET*", "*TOKEN*"]
-
-   max_turns = 100
-   
-   [mcp_servers.server_name]
-   enabled = true
-   command = "npx"
-   args = ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
-   ```
-
-3. **`.ite/subagents/`** - User-defined subagents as TOML files
-
-## Usage
-
-### Interactive Mode
-```bash
-python main.py
+```text
+CLI / Surface router (src/ite/main.py)
+        |
+        +--> Legacy Rich TUI (src/ite/ui/tui.py)
+        +--> Textual chat UI / reup (src/ite/ui/reup/)
+        +--> Flet desktop GUI (src/ite/ui/gui/)
+        |
+        v
+Agent runtime (src/ite/agent/)
+        |
+        +--> Session state
+        +--> Tool registry
+        +--> Approval manager
+        +--> Context manager
+        +--> LLM client
+        |
+        v
+Built-in tools / MCP / subagents
 ```
 
-### Single Prompt
-```bash
-python main.py "Fix the bug in src/auth.py"
-```
+## Core Runtime
 
-### With Custom Directory
-```bash
-python main.py -c /path/to/project "Analyze this codebase"
-```
+### Agent
 
-## Subagents
+`src/ite/agent/agent.py` implements the main agent loop:
 
-Subagents are specialized AI agents with focused goals. Default subagents include:
-- **Codebase Investigator** - Explore and understand code structure
-- **Code Reviewer** - Review code changes for bugs and improvements
-- **Security Auditor** - Audit code for security vulnerabilities
+1. build prompt and tool context
+2. stream model output
+3. handle tool calls
+4. append tool results to session context
+5. continue until the turn completes, is interrupted, or hits policy limits
 
-Users can create custom subagents in `.ite/subagents/`:
-```toml
-name = "my-agent"
-description = "Description of what this agent does"
-allowed_tools = ["read_file", "grep", "shell"]
+The agent is event-driven. UI surfaces consume streamed events such as:
 
-goal_prompt = """
-You are an agent that...
-"""
-```
+- assistant text deltas
+- tool call start/complete
+- plan questions
+- approval requests
+- completion / interruption
 
-## Tool Execution Flow
+### Session
 
-1. Agent sends message to LLM with available tool schemas
-2. LLM responds with text and/or tool calls
-3. For each tool call:
-   - Emit `TOOL_CALL_START` event
-   - Invoke tool via registry
-   - Emit `TOOL_CALL_COMPLETE` with result
-4. Add tool results to conversation context
-5. Repeat until LLM responds without tool calls or max turns reached
+`src/ite/agent/session.py` is the shared state container for a conversation. It owns:
+
+- message history
+- current plan text
+- planning/execution todos
+- approval state
+- pending attachment paths
+- workboard-relevant state
+- tool registry and LLM client wiring
+
+### Session Persistence
+
+`src/ite/agent/session_manager.py` provides resume/save behavior across sessions in the same workspace. GUI and `reup` both expose session resume flows; the terminal UI also uses the same persisted session model.
+
+## UI Surfaces
+
+### Legacy TUI
+
+`src/ite/ui/tui.py`
+
+Purpose:
+
+- fast terminal-first interaction
+- Rich panels for assistant and tool output
+- first-run wizard reference implementation
+- compact, high-density transcript
+
+Current behavior highlights:
+
+- startup splash with workspace/model/version
+- planning mode feedback in the status line
+- compact tool cards with stronger truncation
+- attachment queue support
+- `/workboard`, `/plan`, `/todos`, `/attach`, `/branch`, `/model`, `/approval`
+
+### Reup
+
+`src/ite/ui/reup/app.py`
+
+Purpose:
+
+- modern Textual chat interface
+- native modals for sessions, branches, attachments, and setup
+- cleaner card treatment than legacy TUI
+
+Current behavior highlights:
+
+- inline top status indicator with spinner and live activity labels
+- composer metadata row for attachments, model, plan mode, and branch
+- native `/workboard` rendering
+- session resume modal
+- branch switch/create modal
+- attachment picker modal
+- setup modal still exists in code, but first-run setup currently routes through the legacy wizard before launch
+
+### Desktop GUI
+
+`src/ite/ui/gui/`
+
+Purpose:
+
+- Flet-based desktop app
+- setup view, chat feed, workboard panel, branch/session controls
+- richer approval cards and tool result rendering
+
+Current behavior highlights:
+
+- explicit setup view when config is incomplete
+- persistent workboard side panel
+- thinking/progress row with live activity text
+- shell command cards with running and completed states
+- attachment chips and staging
+
+## Planning, Todos, and Workboard
+
+ITE has a real planning mode, not just a prompt convention.
+
+Planning-related pieces:
+
+- plan-mode toggles and commands
+- planning questions
+- planning todos vs execution todos
+- stored plan text on the session
+- workboard view for current plan + visible todos
+
+Relevant files:
+
+- `src/ite/commands/info.py`
+- `src/ite/commands/todos.py`
+- `src/ite/agent/agent.py`
+- `src/ite/ui/reup/app.py`
+- `src/ite/ui/gui/app.py`
+- `src/ite/ui/gui/state.py`
+
+The workboard is:
+
+- a terminal command in legacy TUI
+- a native rendered card in `reup`
+- a persistent side panel in the GUI
+
+## Tools
+
+Built-in tools live in `src/ite/tools/builtin/`.
+
+Important groups:
+
+- file operations:
+  - `read_file`
+  - `write_file`
+  - `edit_file`
+- repo exploration:
+  - `list_dir`
+  - `glob`
+  - `grep`
+- execution:
+  - `shell`
+- web/research:
+  - `web_search`
+  - `web_fetch`
+- state/tasking:
+  - `memory`
+  - `todo`
+- delegation:
+  - `subagent`
+
+Tool behavior is registered through `src/ite/tools/registry.py`.
+
+## Safety Model
+
+ITE has two separate safety layers:
+
+### Sandbox
+
+Sandboxing is path-based and workspace-aware. A tool can be blocked even if it is read-only if it tries to access a path outside the allowed workspace or sandbox allow-list.
+
+Relevant files:
+
+- `src/ite/safety/sandbox.py`
+- `src/ite/tools/base.py`
+- tool-specific sandbox checks in built-in tools
+
+### Approval
+
+Approval policy controls whether a tool call can proceed automatically, must ask, or must be denied by policy.
+
+Approval policies are defined in `src/ite/config/config.py` and enforced in `src/ite/safety/approval.py`.
+
+Current default:
+
+- `auto`
+
+Common policies include:
+
+- `auto`
+- `on_request`
+- `auto_edit`
+- `on_failure`
+- `never`
+- `yolo`
+
+## Shell and Web Capability
+
+Shell and web are both first-class action surfaces:
+
+- `shell` is the local execution primitive
+- `web_search` and `web_fetch` are the external research primitives
+
+These capabilities are documented separately in:
+
+- `docs/SHELL_AND_WEB_CAPABILITIES.md`
+
+The UI surfaces now expose more explicit activity labels so users can tell when the agent is:
+
+- exploring the workspace
+- searching code
+- reading files
+- running commands
+- researching the web
+
+instead of only seeing a generic "thinking" state.
+
+## Attachments
+
+Attachments are queued before send, then staged for the next turn.
+
+Relevant pieces:
+
+- `src/ite/attachments.py`
+- `src/ite/commands/attach.py`
+- `src/ite/ui/gui/app.py`
+- `src/ite/ui/reup/app.py`
+- `src/ite/main.py`
+
+Flow:
+
+1. user selects or drags files
+2. paths are queued on the session
+3. on send, files are staged into a temp attachment area
+4. staged attachment content is added to the outgoing turn
+
+## Config and Persistence
+
+Main config code:
+
+- `src/ite/config/config.py`
+- `src/ite/config/loader.py`
+- `src/ite/config/setup.py`
+
+Config sources:
+
+1. system config in the user config directory
+2. project config in the workspace
+3. environment variables
+4. CLI overrides
+
+Current important defaults:
+
+- base URL: `http://localhost:11434/v1`
+- API key: `ollama`
+- model: `minimax-m2.5:cloud`
+- approval: `auto`
+
+## Repository Map
+
+Key directories:
+
+- `src/ite/agent/`
+  Agent loop, session model, events, session persistence
+- `src/ite/client/`
+  OpenAI-compatible API client and streamed response parsing
+- `src/ite/commands/`
+  Slash commands and user-facing command handlers
+- `src/ite/config/`
+  Config models, loading, setup wizard, persistence
+- `src/ite/context/`
+  Prompt/context assembly
+- `src/ite/safety/`
+  Sandbox and approval logic
+- `src/ite/tools/`
+  Built-in tools, tool registry, MCP and subagent integration
+- `src/ite/ui/tui.py`
+  Legacy Rich TUI
+- `src/ite/ui/reup/`
+  Textual chat UI
+- `src/ite/ui/gui/`
+  Flet desktop GUI
+- `tests/`
+  Unit and regression tests
+
+## Current Drift Risks
+
+This codebase evolves quickly, so the most common drift points are:
+
+- CLI flag renames vs tests/docs
+- startup/setup routing differences across surfaces
+- config persistence behavior across TUI, `reup`, and GUI
+- stale docs referencing the old single-surface model
+
+When reviewing or extending the app, validate all three surfaces:
+
+- `ite`
+- `ite --chat`
+- `ite --desktop`
