@@ -1081,7 +1081,7 @@ class CLI:
 
 
 @click.command()
-@click.version_option(version="0.0.7", prog_name="ite")
+@click.version_option(version="0.0.8", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",
