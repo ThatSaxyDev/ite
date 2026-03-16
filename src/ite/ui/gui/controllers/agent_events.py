@@ -54,12 +54,12 @@ class AgentEventControllerMixin:
         if not self.agent or not self.agent.session or not self.page:
             return
         change_set = self.agent.session.change_history.last_turn_change_set
-        summary, _, _ = compact_change_summary(
+        _, shown, extra = compact_change_summary(
             change_set,
             cwd=self.config.cwd,
             max_items=3,
         )
-        if not summary:
+        if not shown:
             return
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
@@ -71,18 +71,41 @@ class AgentEventControllerMixin:
                 padding=ft.Padding.symmetric(horizontal=8, vertical=0),
             ),
         )
+        bullet_rows = [
+            ft.Text(
+                f"• {name}",
+                size=TYPE_SM,
+                color=TEXT_SECONDARY,
+            )
+            for name in shown
+        ]
+        if extra:
+            bullet_rows.append(
+                ft.Text(
+                    f"• +{extra} more",
+                    size=TYPE_SM,
+                    color=TEXT_MUTED,
+                )
+            )
         content = ft.Row(
             [
-                ft.Text(
-                    f"{summary}  ·  {files_text}",
-                    size=TYPE_SM,
-                    color=TEXT_SECONDARY,
+                ft.Column(
+                    bullet_rows
+                    + [
+                        ft.Text(
+                            files_text,
+                            size=TYPE_SM,
+                            color=TEXT_MUTED,
+                        )
+                    ],
+                    spacing=4,
+                    tight=True,
                     expand=True,
                 ),
                 undo_button,
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.START,
         )
         self._add_assistant_card("Changed", content)
 

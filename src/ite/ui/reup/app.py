@@ -1972,16 +1972,21 @@ class ReupApp(App):
         if not self.agent or not self.agent.session:
             return
         change_set = self.agent.session.change_history.last_turn_change_set
-        summary, _, _ = compact_change_summary(
+        _, shown, extra = compact_change_summary(
             change_set,
             cwd=self.config.cwd,
             max_items=3,
         )
-        if not summary:
+        if not shown:
             return
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
-        body = Text(f"{summary}  ·  {files_text}  ·  /undo", style="#9fb0c7")
+        body = Text(style="#9fb0c7")
+        for name in shown:
+            body.append(f"• {name}\n")
+        if extra:
+            body.append(f"• +{extra} more\n")
+        body.append(f"{files_text}  ·  /undo")
         await self.add_assistant_card("Changed", body, css_class="note")
 
         if event.type == AgentEventType.AGENT_ERROR:

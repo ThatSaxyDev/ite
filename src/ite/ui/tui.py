@@ -141,12 +141,24 @@ class TUI:
         self._streamed_line_count = 0
 
     def render_change_summary(self, change_set: object | None, cwd: Path) -> None:
-        summary, _, _ = compact_change_summary(change_set, cwd=cwd, max_items=3)
-        if not summary:
+        _, shown, extra = compact_change_summary(change_set, cwd=cwd, max_items=3)
+        if not shown:
             return
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
-        self.console.print(f"[dim]Changed · {summary} · {files_text} · type /undo to revert[/dim]")
+        lines = [f"[dim]• {name}[/dim]" for name in shown]
+        if extra:
+            lines.append(f"[dim]• +{extra} more[/dim]")
+        lines.append(f"[dim]{files_text} · /undo[/dim]")
+        self.console.print(
+            Panel(
+                "\n".join(lines),
+                title=Text("Changed", style="bold cyan"),
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+        )
 
     def stream_assistant_delta(self, content: str) -> None:
         self._assistant_buffer += content
