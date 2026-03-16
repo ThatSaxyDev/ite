@@ -53,6 +53,25 @@ class FileDiff:
     is_new_file: bool = False
     is_deletion: bool = False
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": str(self.path),
+            "old_content": self.old_content,
+            "new_content": self.new_content,
+            "is_new_file": self.is_new_file,
+            "is_deletion": self.is_deletion,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "FileDiff":
+        return cls(
+            path=Path(str(payload.get("path", ""))),
+            old_content=str(payload.get("old_content", "")),
+            new_content=str(payload.get("new_content", "")),
+            is_new_file=bool(payload.get("is_new_file", False)),
+            is_deletion=bool(payload.get("is_deletion", False)),
+        )
+
     def to_diff(self) -> str:
         import difflib
 
@@ -92,6 +111,7 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     truncated: bool = False
     diff: FileDiff | None = None
+    file_diffs: list[FileDiff] = field(default_factory=list)
     exit_code: int | None = None
 
     @classmethod

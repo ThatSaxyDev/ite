@@ -257,7 +257,7 @@ class CommandControllerMixin:
             self.print_welcome(
                 model=self.config.model_name,
                 cwd=self.config.cwd,
-                commands=["/help", "/sessions", "/config", "/model", "/plan", "/todos", "/branch", "/approval", "/tools", "/stats", "/mcp"],
+                commands=["/help", "/undo", "/redo", "/history", "/sessions", "/config", "/model", "/plan", "/todos", "/branch", "/approval", "/tools", "/stats", "/mcp"],
             )
             return True
 

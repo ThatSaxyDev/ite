@@ -77,6 +77,7 @@ def build_registry() -> CommandRegistry:
     from ite.commands.model import register as register_model
     from ite.commands.plan import register as register_plan
     from ite.commands.info import register as register_info
+    from ite.commands.history import register as register_history
     from ite.commands.todos import register as register_todos
     from ite.commands.session import register as register_session
     from ite.commands.subagent import register as register_subagent
@@ -89,6 +90,7 @@ def build_registry() -> CommandRegistry:
     register_model(registry)
     register_plan(registry)
     register_info(registry)
+    register_history(registry)
     register_todos(registry)
     register_session(registry)
     register_subagent(registry)

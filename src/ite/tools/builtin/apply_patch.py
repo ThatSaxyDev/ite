@@ -188,8 +188,13 @@ class ApplyPatchTool(Tool):
             "applied": not params.dry_run,
             "actions": staged_actions,
             "diffs": [d.to_diff() for d in file_diffs],
+            "file_diff_payloads": [d.to_dict() for d in file_diffs],
         }
-        return ToolResult.success_result(output, metadata=metadata)
+        return ToolResult.success_result(
+            output,
+            metadata=metadata,
+            file_diffs=file_diffs,
+        )
 
     def _parse_patch(self, patch_text: str) -> list[PatchOperation]:
         lines = patch_text.splitlines()

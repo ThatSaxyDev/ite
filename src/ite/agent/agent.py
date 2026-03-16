@@ -19,6 +19,7 @@ from ite.memory import (
     parse_explicit_memory_instructions,
     resolve_response_intent,
 )
+from ite.agent.change_history import file_diffs_from_tool_result
 import re
 
 
@@ -95,6 +96,7 @@ class Agent:
             yield AgentEvent.agent_end(direct_memory_answer)
             return
         session.context_manager.add_user_message(message)
+        session.change_history.begin_batch(message)
         is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
         session.todo_execution_handoff_active = is_execution_handoff
         if session.plan_mode_enabled and not is_execution_handoff:
@@ -123,6 +125,7 @@ class Agent:
                     final_response = event.data.get("content")
         finally:
             session.todo_execution_handoff_active = False
+            session.change_history.finalize_batch()
 
         await session.hook_system.trigger_after_agent(
             user_message=message, agent_response=final_response
@@ -934,6 +937,10 @@ class Agent:
 
                 if result.success and tool_call.name not in {"todos", "plan_question"}:
                     execution_progress_eligible = True
+                    if tool_call.name in {"write_file", "edit", "apply_patch"}:
+                        diffs = file_diffs_from_tool_result(result)
+                        if diffs:
+                            session.change_history.record_file_diffs(diffs)
 
                 if tool_call.name == "plan_question" and result.success:
                     session.increment_plan_questions()

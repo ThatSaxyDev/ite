@@ -267,7 +267,7 @@ class CLI:
         self.tui.print_welcome(
             model=self.config.model_name,
             cwd=self.config.cwd,
-            commands=["/help", "/subagent", "/config", "/model", "/plan", "/todos", "/workboard", "/branch", "/attach", "/exit"],
+            commands=["/help", "/undo", "/redo", "/history", "/subagent", "/config", "/model", "/plan", "/todos", "/workboard", "/branch", "/attach", "/exit"],
         )
         async with Agent(
             config=self.config,
@@ -1094,12 +1094,14 @@ class CLI:
 @click.option(
     "--desktop",
     "-d",
+    "--gui",
     is_flag=True,
     help="Launch the desktop app",
 )
 @click.option(
     "--chat",
     "-c",
+    "--reup",
     is_flag=True,
     help="Launch the chat-first terminal app",
 )

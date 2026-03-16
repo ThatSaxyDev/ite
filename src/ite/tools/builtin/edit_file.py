@@ -110,6 +110,14 @@ class EditTool(Tool):
                     new_content=params.new_string,
                     is_new_file=True,
                 ),
+                file_diffs=[
+                    FileDiff(
+                        path=path,
+                        old_content="",
+                        new_content=params.new_string,
+                        is_new_file=True,
+                    )
+                ],
                 metadata={
                     "path": str(path),
                     "is_new_file": True,
@@ -175,6 +183,13 @@ class EditTool(Tool):
                 old_content=old_content,
                 new_content=new_content,
             ),
+            file_diffs=[
+                FileDiff(
+                    path=path,
+                    old_content=old_content,
+                    new_content=new_content,
+                )
+            ],
             metadata={
                 "path": str(path),
                 "replace_count": replace_count,

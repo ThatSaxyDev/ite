@@ -14,6 +14,7 @@ from ite.hooks.hook_system import HookSystem
 from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
 from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.todo import TodosTool
+from ite.agent.change_history import ChangeHistory
 
 
 class Session:
@@ -54,6 +55,7 @@ class Session:
         self.planning_seed_ids: list[str] = []
         self.execution_seed_ids: list[str] = []
         self.pending_attachment_paths: list[str] = []
+        self.change_history = ChangeHistory(self.config.cwd)
 
         self._turn_count = 0
 
