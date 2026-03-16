@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ite.agent.change_history import ChangeConflictError
+from ite.agent.change_history import compact_change_summary
 from ite.commands import Command, CommandContext, CommandRegistry
 from rich import box
 from rich.panel import Panel
@@ -53,11 +54,14 @@ async def cmd_undo(ctx: CommandContext, args: list[str]) -> None:
         return
 
     title = Text.assemble(("↶ ", ""), ("Undid changes", "bold bright_white"))
-    body = Text.assemble(
-        (change_set.label, "bold cyan"),
-        ("  ", ""),
-        (f"{len(change_set.changes)} file(s)", "dim"),
-    )
+    summary, _, _ = compact_change_summary(change_set, cwd=ctx.config.cwd, max_items=3)
+    body = Text()
+    body.append(change_set.label, style="bold cyan")
+    body.append("\n")
+    if summary:
+        body.append(f"{summary}\n", style="dim")
+    body.append(f"Reverted {len(change_set.changes)} file(s).\n", style="dim")
+    body.append("Run /redo to reapply these edits.", style="dim")
     ctx.console.print()
     ctx.console.print(
         Panel(
@@ -84,11 +88,14 @@ async def cmd_redo(ctx: CommandContext, args: list[str]) -> None:
         return
 
     title = Text.assemble(("↷ ", ""), ("Reapplied changes", "bold bright_white"))
-    body = Text.assemble(
-        (change_set.label, "bold cyan"),
-        ("  ", ""),
-        (f"{len(change_set.changes)} file(s)", "dim"),
-    )
+    summary, _, _ = compact_change_summary(change_set, cwd=ctx.config.cwd, max_items=3)
+    body = Text()
+    body.append(change_set.label, style="bold cyan")
+    body.append("\n")
+    if summary:
+        body.append(f"{summary}\n", style="dim")
+    body.append(f"Reapplied {len(change_set.changes)} file(s).\n", style="dim")
+    body.append("Run /undo to revert them again.", style="dim")
     ctx.console.print()
     ctx.console.print(
         Panel(

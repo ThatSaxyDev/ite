@@ -2,6 +2,7 @@ from __future__ import annotations
 import io
 from datetime import datetime
 import flet as ft
+from ite.agent.change_history import ChangeConflictError
 from ..adapters.registry import build_command_context
 from ..tokens import *
 
@@ -136,6 +137,44 @@ class CommandControllerMixin:
                     "There are no visible tasks or saved plans right now.",
                     color=TEXT_SECONDARY,
                 ),
+            )
+            return True
+
+        if command == "/undo":
+            await self._ensure_agent()
+            if not self.agent or not self.agent.session:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return True
+            try:
+                change_set = self.agent.session.change_history.undo(force="--force" in args)
+            except ChangeConflictError as exc:
+                self._add_message("system", str(exc), is_error=True)
+                return True
+            self._add_compact_change_notice(
+                change_set=change_set,
+                title="Reverted",
+                summary_text=f"Reverted {len(change_set.changes)} file(s) from the last change set.",
+                action_label="Reapply",
+                action_command="/redo",
+            )
+            return True
+
+        if command == "/redo":
+            await self._ensure_agent()
+            if not self.agent or not self.agent.session:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return True
+            try:
+                change_set = self.agent.session.change_history.redo(force="--force" in args)
+            except ChangeConflictError as exc:
+                self._add_message("system", str(exc), is_error=True)
+                return True
+            self._add_compact_change_notice(
+                change_set=change_set,
+                title="Reapplied",
+                summary_text=f"Reapplied {len(change_set.changes)} file(s).",
+                action_label="Undo",
+                action_command="/undo",
             )
             return True
 

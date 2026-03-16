@@ -50,10 +50,19 @@ class AgentEventControllerMixin:
             return True
         return not bool(self.agent.session.show_planning_todos)
 
-    def _add_compact_change_notice(self) -> None:
+    def _add_compact_change_notice(
+        self,
+        *,
+        change_set=None,
+        title: str = "Changed",
+        summary_text: str | None = None,
+        action_label: str = "Undo",
+        action_command: str = "/undo",
+    ) -> None:
         if not self.agent or not self.agent.session or not self.page:
             return
-        change_set = self.agent.session.change_history.last_turn_change_set
+        if change_set is None:
+            change_set = self.agent.session.change_history.last_turn_change_set
         _, shown, extra = compact_change_summary(
             change_set,
             cwd=self.config.cwd,
@@ -64,8 +73,8 @@ class AgentEventControllerMixin:
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
         undo_button = ft.TextButton(
-            "Undo",
-            on_click=lambda _e: self.page.run_task(self._run_command, "/undo"),
+            action_label,
+            on_click=lambda _e: self.page.run_task(self._run_command, action_command),
             style=ft.ButtonStyle(
                 color=ACCENT,
                 padding=ft.Padding.symmetric(horizontal=8, vertical=0),
@@ -93,12 +102,12 @@ class AgentEventControllerMixin:
                     bullet_rows
                     + [
                         ft.Text(
-                            f"Changed {files_text} in this turn.",
+                            summary_text or f"Changed {files_text} in this turn.",
                             size=TYPE_SM,
                             color=TEXT_SECONDARY,
                         ),
                         ft.Text(
-                            "Use Undo to revert these edits.",
+                            f"Use {action_label} to {'reapply' if action_command == '/redo' else 'revert'} these edits.",
                             size=TYPE_SM,
                             color=TEXT_MUTED,
                         )
@@ -112,7 +121,7 @@ class AgentEventControllerMixin:
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             vertical_alignment=ft.CrossAxisAlignment.START,
         )
-        self._add_assistant_card("Changed", content)
+        self._add_assistant_card(title, content)
 
     async def _handle_agent_event(self, event: AgentEvent):
         if not self.page:
