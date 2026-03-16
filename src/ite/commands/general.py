@@ -41,6 +41,7 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
                 active_plan_text=session.active_plan_text,
                 todos_state=session.export_todos_state(),
                 show_planning_todos=session.show_planning_todos,
+                change_history_state=session.export_change_history_state(),
             )
             session_manager.save_session(snapshot)
             session.record_lifecycle_episode(
@@ -145,6 +146,7 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
             active_plan_text=previous.active_plan_text,
             todos_state=previous.export_todos_state(),
             show_planning_todos=previous.show_planning_todos,
+            change_history_state=previous.export_change_history_state(),
         )
         session_manager.save_session(snapshot)
         previous.record_lifecycle_episode(

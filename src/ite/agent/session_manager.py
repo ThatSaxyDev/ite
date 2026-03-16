@@ -123,6 +123,7 @@ class SessionSnapshot:
     active_plan_text: str | None = None
     todos_state: dict[str, Any] | None = None
     show_planning_todos: bool = False
+    change_history_state: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -142,6 +143,7 @@ class SessionSnapshot:
             "active_plan_text": self.active_plan_text,
             "todos_state": self.todos_state,
             "show_planning_todos": self.show_planning_todos,
+            "change_history_state": self.change_history_state,
         }
 
     @classmethod
@@ -163,6 +165,7 @@ class SessionSnapshot:
             active_plan_text=data.get("active_plan_text"),
             todos_state=data.get("todos_state"),
             show_planning_todos=bool(data.get("show_planning_todos", False)),
+            change_history_state=data.get("change_history_state"),
         )
 
 

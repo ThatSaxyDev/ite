@@ -197,6 +197,7 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
         active_plan_text=ctx.agent.session.active_plan_text,
         todos_state=ctx.agent.session.export_todos_state(),
         show_planning_todos=ctx.agent.session.show_planning_todos,
+        change_history_state=ctx.agent.session.export_change_history_state(),
     )
     session_manager.save_session(session_snapshot)
 
@@ -319,6 +320,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
             active_plan_text=ctx.agent.session.active_plan_text,
             todos_state=ctx.agent.session.export_todos_state(),
             show_planning_todos=ctx.agent.session.show_planning_todos,
+            change_history_state=ctx.agent.session.export_change_history_state(),
         )
         session_manager.save_checkpoint(current_snapshot)
 
@@ -352,6 +354,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     session.context_manager.set_messages(snapshot.messages)
     session.context_manager.total_usage = snapshot.total_usage
     session.restore_todos_state(snapshot.todos_state)
+    session.restore_change_history_state(snapshot.change_history_state)
     ctx.agent.session = session
 
     title = Text.assemble(("💾  ", ""), ("Resumed", "bold bright_white"))
@@ -391,6 +394,7 @@ async def cmd_checkpoint(ctx: CommandContext, args: list[str]) -> None:
         active_plan_text=ctx.agent.session.active_plan_text,
         todos_state=ctx.agent.session.export_todos_state(),
         show_planning_todos=ctx.agent.session.show_planning_todos,
+        change_history_state=ctx.agent.session.export_change_history_state(),
     )
     checkpoint_id = session_manager.save_checkpoint(session_snapshot)
     title = Text.assemble(("💾  ", ""), ("Checkpoint created", "bold bright_white"))
@@ -488,6 +492,7 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
     session.context_manager.set_messages(snapshot.messages)
     session.context_manager.total_usage = snapshot.total_usage
     session.restore_todos_state(snapshot.todos_state)
+    session.restore_change_history_state(snapshot.change_history_state)
     ctx.agent.session = session
 
     title = Text.assemble(("💾  ", ""), ("Checkpoint Restored", "bold bright_white"))

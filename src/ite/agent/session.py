@@ -311,6 +311,12 @@ class Session:
             return
         tool.load_state(state)
 
+    def export_change_history_state(self) -> dict[str, Any]:
+        return self.change_history.export_state()
+
+    def restore_change_history_state(self, state: dict[str, Any] | None) -> None:
+        self.change_history.load_state(state)
+
     def seed_execution_todos_from_plan(self, plan_text: str | None) -> list[str]:
         tool = self._get_todos_tool()
         if tool is None:

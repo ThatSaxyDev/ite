@@ -662,6 +662,7 @@ class CLI:
                 active_plan_text=session.active_plan_text,
                 todos_state=session.export_todos_state(),
                 show_planning_todos=session.show_planning_todos,
+                change_history_state=session.export_change_history_state(),
             )
             session_manager.save_session(snapshot)
             # console.print(
@@ -704,6 +705,7 @@ class CLI:
                 active_plan_text=session.active_plan_text,
                 todos_state=session.export_todos_state(),
                 show_planning_todos=session.show_planning_todos,
+                change_history_state=session.export_change_history_state(),
             )
             session_manager.save_session(snapshot)
         except Exception:
@@ -1071,6 +1073,12 @@ class CLI:
                             "[dim]Plan mode remains enabled. Next: send follow-up guidance to refine this plan, "
                             "type 'implement plan' later, or type /plan off to leave Plan mode manually.[/dim]"
                         )
+
+            if self.agent and self.agent.session:
+                self.tui.render_change_summary(
+                    self.agent.session.change_history.last_turn_change_set,
+                    self.config.cwd,
+                )
 
             return final_response
         finally:

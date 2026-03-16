@@ -105,6 +105,7 @@ class SessionControllerMixin:
                 active_plan_text=session.active_plan_text,
                 todos_state=session.export_todos_state(),
                 show_planning_todos=session.show_planning_todos,
+                change_history_state=session.export_change_history_state(),
             )
             await asyncio.to_thread(SessionManager().save_session, snapshot)
             self._set_current_session_title(session.name)
@@ -257,6 +258,7 @@ class SessionControllerMixin:
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
+        resumed.restore_change_history_state(snapshot.change_history_state)
         resumed.approval_manager.confirmation_callback = self._gui_confirmation_callback
         if hasattr(self, "_sync_plan_toggle_ui"):
             self._sync_plan_toggle_ui()

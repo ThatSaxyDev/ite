@@ -1,5 +1,6 @@
 from ite.tools.base import ToolConfirmation
 from ite.config.config import Config
+from ite.agent.change_history import compact_change_summary
 from ite.ui.tool_narrative import activity_title
 from ite.ui.tool_narrative import describe_tool_activity
 from ite.utils.text import truncate_text
@@ -138,6 +139,14 @@ class TUI:
         self._assistant_stream_open = False
         self._assistant_buffer = ""
         self._streamed_line_count = 0
+
+    def render_change_summary(self, change_set: object | None, cwd: Path) -> None:
+        summary, _, _ = compact_change_summary(change_set, cwd=cwd, max_items=3)
+        if not summary:
+            return
+        count = len(getattr(change_set, "changes", []) or [])
+        files_text = f"{count} file" if count == 1 else f"{count} files"
+        self.console.print(f"[dim]Changed · {summary} · {files_text} · type /undo to revert[/dim]")
 
     def stream_assistant_delta(self, content: str) -> None:
         self._assistant_buffer += content

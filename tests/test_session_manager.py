@@ -110,6 +110,43 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertTrue(loaded["show_planning_todos"])
         self.assertIn("todos_state", loaded)
 
+    def test_change_history_state_round_trips_in_snapshot(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="history-check",
+            name="History Session",
+            created_at=datetime(2026, 3, 4, 11, 46, 7, 637365),
+            updated_at=datetime(2026, 3, 4, 11, 46, 52, 384048),
+            turn_count=2,
+            messages=[{"role": "user", "content": "hello"}],
+            total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            change_history_state={
+                "undo_stack": [
+                    {
+                        "id": "chg1",
+                        "label": "Implement feature",
+                        "changes": [
+                            {
+                                "path": "/tmp/example.txt",
+                                "old_content": "old\n",
+                                "new_content": "new\n",
+                                "is_new_file": False,
+                                "is_deletion": False,
+                            }
+                        ],
+                    }
+                ],
+                "redo_stack": [],
+            },
+        )
+
+        self.manager.save_session(snapshot)
+        restored = self.manager.load_session("history-check")
+
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertIn("undo_stack", restored.change_history_state)
+        self.assertEqual(restored.change_history_state["undo_stack"][0]["id"], "chg1")
+
     def test_save_session_compacts_older_tool_payloads(self) -> None:
         messages = [
             {

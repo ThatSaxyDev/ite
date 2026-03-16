@@ -19,6 +19,26 @@ class ChangeSet:
         files = len(self.changes)
         return f"{self.label} ({files} file{'s' if files != 1 else ''})"
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "changes": [change.to_dict() for change in self.changes],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "ChangeSet":
+        changes = payload.get("changes", [])
+        return cls(
+            id=str(payload.get("id", "")),
+            label=str(payload.get("label", "Apply changes")),
+            changes=[
+                FileDiff.from_dict(change)
+                for change in changes
+                if isinstance(change, dict)
+            ],
+        )
+
 
 class ChangeConflictError(RuntimeError):
     pass
@@ -31,10 +51,12 @@ class ChangeHistory:
         self.redo_stack: list[ChangeSet] = []
         self._pending_label: str | None = None
         self._pending_changes: list[FileDiff] = []
+        self.last_turn_change_set: ChangeSet | None = None
 
     def begin_batch(self, label: str) -> None:
         self._pending_label = label.strip() or "Apply changes"
         self._pending_changes = []
+        self.last_turn_change_set = None
 
     def record_file_diffs(self, diffs: list[FileDiff]) -> None:
         seen: dict[str, FileDiff] = {}
@@ -72,6 +94,7 @@ class ChangeHistory:
     def finalize_batch(self) -> ChangeSet | None:
         if not self._pending_changes:
             self._pending_label = None
+            self.last_turn_change_set = None
             return None
 
         change_set = ChangeSet(
@@ -83,14 +106,43 @@ class ChangeHistory:
         self.redo_stack.clear()
         self._pending_changes = []
         self._pending_label = None
+        self.last_turn_change_set = change_set
         return change_set
 
     def discard_pending_batch(self) -> None:
         self._pending_changes = []
         self._pending_label = None
+        self.last_turn_change_set = None
 
     def history(self) -> list[ChangeSet]:
         return list(reversed(self.undo_stack))
+
+    def latest(self) -> ChangeSet | None:
+        if not self.undo_stack:
+            return None
+        return self.undo_stack[-1]
+
+    def export_state(self) -> dict[str, Any]:
+        return {
+            "undo_stack": [change.to_dict() for change in self.undo_stack],
+            "redo_stack": [change.to_dict() for change in self.redo_stack],
+        }
+
+    def load_state(self, payload: dict[str, Any] | None) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        undo_stack = data.get("undo_stack", [])
+        redo_stack = data.get("redo_stack", [])
+        self.undo_stack = [
+            ChangeSet.from_dict(item)
+            for item in undo_stack
+            if isinstance(item, dict)
+        ]
+        self.redo_stack = [
+            ChangeSet.from_dict(item)
+            for item in redo_stack
+            if isinstance(item, dict)
+        ]
+        self.last_turn_change_set = None
 
     def undo(self, force: bool = False) -> ChangeSet:
         if not self.undo_stack:
@@ -103,6 +155,7 @@ class ChangeHistory:
             self.undo_stack.append(change_set)
             raise
         self.redo_stack.append(change_set)
+        self.last_turn_change_set = None
         return change_set
 
     def redo(self, force: bool = False) -> ChangeSet:
@@ -116,6 +169,7 @@ class ChangeHistory:
             self.redo_stack.append(change_set)
             raise
         self.undo_stack.append(change_set)
+        self.last_turn_change_set = None
         return change_set
 
     def _apply_reverse(self, change_set: ChangeSet, *, force: bool) -> None:
@@ -165,6 +219,36 @@ class ChangeHistory:
             raise ChangeConflictError(
                 f"Cannot apply change for {path}: file content has drifted."
             )
+
+
+def compact_change_summary(
+    change_set: ChangeSet | None,
+    *,
+    cwd: Path | None = None,
+    max_items: int = 3,
+) -> tuple[str, list[str], int]:
+    if change_set is None:
+        return "", [], 0
+
+    names: list[str] = []
+    base = cwd.resolve() if cwd else None
+    for change in change_set.changes:
+        path = change.path.resolve()
+        label = path.name
+        if base is not None:
+            try:
+                rel = path.relative_to(base)
+                label = str(rel)
+            except ValueError:
+                label = path.name
+        names.append(label)
+
+    shown = names[:max_items]
+    extra = max(0, len(names) - len(shown))
+    summary = " · ".join(shown)
+    if extra:
+        summary = f"{summary} · +{extra} more" if summary else f"+{extra} more"
+    return summary, shown, extra
 
 
 def file_diffs_from_tool_result(result: Any) -> list[FileDiff]:

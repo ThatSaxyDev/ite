@@ -27,6 +27,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 from textual.widget import Widget
 
 from ite.agent.agent import Agent
+from ite.agent.change_history import compact_change_summary
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
@@ -1587,6 +1588,7 @@ class ReupApp(App):
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
+        resumed.restore_change_history_state(snapshot.change_history_state)
         resumed.approval_manager.confirmation_callback = self.confirmation_callback
         self.agent.session = resumed
         self.refresh_header()
@@ -1948,6 +1950,10 @@ class ReupApp(App):
         plan_only_phase = self._is_plan_only_phase()
         suppressed_tools = {"memory", "plan_question"}
 
+        if event.type == AgentEventType.AGENT_END:
+            await self._post_turn_change_summary()
+            return
+
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
@@ -1961,6 +1967,22 @@ class ReupApp(App):
             elif content and not plan_only_phase:
                 await self.add_assistant_message(content)
             return
+
+    async def _post_turn_change_summary(self) -> None:
+        if not self.agent or not self.agent.session:
+            return
+        change_set = self.agent.session.change_history.last_turn_change_set
+        summary, _, _ = compact_change_summary(
+            change_set,
+            cwd=self.config.cwd,
+            max_items=3,
+        )
+        if not summary:
+            return
+        count = len(getattr(change_set, "changes", []) or [])
+        files_text = f"{count} file" if count == 1 else f"{count} files"
+        body = Text(f"{summary}  ·  {files_text}  ·  /undo", style="#9fb0c7")
+        await self.add_assistant_card("Changed", body, css_class="note")
 
         if event.type == AgentEventType.AGENT_ERROR:
             self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
@@ -3177,6 +3199,7 @@ class ReupApp(App):
             active_plan_text=session.active_plan_text,
             todos_state=session.export_todos_state(),
             show_planning_todos=session.show_planning_todos,
+            change_history_state=session.export_change_history_state(),
         )
         SessionManager().save_session(snapshot)
 

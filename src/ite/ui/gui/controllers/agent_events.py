@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ite.agent.change_history import compact_change_summary
 from ite.agent.events import AgentEventType, AgentEvent
 import flet as ft
 from ite.ui.tool_narrative import progress_label
@@ -49,6 +50,42 @@ class AgentEventControllerMixin:
             return True
         return not bool(self.agent.session.show_planning_todos)
 
+    def _add_compact_change_notice(self) -> None:
+        if not self.agent or not self.agent.session or not self.page:
+            return
+        change_set = self.agent.session.change_history.last_turn_change_set
+        summary, _, _ = compact_change_summary(
+            change_set,
+            cwd=self.config.cwd,
+            max_items=3,
+        )
+        if not summary:
+            return
+        count = len(getattr(change_set, "changes", []) or [])
+        files_text = f"{count} file" if count == 1 else f"{count} files"
+        undo_button = ft.TextButton(
+            "Undo",
+            on_click=lambda _e: self.page.run_task(self._run_command, "/undo"),
+            style=ft.ButtonStyle(
+                color=ACCENT,
+                padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+            ),
+        )
+        content = ft.Row(
+            [
+                ft.Text(
+                    f"{summary}  ·  {files_text}",
+                    size=TYPE_SM,
+                    color=TEXT_SECONDARY,
+                    expand=True,
+                ),
+                undo_button,
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        self._add_assistant_card("Changed", content)
+
     async def _handle_agent_event(self, event: AgentEvent):
         if not self.page:
             return
@@ -63,6 +100,10 @@ class AgentEventControllerMixin:
             and self.agent.session.plan_phase != "executing"
         )
         suppressed_tools = {"memory", "plan_question"}
+
+        if event.type == AgentEventType.AGENT_END:
+            self._add_compact_change_notice()
+            return
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
