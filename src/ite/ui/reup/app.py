@@ -1986,7 +1986,9 @@ class ReupApp(App):
             body.append(f"• {name}\n")
         if extra:
             body.append(f"• +{extra} more\n")
-        body.append(f"{files_text}  ·  /undo")
+        body.append("\n")
+        body.append(f"Changed {files_text} in this turn.\n")
+        body.append("Run /undo to revert these edits.")
         await self.add_assistant_card("Changed", body, css_class="note")
 
         if event.type == AgentEventType.AGENT_ERROR:

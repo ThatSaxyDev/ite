@@ -149,7 +149,9 @@ class TUI:
         lines = [f"[dim]• {name}[/dim]" for name in shown]
         if extra:
             lines.append(f"[dim]• +{extra} more[/dim]")
-        lines.append(f"[dim]{files_text} · /undo[/dim]")
+        lines.append("")
+        lines.append(f"[dim]Changed {files_text} in this turn.[/dim]")
+        lines.append("[dim]Run /undo to revert these edits.[/dim]")
         self.console.print(
             Panel(
                 "\n".join(lines),

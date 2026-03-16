@@ -93,7 +93,12 @@ class AgentEventControllerMixin:
                     bullet_rows
                     + [
                         ft.Text(
-                            files_text,
+                            f"Changed {files_text} in this turn.",
+                            size=TYPE_SM,
+                            color=TEXT_SECONDARY,
+                        ),
+                        ft.Text(
+                            "Use Undo to revert these edits.",
                             size=TYPE_SM,
                             color=TEXT_MUTED,
                         )
