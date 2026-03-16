@@ -212,11 +212,21 @@ class MemoryManagerTests(unittest.TestCase):
         architecture_intent = resolve_response_intent(
             "Explain what this codebase is about extensively."
         )
+        proper_intent = resolve_response_intent(
+            "Explain what this codebase is about properly."
+        )
+        overview_intent = resolve_response_intent(
+            "Give me the big picture of this repo."
+        )
 
         self.assertIn("debugging", debug_intent.contexts)
         self.assertEqual(architecture_intent.requested_controls["answer_length"], "detailed")
         self.assertIn("architecture", architecture_intent.contexts)
         self.assertIn("explanation", architecture_intent.contexts)
+        self.assertEqual(proper_intent.requested_controls["answer_length"], "detailed")
+        self.assertIn("architecture", proper_intent.contexts)
+        self.assertIn("architecture", overview_intent.contexts)
+        self.assertEqual(overview_intent.requested_controls["answer_length"], "detailed")
 
     def test_prompt_memory_ignores_polluted_episodic_memory_prompts(self) -> None:
         workspace = self.base_path / "ws-episodic"

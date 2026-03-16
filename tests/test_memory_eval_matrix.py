@@ -100,6 +100,13 @@ class _EvalModel:
                 else "Short answer: it is a terminal coding agent."
             )
 
+        if "explain what this codebase is about properly." in user:
+            return (
+                "Detailed answer: this codebase is a terminal coding agent with orchestration, tools, memory, prompts, and UI layers."
+                if "give detailed answers by default." in prompt
+                else "Short answer: it is a terminal coding agent."
+            )
+
         if "what is 17 times 19?" in user:
             return "323"
 
@@ -127,6 +134,7 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         await self._scenario_workspace_persistence()
         await self._scenario_long_term_preference()
         await self._scenario_current_request_can_override_short_preference()
+        await self._scenario_semantic_request_wording_can_override_short_preference()
         await self._scenario_preference_update()
         await self._scenario_irrelevant_recall_restraint()
         await self._scenario_do_not_remember_opt_out()
@@ -222,6 +230,17 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         await self._run_turn(agent, "From now on, keep answers short and avoid bullet lists.")
 
         result = await self._run_turn(agent, "Explain what this codebase is about extensively.")
+        self.assertIn("detailed answer", result.response.lower())
+        self.assertIn("give detailed answers by default.", result.system_prompt.lower())
+
+    async def _scenario_semantic_request_wording_can_override_short_preference(self) -> None:
+        workspace = self.base_path / "semantic-request-override"
+        workspace.mkdir()
+
+        agent, _ = await self._make_agent(workspace)
+        await self._run_turn(agent, "From now on, keep answers short and avoid bullet lists.")
+
+        result = await self._run_turn(agent, "Explain what this codebase is about properly.")
         self.assertIn("detailed answer", result.response.lower())
         self.assertIn("give detailed answers by default.", result.system_prompt.lower())
 
