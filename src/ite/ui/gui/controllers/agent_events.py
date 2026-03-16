@@ -1,5 +1,5 @@
 from __future__ import annotations
-from ite.agent.change_history import compact_change_summary
+from ite.agent.change_history import change_entries_with_stats
 from ite.agent.events import AgentEventType, AgentEvent
 import flet as ft
 from ite.ui.tool_narrative import progress_label
@@ -63,12 +63,12 @@ class AgentEventControllerMixin:
             return
         if change_set is None:
             change_set = self.agent.session.change_history.last_turn_change_set
-        _, shown, extra = compact_change_summary(
+        entries, extra = change_entries_with_stats(
             change_set,
             cwd=self.config.cwd,
             max_items=3,
         )
-        if not shown:
+        if not entries:
             return
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
@@ -81,12 +81,30 @@ class AgentEventControllerMixin:
             ),
         )
         bullet_rows = [
-            ft.Text(
-                f"• {name}",
-                size=TYPE_SM,
-                color=TEXT_SECONDARY,
+            ft.Row(
+                [
+                    ft.Text(
+                        f"• {name}",
+                        size=TYPE_SM,
+                        color=TEXT_SECONDARY,
+                        expand=True,
+                    ),
+                    ft.Text(
+                        f"+{additions}",
+                        size=TYPE_SM,
+                        color=ft.Colors.GREEN_300,
+                    ) if additions else ft.Container(width=0),
+                    ft.Text(
+                        f"-{deletions}",
+                        size=TYPE_SM,
+                        color=ft.Colors.RED_300,
+                    ) if deletions else ft.Container(width=0),
+                ],
+                spacing=8,
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             )
-            for name in shown
+            for name, additions, deletions in entries
         ]
         if extra:
             bullet_rows.append(

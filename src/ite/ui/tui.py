@@ -1,6 +1,6 @@
 from ite.tools.base import ToolConfirmation
 from ite.config.config import Config
-from ite.agent.change_history import compact_change_summary
+from ite.agent.change_history import change_entries_with_stats
 from ite.ui.tool_narrative import activity_title
 from ite.ui.tool_narrative import describe_tool_activity
 from ite.utils.text import truncate_text
@@ -141,12 +141,19 @@ class TUI:
         self._streamed_line_count = 0
 
     def render_change_summary(self, change_set: object | None, cwd: Path) -> None:
-        _, shown, extra = compact_change_summary(change_set, cwd=cwd, max_items=3)
-        if not shown:
+        entries, extra = change_entries_with_stats(change_set, cwd=cwd, max_items=3)
+        if not entries:
             return
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
-        lines = [f"[dim]• {name}[/dim]" for name in shown]
+        lines = []
+        for name, additions, deletions in entries:
+            line = f"[dim]• {name}[/dim]"
+            if additions:
+                line += f"  [green]+{additions}[/green]"
+            if deletions:
+                line += f"  [red]-{deletions}[/red]"
+            lines.append(line)
         if extra:
             lines.append(f"[dim]• +{extra} more[/dim]")
         lines.append("")

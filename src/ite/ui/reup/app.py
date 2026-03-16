@@ -27,7 +27,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 from textual.widget import Widget
 
 from ite.agent.agent import Agent
-from ite.agent.change_history import compact_change_summary
+from ite.agent.change_history import change_entries_with_stats
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
@@ -1972,18 +1972,23 @@ class ReupApp(App):
         if not self.agent or not self.agent.session:
             return
         change_set = self.agent.session.change_history.last_turn_change_set
-        _, shown, extra = compact_change_summary(
+        entries, extra = change_entries_with_stats(
             change_set,
             cwd=self.config.cwd,
             max_items=3,
         )
-        if not shown:
+        if not entries:
             return
         count = len(getattr(change_set, "changes", []) or [])
         files_text = f"{count} file" if count == 1 else f"{count} files"
         body = Text(style="#9fb0c7")
-        for name in shown:
-            body.append(f"• {name}\n")
+        for name, additions, deletions in entries:
+            body.append(f"• {name}", style="#9fb0c7")
+            if additions:
+                body.append(f"  +{additions}", style="bold #7ad69f")
+            if deletions:
+                body.append(f"  -{deletions}", style="bold #f58b8b")
+            body.append("\n")
         if extra:
             body.append(f"• +{extra} more\n")
         body.append("\n")

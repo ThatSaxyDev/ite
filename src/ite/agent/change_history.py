@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import difflib
 import uuid
 
 from ite.tools.base import FileDiff
@@ -249,6 +250,45 @@ def compact_change_summary(
     if extra:
         summary = f"{summary} · +{extra} more" if summary else f"+{extra} more"
     return summary, shown, extra
+
+
+def change_entries_with_stats(
+    change_set: ChangeSet | None,
+    *,
+    cwd: Path | None = None,
+    max_items: int = 3,
+) -> tuple[list[tuple[str, int, int]], int]:
+    if change_set is None:
+        return [], 0
+
+    base = cwd.resolve() if cwd else None
+    entries: list[tuple[str, int, int]] = []
+    for change in change_set.changes[:max_items]:
+        path = change.path.resolve()
+        label = path.name
+        if base is not None:
+            try:
+                label = str(path.relative_to(base))
+            except ValueError:
+                label = path.name
+        additions, deletions = _line_delta_stats(change)
+        entries.append((label, additions, deletions))
+
+    extra = max(0, len(change_set.changes) - len(entries))
+    return entries, extra
+
+
+def _line_delta_stats(change: FileDiff) -> tuple[int, int]:
+    old_lines = change.old_content.splitlines()
+    new_lines = change.new_content.splitlines()
+    additions = 0
+    deletions = 0
+    for line in difflib.ndiff(old_lines, new_lines):
+        if line.startswith("+ "):
+            additions += 1
+        elif line.startswith("- "):
+            deletions += 1
+    return additions, deletions
 
 
 def file_diffs_from_tool_result(result: Any) -> list[FileDiff]:
