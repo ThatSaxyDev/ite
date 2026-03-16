@@ -137,9 +137,39 @@ class Session:
                 return ""
             if is_memory_probe(recent_user):
                 return ""
+            if self._is_low_value_lifecycle_focus(recent_user):
+                return ""
             return recent_user
 
         return ""
+
+    def _is_low_value_lifecycle_focus(self, text: str) -> bool:
+        lowered = text.strip().lower()
+        if not lowered:
+            return True
+
+        low_value_prefixes = (
+            "what are",
+            "how do i",
+            "how should you",
+            "what should you",
+            "what did we",
+            "what phrase",
+            "what is this",
+            "tell me about",
+        )
+        if lowered.startswith(low_value_prefixes):
+            return True
+
+        low_value_fragments = (
+            "responses",
+            "phrase",
+            "remember",
+            "memory",
+            "focused on right now",
+            "last time",
+        )
+        return any(fragment in lowered for fragment in low_value_fragments)
 
     def _latest_user_message_text(self) -> str:
         if not self.context_manager:

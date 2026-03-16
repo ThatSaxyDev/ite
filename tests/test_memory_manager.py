@@ -245,6 +245,31 @@ class MemoryManagerTests(unittest.TestCase):
             return
         self.assertEqual(bundle["episodic"], [])
 
+    def test_prompt_memory_ignores_low_value_exit_episodes(self) -> None:
+        workspace = self.base_path / "ws-low-value-episodic"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+        manager.append_episode(
+            "Session exited (5 turns): how do I like my responses",
+            source="session_exit",
+        )
+        manager.append_episode(
+            "Session exited (7 turns): what are tools in this repo?",
+            source="session_exit",
+        )
+        manager.append_episode(
+            "Session exited (4 turns): fixed memory scoping and prompt refresh",
+            source="session_exit",
+        )
+
+        bundle = manager.load_prompt_memory("What did we decide last time?")
+
+        assert bundle is not None
+        summaries = [entry["summary"].lower() for entry in bundle["episodic"]]
+        self.assertTrue(any("fixed memory scoping" in summary for summary in summaries))
+        self.assertFalse(any("how do i like my responses" in summary for summary in summaries))
+        self.assertFalse(any("what are tools in this repo" in summary for summary in summaries))
+
     def test_memory_tool_short_term_follows_session_id(self) -> None:
         workspace = self.base_path / "ws-tool"
         workspace.mkdir()

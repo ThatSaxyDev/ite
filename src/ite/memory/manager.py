@@ -469,6 +469,8 @@ class MemoryManager:
                 continue
             if "remember this for this workspace" in lowered_summary:
                 continue
+            if _is_low_value_episode(summary_text):
+                continue
             base = _lexical_score(query, f"{episode.get('summary', '')} {episode.get('detail', '')}")
             hotness = _hotness_score(
                 int(episode.get("access_count", 0) or 0),
@@ -659,3 +661,27 @@ class MemoryManager:
             "episodic": [],
             "semantic": {},
         }
+
+
+def _is_low_value_episode(summary: str) -> bool:
+    lowered = _normalize_text(summary).lower()
+    if not lowered:
+        return True
+
+    noisy_prefixes = (
+        "session exited",
+        "session saved",
+        "context compacted",
+    )
+    if lowered.startswith(noisy_prefixes):
+        noisy_prompt_markers = (
+            "how do i like my responses",
+            "how should you answer",
+            "what are tools in this repo",
+            "what were those phrases again",
+            "what phrase should you remember",
+            "what are we focused on right now",
+        )
+        return any(marker in lowered for marker in noisy_prompt_markers)
+
+    return False

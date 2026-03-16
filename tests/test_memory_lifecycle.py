@@ -85,6 +85,19 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    async def test_low_value_exit_prompt_is_not_used_as_focus(self) -> None:
+        workspace = self.base_path / "ws-low-value-focus"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+        session.context_manager.add_user_message("How do I like my responses?")
+
+        summary = session.build_lifecycle_summary("Session exited")
+        self.assertEqual(summary, "Session exited")
+
     async def _fake_chat_completion(self, messages, tools=None, stream=True):
         yield StreamEvent(
             type=StreamEventType.TEXT_DELTA,
