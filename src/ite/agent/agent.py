@@ -83,6 +83,17 @@ class Agent:
             yield AgentEvent.text_complete(recall)
             yield AgentEvent.agent_end(recall)
             return
+        direct_memory_answer = self._direct_memory_answer(session, message)
+        if direct_memory_answer is not None:
+            session.context_manager.add_user_message(message)
+            session.context_manager.add_assistant_message(direct_memory_answer)
+            await session.hook_system.trigger_after_agent(
+                user_message=message,
+                agent_response=direct_memory_answer,
+            )
+            yield AgentEvent.text_complete(direct_memory_answer)
+            yield AgentEvent.agent_end(direct_memory_answer)
+            return
         session.context_manager.add_user_message(message)
         is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
         session.todo_execution_handoff_active = is_execution_handoff
@@ -178,6 +189,34 @@ class Agent:
             value = re.sub(r"^the phrase:\s*", "", value, flags=re.IGNORECASE)
             return value or "No session phrase stored."
         return "No exact recall available."
+
+    def _direct_memory_answer(self, session: Session, user_message: str) -> str | None:
+        user_text = (user_message or "").strip()
+        lowered = user_text.lower()
+        if not user_text:
+            return None
+        if not re.match(r"^(what|which|who|where|when|how)\b", lowered):
+            return None
+
+        bundle = session.memory_manager.load_prompt_memory(user_message)
+        if not isinstance(bundle, dict):
+            return None
+
+        controls = bundle.get("controls", {}) or {}
+        if controls:
+            return None
+        if bundle.get("short_term") or bundle.get("long_term") or bundle.get("episodic"):
+            return None
+
+        semantic = bundle.get("semantic", {}) or {}
+        if len(semantic) != 1:
+            return None
+
+        summary = str(next(iter(semantic.values()), "")).strip()
+        if not summary:
+            return None
+
+        return summary if summary.endswith(".") else f"{summary}."
 
     async def _seed_planning_todos_if_needed(
         self,

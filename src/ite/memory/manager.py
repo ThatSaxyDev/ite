@@ -599,7 +599,7 @@ class MemoryManager:
                 matched = False
                 for spec in conditional_specs:
                     condition = str(spec.get("condition", "")).strip()
-                    if query_contexts and condition not in query_contexts:
+                    if not query_contexts or condition not in query_contexts:
                         continue
                     spec_controls = dict(spec.get("controls", {}))
                     if not spec_controls:

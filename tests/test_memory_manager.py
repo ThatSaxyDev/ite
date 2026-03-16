@@ -189,6 +189,30 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertEqual(architecture_bundle["controls"]["answer_length"], "detailed")
         self.assertIn("architecture", architecture_bundle["controls"]["matched_contexts"])
 
+    def test_conditional_preferences_do_not_apply_without_matching_context(self) -> None:
+        workspace = self.base_path / "ws-conditional-no-context"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+        manager.set_entry("semantic", "tests", "Use pytest for tests", source="test")
+
+        instructions = parse_explicit_memory_instructions(
+            "Remember this preference: for debugging, keep answers short; for architecture, give detailed answers."
+        )
+        for instruction in instructions:
+            manager.set_entry(
+                instruction.store,
+                instruction.key,
+                instruction.value,
+                source="test",
+                metadata=instruction.metadata,
+            )
+
+        bundle = manager.load_prompt_memory("What test tool should we use here?")
+
+        assert bundle is not None
+        self.assertEqual(bundle["controls"], {})
+        self.assertIn("tests", bundle["semantic"])
+
     def test_current_request_detail_intent_overrides_short_default(self) -> None:
         workspace = self.base_path / "ws-request-intent"
         workspace.mkdir()

@@ -166,6 +166,7 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         same_workspace, _ = await self._make_agent(workspace_a)
         same = await self._run_turn(same_workspace, "What test tool should we use here?")
         self.assertIn("pytest", same.response.lower())
+        self.assertEqual(same.system_prompt, same_workspace.session.context_manager.get_messages()[0]["content"])
 
         other_workspace, _ = await self._make_agent(workspace_b)
         other = await self._run_turn(other_workspace, "What test tool should we use here?")

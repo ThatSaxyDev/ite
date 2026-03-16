@@ -83,6 +83,24 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn("no workspace testing memory stored", other_response.lower())
 
+    async def test_simple_semantic_recall_bypasses_model_turn(self) -> None:
+        workspace = self.base_path / "ws-semantic-recall"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        await self._drain(agent.run("Remember this for this workspace: use pytest for tests."))
+
+        async def fail_if_called(*args, **kwargs):
+            raise AssertionError("LLM should not be called for direct semantic recall")
+            yield  # pragma: no cover
+
+        agent.session.client.chat_completion = fail_if_called  # type: ignore[method-assign]
+        response = await self._collect_text(agent.run("What test tool should we use here?"))
+        self.assertIn("use pytest for tests", response.lower())
+
     async def test_explicit_memory_instruction_bypasses_model_turn(self) -> None:
         workspace = self.base_path / "ws-explicit"
         workspace.mkdir()
