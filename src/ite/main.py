@@ -60,6 +60,7 @@ class CLI:
         self._last_dispatched_message: str | None = None
         self._last_user_message_for_retry: str | None = None
         self._pending_recoverable_tool_failures: list[dict[str, Any]] = []
+        self._session_name_task: asyncio.Task | None = None
 
     def _get_command_registry(self):
         if self._command_registry is None:
@@ -726,7 +727,7 @@ class CLI:
 
             # Generate smart name on first exchange
             if session.name is None and session.turn_count > 0:
-                session.name = await self._generate_session_name(session)
+                self._maybe_start_session_name_task(session)
 
             snapshot = SessionSnapshot(
                 session_id=session.session_id,
@@ -760,6 +761,52 @@ class CLI:
 
         except Exception as e:
             logger.warning("Auto-save failed: %s", e)
+
+    def _maybe_start_session_name_task(self, session) -> None:
+        if session.name is not None or session.turn_count <= 0:
+            return
+        if self._session_name_task is not None and not self._session_name_task.done():
+            return
+        self._session_name_task = asyncio.create_task(
+            self._finalize_session_name_in_background(session)
+        )
+
+    async def _finalize_session_name_in_background(self, session) -> None:
+        try:
+            if session.name is not None:
+                return
+            generated = await self._generate_session_name(session)
+            generated = generated.strip()
+            if not generated or session.name is not None:
+                return
+            session.name = generated
+            session_manager = SessionManager()
+            snapshot = SessionSnapshot(
+                session_id=session.session_id,
+                name=session.name,
+                workspace_path=str(session.config.cwd.resolve()),
+                created_at=session.created_at,
+                updated_at=session.updated_at,
+                turn_count=session.turn_count,
+                messages=session.context_manager.get_messages(),
+                total_usage=session.context_manager.total_usage,
+                plan_mode_enabled=session.plan_mode_enabled,
+                plan_phase=session.plan_phase,
+                plan_questions_asked=session.plan_questions_asked,
+                plan_target_questions=session.plan_target_questions,
+                pending_plan_text=session.pending_plan_text,
+                active_plan_text=session.active_plan_text,
+                todos_state=session.export_todos_state(),
+                show_planning_todos=session.show_planning_todos,
+                change_history_state=session.export_change_history_state(),
+            )
+            session_manager.save_session(snapshot)
+        except Exception as e:
+            logger.warning("Background session naming failed: %s", e)
+        finally:
+            current = asyncio.current_task()
+            if self._session_name_task is current:
+                self._session_name_task = None
 
     def _auto_save_sync(self) -> None:
         """Synchronous fallback for auto-save in finally blocks."""
