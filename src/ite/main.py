@@ -31,6 +31,14 @@ from rich.text import Text
 from rich import box
 from ite.ui.tool_narrative import progress_label
 
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import Completer, Completion
+except ImportError:
+    PromptSession = None  # type: ignore[assignment]
+    Completer = object  # type: ignore[assignment]
+    Completion = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 console = get_console()
 
@@ -40,9 +48,57 @@ class CLI:
         self.config = config
         self.agent: Agent | None = None
         self.tui = TUI(config=config, console=console)
+        self._command_registry = None
+        self._command_prompt_session = None
         self._last_dispatched_message: str | None = None
         self._last_user_message_for_retry: str | None = None
         self._pending_recoverable_tool_failures: list[dict[str, Any]] = []
+
+    def _get_command_registry(self):
+        if self._command_registry is None:
+            from ite.commands import build_registry
+
+            self._command_registry = build_registry()
+        return self._command_registry
+
+    def _command_names(self) -> list[str]:
+        registry = self._get_command_registry()
+        names: set[str] = set()
+        for command in registry.all_commands():
+            names.add(command.name)
+            names.update(command.aliases)
+        return sorted(names)
+
+    def _get_prompt_session(self):
+        if PromptSession is None or Completion is None:
+            return None
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            return None
+        if self._command_prompt_session is not None:
+            return self._command_prompt_session
+
+        class SlashCommandCompleter(Completer):
+            def __init__(self, commands: list[str]) -> None:
+                self._commands = commands
+
+            def get_completions(self, document, complete_event):
+                text = document.text_before_cursor.lstrip()
+                if not text.startswith("/"):
+                    return
+                current = text.split(maxsplit=1)[0].lower()
+                for command in self._commands:
+                    if current and not command.lower().startswith(current):
+                        continue
+                    yield Completion(
+                        command,
+                        start_position=-len(current),
+                        display=command,
+                    )
+
+        self._command_prompt_session = PromptSession(
+            completer=SlashCommandCompleter(self._command_names()),
+        )
+        return self._command_prompt_session
 
     def _is_recoverable_sandbox_read_failure(
         self,
@@ -159,7 +215,19 @@ class CLI:
         self._render_attachment_queue()
         return True
 
-    def _read_user_message(self) -> str:
+    async def _read_user_message(self) -> str:
+        session = self._get_prompt_session()
+        if session is not None:
+            try:
+                return (await session.prompt_async("\n> ", complete_while_typing=True)).strip()
+            except KeyboardInterrupt:
+                raise
+            except EOFError:
+                raise
+            except Exception:
+                # Fall back to the legacy reader if prompt_toolkit can't initialize.
+                pass
+
         try:
             first_line = input("\n> ")
         except Exception:
@@ -267,7 +335,7 @@ class CLI:
         self.tui.print_welcome(
             model=self.config.model_name,
             cwd=self.config.cwd,
-            commands=["/help", "/undo", "/redo", "/history", "/subagent", "/config", "/model", "/plan", "/todos", "/workboard", "/branch", "/attach", "/exit"],
+            commands=self._command_names(),
         )
         async with Agent(
             config=self.config,
@@ -279,7 +347,7 @@ class CLI:
             try:
                 while True:
                     try:
-                        user_input = self._read_user_message()
+                        user_input = await self._read_user_message()
                         if not user_input:
                             continue
                         if self._consume_dropped_path_text(user_input):
@@ -619,9 +687,9 @@ class CLI:
         command = parts[0].lower()
         args = parts[1:]
 
-        from ite.commands import build_registry, CommandContext
+        from ite.commands import CommandContext
 
-        registry = build_registry()
+        registry = self._get_command_registry()
         ctx = CommandContext(
             config=self.config,
             agent=self.agent,
