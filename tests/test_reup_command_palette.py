@@ -1,6 +1,9 @@
 import unittest
+import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import PropertyMock, patch
+from types import SimpleNamespace
 
 from ite.config.config import Config
 from ite.ui.reup.app import ReupApp
@@ -57,6 +60,89 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._last_rendered_plan_text = app._normalize_plan_text("Plan body")
         self.assertFalse(app._should_render_plan_text("Plan body"))
         self.assertFalse(app._should_render_plan_text("  Plan body  "))
+
+    def test_plan_ready_enter_is_not_implicit_approval(self) -> None:
+        app = self._app()
+
+        class DummyEvent:
+            def __init__(self, key: str) -> None:
+                self.key = key
+                self.stopped = False
+                self.default_prevented = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def prevent_default(self) -> None:
+                self.default_prevented = True
+
+        loop = asyncio.new_event_loop()
+        self.addCleanup(loop.close)
+        app._plan_ready_future = loop.create_future()
+
+        event = DummyEvent("enter")
+        with patch.object(ReupApp, "focused", new_callable=PropertyMock, return_value=None):
+            app.on_key(event)  # type: ignore[arg-type]
+
+        self.assertFalse(event.stopped)
+        self.assertFalse(app._plan_ready_future.done())
+
+    def test_plan_question_choice_only_shows_status_for_custom_answer(self) -> None:
+        app = self._app()
+        loop = asyncio.new_event_loop()
+        self.addCleanup(loop.close)
+
+        class DummyButton:
+            def __init__(self) -> None:
+                self.disabled = False
+                self.variant = "default"
+                self.classes = set()
+
+            def add_class(self, name: str) -> None:
+                self.classes.add(name)
+
+        class DummyStatus:
+            def __init__(self) -> None:
+                self.display = False
+                self.value = ""
+
+            def update(self, value: str) -> None:
+                self.value = value
+
+        app._plan_question_future = loop.create_future()
+        option_buttons = [DummyButton(), DummyButton()]
+        app._plan_question_option_buttons = option_buttons
+        app._plan_question_custom_input = SimpleNamespace(disabled=False)
+        app._plan_question_custom_submit = DummyButton()
+        app._plan_question_status = DummyStatus()
+
+        loop.run_until_complete(
+            app._resolve_plan_question_choice(
+                selected_index=0,
+                selected_option="Option A",
+                free_text="",
+            )
+        )
+
+        self.assertEqual(option_buttons[0].variant, "primary")
+
+        app._plan_question_future = loop.create_future()
+        app._plan_question_option_buttons = [DummyButton(), DummyButton()]
+        app._plan_question_custom_input = SimpleNamespace(disabled=False)
+        app._plan_question_custom_submit = DummyButton()
+        status = DummyStatus()
+        app._plan_question_status = status
+
+        loop.run_until_complete(
+            app._resolve_plan_question_choice(
+                selected_index=None,
+                selected_option="",
+                free_text="Custom path",
+            )
+        )
+
+        self.assertTrue(status.display)
+        self.assertIn("Custom answer", status.value)
 
 
 if __name__ == "__main__":

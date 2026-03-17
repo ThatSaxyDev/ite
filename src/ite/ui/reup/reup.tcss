@@ -360,6 +360,7 @@ Screen {
     layout: vertical;
     height: auto;
     min-height: 0;
+    margin-top: 1;
     margin-bottom: 1;
 }
 
@@ -375,12 +376,14 @@ Screen {
     background: #364058;
 }
 
-.plan-question-option.-primary {
+.plan-question-option.-primary,
+.plan-question-option.selected {
     background: #5dcf84;
     color: #0f1a12;
 }
 
-.plan-question-option.-primary:hover {
+.plan-question-option.-primary:hover,
+.plan-question-option.selected:hover {
     background: #75de99;
 }
 
@@ -409,7 +412,7 @@ Screen {
 
 .plan-question-status {
     margin-top: 1;
-    color: #bcd3ff;
+    color: #c8d7f8;
     text-style: bold;
 }
 

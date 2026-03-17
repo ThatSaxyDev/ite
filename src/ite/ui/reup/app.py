@@ -1541,7 +1541,7 @@ class ReupApp(App):
                     return
 
         if self._plan_ready_future is not None and not self._plan_ready_future.done():
-            if event.key in {"2", "enter", "y"}:
+            if event.key in {"2", "y"}:
                 self._resolve_plan_ready_choice(True)
                 event.stop()
                 if hasattr(event, "prevent_default"):
@@ -2394,11 +2394,10 @@ class ReupApp(App):
 
         option_buttons: list[Button] = []
         for idx, option in enumerate(options):
-            rec = " (recommended)" if recommended_index == idx else ""
             btn = Button(
-                f"{idx + 1}. {option}{rec}",
+                f"{idx + 1}. {option}",
                 id=f"pq-opt-{idx}",
-                variant="primary" if recommended_index == idx else "default",
+                variant="default",
                 classes="plan-question-option",
             )
             option_buttons.append(btn)
@@ -2440,15 +2439,8 @@ class ReupApp(App):
         self._refresh_empty_state()
         conversation.scroll_end(animate=False)
 
-        # Focus recommended option first for keyboard flow.
         if self._plan_question_option_buttons:
-            focus_idx = (
-                recommended_index
-                if isinstance(recommended_index, int)
-                and 0 <= recommended_index < len(self._plan_question_option_buttons)
-                else 0
-            )
-            self._plan_question_option_buttons[focus_idx].focus()
+            self._plan_question_option_buttons[0].focus()
         elif self._plan_question_custom_input is not None:
             self._plan_question_custom_input.focus()
 
@@ -2475,16 +2467,15 @@ class ReupApp(App):
         if self._plan_question_custom_submit is not None:
             self._plan_question_custom_submit.disabled = True
 
-        answer_mark = (
-            "Custom"
-            if free_text_clean
-            else (f"Option {selected_index + 1}" if isinstance(selected_index, int) else "No answer")
-        )
-        answer_text = free_text_clean or selected_option or "No answer captured."
-        if self._plan_question_status is not None:
-            self._plan_question_status.update(
-                f"Captured · {answer_mark}\n{answer_text}"
-            )
+        if isinstance(selected_index, int) and 0 <= selected_index < len(self._plan_question_option_buttons):
+            selected_button = self._plan_question_option_buttons[selected_index]
+            selected_button.variant = "primary"
+            selected_button.add_class("selected")
+        if free_text_clean and self._plan_question_custom_submit is not None:
+            self._plan_question_custom_submit.variant = "primary"
+            self._plan_question_custom_submit.add_class("selected")
+        if free_text_clean and self._plan_question_status is not None:
+            self._plan_question_status.update(f"Custom answer\n{free_text_clean}")
             self._plan_question_status.display = True
 
         future.set_result(result)
