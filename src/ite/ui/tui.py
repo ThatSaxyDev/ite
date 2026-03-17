@@ -1,28 +1,28 @@
-from ite.tools.base import ToolConfirmation
-from ite.config.config import Config
-from ite.agent.change_history import change_entries_with_stats
-from ite.ui.tool_narrative import activity_title
-from ite.ui.tool_narrative import describe_tool_activity
-from ite.utils.text import truncate_text
-from rich.syntax import Syntax
-from rich.markdown import Markdown
-from rich import box
-from ite.utils.paths import display_path_relative_to_cwd
-from pathlib import Path
-from typing import Any
-from rich.text import Text
-from rich.rule import Rule
-from rich.theme import Theme
-from rich.console import Console, Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.live import Live
-from rich.spinner import Spinner
-from rich.padding import Padding
-from typing import Tuple
-import re
 import json
+import re
+from pathlib import Path
+from typing import Any, Tuple
+
+from rich import box
+from rich.console import Console, Group
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.padding import Padding
+from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.rule import Rule
+from rich.spinner import Spinner
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
+
+from ite.agent.change_history import change_entries_with_stats
+from ite.config.config import Config
+from ite.tools.base import ToolConfirmation
+from ite.ui.tool_narrative import activity_title, describe_tool_activity
+from ite.utils.paths import display_path_relative_to_cwd
+from ite.utils.text import truncate_text
 
 AGENT_THEME = Theme(
     {
@@ -72,6 +72,7 @@ class TUI:
         self._assistant_stream_open = False
         self._assistant_buffer: str = ""
         self._assistant_live: Live | None = None
+        self._assistant_stream_frame: int = 0
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.config = config
         self.cwd = self.config.cwd
@@ -112,6 +113,7 @@ class TUI:
     def begin_assistant(self) -> None:
         self._assistant_buffer = ""
         self._assistant_stream_open = True
+        self._assistant_stream_frame = 0
         if self._assistant_live is not None:
             self._assistant_live.stop()
         self._assistant_live = Live(
@@ -122,11 +124,15 @@ class TUI:
         )
         self._assistant_live.start()
 
-    def _render_assistant_panel(self, content: str, *, streaming: bool = False) -> Panel:
+    def _render_assistant_panel(
+        self, content: str, *, streaming: bool = False
+    ) -> Panel:
         if streaming:
             body = self._render_assistant_stream_preview(content)
         else:
-            body = Markdown(content) if content.strip() else Text(" ", style="assistant")
+            body = (
+                Markdown(content) if content.strip() else Text(" ", style="assistant")
+            )
         return Panel(
             body,
             border_style="bright_white",
@@ -145,19 +151,27 @@ class TUI:
         blocks: list[Any] = [
             Markdown(preview),
         ]
+        spinner_frames = ["|", "/", "-", "\\"]
+        spinner = spinner_frames[self._assistant_stream_frame % len(spinner_frames)]
         if was_truncated:
             blocks.append(
                 Padding(
-                    Text(
-                        "Showing the latest part of the response while it streams…",
-                        style="muted",
-                    ),
+                    Text(f"{spinner}", style="muted"),
+                    (1, 0, 0, 0),
+                )
+            )
+        else:
+            blocks.append(
+                Padding(
+                    Text(f"{spinner}", style="muted"),
                     (1, 0, 0, 0),
                 )
             )
         return Group(*blocks)
 
-    def _truncate_stream_preview(self, text: str, *, max_lines: int) -> tuple[str, bool]:
+    def _truncate_stream_preview(
+        self, text: str, *, max_lines: int
+    ) -> tuple[str, bool]:
         lines = text.splitlines()
         if len(lines) <= max_lines:
             return text, False
@@ -169,7 +183,9 @@ class TUI:
         return clipped, True
 
     def end_assistant(self, final_content: str | None = None) -> None:
-        render_content = (final_content if final_content is not None else self._assistant_buffer).strip()
+        render_content = (
+            final_content if final_content is not None else self._assistant_buffer
+        ).strip()
         if self._assistant_live is not None:
             if render_content:
                 self._assistant_live.update(
@@ -178,7 +194,9 @@ class TUI:
             self._assistant_live.stop()
             self._assistant_live = None
         if self._assistant_stream_open and render_content:
-            self.console.print(self._render_assistant_panel(render_content, streaming=False))
+            self.console.print(
+                self._render_assistant_panel(render_content, streaming=False)
+            )
         self._assistant_stream_open = False
         self._assistant_buffer = ""
 
@@ -213,6 +231,7 @@ class TUI:
 
     def stream_assistant_delta(self, content: str) -> None:
         self._assistant_buffer += content
+        self._assistant_stream_frame += 1
         if self._assistant_live is not None:
             self._assistant_live.update(
                 self._render_assistant_panel(self._assistant_buffer, streaming=True)
@@ -268,14 +287,18 @@ class TUI:
 
         return table
 
-    def _render_subagent_start_summary(self, name: str, args: dict[str, Any]) -> list[Any]:
+    def _render_subagent_start_summary(
+        self, name: str, args: dict[str, Any]
+    ) -> list[Any]:
         blocks: list[Any] = []
         specialist = name.removeprefix("subagent_").strip() or "specialist"
         goal = str(args.get("goal", "")).strip()
 
         blocks.append(Text(f"Specialist: {specialist}", style="muted"))
         if goal:
-            first_line = next((line.strip() for line in goal.splitlines() if line.strip()), "")
+            first_line = next(
+                (line.strip() for line in goal.splitlines() if line.strip()), ""
+            )
             if len(first_line) > 120:
                 first_line = first_line[:117].rstrip() + "..."
             if first_line:
@@ -325,7 +348,9 @@ class TUI:
                 items = display_args.get("items")
                 if isinstance(items, list):
                     count = len(items)
-                elif isinstance(display_args.get("content"), str) and display_args.get("content"):
+                elif isinstance(display_args.get("content"), str) and display_args.get(
+                    "content"
+                ):
                     count = 1
                 hint = f"Creating {label}" + (f" ({count} items)" if count else "")
             elif action == "complete":
@@ -515,7 +540,9 @@ class TUI:
                     max_digits = max(max_digits, len(m.group(1)))
 
         table = Table.grid(padding=(0, 1))
-        table.add_column(style="muted", justify="right", no_wrap=True, width=max_digits + 1)
+        table.add_column(
+            style="muted", justify="right", no_wrap=True, width=max_digits + 1
+        )
         table.add_column(style="code")
 
         for file_path, lines in groups:
@@ -568,7 +595,9 @@ class TUI:
                     text = text[:137].rstrip() + "..."
                 blocks.append(Text(f"- {text}", style="code"))
             if len(findings) > 4:
-                blocks.append(Text(f"... {len(findings) - 4} more findings", style="muted"))
+                blocks.append(
+                    Text(f"... {len(findings) - 4} more findings", style="muted")
+                )
             blocks.append(Text())
 
         if isinstance(actions, list) and actions:
@@ -579,7 +608,9 @@ class TUI:
                     text = text[:137].rstrip() + "..."
                 blocks.append(Text(f"- {text}", style="code"))
             if len(actions) > 4:
-                blocks.append(Text(f"... {len(actions) - 4} more actions", style="muted"))
+                blocks.append(
+                    Text(f"... {len(actions) - 4} more actions", style="muted")
+                )
 
         if not blocks:
             return None
@@ -762,7 +793,9 @@ class TUI:
                 header_parts.append(" ⏺ ")
 
                 if shown_start and shown_end and total_lines:
-                    header_parts.append(f"lines {shown_start}-{shown_end} of {total_lines}")
+                    header_parts.append(
+                        f"lines {shown_start}-{shown_end} of {total_lines}"
+                    )
 
                 header = "".join(header_parts)
 
@@ -844,7 +877,9 @@ class TUI:
             )
             local_truncated = local_truncated or was_truncated
             if output_display.strip():
-                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(
+                    Syntax(output_display, "text", theme="monokai", word_wrap=True)
+                )
             else:
                 blocks.append(Text("No output", style="muted"))
 
@@ -870,7 +905,9 @@ class TUI:
             )
             local_truncated = local_truncated or was_truncated
             if output_display.strip():
-                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(
+                    Syntax(output_display, "text", theme="monokai", word_wrap=True)
+                )
             else:
                 blocks.append(Text("No output", style="muted"))
 
@@ -903,7 +940,9 @@ class TUI:
             if grep_block is not None:
                 blocks.append(grep_block)
             elif output_display.strip():
-                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(
+                    Syntax(output_display, "text", theme="monokai", word_wrap=True)
+                )
             else:
                 blocks.append(Text("No output", style="muted"))
 
@@ -924,7 +963,9 @@ class TUI:
             )
             local_truncated = local_truncated or was_truncated
             if output_display.strip():
-                blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+                blocks.append(
+                    Syntax(output_display, "text", theme="monokai", word_wrap=True)
+                )
             else:
                 blocks.append(Text("No output", style="muted"))
 
@@ -999,7 +1040,13 @@ class TUI:
                     result_table.add_row("", Text())
 
             if len(results) > max_results_rows:
-                result_table.add_row("", Text(f"... {len(results) - max_results_rows} more results", style="muted"))
+                result_table.add_row(
+                    "",
+                    Text(
+                        f"... {len(results) - max_results_rows} more results",
+                        style="muted",
+                    ),
+                )
 
             blocks.append(result_table)
 
@@ -1061,7 +1108,10 @@ class TUI:
                 filled = int((completed / total) * bar_width) if total else 0
                 bar = "█" * filled + "░" * (bar_width - filled)
                 header = Text()
-                header.append(f"{scope.capitalize()} tasks: {completed}/{total} completed ", style="muted")
+                header.append(
+                    f"{scope.capitalize()} tasks: {completed}/{total} completed ",
+                    style="muted",
+                )
                 header.append(bar, style="green" if completed == total else "yellow")
                 blocks.append(header)
                 blocks.append(Text())
@@ -1118,7 +1168,11 @@ class TUI:
                     styled.append(f"{key}", style="bold cyan")
                     styled.append(" → ", style="muted")
                     # Extract value from output after "key: "
-                    val = output_display.split(f"{key}: ", 1)[-1] if key else output_display
+                    val = (
+                        output_display.split(f"{key}: ", 1)[-1]
+                        if key
+                        else output_display
+                    )
                     styled.append(val, style="white")
                 else:
                     styled.append("  ○ ", style="dim")
@@ -1171,7 +1225,9 @@ class TUI:
                     preserve_lines=True,
                 )
                 local_truncated = local_truncated or was_truncated
-                blocks.append(Syntax(output_display, "json", theme="monokai", word_wrap=True))
+                blocks.append(
+                    Syntax(output_display, "json", theme="monokai", word_wrap=True)
+                )
             else:
                 blocks.append(Text("No output", style="muted"))
 
@@ -1258,7 +1314,9 @@ class TUI:
 
     def recoverable_sandbox_note(self, tool_name: str, error: str) -> None:
         path_text = ""
-        match = re.search(r"Access denied: (.+?) is outside the project sandbox", error or "")
+        match = re.search(
+            r"Access denied: (.+?) is outside the project sandbox", error or ""
+        )
         if match:
             path_text = match.group(1)
 
@@ -1358,7 +1416,9 @@ class TUI:
                     "free_text": picked,
                     "selected_index": None,
                 }
-            self.console.print("[error]Please select one of the available options[/error]")
+            self.console.print(
+                "[error]Please select one of the available options[/error]"
+            )
 
         if picked == "0" and allow_free_text:
             text = self.console.input("Your answer: ").strip()
