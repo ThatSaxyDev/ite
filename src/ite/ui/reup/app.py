@@ -957,11 +957,21 @@ class ReupApp(App):
         self._sync_command_palette(updated)
         self._resize_composer_for_prompt()
 
+    async def _execute_command_palette_selection(self, command_name: str) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        prompt.load_text("")
+        self._sync_command_palette("")
+        self._resize_composer_for_prompt()
+        await self.run_command(command_name)
+
     def _apply_command_palette_selection(self) -> bool:
         if not self._filtered_command_palette_options:
             return False
         option = self._filtered_command_palette_options[self._command_palette_index]
-        self._replace_prompt_with_command(option.name)
+        self.run_worker(
+            self._execute_command_palette_selection(option.name),
+            exclusive=False,
+        )
         return True
 
     def handle_prompt_palette_key(self, event: events.Key) -> bool:
