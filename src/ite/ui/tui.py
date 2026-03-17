@@ -18,6 +18,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.live import Live
 from rich.spinner import Spinner
+from rich.padding import Padding
 from typing import Tuple
 import re
 import json
@@ -70,11 +71,12 @@ class TUI:
         self.console = console or get_console()
         self._assistant_stream_open = False
         self._assistant_buffer: str = ""
-        self._streamed_line_count: int = 0
+        self._assistant_live: Live | None = None
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self.config = config
         self.cwd = self.config.cwd
         self._max_block_tokens = 2500
+        self._assistant_live_max_preview_lines = 12
         # Spinner state
         self._spinner_live: Live | None = None
         self._spinner_running = False
@@ -109,36 +111,73 @@ class TUI:
 
     def begin_assistant(self) -> None:
         self._assistant_buffer = ""
-        self._streamed_line_count = 0
         self._assistant_stream_open = True
-        self.console.print()
-        self.console.print()
+        if self._assistant_live is not None:
+            self._assistant_live.stop()
+        self._assistant_live = Live(
+            self._render_assistant_panel("", streaming=True),
+            console=self.console,
+            refresh_per_second=12,
+            transient=True,
+        )
+        self._assistant_live.start()
+
+    def _render_assistant_panel(self, content: str, *, streaming: bool = False) -> Panel:
+        if streaming:
+            body = self._render_assistant_stream_preview(content)
+        else:
+            body = Markdown(content) if content.strip() else Text(" ", style="assistant")
+        return Panel(
+            body,
+            border_style="bright_white",
+            box=box.HEAVY,
+            padding=(0, 1),
+        )
+
+    def _render_assistant_stream_preview(self, content: str):
+        if not content.strip():
+            return Text(" ", style="assistant")
+
+        preview, was_truncated = self._truncate_stream_preview(
+            content,
+            max_lines=self._assistant_live_max_preview_lines,
+        )
+        blocks: list[Any] = [
+            Markdown(preview),
+        ]
+        if was_truncated:
+            blocks.append(
+                Padding(
+                    Text("Streaming preview truncated while response is in progress…", style="muted"),
+                    (1, 0, 0, 0),
+                )
+            )
+        return Group(*blocks)
+
+    def _truncate_stream_preview(self, text: str, *, max_lines: int) -> tuple[str, bool]:
+        lines = text.splitlines()
+        if len(lines) <= max_lines:
+            return text, False
+        clipped = "\n".join(lines[:max_lines]).rstrip()
+        if clipped:
+            clipped += "\n\n..."
+        else:
+            clipped = "..."
+        return clipped, True
 
     def end_assistant(self, final_content: str | None = None) -> None:
         render_content = (final_content if final_content is not None else self._assistant_buffer).strip()
-        if self._assistant_stream_open and render_content:
-            # Erase the raw streamed lines
-            lines_to_clear = self._streamed_line_count + 1
-            if lines_to_clear > 0:
-                # Move up and clear each line
-                self.console.file.write(
-                    f"\033[{lines_to_clear}A"  # move up
-                    + ("\033[2K\n" * lines_to_clear)  # clear each line
-                    + f"\033[{lines_to_clear}A"  # move back up
+        if self._assistant_live is not None:
+            if render_content:
+                self._assistant_live.update(
+                    self._render_assistant_panel(render_content, streaming=True)
                 )
-                self.console.file.flush()
-
-            # Render the final styled markdown in a panel
-            panel = Panel(
-                Markdown(render_content),
-                border_style="bright_white",
-                box=box.HEAVY,
-                padding=(0, 1),
-            )
-            self.console.print(panel)
+            self._assistant_live.stop()
+            self._assistant_live = None
+        if self._assistant_stream_open and render_content:
+            self.console.print(self._render_assistant_panel(render_content, streaming=False))
         self._assistant_stream_open = False
         self._assistant_buffer = ""
-        self._streamed_line_count = 0
 
     def render_change_summary(self, change_set: object | None, cwd: Path) -> None:
         entries, extra = change_entries_with_stats(change_set, cwd=cwd, max_items=3)
@@ -171,9 +210,10 @@ class TUI:
 
     def stream_assistant_delta(self, content: str) -> None:
         self._assistant_buffer += content
-        self._streamed_line_count += content.count("\n")
-        # Show raw text so the user sees activity
-        self.console.print(content, end="", markup=False)
+        if self._assistant_live is not None:
+            self._assistant_live.update(
+                self._render_assistant_panel(self._assistant_buffer, streaming=True)
+            )
 
     def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[Tuple]:
         _PREFERRED_ORDER = {
@@ -224,6 +264,21 @@ class TUI:
             table.add_row(key, value)
 
         return table
+
+    def _render_subagent_start_summary(self, name: str, args: dict[str, Any]) -> list[Any]:
+        blocks: list[Any] = []
+        specialist = name.removeprefix("subagent_").strip() or "specialist"
+        goal = str(args.get("goal", "")).strip()
+
+        blocks.append(Text(f"Specialist: {specialist}", style="muted"))
+        if goal:
+            first_line = next((line.strip() for line in goal.splitlines() if line.strip()), "")
+            if len(first_line) > 120:
+                first_line = first_line[:117].rstrip() + "..."
+            if first_line:
+                blocks.append(Text(f"Focus: {first_line}", style="code"))
+
+        return blocks
 
     def tool_call_start(
         self,
@@ -287,6 +342,24 @@ class TUI:
                 Group(
                     Text(narrative, style="muted"),
                     Text(hint, style="code"),
+                ),
+                title=title,
+                title_align="left",
+                subtitle=Text("running...", style="muted"),
+                subtitle_align="right",
+                border_style=border_style,
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+            self.console.print()
+            self.console.print(panel)
+            return
+
+        if name.startswith("subagent_"):
+            panel = Panel(
+                Group(
+                    Text(narrative, style="muted"),
+                    *self._render_subagent_start_summary(name, display_args),
                 ),
                 title=title,
                 title_align="left",
@@ -469,7 +542,10 @@ class TUI:
         actions = payload.get("actions", [])
 
         if summary:
-            blocks.append(Text(summary, style="muted"))
+            summary_text = summary
+            if len(summary_text) > 220:
+                summary_text = summary_text[:217].rstrip() + "..."
+            blocks.append(Text(summary_text, style="muted"))
             blocks.append(Text())
 
         meta_parts = []
@@ -483,14 +559,24 @@ class TUI:
 
         if isinstance(findings, list) and findings:
             blocks.append(Text("Findings", style="bold cyan"))
-            for item in findings:
-                blocks.append(Text(f"- {item}", style="code"))
+            for item in findings[:4]:
+                text = str(item)
+                if len(text) > 140:
+                    text = text[:137].rstrip() + "..."
+                blocks.append(Text(f"- {text}", style="code"))
+            if len(findings) > 4:
+                blocks.append(Text(f"... {len(findings) - 4} more findings", style="muted"))
             blocks.append(Text())
 
         if isinstance(actions, list) and actions:
             blocks.append(Text("Actions", style="bold yellow"))
-            for item in actions:
-                blocks.append(Text(f"- {item}", style="code"))
+            for item in actions[:4]:
+                text = str(item)
+                if len(text) > 140:
+                    text = text[:137].rstrip() + "..."
+                blocks.append(Text(f"- {text}", style="code"))
+            if len(actions) > 4:
+                blocks.append(Text(f"... {len(actions) - 4} more actions", style="muted"))
 
         if not blocks:
             return None
