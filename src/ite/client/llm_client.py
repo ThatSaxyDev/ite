@@ -13,6 +13,7 @@ from ite.client.response import TokenUsage
 from ite.client.response import TextDelta
 from typing import Any
 from openai import AsyncOpenAI
+from ite.utils.errors import format_provider_error
 
 
 class LLMClient:
@@ -93,7 +94,10 @@ class LLMClient:
                 else:
                     yield StreamEvent(
                         type=StreamEventType.ERROR,
-                        error=f"Rate limit exceeded: {e}",
+                        error=format_provider_error(
+                            kind="rate_limit",
+                            message=str(e),
+                        ),
                     )
                     return
             except APIConnectionError as e:
@@ -103,7 +107,10 @@ class LLMClient:
                 else:
                     yield StreamEvent(
                         type=StreamEventType.ERROR,
-                        error=f"API connection error: {e}",
+                        error=format_provider_error(
+                            kind="connection",
+                            message=str(e),
+                        ),
                     )
                     return
             except APIError as e:
@@ -115,7 +122,11 @@ class LLMClient:
                     continue
                 yield StreamEvent(
                     type=StreamEventType.ERROR,
-                    error=f"API error: {e}",
+                    error=format_provider_error(
+                        kind="api",
+                        message=str(e),
+                        status_code=status_code,
+                    ),
                 )
                 return
 
