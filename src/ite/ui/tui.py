@@ -148,7 +148,10 @@ class TUI:
         if was_truncated:
             blocks.append(
                 Padding(
-                    Text("Streaming preview truncated while response is in progress…", style="muted"),
+                    Text(
+                        "Showing the latest part of the response while it streams…",
+                        style="muted",
+                    ),
                     (1, 0, 0, 0),
                 )
             )
@@ -158,9 +161,9 @@ class TUI:
         lines = text.splitlines()
         if len(lines) <= max_lines:
             return text, False
-        clipped = "\n".join(lines[:max_lines]).rstrip()
+        clipped = "\n".join(lines[-max_lines:]).rstrip()
         if clipped:
-            clipped += "\n\n..."
+            clipped = "...\n\n" + clipped
         else:
             clipped = "..."
         return clipped, True
