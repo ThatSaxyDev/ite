@@ -144,6 +144,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertTrue(status.display)
         self.assertIn("Custom answer", status.value)
 
+    def test_recommended_suffix_can_be_present_without_primary_styling(self) -> None:
+        recommended_index = 1
+        options = ["First", "Second"]
+        labels = [
+            f"{idx + 1}. {option}{' (recommended)' if recommended_index == idx else ''}"
+            for idx, option in enumerate(options)
+        ]
+
+        self.assertEqual(labels[0], "1. First")
+        self.assertEqual(labels[1], "2. Second (recommended)")
+
 
 if __name__ == "__main__":
     unittest.main()

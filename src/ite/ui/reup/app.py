@@ -2162,34 +2162,6 @@ class ReupApp(App):
                 await self._render_plan_text_if_needed(content)
             return
 
-    async def _post_turn_change_summary(self) -> None:
-        if not self.agent or not self.agent.session:
-            return
-        change_set = self.agent.session.change_history.last_turn_change_set
-        entries, extra = change_entries_with_stats(
-            change_set,
-            cwd=self.config.cwd,
-            max_items=3,
-        )
-        if not entries:
-            return
-        count = len(getattr(change_set, "changes", []) or [])
-        files_text = f"{count} file" if count == 1 else f"{count} files"
-        body = Text(style="#9fb0c7")
-        for name, additions, deletions in entries:
-            body.append(f"• {name}", style="#9fb0c7")
-            if additions:
-                body.append(f"  +{additions}", style="bold #7ad69f")
-            if deletions:
-                body.append(f"  -{deletions}", style="bold #f58b8b")
-            body.append("\n")
-        if extra:
-            body.append(f"• +{extra} more\n")
-        body.append("\n")
-        body.append(f"Changed {files_text} in this turn.\n")
-        body.append("Run /undo to revert these edits.")
-        await self.add_assistant_card("Changed", body, css_class="note")
-
         if event.type == AgentEventType.AGENT_ERROR:
             self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
             return
@@ -2334,16 +2306,56 @@ class ReupApp(App):
                 )
             return
 
+    async def _post_turn_change_summary(self) -> None:
+        if not self.agent or not self.agent.session:
+            return
+        change_set = self.agent.session.change_history.last_turn_change_set
+        entries, extra = change_entries_with_stats(
+            change_set,
+            cwd=self.config.cwd,
+            max_items=3,
+        )
+        if not entries:
+            return
+        count = len(getattr(change_set, "changes", []) or [])
+        files_text = f"{count} file" if count == 1 else f"{count} files"
+        body = Text(style="#9fb0c7")
+        for name, additions, deletions in entries:
+            body.append(f"• {name}", style="#9fb0c7")
+            if additions:
+                body.append(f"  +{additions}", style="bold #7ad69f")
+            if deletions:
+                body.append(f"  -{deletions}", style="bold #f58b8b")
+            body.append("\n")
+        if extra:
+            body.append(f"• +{extra} more\n")
+        body.append("\n")
+        body.append(f"Changed {files_text} in this turn.\n")
+        body.append("Run /undo to revert these edits.")
+        await self.add_assistant_card("Changed", body, css_class="note")
+
     async def _present_plan_ready_action_card(self) -> bool:
         conversation = self.query_one("#conversation", VerticalScroll)
         loop = asyncio.get_running_loop()
+        if self._plan_ready_action_card is not None:
+            try:
+                await self._plan_ready_action_card.remove()
+            except Exception:
+                pass
+            self._plan_ready_action_card = None
         self._plan_ready_future = loop.create_future()
+        keep_button = Button("Keep in Plan Mode", id="plan-ready-keep", variant="default")
+        implement_button = Button("Implement", id="plan-ready-implement", variant="success")
 
         action_card = Container(
             Static("Plan ready. Choose next step.", classes="card-title"),
+            Static(
+                "Stay in planning mode to refine the plan, or implement it now.",
+                classes="card-body plan-ready-body",
+            ),
             Horizontal(
-                Button("Keep in Plan Mode", id="plan-ready-keep", variant="default"),
-                Button("Implement", id="plan-ready-implement", variant="success"),
+                keep_button,
+                implement_button,
                 classes="plan-ready-actions",
             ),
             classes="block plan plan-ready",
@@ -2354,7 +2366,6 @@ class ReupApp(App):
         self._message_count += 1
         self._refresh_empty_state()
         conversation.scroll_end(animate=False)
-
         return bool(await self._plan_ready_future)
 
     def _resolve_plan_ready_choice(self, approved: bool) -> None:
@@ -2394,8 +2405,9 @@ class ReupApp(App):
 
         option_buttons: list[Button] = []
         for idx, option in enumerate(options):
+            rec = " (recommended)" if recommended_index == idx else ""
             btn = Button(
-                f"{idx + 1}. {option}",
+                f"{idx + 1}. {option}{rec}",
                 id=f"pq-opt-{idx}",
                 variant="default",
                 classes="plan-question-option",

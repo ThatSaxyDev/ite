@@ -341,6 +341,12 @@ Screen {
     margin-bottom: 1;
 }
 
+.plan-ready-body {
+    color: #dbe3f2;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
 .block.plan.plan-question .card-title {
     margin-bottom: 1;
 }
