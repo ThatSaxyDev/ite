@@ -672,7 +672,7 @@ class TUI:
         model: str = "",
         cwd: str = "",
         commands: list[str] | None = None,
-        version: str = "0.0.9",
+        version: str = "0.0.10",
     ) -> None:
         # Hand-crafted large block art — no pyfiglet needed
         logo_lines = [
