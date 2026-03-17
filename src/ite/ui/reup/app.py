@@ -687,6 +687,7 @@ class ReupApp(App):
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
         self._command_palette_rows: int = 0
+        self._last_rendered_plan_text: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1213,6 +1214,28 @@ class ReupApp(App):
         if "implementation plan" in text.lower():
             return text
         return f"# Implementation Plan\n\n{text}"
+
+    @staticmethod
+    def _normalize_plan_text(plan_text: str) -> str:
+        return (plan_text or "").strip()
+
+    def _should_render_plan_text(self, plan_text: str) -> bool:
+        normalized = self._normalize_plan_text(plan_text)
+        if not normalized:
+            return False
+        return normalized != self._last_rendered_plan_text
+
+    async def _render_plan_text_if_needed(self, plan_text: str) -> bool:
+        normalized = self._normalize_plan_text(plan_text)
+        if not self._should_render_plan_text(normalized):
+            return False
+        await self.add_assistant_card(
+            "Implementation Plan",
+            RichMarkdown(self._with_implementation_plan_title(normalized)),
+            css_class="plan",
+        )
+        self._last_rendered_plan_text = normalized
+        return True
 
     async def ensure_agent(self) -> None:
         if self.agent is not None:
@@ -2078,6 +2101,7 @@ class ReupApp(App):
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
+        self._last_rendered_plan_text = None
         await self.add_user_message(message)
         self._active_turn_task = asyncio.create_task(self._agent_turn(message))
         self._is_turn_running = True
@@ -2118,8 +2142,24 @@ class ReupApp(App):
             content = event.data.get("content", "")
             if self._streaming_widget is not None:
                 await self.finalize_streaming_message()
+                if (
+                    content
+                    and plan_only_phase
+                    and self.agent
+                    and self.agent.session
+                    and self.agent.session.plan_phase == "awaiting_implementation_confirmation"
+                ):
+                    self._last_rendered_plan_text = self._normalize_plan_text(content)
             elif content and not plan_only_phase:
                 await self.add_assistant_message(content)
+            elif (
+                content
+                and plan_only_phase
+                and self.agent
+                and self.agent.session
+                and self.agent.session.plan_phase == "awaiting_implementation_confirmation"
+            ):
+                await self._render_plan_text_if_needed(content)
             return
 
     async def _post_turn_change_summary(self) -> None:
@@ -2275,11 +2315,7 @@ class ReupApp(App):
         if event.type == AgentEventType.PLAN_READY:
             plan_text = event.data.get("plan_text", "")
             if isinstance(plan_text, str) and plan_text.strip():
-                await self.add_assistant_card(
-                    "Implementation Plan",
-                    RichMarkdown(self._with_implementation_plan_title(plan_text)),
-                    css_class="plan",
-                )
+                await self._render_plan_text_if_needed(plan_text)
             approved = await self._present_plan_ready_action_card()
             if approved and self.agent and self.agent.session:
                 self.agent.session.seed_execution_todos_from_plan(
@@ -3331,6 +3367,7 @@ class ReupApp(App):
         self._tool_args_by_call_id.clear()
         self._streaming_widget = None
         self._streaming_buffer = ""
+        self._last_rendered_plan_text = None
         self._message_count = 0
         self._refresh_empty_state()
 

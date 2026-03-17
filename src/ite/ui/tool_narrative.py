@@ -267,7 +267,26 @@ def describe_tool_activity(
             return f"Completed memory action `{action}`."
         return f"Failed memory action `{action}`."
 
-    return f"{verb} tool `{name}`."
+    if name == "plan_question":
+        question = str(args.get("question", "")).strip()
+        if question:
+            trimmed = _trim(question, 90)
+            if stage == "start":
+                return f"Asking a planning question: {trimmed}"
+            if success:
+                return f"Captured planning answer for: {trimmed}"
+            return f"Planning question failed: {trimmed}"
+        if stage == "start":
+            return "Asking a planning question."
+        if success:
+            return "Captured a planning answer."
+        return "Planning question failed."
+
+    if stage == "start":
+        return f"Running tool `{name}`."
+    if success:
+        return f"Completed tool `{name}`."
+    return f"Tool `{name}` failed."
 
 
 def progress_label(

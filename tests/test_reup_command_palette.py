@@ -50,6 +50,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             len(app._filtered_command_palette_options) - 1,
         )
 
+    def test_plan_render_dedupe_tracks_last_rendered_text(self) -> None:
+        app = self._app()
+
+        self.assertTrue(app._should_render_plan_text("Plan body"))
+        app._last_rendered_plan_text = app._normalize_plan_text("Plan body")
+        self.assertFalse(app._should_render_plan_text("Plan body"))
+        self.assertFalse(app._should_render_plan_text("  Plan body  "))
+
 
 if __name__ == "__main__":
     unittest.main()
