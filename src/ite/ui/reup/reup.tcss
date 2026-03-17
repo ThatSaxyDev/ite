@@ -778,6 +778,36 @@ SetupModal #continue:hover {
 
 SetupModal Input {
     margin-bottom: 1;
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+}
+
+.setup-secret-row {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+SetupModal #setup-api-key {
+    width: 1fr;
+    margin-bottom: 0;
+    margin-right: 1;
+}
+
+.setup-eye {
+    width: 5;
+    min-width: 5;
+    height: 3;
+    min-height: 3;
+    border: none;
+    background: #262b3d;
+    color: #e4e6ef;
+    text-style: bold;
+}
+
+.setup-eye:hover {
+    background: #31374d;
 }
 
 .setup-error {

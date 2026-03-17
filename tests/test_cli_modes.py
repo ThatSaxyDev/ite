@@ -17,7 +17,7 @@ class CLIModeRoutingTests(unittest.TestCase):
         self.cwd = Path(self.temp_dir.name)
 
     def _config(self) -> Config:
-        return Config(cwd=self.cwd, api_key="test-key")
+        return Config(cwd=self.cwd, api_key="test-key", base_url="http://localhost:11434/v1")
 
     def test_default_runs_rich_tui(self) -> None:
         async def _fake_run_interactive(_self):

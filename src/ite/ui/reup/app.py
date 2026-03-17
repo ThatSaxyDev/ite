@@ -447,21 +447,18 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 placeholder=DEFAULT_BASE_URL,
                 id="setup-base-url",
             )
-            yield Input(
-                value=self._config.api_key or DEFAULT_API_KEY,
-                placeholder="API key",
-                password=True,
-                id="setup-api-key",
-            )
+            with Horizontal(classes="setup-secret-row"):
+                yield Input(
+                    value=self._config.api_key or DEFAULT_API_KEY,
+                    placeholder="API key",
+                    password=True,
+                    id="setup-api-key",
+                )
+                yield Button("👁", id="setup-toggle-api-key", variant="default", classes="setup-eye")
             yield Input(
                 value=self._config.model_name or DEFAULT_MODEL_NAME,
                 placeholder="Model",
                 id="setup-model",
-            )
-            yield Input(
-                value=self._config.approval.value,
-                placeholder="Approval mode (auto, on_request, auto_edit, ...)",
-                id="setup-approval",
             )
             yield Static("", id="setup-error", classes="setup-error")
             with Horizontal(classes="modal-actions setup-actions"):
@@ -475,6 +472,12 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
     def on_continue_pressed(self, _event: Button.Pressed) -> None:
         self._submit()
 
+    @on(Button.Pressed, "#setup-toggle-api-key")
+    def on_toggle_api_key_pressed(self, event: Button.Pressed) -> None:
+        api_key = self.query_one("#setup-api-key", Input)
+        api_key.password = not bool(api_key.password)
+        event.button.label = "🙈" if not api_key.password else "👁"
+
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
         self.dismiss(None)
@@ -482,7 +485,6 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
     @on(Input.Submitted, "#setup-base-url")
     @on(Input.Submitted, "#setup-api-key")
     @on(Input.Submitted, "#setup-model")
-    @on(Input.Submitted, "#setup-approval")
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         self._submit()
 
@@ -493,18 +495,10 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         base_url = self.query_one("#setup-base-url", Input).value.strip() or DEFAULT_BASE_URL
         api_key = self.query_one("#setup-api-key", Input).value.strip() or DEFAULT_API_KEY
         model_name = self.query_one("#setup-model", Input).value.strip() or self._config.model_name or DEFAULT_MODEL_NAME
-        approval_raw = self.query_one("#setup-approval", Input).value.strip() or self._config.approval.value
 
         parsed = urlparse(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             self._set_error("Base URL must be a valid http/https URL.")
-            return
-
-        try:
-            approval = ApprovalPolicy(approval_raw)
-        except ValueError:
-            valid = ", ".join(policy.value for policy in ApprovalPolicy)
-            self._set_error(f"Approval must be one of: {valid}")
             return
 
         self.dismiss(
@@ -512,7 +506,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 "base_url": base_url,
                 "api_key": api_key,
                 "model_name": model_name,
-                "approval": approval.value,
+                "approval": self._config.approval.value,
             }
         )
 
@@ -717,11 +711,9 @@ class ReupApp(App):
         self._resize_composer_for_prompt()
         self.set_interval(0.1, self._tick_top_indicator)
         if self.config.needs_setup:
-            result = await self._open_modal(SetupModal(self.config))
-            if not result:
-                self.exit()
+            completed = await self._open_setup_modal(exit_on_cancel=True)
+            if not completed:
                 return
-            await self._apply_setup_result(result)
         await self.ensure_agent()
         self.query_one("#prompt", TextArea).focus()
         self._sync_command_palette("")
@@ -1229,6 +1221,15 @@ class ReupApp(App):
         self.config.approval = ApprovalPolicy(result["approval"])
         self.refresh_header()
         self.post_notice("Setup complete", "Saved credentials and defaults. Reup is ready.")
+
+    async def _open_setup_modal(self, *, exit_on_cancel: bool = False) -> bool:
+        result = await self._open_modal(SetupModal(self.config))
+        if not result:
+            if exit_on_cancel and self.config.needs_setup:
+                self.exit()
+            return False
+        await self._apply_setup_result(result)
+        return True
 
     def _tick_top_indicator(self) -> None:
         if not self._top_busy:
@@ -1915,6 +1916,10 @@ class ReupApp(App):
 
         if command == "/workboard":
             await self._run_workboard_command_native()
+            return
+
+        if command == "/setup":
+            await self._open_setup_modal(exit_on_cancel=False)
             return
 
         if command == "/branch" and not args:

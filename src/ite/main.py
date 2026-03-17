@@ -1279,11 +1279,12 @@ def main(
     errors = config.validate()
     if errors:
         # In GUI mode missing_api_key is handled by the in-app setup flow.
+        setup_missing_errors = {"missing_api_key", "missing_base_url", "missing_model"}
         if desktop or chat:
-            real_errors = [e for e in errors if e != "missing_api_key"]
+            real_errors = [e for e in errors if e not in setup_missing_errors]
         else:
-            # For TUI the wizard should have already handled missing_api_key.
-            real_errors = [e for e in errors if e != "missing_api_key"]
+            # For TUI the wizard should have already handled setup-required fields.
+            real_errors = [e for e in errors if e not in setup_missing_errors]
         if real_errors:
             for error in real_errors:
                 console.print(f"[error]{error}[/error]")

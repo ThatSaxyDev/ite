@@ -154,6 +154,10 @@ class Config(BaseModel):
 
         if not self.api_key:
             errors.append("missing_api_key")
+        if not self.base_url:
+            errors.append("missing_base_url")
+        if not self.model.name:
+            errors.append("missing_model")
 
         if not self.cwd.exists():
             errors.append(f"Working directory does not exist: {self.cwd}")
@@ -163,7 +167,7 @@ class Config(BaseModel):
     @property
     def needs_setup(self) -> bool:
         """True if essential credentials are missing."""
-        return not self.api_key
+        return not self.api_key or not self.base_url or not self.model.name
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
