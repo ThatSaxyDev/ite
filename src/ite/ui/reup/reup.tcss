@@ -193,6 +193,7 @@ Screen {
     margin-top: 1;
     margin-bottom: 1;
     padding: 0 1;
+    text-style: bold;
 }
 
 .block.plan {

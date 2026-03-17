@@ -667,8 +667,11 @@ class ReupApp(App):
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
         self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
+        self._activity_suffix_frames: tuple[str, ...] = ("", ".", "..", "...")
+        self._activity_suffix_index: int = 0
         self._top_state_text: str = ""
         self._activity_widget: Static | None = None
+        self._activity_version: int = 0
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -748,22 +751,24 @@ class ReupApp(App):
         composer_meta_line = self.query_one("#composer-meta-line", Static)
         composer_meta_line.update(self._composer_meta_text())
 
-    async def _show_activity_indicator(self, label: str) -> None:
+    async def _show_activity_indicator(self, label: str, version: int | None = None) -> None:
+        if version is not None and version != self._activity_version:
+            return
         conversation = self.query_one("#conversation", VerticalScroll)
-        frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
-        content = Text()
-        content.append(frame, style="bold #9bc7ff")
-        content.append(" ")
-        content.append(label, style="#c7d3e6")
+        content = self._render_activity_indicator_text(label)
         if self._activity_widget is None:
             self._activity_widget = Static(classes="activity-indicator")
             await conversation.mount(self._activity_widget)
             self._message_count += 1
             self._refresh_empty_state()
+        if version is not None and version != self._activity_version:
+            return
         self._activity_widget.update(content)
         conversation.scroll_end(animate=False)
 
-    async def _hide_activity_indicator(self) -> None:
+    async def _hide_activity_indicator(self, version: int | None = None) -> None:
+        if version is not None and version != self._activity_version:
+            return
         if self._activity_widget is None:
             return
         try:
@@ -773,6 +778,18 @@ class ReupApp(App):
         self._activity_widget = None
         self._message_count = max(0, self._message_count - 1)
         self._refresh_empty_state()
+
+    def _render_activity_indicator_text(self, label: str) -> Text:
+        frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
+        suffix = self._activity_suffix_frames[
+            self._activity_suffix_index % len(self._activity_suffix_frames)
+        ]
+        content = Text()
+        content.append(frame, style="bold #b8d8ff")
+        content.append(" ")
+        content.append(label, style="bold #eef4ff")
+        content.append(suffix, style="bold #b8d8ff")
+        return content
 
     def _composer_meta_text(self) -> Text:
         plan_enabled = bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
@@ -1172,10 +1189,12 @@ class ReupApp(App):
     def _set_loading_state(self, state: str, busy: bool) -> None:
         self._top_state_text = state
         self._top_busy = busy
+        self._activity_version += 1
+        version = self._activity_version
         if busy:
-            self.run_worker(self._show_activity_indicator(state), exclusive=False)
+            self.run_worker(self._show_activity_indicator(state, version), exclusive=False)
         else:
-            self.run_worker(self._hide_activity_indicator(), exclusive=False)
+            self.run_worker(self._hide_activity_indicator(version), exclusive=False)
 
         prompt = self.query_one("#prompt", TextArea)
         prompt.disabled = busy
@@ -1205,13 +1224,12 @@ class ReupApp(App):
         if not self._top_busy:
             return
         self._top_spinner_index += 1
+        if self._top_spinner_index % 3 == 0:
+            self._activity_suffix_index += 1
         if self._activity_widget is not None:
-            frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
-            content = Text()
-            content.append(frame, style="bold #9bc7ff")
-            content.append(" ")
-            content.append(self._top_state_text, style="#c7d3e6")
-            self._activity_widget.update(content)
+            self._activity_widget.update(
+                self._render_activity_indicator_text(self._top_state_text)
+            )
         for call_id in getattr(self, "_running_shell_call_ids", set()):
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
@@ -2156,19 +2174,23 @@ class ReupApp(App):
         suppressed_tools = {"memory", "plan_question"}
 
         if event.type == AgentEventType.AGENT_END:
+            self._activity_version += 1
+            await self._hide_activity_indicator(self._activity_version)
             await self._post_turn_change_summary()
             return
 
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
-                await self._hide_activity_indicator()
+                self._activity_version += 1
+                await self._hide_activity_indicator(self._activity_version)
                 await self.stream_assistant_delta(content)
             return
 
         if event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
-            await self._hide_activity_indicator()
+            self._activity_version += 1
+            await self._hide_activity_indicator(self._activity_version)
             if self._streaming_widget is not None:
                 await self.finalize_streaming_message()
                 if (
@@ -2190,10 +2212,16 @@ class ReupApp(App):
             ):
                 await self._render_plan_text_if_needed(content)
             if self._is_turn_running:
-                await self._show_activity_indicator(self._progress_state_label())
+                self._activity_version += 1
+                await self._show_activity_indicator(
+                    self._progress_state_label(),
+                    self._activity_version,
+                )
             return
 
         if event.type == AgentEventType.AGENT_ERROR:
+            self._activity_version += 1
+            await self._hide_activity_indicator(self._activity_version)
             self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
             return
 
@@ -2238,7 +2266,8 @@ class ReupApp(App):
                     busy=True,
                 )
                 return
-            await self._hide_activity_indicator()
+            self._activity_version += 1
+            await self._hide_activity_indicator(self._activity_version)
             tool_kind = self.get_tool_kind(tool_name)
             self._set_loading_state(
                 self._progress_state_label(
