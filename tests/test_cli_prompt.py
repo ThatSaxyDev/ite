@@ -27,6 +27,14 @@ class CLIPromptTests(unittest.TestCase):
         self.assertIn("/quit", names)
         self.assertEqual(len(names), len(set(names)))
 
+    def test_command_entries_include_descriptions_for_aliases(self) -> None:
+        cli = CLI(self._config())
+
+        entries = {entry.name: entry.description for entry in cli._command_entries()}
+
+        self.assertEqual(entries["/help"], "Show this help")
+        self.assertEqual(entries["/quit"], "Exit the agent")
+
     def test_prompt_toolkit_reader_is_used_when_available(self) -> None:
         cli = CLI(self._config())
 

@@ -30,6 +30,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 from ite.ui.tool_narrative import progress_label
+from dataclasses import dataclass
 
 try:
     from prompt_toolkit import PromptSession
@@ -41,6 +42,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 console = get_console()
+
+
+@dataclass(frozen=True)
+class CommandPromptEntry:
+    name: str
+    description: str
 
 
 class CLI:
@@ -61,13 +68,20 @@ class CLI:
             self._command_registry = build_registry()
         return self._command_registry
 
-    def _command_names(self) -> list[str]:
+    def _command_entries(self) -> list[CommandPromptEntry]:
         registry = self._get_command_registry()
-        names: set[str] = set()
+        descriptions: dict[str, str] = {}
         for command in registry.all_commands():
-            names.add(command.name)
-            names.update(command.aliases)
-        return sorted(names)
+            descriptions[command.name] = command.description
+            for alias in command.aliases:
+                descriptions[alias] = command.description
+        return [
+            CommandPromptEntry(name=name, description=descriptions[name])
+            for name in sorted(descriptions)
+        ]
+
+    def _command_names(self) -> list[str]:
+        return [entry.name for entry in self._command_entries()]
 
     def _get_prompt_session(self):
         if PromptSession is None or Completion is None:
@@ -78,7 +92,7 @@ class CLI:
             return self._command_prompt_session
 
         class SlashCommandCompleter(Completer):
-            def __init__(self, commands: list[str]) -> None:
+            def __init__(self, commands: list[CommandPromptEntry]) -> None:
                 self._commands = commands
 
             def get_completions(self, document, complete_event):
@@ -87,16 +101,17 @@ class CLI:
                     return
                 current = text.split(maxsplit=1)[0].lower()
                 for command in self._commands:
-                    if current and not command.lower().startswith(current):
+                    if current and not command.name.lower().startswith(current):
                         continue
                     yield Completion(
-                        command,
+                        command.name,
                         start_position=-len(current),
-                        display=command,
+                        display=command.name,
+                        display_meta=command.description,
                     )
 
         self._command_prompt_session = PromptSession(
-            completer=SlashCommandCompleter(self._command_names()),
+            completer=SlashCommandCompleter(self._command_entries()),
         )
         return self._command_prompt_session
 
