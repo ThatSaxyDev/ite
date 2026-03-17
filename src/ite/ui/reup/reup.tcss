@@ -892,6 +892,18 @@ AttachPickerModal #attach-clear:hover {
     height: 1;
 }
 
+#command-palette {
+    display: none;
+    height: auto;
+    min-height: 1;
+    width: 1fr;
+    margin: 0 2 0 2;
+    padding: 0 1 0 1;
+    border: round #315b8a;
+    background: #0e1726 96%;
+    color: #dbe4f2;
+}
+
 #composer-meta-line {
     height: 1;
     min-height: 1;

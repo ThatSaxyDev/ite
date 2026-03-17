@@ -8,6 +8,7 @@ import re
 import shlex
 from urllib.parse import urlparse
 from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,12 @@ from ite.attachments import MAX_ATTACHMENTS
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
+
+
+@dataclass(frozen=True)
+class SlashCommandOption:
+    name: str
+    description: str
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -523,6 +530,12 @@ class ReupPromptTextArea(TextArea):
         self.insert("\n")
 
     def on_key(self, event: events.Key) -> None:
+        handler = getattr(self.app, "handle_prompt_palette_key", None)
+        if callable(handler) and handler(event):
+            event.stop()
+            if hasattr(event, "prevent_default"):
+                event.prevent_default()
+            return
         if event.key in {"shift+enter", "ctrl+j"}:
             event.stop()
             if hasattr(event, "prevent_default"):
@@ -630,6 +643,7 @@ class ReupApp(App):
     PROMPT_TOP_PAD = 1
     CONTAINER_EXTRA = 0
     COMPOSER_EXTRA = 1
+    COMMAND_PALETTE_MAX_ROWS = 8
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -669,6 +683,10 @@ class ReupApp(App):
         self._composer_attach_hitbox: tuple[int, int] = (0, 0)
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
+        self._command_palette_options = self._build_command_palette_options()
+        self._filtered_command_palette_options: list[SlashCommandOption] = []
+        self._command_palette_index: int = 0
+        self._command_palette_rows: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -683,6 +701,7 @@ class ReupApp(App):
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
                     yield ReupPromptTextArea(id="prompt", language="markdown")
+                    yield Static("", id="command-palette")
                     yield Static("", id="composer-gap")
                     yield Static("", id="composer-meta-line")
         yield Footer()
@@ -701,6 +720,7 @@ class ReupApp(App):
             await self._apply_setup_result(result)
         await self.ensure_agent()
         self.query_one("#prompt", TextArea).focus()
+        self._sync_command_palette("")
 
     async def on_unmount(self) -> None:
         await self.cancel_active_turn()
@@ -786,6 +806,137 @@ class ReupApp(App):
         self._composer_branch_hitbox = (branch_start, branch_end)
         self._composer_plan_hitbox = (plan_start, plan_end)
         return text
+
+    def _build_command_palette_options(self) -> list[SlashCommandOption]:
+        options = [
+            SlashCommandOption(name=command.name, description=command.description)
+            for command in self._command_registry.all_commands()
+        ]
+        return sorted(options, key=lambda option: option.name.lower())
+
+    @staticmethod
+    def _extract_slash_query(text: str) -> str | None:
+        raw = (text or "").lstrip()
+        if not raw or "\n" in raw:
+            return None
+        token = raw.split(maxsplit=1)[0]
+        if not token.startswith("/"):
+            return None
+        if raw != token and token.startswith("/"):
+            return None
+        return token.lower()
+
+    def _filtered_command_palette(self, text: str) -> list[SlashCommandOption]:
+        query = self._extract_slash_query(text)
+        if query is None:
+            return []
+        if query == "/":
+            return list(self._command_palette_options)
+        return [
+            option
+            for option in self._command_palette_options
+            if option.name.lower().startswith(query)
+        ]
+
+    def _command_palette_window(self) -> list[SlashCommandOption]:
+        if not self._filtered_command_palette_options:
+            return []
+        max_rows = min(self.COMMAND_PALETTE_MAX_ROWS, len(self._filtered_command_palette_options))
+        start = max(0, self._command_palette_index - max_rows + 1)
+        end = min(len(self._filtered_command_palette_options), start + max_rows)
+        start = max(0, end - max_rows)
+        return self._filtered_command_palette_options[start:end]
+
+    def _render_command_palette(self) -> Text:
+        text = Text()
+        window = self._command_palette_window()
+        if not window:
+            return text
+        start = self._filtered_command_palette_options.index(window[0])
+        for idx, option in enumerate(window, start=start):
+            selected = idx == self._command_palette_index
+            line_style = "bold #f8fafc on #315b8a" if selected else "#dbe4f2"
+            desc_style = "bold #e5eefc on #315b8a" if selected else "#7f8ea3"
+            text.append(option.name.ljust(14), style=line_style)
+            text.append("  ", style=line_style)
+            text.append(option.description, style=desc_style)
+            if idx < start + len(window) - 1:
+                text.append("\n")
+        return text
+
+    def _sync_command_palette(self, text: str) -> None:
+        options = self._filtered_command_palette(text)
+        if self._filtered_command_palette_options == options and (
+            not options or self._command_palette_index < len(options)
+        ):
+            self._command_palette_rows = min(len(options), self.COMMAND_PALETTE_MAX_ROWS)
+        else:
+            self._filtered_command_palette_options = options
+            self._command_palette_index = 0
+            self._command_palette_rows = min(len(options), self.COMMAND_PALETTE_MAX_ROWS)
+
+        if not self.is_mounted:
+            return
+
+        try:
+            palette = self.query_one("#command-palette", Static)
+        except Exception:
+            return
+        palette.display = bool(options)
+        if options:
+            palette.update(self._render_command_palette())
+        else:
+            palette.update("")
+
+    def _move_command_palette_selection(self, delta: int) -> bool:
+        if not self._filtered_command_palette_options:
+            return False
+        self._command_palette_index = max(
+            0,
+            min(
+                len(self._filtered_command_palette_options) - 1,
+                self._command_palette_index + delta,
+            ),
+        )
+        if self.is_mounted:
+            try:
+                self.query_one("#command-palette", Static).update(self._render_command_palette())
+            except Exception:
+                pass
+        return True
+
+    def _replace_prompt_with_command(self, command_name: str) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        updated = f"{command_name} "
+        prompt.load_text(updated)
+        prompt.move_cursor((0, len(updated)))
+        self._sync_command_palette(updated)
+        self._resize_composer_for_prompt()
+
+    def _apply_command_palette_selection(self) -> bool:
+        if not self._filtered_command_palette_options:
+            return False
+        option = self._filtered_command_palette_options[self._command_palette_index]
+        self._replace_prompt_with_command(option.name)
+        return True
+
+    def handle_prompt_palette_key(self, event: events.Key) -> bool:
+        focused = self.focused
+        if not isinstance(focused, TextArea) or focused.id != "prompt":
+            return False
+        if not self._filtered_command_palette_options:
+            return False
+        if event.key == "up":
+            return self._move_command_palette_selection(-1)
+        if event.key == "down":
+            return self._move_command_palette_selection(1)
+        if event.key in {"tab", "enter"}:
+            return self._apply_command_palette_selection()
+        if event.key == "escape":
+            self._sync_command_palette("")
+            self._resize_composer_for_prompt()
+            return True
+        return False
 
     @on(events.Click, "#composer-meta-line")
     def on_composer_meta_line_click(self, event: events.Click) -> None:
@@ -1332,11 +1483,13 @@ class ReupApp(App):
     def on_prompt_changed(self, _event: TextArea.Changed) -> None:
         if self._suppress_history_reset_once:
             self._suppress_history_reset_once = False
+            self._sync_command_palette(self.query_one("#prompt", TextArea).text)
             self._resize_composer_for_prompt()
             return
         if self._composer_history_index is not None and not self._applying_history_nav:
             self._composer_history_index = None
             self._composer_history_draft = ""
+        self._sync_command_palette(self.query_one("#prompt", TextArea).text)
         self._resize_composer_for_prompt()
 
     async def on_reup_prompt_text_area_submitted(
@@ -1479,6 +1632,7 @@ class ReupApp(App):
         prompt_height = prompt_lines + self.PROMPT_TOP_PAD
         container_height = (
             prompt_height
+            + self._command_palette_rows
             + self.COMPOSER_GAP_HEIGHT
             + self.META_ROW_HEIGHT
             + self.CONTAINER_EXTRA
