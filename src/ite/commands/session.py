@@ -9,6 +9,7 @@ from ite.commands import Command, CommandContext, CommandRegistry
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionSnapshot, SessionManager
 from rich.panel import Panel
+from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 from rich import box
@@ -51,7 +52,7 @@ def _render_resumed_transcript(ctx: CommandContext, messages: list[dict]) -> Non
                 ctx.console.print()
                 ctx.console.print(
                     Panel(
-                        content,
+                        Markdown(str(content)),
                         title=title,
                         title_align="left",
                         border_style="bright_white",
