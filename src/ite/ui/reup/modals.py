@@ -43,10 +43,10 @@ class ConfirmModal(ModalScreen[bool]):
         self._no = no_label
 
     def compose(self) -> ComposeResult:
-        with Container(classes="modal confirm-modal"):
+        with Container(classes="modal resume-modal confirm-modal"):
             yield Label(self._title, classes="modal-title")
-            yield Static(self._body, classes="modal-body")
-            with Horizontal(classes="modal-actions"):
+            yield Static(self._body, classes="modal-body confirm-body")
+            with Horizontal(classes="modal-actions resume-actions confirm-actions"):
                 yield Button(self._no, id="no", variant="default")
                 yield Button(self._yes, id="yes", variant="success")
 

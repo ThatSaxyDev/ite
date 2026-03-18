@@ -1286,8 +1286,7 @@ class ReupApp(App):
         self.post_notice("Unstage file", result.message)
         await self._refresh_change_review_after_git_action()
 
-    @on(events.Click, "#change-review-discard-file")
-    async def on_change_review_discard_file(self, _event: events.Click) -> None:
+    async def _run_change_review_discard_file(self) -> None:
         if self.query_one("#change-review-discard-file", Static).disabled:
             return
         rel_path = self._change_review_selected_rel_path
@@ -1306,6 +1305,11 @@ class ReupApp(App):
         self.post_notice("Discard file", result.message)
         await self._refresh_change_review_after_git_action()
 
+    @on(events.Click, "#change-review-discard-file")
+    def on_change_review_discard_file(self, event: events.Click) -> None:
+        event.stop()
+        self.run_worker(self._run_change_review_discard_file(), exclusive=False)
+
     @on(events.Click, "#change-review-stage-all")
     async def on_change_review_stage_all(self, _event: events.Click) -> None:
         stage_all_chip = self.query_one("#change-review-stage-all", Static)
@@ -1320,8 +1324,7 @@ class ReupApp(App):
         self.post_notice(title, result.message)
         await self._refresh_change_review_after_git_action()
 
-    @on(events.Click, "#change-review-discard-all")
-    async def on_change_review_discard_all(self, _event: events.Click) -> None:
+    async def _run_change_review_discard_all(self) -> None:
         if self.query_one("#change-review-discard-all", Static).disabled:
             return
         confirmed = await self._confirm_change_review_discard(
@@ -1336,6 +1339,11 @@ class ReupApp(App):
             return
         self.post_notice("Discard all", result.message)
         await self._refresh_change_review_after_git_action()
+
+    @on(events.Click, "#change-review-discard-all")
+    def on_change_review_discard_all(self, event: events.Click) -> None:
+        event.stop()
+        self.run_worker(self._run_change_review_discard_all(), exclusive=False)
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:

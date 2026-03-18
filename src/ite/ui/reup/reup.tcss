@@ -826,33 +826,38 @@ SetupModal {
 
 ConfirmModal .confirm-modal {
     width: 76;
-    height: auto;
-    min-height: 9;
-    max-height: 18;
-    border: round #3f4c67;
-    background: #141b2a 96%;
+    height: 12;
+    min-height: 12;
+    max-height: 16;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
     padding: 1 2;
+    overflow: hidden;
 }
 
-ConfirmModal .modal-actions {
+ConfirmModal .confirm-body {
+    height: 1fr;
+    margin-bottom: 1;
+    color: #d5d7e2;
+}
+
+ConfirmModal .confirm-actions {
     height: 1;
     min-height: 1;
     align-horizontal: right;
-    margin-top: 1;
-}
-
-ConfirmModal #yes,
-ConfirmModal #no {
-    height: 1;
-    min-height: 1;
-    padding: 0 1;
-    border: none;
-    text-style: bold;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+    margin-bottom: 0;
 }
 
 ConfirmModal #yes {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
     background: #5dcf84;
     color: #0f1a12;
+    border: none;
 }
 
 ConfirmModal #yes:hover {
@@ -860,8 +865,12 @@ ConfirmModal #yes:hover {
 }
 
 ConfirmModal #no {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
     background: #2b3243;
     color: #e2e7f2;
+    border: none;
 }
 
 ConfirmModal #no:hover {
