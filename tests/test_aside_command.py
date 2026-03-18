@@ -120,6 +120,45 @@ class AsideCommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(is_aside_command_text("/asidee"))
         self.assertFalse(is_aside_command_text("/plan"))
 
+    async def test_aside_uses_tui_spinner_lifecycle(self) -> None:
+        workspace = self.base_path / "ws-aside-spinner"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Spinner aside."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=4, completion_tokens=2, total_tokens=6),
+            )
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+        console = Console(record=True, file=StringIO())
+        tui = TUI(config=agent.config, console=console)
+        with (
+            patch.object(tui, "start_spinner") as start_spinner,
+            patch.object(tui, "stop_spinner") as stop_spinner,
+        ):
+            ctx = CommandContext(
+                config=agent.config,
+                agent=agent,
+                tui=tui,
+                console=console,
+            )
+
+            await cmd_aside(ctx, ["who", "am", "i"])
+
+        start_spinner.assert_called_once_with("Thinking")
+        stop_spinner.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

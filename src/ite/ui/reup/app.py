@@ -690,6 +690,7 @@ class ReupApp(App):
         self._aside_panel_visible: bool = False
         self._aside_entries: list[dict[str, str]] = []
         self._aside_entry_seq: int = 0
+        self._aside_pending_widgets: dict[str, Static] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1225,19 +1226,34 @@ class ReupApp(App):
         toggle.label = "/aside" if not self._aside_panel_visible else "Close"
         body.display = has_content
 
+    def _render_aside_pending_text(self) -> Text:
+        text = Text("Thinking", style="#8fdad4 italic")
+        suffix = self._activity_suffix_frames[
+            self._activity_suffix_index % len(self._activity_suffix_frames)
+        ]
+        text.append(suffix, style="#8fdad4 italic")
+        return text
+
     async def _render_aside_panel(self) -> None:
         body = self.query_one("#aside-panel-body", VerticalScroll)
         await body.remove_children()
+        self._aside_pending_widgets = {}
         for entry in self._aside_entries:
             state = str(entry.get("state", "done")).strip().lower()
             question = str(entry.get("question", "")).strip()
             answer = str(entry.get("answer", "")).strip()
+            entry_id = str(entry.get("id", "")).strip()
             user_row = Horizontal(
                 Static(question, classes="aside-user-entry"),
                 classes="aside-user-row",
             )
             if state == "pending":
-                response_widget = Static("Thinking...", classes="aside-thinking")
+                response_widget = Static(
+                    self._render_aside_pending_text(),
+                    classes="aside-thinking",
+                )
+                if entry_id:
+                    self._aside_pending_widgets[entry_id] = response_widget
             elif state == "error":
                 response_widget = Static(answer, classes="aside-error")
             else:
@@ -1314,15 +1330,19 @@ class ReupApp(App):
         return True
 
     def _tick_top_indicator(self) -> None:
-        if not self._top_busy:
+        if not self._top_busy and not self._aside_pending_widgets:
             return
         self._top_spinner_index += 1
         if self._top_spinner_index % 3 == 0:
             self._activity_suffix_index += 1
-        if self._activity_widget is not None:
+        if self._activity_widget is not None and self._top_busy:
             self._activity_widget.update(
                 self._render_activity_indicator_text(self._top_state_text)
             )
+        if self._aside_pending_widgets:
+            pending_text = self._render_aside_pending_text()
+            for widget in list(self._aside_pending_widgets.values()):
+                widget.update(pending_text)
         for call_id in getattr(self, "_running_shell_call_ids", set()):
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
