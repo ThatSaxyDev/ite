@@ -957,6 +957,12 @@ class ReupApp(App):
         title: str,
         mode: str,
     ) -> None:
+        if self._change_review_visible and self._change_review_source == "git":
+            await self._refresh_change_review_source()
+            if self._change_review_change_set and getattr(self._change_review_change_set, "changes", None):
+                self._change_review_visible = True
+                await self._populate_change_review_panel()
+            return
         self._change_review_change_set = change_set
         self._change_review_title = title
         self._change_review_mode = mode

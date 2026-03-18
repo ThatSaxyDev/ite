@@ -39,6 +39,50 @@ class ChangedFilesTree(DirectoryTree):
         self._visible_dirs = visible_dirs
         await self.reload()
         self.root.expand()
+        await self._expand_changed_paths(root)
+        first_file_node = self._find_first_changed_file_node(self.root)
+        if first_file_node is not None:
+            self.select_node(first_file_node)
+            self.move_cursor(first_file_node, animate=False)
+
+    async def _expand_changed_paths(self, root: Path) -> None:
+        directories = sorted(
+            {path.parent.resolve() for path in self._changed_files},
+            key=lambda path: len(path.parts),
+        )
+        for directory in directories:
+            if directory == root:
+                continue
+            current = self.root
+            try:
+                rel_parts = directory.relative_to(root).parts
+            except ValueError:
+                continue
+            for part in rel_parts:
+                await self._add_to_load_queue(current)
+                next_path = (current.data.path / part).resolve() if current.data is not None else None
+                next_node = None
+                for child in current.children:
+                    data = getattr(child, "data", None)
+                    path = getattr(data, "path", None)
+                    if isinstance(path, Path) and next_path is not None and path.resolve() == next_path:
+                        next_node = child
+                        break
+                if next_node is None:
+                    break
+                next_node.expand()
+                current = next_node
+
+    def _find_first_changed_file_node(self, node) -> object | None:
+        for child in node.children:
+            data = getattr(child, "data", None)
+            path = getattr(data, "path", None)
+            if isinstance(path, Path) and path.resolve() in self._changed_files:
+                return child
+            found = self._find_first_changed_file_node(child)
+            if found is not None:
+                return found
+        return None
 
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
         for path in paths:
