@@ -661,8 +661,7 @@ PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
 AttachPickerModal,
-SetupModal,
-ActiveTurnSendModal {
+SetupModal {
     align: center middle;
     background: #06080f 58%;
 }
@@ -813,98 +812,6 @@ SetupModal .modal {
     border: heavy #4f4a70;
     background: #1a2031 96%;
     padding: 1 2;
-}
-
-ActiveTurnSendModal .turn-send-modal {
-    width: 82;
-    height: auto;
-    min-height: 14;
-    max-height: 22;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
-    padding: 1 2;
-}
-
-ActiveTurnSendModal .turn-send-eyebrow {
-    color: #8fdad4;
-    text-style: bold;
-    margin-bottom: 0;
-}
-
-ActiveTurnSendModal .turn-send-title {
-    color: #f2f6ff;
-    text-style: bold;
-    margin-bottom: 1;
-}
-
-ActiveTurnSendModal .turn-send-body {
-    color: #cdd7ea;
-    margin-bottom: 1;
-}
-
-ActiveTurnSendModal .turn-send-preview {
-    height: auto;
-    border: round #334155;
-    background: #111827;
-    padding: 1 1;
-    margin-top: 1;
-    margin-bottom: 1;
-}
-
-ActiveTurnSendModal .turn-send-preview-label {
-    color: #8f95a1;
-    text-style: bold;
-    margin-bottom: 1;
-}
-
-ActiveTurnSendModal .turn-send-preview-body {
-    color: #eef4ff;
-}
-
-ActiveTurnSendModal .turn-send-actions {
-    height: 1;
-    min-height: 1;
-    align-horizontal: right;
-    margin-top: 1;
-}
-
-ActiveTurnSendModal .turn-send-actions Button {
-    width: 12;
-    min-width: 12;
-    height: 1;
-    min-height: 1;
-    border: none;
-    padding: 0 1;
-    text-style: bold;
-}
-
-ActiveTurnSendModal #cancel {
-    background: #2b3243;
-    color: #e2e7f2;
-}
-
-ActiveTurnSendModal #cancel:hover {
-    background: #364058;
-}
-
-ActiveTurnSendModal #queue {
-    background: #5dcf84;
-    color: #0f1a12;
-    margin-right: 1;
-}
-
-ActiveTurnSendModal #queue:hover {
-    background: #75de99;
-}
-
-ActiveTurnSendModal #steer {
-    background: #f59e0b;
-    color: #111827;
-    margin-right: 1;
-}
-
-ActiveTurnSendModal #steer:hover {
-    background: #fbbf24;
 }
 
 SessionResumeModal .modal-list,
@@ -1174,6 +1081,7 @@ AttachPickerModal #attach-clear:hover {
     border: round #315b8a;
     background: #0e1726 96%;
     color: #dbe4f2;
+    pointer: pointer;
 }
 
 #composer-meta-line {

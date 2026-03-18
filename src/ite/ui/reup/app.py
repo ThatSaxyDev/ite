@@ -22,6 +22,7 @@ from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
@@ -512,62 +513,6 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         )
 
 
-class ActiveTurnSendModal(ModalScreen[str | None]):
-    BINDINGS = [
-        ("escape", "dismiss", "Dismiss"),
-        ("1", "steer", "Steer"),
-        ("2", "queue", "Queue"),
-    ]
-
-    def __init__(self, message: str, *, replacing_queue: bool) -> None:
-        super().__init__()
-        self._message = (message or "").strip()
-        self._replacing_queue = replacing_queue
-
-    def compose(self) -> ComposeResult:
-        queue_copy = (
-            "Queue will replace the message already waiting."
-            if self._replacing_queue
-            else "Queue will send this after the current turn completes."
-        )
-        with Container(classes="modal turn-send-modal"):
-            yield Static("Turn In Progress", classes="turn-send-eyebrow")
-            yield Label("What should happen to this new message?", classes="turn-send-title")
-            yield Static(
-                "Steer interrupts the current turn and starts this one now.\n"
-                f"{queue_copy}",
-                classes="turn-send-body",
-            )
-            with Container(classes="turn-send-preview"):
-                yield Static("New message", classes="turn-send-preview-label")
-                yield Static(self._message, classes="turn-send-preview-body")
-            with Horizontal(classes="modal-actions resume-actions turn-send-actions"):
-                yield Button("Queue", id="queue", variant="primary")
-                yield Button("Steer", id="steer", variant="warning")
-                yield Button("Cancel", id="cancel", variant="default")
-
-    async def on_mount(self) -> None:
-        self.query_one("#queue", Button).focus()
-
-    def action_steer(self) -> None:
-        self.dismiss("steer")
-
-    def action_queue(self) -> None:
-        self.dismiss("queue")
-
-    @on(Button.Pressed, "#steer")
-    def on_steer_pressed(self, _event: Button.Pressed) -> None:
-        self.action_steer()
-
-    @on(Button.Pressed, "#queue")
-    def on_queue_pressed(self, _event: Button.Pressed) -> None:
-        self.action_queue()
-
-    @on(Button.Pressed, "#cancel")
-    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
-        self.dismiss(None)
-
-
 class ReupPromptTextArea(TextArea):
     class Submitted(Message):
         pass
@@ -703,6 +648,7 @@ class ReupApp(App):
         self.agent: Agent | None = None
         self._command_registry = build_registry()
         self._active_turn_task: asyncio.Task | None = None
+        self._active_turn_id: int = 0
         self._is_turn_running: bool = False
         self._streaming_widget: Static | None = None
         self._streaming_buffer: str = ""
@@ -742,6 +688,9 @@ class ReupApp(App):
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
         self._command_palette_rows: int = 0
+        self._turn_action_payload: dict[str, Any] | None = None
+        self._turn_action_replacing_queue: bool = False
+        self._turn_action_options: list[SlashCommandOption] = []
         self._last_rendered_plan_text: str | None = None
         self._aside_panel_visible: bool = False
         self._aside_entries: list[dict[str, str]] = []
@@ -749,7 +698,7 @@ class ReupApp(App):
         self._aside_pending_widgets: dict[str, Static] = {}
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
-        self._suppress_queued_restore_once: bool = False
+        self._suppress_pending_restore_once: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -973,7 +922,94 @@ class ReupApp(App):
                 text.append("\n")
         return text
 
+    def _build_turn_action_options(self, *, replacing_queue: bool) -> list[SlashCommandOption]:
+        queue_copy = (
+            "Replace the already queued message."
+            if replacing_queue
+            else "Send after the current turn completes."
+        )
+        return [
+            SlashCommandOption(name="1. Steer", description="Stop current turn and send now."),
+            SlashCommandOption(name="2. Queue", description=queue_copy),
+            SlashCommandOption(name="3. Cancel", description="Keep editing without sending."),
+        ]
+
+    def _render_turn_action_palette(self) -> Text:
+        text = Text()
+        if not self._turn_action_options:
+            return text
+        for idx, option in enumerate(self._turn_action_options):
+            selected = idx == self._command_palette_index
+            line_style = "bold #f8fafc on #315b8a" if selected else "#dbe4f2"
+            desc_style = "bold #e5eefc on #315b8a" if selected else "#7f8ea3"
+            text.append(option.name.ljust(12), style=line_style)
+            text.append("  ", style=line_style)
+            text.append(option.description, style=desc_style)
+            if idx < len(self._turn_action_options) - 1:
+                text.append("\n")
+        return text
+
+    def _show_turn_action_palette(self, payload: dict[str, Any], *, replacing_queue: bool) -> None:
+        self._turn_action_payload = payload
+        self._turn_action_replacing_queue = replacing_queue
+        self._turn_action_options = self._build_turn_action_options(replacing_queue=replacing_queue)
+        self._command_palette_index = 0
+        self._command_palette_rows = len(self._turn_action_options)
+        if not self.is_mounted:
+            return
+        try:
+            palette = self.query_one("#command-palette", Static)
+        except Exception:
+            return
+        palette.display = True
+        palette.update(self._render_turn_action_palette())
+        self._resize_composer_for_prompt()
+
+    def _hide_turn_action_palette(self) -> None:
+        self._turn_action_payload = None
+        self._turn_action_replacing_queue = False
+        self._turn_action_options = []
+        self._sync_command_palette(self.query_one("#prompt", TextArea).text)
+        self._resize_composer_for_prompt()
+
+    def _move_turn_action_selection(self, delta: int) -> bool:
+        if not self._turn_action_options:
+            return False
+        self._command_palette_index = max(
+            0,
+            min(len(self._turn_action_options) - 1, self._command_palette_index + delta),
+        )
+        if self.is_mounted:
+            try:
+                self.query_one("#command-palette", Static).update(self._render_turn_action_palette())
+            except Exception:
+                pass
+        return True
+
+    async def _execute_turn_action_selection(self, action: str) -> None:
+        payload = self._turn_action_payload
+        replacing_queue = self._turn_action_replacing_queue
+        self._hide_turn_action_palette()
+        if payload is None:
+            return
+        if action == "steer":
+            self._clear_composer_after_submit(clear_attachments=True)
+            self._suppress_pending_restore_once = True
+            await self.cancel_active_turn()
+            await self._dispatch_payload(payload)
+            return
+        if action == "queue":
+            self._queued_turn_payload = payload
+            self._clear_composer_after_submit(clear_attachments=True)
+            if replacing_queue:
+                self.post_notice("Queued", "Replaced the waiting message.")
+            else:
+                self.post_notice("Queued", "Will send after the current turn completes.")
+            return
+
     def _sync_command_palette(self, text: str) -> None:
+        if self._turn_action_payload is not None:
+            return
         options = self._filtered_command_palette(text)
         if self._filtered_command_palette_options == options and (
             not options or self._command_palette_index < len(options)
@@ -998,6 +1034,8 @@ class ReupApp(App):
             palette.update("")
 
     def _move_command_palette_selection(self, delta: int) -> bool:
+        if self._turn_action_payload is not None:
+            return self._move_turn_action_selection(delta)
         if not self._filtered_command_palette_options:
             return False
         self._command_palette_index = max(
@@ -1030,6 +1068,12 @@ class ReupApp(App):
         await self.run_command(command_name)
 
     def _apply_command_palette_selection(self) -> bool:
+        if self._turn_action_payload is not None:
+            if not self._turn_action_options:
+                return False
+            action = ("steer", "queue", "cancel")[self._command_palette_index]
+            self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
+            return True
         if not self._filtered_command_palette_options:
             return False
         option = self._filtered_command_palette_options[self._command_palette_index]
@@ -1042,6 +1086,20 @@ class ReupApp(App):
     def handle_prompt_palette_key(self, event: events.Key) -> bool:
         focused = self.focused
         if not isinstance(focused, TextArea) or focused.id != "prompt":
+            return False
+        if self._turn_action_payload is not None:
+            if event.key == "up":
+                return self._move_turn_action_selection(-1)
+            if event.key == "down":
+                return self._move_turn_action_selection(1)
+            if event.key in {"tab", "enter"}:
+                return self._apply_command_palette_selection()
+            if event.key in {"1", "2", "3"}:
+                self._command_palette_index = int(event.key) - 1
+                return self._apply_command_palette_selection()
+            if event.key == "escape":
+                self._hide_turn_action_palette()
+                return True
             return False
         if not self._filtered_command_palette_options:
             return False
@@ -1073,6 +1131,16 @@ class ReupApp(App):
         if start <= event.x < end:
             self.run_worker(self._toggle_plan_mode_from_meta(), exclusive=False)
             event.stop()
+
+    @on(events.Click, "#command-palette")
+    def on_command_palette_click(self, event: events.Click) -> None:
+        if self._turn_action_payload is None:
+            return
+        row = max(0, min(len(self._turn_action_options) - 1, event.y))
+        self._command_palette_index = row
+        event.stop()
+        action = ("steer", "queue", "cancel")[row]
+        self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
 
     async def _toggle_plan_mode_from_meta(self) -> None:
         await self.ensure_agent()
@@ -1271,7 +1339,10 @@ class ReupApp(App):
         else:
             self.run_worker(self._hide_activity_indicator(version), exclusive=False)
 
-        prompt = self.query_one("#prompt", TextArea)
+        try:
+            prompt = self.query_one("#prompt", TextArea)
+        except NoMatches:
+            return
         prompt.disabled = False
         self._refresh_empty_state()
 
@@ -1756,7 +1827,6 @@ class ReupApp(App):
                     if hasattr(event, "prevent_default"):
                         event.prevent_default()
                     return
-
         if self._plan_ready_future is not None and not self._plan_ready_future.done():
             if event.key in {"2", "y"}:
                 self._resolve_plan_ready_choice(True)
@@ -1932,27 +2002,8 @@ class ReupApp(App):
 
     async def _resolve_active_turn_send(self, payload: dict[str, Any]) -> bool:
         replacing_queue = self._queued_turn_payload is not None
-        decision = await self._open_modal(
-            ActiveTurnSendModal(
-                str(payload.get("message", "")),
-                replacing_queue=replacing_queue,
-            )
-        )
-        if decision == "steer":
-            self._clear_composer_after_submit(clear_attachments=True)
-            self._suppress_queued_restore_once = True
-            await self.cancel_active_turn()
-            await self._dispatch_payload(payload)
-            return True
-        if decision == "queue":
-            self._queued_turn_payload = payload
-            self._clear_composer_after_submit(clear_attachments=True)
-            if replacing_queue:
-                self.post_notice("Queued", "Replaced the waiting message.")
-            else:
-                self.post_notice("Queued", "Will send after the current turn completes.")
-            return True
-        return False
+        self._show_turn_action_palette(payload, replacing_queue=replacing_queue)
+        return True
 
     async def _dispatch_queued_payload_if_ready(self) -> None:
         if self._queued_turn_payload is None:
@@ -1963,8 +2014,8 @@ class ReupApp(App):
         await self._dispatch_payload(payload)
 
     def _restore_queued_payload_after_unsuccessful_turn(self) -> None:
-        if self._suppress_queued_restore_once:
-            self._suppress_queued_restore_once = False
+        if self._suppress_pending_restore_once:
+            self._suppress_pending_restore_once = False
             return
         if self._queued_turn_payload is None:
             return
@@ -2432,7 +2483,9 @@ class ReupApp(App):
         self._last_rendered_plan_text = None
         self._turn_had_error = False
         await self.add_user_message(message)
-        self._active_turn_task = asyncio.create_task(self._agent_turn(message))
+        self._active_turn_id += 1
+        turn_id = self._active_turn_id
+        self._active_turn_task = asyncio.create_task(self._agent_turn(message, turn_id))
         self._is_turn_running = True
         self._set_loading_state(self._progress_state_label(), busy=True)
         completed_normally = False
@@ -2454,13 +2507,15 @@ class ReupApp(App):
         else:
             self._restore_queued_payload_after_unsuccessful_turn()
 
-    async def _agent_turn(self, message: str) -> None:
+    async def _agent_turn(self, message: str, turn_id: int) -> None:
         assert self.agent is not None
 
         async for event in self.agent.run(message):
-            await self.handle_agent_event(event)
+            await self.handle_agent_event(event, turn_id)
 
-    async def handle_agent_event(self, event: AgentEvent) -> None:
+    async def handle_agent_event(self, event: AgentEvent, turn_id: int) -> None:
+        if turn_id != self._active_turn_id:
+            return
         plan_only_phase = self._is_plan_only_phase()
         suppressed_tools = {"memory", "plan_question"}
 
@@ -3684,6 +3739,7 @@ class ReupApp(App):
         task = self._active_turn_task
         if not task:
             return
+        self._active_turn_id += 1
         if not task.done():
             task.cancel()
             try:
