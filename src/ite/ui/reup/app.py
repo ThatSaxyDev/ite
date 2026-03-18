@@ -38,12 +38,13 @@ from ite.git.branches import (
     is_git_repo,
     list_local_branches,
 )
+from ite.git.working_tree import working_tree_change_set
 from ite.attachments import MAX_ATTACHMENTS
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
-from .change_views import build_change_card_body
+from .change_views import build_change_card_body, change_entry_label
 from .composer_views import (
     SlashCommandOption,
     build_command_palette_options,
@@ -263,6 +264,13 @@ class ReupApp(App):
         self._aside_entries: list[dict[str, str]] = []
         self._aside_entry_seq: int = 0
         self._aside_pending_widgets: dict[str, Static] = {}
+        self._change_review_visible: bool = False
+        self._change_review_change_set: Any = None
+        self._change_review_mode: str = "changed"
+        self._change_review_title: str = "Changes"
+        self._change_review_source: str = "history"
+        self._change_review_diff_lookup: dict[str, Any] = {}
+        self._change_review_row_keys: list[str] = []
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
@@ -273,9 +281,17 @@ class ReupApp(App):
             with Horizontal(id="topbar"):
                 yield Static("New thread", id="title")
                 yield Static("", id="header-meta")
+                yield Button("/changes", id="changes-toggle", variant="default")
                 yield Button("/aside", id="aside-toggle", variant="default")
             with Container(id="chat-panel"):
                 with Horizontal(id="chat-body"):
+                    with Container(id="change-review-panel"):
+                        with Horizontal(id="change-review-header"):
+                            yield Static("Changes", id="change-review-title")
+                            yield Button("Close", id="change-review-close", variant="default")
+                        with Horizontal(id="change-review-body"):
+                            yield DataTable(id="change-review-tree", cursor_type="row")
+                            yield VerticalScroll(id="change-review-preview")
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
                         yield Static("", id="empty-state")
@@ -293,17 +309,20 @@ class ReupApp(App):
 
     async def on_mount(self) -> None:
         self.query_one("#aside-toggle", Button).display = False
+        self.query_one("#changes-toggle", Button).display = False
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
         self._apply_aside_panel_state()
+        self._apply_change_review_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
         if self.config.needs_setup:
             completed = await self._open_setup_modal(exit_on_cancel=True)
             if not completed:
                 return
         await self.ensure_agent()
+        await self._refresh_change_review_source()
         self.query_one("#prompt", TextArea).focus()
         self._sync_command_palette("")
 
@@ -331,6 +350,7 @@ class ReupApp(App):
         meta.update(f"Workspace: {self.config.cwd}")
         composer_meta_line = self.query_one("#composer-meta-line", Static)
         composer_meta_line.update(self._composer_meta_text())
+        self.run_worker(self._refresh_change_review_source(), exclusive=False)
 
     async def _show_activity_indicator(self, label: str, version: int | None = None) -> None:
         if version is not None and version != self._activity_version:
@@ -807,6 +827,161 @@ class ReupApp(App):
         toggle.label = "/aside" if not self._aside_panel_visible else "Close"
         body.display = has_content
 
+    def _apply_change_review_panel_state(self) -> None:
+        panel = self.query_one("#change-review-panel", Container)
+        toggle = self.query_one("#changes-toggle", Button)
+        has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
+        panel.display = self._change_review_visible and has_content
+        toggle.display = has_content
+        toggle.label = "/changes" if not self._change_review_visible else "Close"
+
+    async def _refresh_change_review_source(self) -> None:
+        cwd = Path(self.config.cwd).resolve()
+        change_set = None
+        source = "history"
+        title = "Changed"
+        mode = "changed"
+        if await asyncio.to_thread(is_git_repo, cwd):
+            change_set = await asyncio.to_thread(working_tree_change_set, cwd)
+            if change_set is not None:
+                source = "git"
+                title = "Working tree"
+                mode = "changed"
+        if change_set is None and self.agent and self.agent.session:
+            change_set = self.agent.session.change_history.latest()
+            if change_set is not None:
+                source = "history"
+                title = "Changed"
+                mode = "changed"
+        self._change_review_source = source
+        self._change_review_change_set = change_set
+        self._change_review_title = title
+        self._change_review_mode = mode
+        if change_set is None:
+            self._change_review_visible = False
+        self._apply_change_review_panel_state()
+
+    def _change_review_entry_label(self, diff: Any) -> Text:
+        action, color = change_entry_label(diff, mode=self._change_review_mode)
+        rel = self._change_review_relpath(diff)
+        parts = Path(rel).parts
+        name = parts[-1] if parts else rel
+        label = Text()
+        label.append(name, style="bold #e7eefb")
+        label.append("  ")
+        label.append(action, style=f"bold {color}")
+        if self._change_review_mode == "changed" and not getattr(diff, "is_deletion", False):
+            additions = len([line for line in diff.new_content.splitlines() if line])
+            if additions and getattr(diff, "is_new_file", False):
+                label.append(f"  +{additions}", style="bold #79d8a4")
+        return label
+
+    def _change_review_relpath(self, diff: Any) -> str:
+        try:
+            return str(diff.path.resolve().relative_to(Path(self.config.cwd).resolve()))
+        except Exception:
+            return str(diff.path)
+
+    def _change_review_diff_text(self, diff: Any) -> str:
+        import difflib
+
+        if self._change_review_mode == "undone":
+            old_lines = diff.new_content.splitlines(keepends=True)
+            new_lines = diff.old_content.splitlines(keepends=True)
+            fromfile = str(diff.path)
+            tofile = "/dev/null" if getattr(diff, "is_new_file", False) and not getattr(diff, "is_deletion", False) else str(diff.path)
+            if getattr(diff, "is_deletion", False):
+                fromfile = "/dev/null"
+        else:
+            return diff.to_diff()
+
+        if old_lines and not old_lines[-1].endswith("\n"):
+            old_lines[-1] += "\n"
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines[-1] += "\n"
+        return "".join(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile))
+
+    async def _render_change_review_preview(self, diff: Any | None) -> None:
+        preview = self.query_one("#change-review-preview", VerticalScroll)
+        await preview.remove_children()
+        if diff is None:
+            await preview.mount(Static("Select a file to inspect.", classes="change-review-empty"))
+            return
+        header = Text()
+        try:
+            rel = str(diff.path.resolve().relative_to(Path(self.config.cwd).resolve()))
+        except Exception:
+            rel = str(diff.path)
+        action, color = change_entry_label(diff, mode=self._change_review_mode)
+        header.append(rel, style="bold #d9e6fb")
+        header.append("  ")
+        header.append(action, style=f"bold {color}")
+        body = Static(Syntax(self._change_review_diff_text(diff), "diff", theme="monokai", word_wrap=False), classes="change-review-diff")
+        await preview.mount(Static(header, classes="change-review-path"), body)
+
+    async def _populate_change_review_panel(self) -> None:
+        table = self.query_one("#change-review-tree", DataTable)
+        preview = self.query_one("#change-review-preview", VerticalScroll)
+        table.clear(columns=True)
+        await preview.remove_children()
+        title = self.query_one("#change-review-title", Static)
+        title.update(self._change_review_title)
+        change_set = self._change_review_change_set
+        if not change_set or not getattr(change_set, "changes", None):
+            self._apply_change_review_panel_state()
+            return
+
+        first_diff: Any | None = None
+        self._change_review_diff_lookup = {}
+        self._change_review_row_keys = []
+        for diff in getattr(change_set, "changes", []):
+            if first_diff is None:
+                first_diff = diff
+        table.add_columns("Folder", "File", "Status")
+
+        for diff in getattr(change_set, "changes", []):
+            rel = self._change_review_relpath(diff)
+            rel_path = Path(rel)
+            folder = str(rel_path.parent) if str(rel_path.parent) != "." else ""
+            file_name = rel_path.name or rel
+            action, color = change_entry_label(diff, mode=self._change_review_mode)
+            status = Text(action, style=f"bold {color}")
+            table.add_row(
+                Text(folder, style="#7f8ea3"),
+                Text(file_name, style="bold #e7eefb"),
+                status,
+                key=rel,
+            )
+            self._change_review_diff_lookup[rel] = diff
+            self._change_review_row_keys.append(rel)
+
+        self._apply_change_review_panel_state()
+        if self._change_review_row_keys:
+            table.move_cursor(row=0, column=0, animate=False)
+        await self._render_change_review_preview(first_diff)
+
+    async def _open_change_review_panel(
+        self,
+        change_set: Any,
+        *,
+        title: str,
+        mode: str,
+    ) -> None:
+        self._change_review_change_set = change_set
+        self._change_review_title = title
+        self._change_review_mode = mode
+        self._change_review_visible = True
+        await self._populate_change_review_panel()
+
+    async def _toggle_change_review_panel(self) -> None:
+        await self._refresh_change_review_source()
+        if not self._change_review_change_set or not getattr(self._change_review_change_set, "changes", None):
+            return
+        self._change_review_visible = not self._change_review_visible
+        self._apply_change_review_panel_state()
+        if self._change_review_visible:
+            await self._populate_change_review_panel()
+
     def _render_aside_pending_text(self) -> Text:
         text = Text("Thinking", style="#8fdad4 italic")
         suffix = self._activity_suffix_frames[
@@ -880,6 +1055,32 @@ class ReupApp(App):
     @on(Button.Pressed, "#aside-toggle")
     def on_aside_toggle_pressed(self, _event: Button.Pressed) -> None:
         self._toggle_aside_panel()
+
+    @on(Button.Pressed, "#changes-toggle")
+    async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
+        await self._toggle_change_review_panel()
+
+    @on(Button.Pressed, "#change-review-close")
+    def on_change_review_close_pressed(self, _event: Button.Pressed) -> None:
+        self._change_review_visible = False
+        self._apply_change_review_panel_state()
+
+    def _show_change_review_row(self, row_key_value: str | None) -> None:
+        if not row_key_value:
+            return
+        diff = self._change_review_diff_lookup.get(row_key_value)
+        if diff is not None:
+            self.run_worker(self._render_change_review_preview(diff), exclusive=False)
+
+    @on(DataTable.RowHighlighted, "#change-review-tree")
+    def on_change_review_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        row_key = event.row_key.value if event.row_key is not None else None
+        self._show_change_review_row(row_key)
+
+    @on(DataTable.RowSelected, "#change-review-tree")
+    def on_change_review_row_selected(self, event: DataTable.RowSelected) -> None:
+        row_key = event.row_key.value if event.row_key is not None else None
+        self._show_change_review_row(row_key)
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:
@@ -1672,6 +1873,10 @@ class ReupApp(App):
             await self._run_aside_command_native(args)
             return
 
+        if command == "/changes":
+            await self._run_changes_command_native()
+            return
+
         if command == "/undo":
             await self._run_undo_command_native(args)
             return
@@ -1746,6 +1951,24 @@ class ReupApp(App):
             state="done",
         )
 
+    async def _run_changes_command_native(self) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            self.post_system("Changes", "No active session.", is_error=True)
+            return
+
+        await self._refresh_change_review_source()
+        change_set = self._change_review_change_set or self.agent.session.change_history.latest()
+        if not change_set or not getattr(change_set, "changes", None):
+            self.post_system("Changes", "No recorded file changes yet.", is_error=True)
+            return
+
+        await self._open_change_review_panel(
+            change_set,
+            title=self._change_review_title if self._change_review_change_set else "Changed",
+            mode=self._change_review_mode if self._change_review_change_set else "changed",
+        )
+
     async def _run_undo_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
@@ -1767,6 +1990,7 @@ class ReupApp(App):
             mode="undone",
         )
         await self.add_assistant_card("Undid changes", body, css_class="change")
+        await self._open_change_review_panel(change_set, title="Undid changes", mode="undone")
 
     async def _run_redo_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -1789,6 +2013,7 @@ class ReupApp(App):
             mode="redone",
         )
         await self.add_assistant_card("Reapplied changes", body, css_class="change")
+        await self._open_change_review_panel(change_set, title="Reapplied changes", mode="redone")
 
     async def _run_plan_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -2241,6 +2466,7 @@ class ReupApp(App):
             mode="changed",
         )
         await self.add_assistant_card("Changed", body, css_class="change")
+        await self._open_change_review_panel(change_set, title="Changed", mode="changed")
 
     async def _present_plan_ready_action_card(self) -> bool:
         conversation = self.query_one("#conversation", VerticalScroll)
