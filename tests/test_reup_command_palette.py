@@ -2,7 +2,7 @@ import unittest
 import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import PropertyMock, patch
+from unittest.mock import AsyncMock, PropertyMock, patch
 from types import SimpleNamespace
 
 from ite.config.config import Config
@@ -154,6 +154,75 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(labels[0], "1. First")
         self.assertEqual(labels[1], "2. Second (recommended)")
+
+    def test_handle_send_asks_for_resolution_instead_of_auto_cancel(self) -> None:
+        app = self._app()
+        app._is_turn_running = True
+
+        class DummyPrompt:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+        prompt = DummyPrompt("follow up message")
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "query_one", return_value=prompt),
+                patch.object(app, "_resolve_active_turn_send", new=AsyncMock(return_value=True)) as resolve,
+                patch.object(app, "cancel_active_turn", new=AsyncMock()) as cancel,
+            ):
+                await app.handle_send()
+                resolve.assert_awaited_once()
+                cancel.assert_not_called()
+
+        asyncio.run(scenario())
+
+    def test_run_agent_message_auto_dispatches_queued_payload_after_clean_finish(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=None)
+        app._queued_turn_payload = {"message": "next", "attachments": []}
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "add_user_message", new=AsyncMock()),
+                patch.object(app, "_agent_turn", new=AsyncMock()),
+                patch.object(app, "auto_save", new=AsyncMock()),
+                patch.object(app, "_progress_state_label", return_value="thinking"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()) as dispatch_queued,
+                patch.object(app, "_restore_queued_payload_after_unsuccessful_turn") as restore_queued,
+            ):
+                await app.run_agent_message("hello")
+                dispatch_queued.assert_awaited_once()
+                restore_queued.assert_not_called()
+
+        asyncio.run(scenario())
+
+    def test_run_agent_message_restores_queued_payload_after_error(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=None)
+        app._queued_turn_payload = {"message": "next", "attachments": []}
+
+        async def fake_agent_turn(_message: str) -> None:
+            app._turn_had_error = True
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "add_user_message", new=AsyncMock()),
+                patch.object(app, "_agent_turn", new=fake_agent_turn),
+                patch.object(app, "auto_save", new=AsyncMock()),
+                patch.object(app, "_progress_state_label", return_value="thinking"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()) as dispatch_queued,
+                patch.object(app, "_restore_queued_payload_after_unsuccessful_turn") as restore_queued,
+            ):
+                await app.run_agent_message("hello")
+                dispatch_queued.assert_not_called()
+                restore_queued.assert_called_once()
+
+        asyncio.run(scenario())
 
 
 if __name__ == "__main__":

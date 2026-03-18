@@ -512,6 +512,62 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         )
 
 
+class ActiveTurnSendModal(ModalScreen[str | None]):
+    BINDINGS = [
+        ("escape", "dismiss", "Dismiss"),
+        ("1", "steer", "Steer"),
+        ("2", "queue", "Queue"),
+    ]
+
+    def __init__(self, message: str, *, replacing_queue: bool) -> None:
+        super().__init__()
+        self._message = (message or "").strip()
+        self._replacing_queue = replacing_queue
+
+    def compose(self) -> ComposeResult:
+        queue_copy = (
+            "Queue will replace the message already waiting."
+            if self._replacing_queue
+            else "Queue will send this after the current turn completes."
+        )
+        with Container(classes="modal turn-send-modal"):
+            yield Static("Turn In Progress", classes="turn-send-eyebrow")
+            yield Label("What should happen to this new message?", classes="turn-send-title")
+            yield Static(
+                "Steer interrupts the current turn and starts this one now.\n"
+                f"{queue_copy}",
+                classes="turn-send-body",
+            )
+            with Container(classes="turn-send-preview"):
+                yield Static("New message", classes="turn-send-preview-label")
+                yield Static(self._message, classes="turn-send-preview-body")
+            with Horizontal(classes="modal-actions resume-actions turn-send-actions"):
+                yield Button("Queue", id="queue", variant="primary")
+                yield Button("Steer", id="steer", variant="warning")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        self.query_one("#queue", Button).focus()
+
+    def action_steer(self) -> None:
+        self.dismiss("steer")
+
+    def action_queue(self) -> None:
+        self.dismiss("queue")
+
+    @on(Button.Pressed, "#steer")
+    def on_steer_pressed(self, _event: Button.Pressed) -> None:
+        self.action_steer()
+
+    @on(Button.Pressed, "#queue")
+    def on_queue_pressed(self, _event: Button.Pressed) -> None:
+        self.action_queue()
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
 class ReupPromptTextArea(TextArea):
     class Submitted(Message):
         pass
@@ -691,6 +747,9 @@ class ReupApp(App):
         self._aside_entries: list[dict[str, str]] = []
         self._aside_entry_seq: int = 0
         self._aside_pending_widgets: dict[str, Static] = {}
+        self._queued_turn_payload: dict[str, Any] | None = None
+        self._turn_had_error: bool = False
+        self._suppress_queued_restore_once: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1824,23 +1883,38 @@ class ReupApp(App):
         prompt_container.styles.height = container_height
         composer.styles.height = composer_height
 
-    async def handle_send(self) -> None:
-        prompt = self.query_one("#prompt", TextArea)
-        message = prompt.text.strip()
-        if not message:
-            return
-        if self._is_turn_running and not is_aside_command_text(message):
-            await self.cancel_active_turn()
-            return
+    def _build_turn_payload(self, message: str) -> dict[str, Any]:
+        attachments: list[str] = []
+        if self.agent and self.agent.session:
+            attachments = list(self.agent.session.pending_attachment_paths)
+        return {
+            "message": (message or "").strip(),
+            "attachments": attachments[:MAX_ATTACHMENTS],
+        }
 
-        self._record_composer_history(message)
+    def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        self._record_composer_history(prompt.text.strip())
         self._composer_history_index = None
         self._composer_history_draft = ""
         prompt.text = ""
         self._resize_composer_for_prompt()
+        if clear_attachments and self.agent and self.agent.session:
+            self.agent.session.pending_attachment_paths = []
 
-        if self._consume_dropped_path_text(message):
+    def _restore_payload_to_composer(self, payload: dict[str, Any]) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        prompt.text = str(payload.get("message", "")).strip()
+        self._resize_composer_for_prompt()
+        if self.agent and self.agent.session:
+            self.agent.session.pending_attachment_paths = list(payload.get("attachments", []))[:MAX_ATTACHMENTS]
+
+    async def _dispatch_payload(self, payload: dict[str, Any]) -> None:
+        message = str(payload.get("message", "")).strip()
+        if not message:
             return
+        if self.agent and self.agent.session:
+            self.agent.session.pending_attachment_paths = list(payload.get("attachments", []))[:MAX_ATTACHMENTS]
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:
@@ -1851,12 +1925,75 @@ class ReupApp(App):
             await self.run_command(message)
             return
 
-        # Important: run intent-assist modal flow in a worker so the
-        # Textual message pump remains interactive (mouse + keyboard).
         self.run_worker(
             self._handle_agent_send_with_intent(message),
             exclusive=False,
         )
+
+    async def _resolve_active_turn_send(self, payload: dict[str, Any]) -> bool:
+        replacing_queue = self._queued_turn_payload is not None
+        decision = await self._open_modal(
+            ActiveTurnSendModal(
+                str(payload.get("message", "")),
+                replacing_queue=replacing_queue,
+            )
+        )
+        if decision == "steer":
+            self._clear_composer_after_submit(clear_attachments=True)
+            self._suppress_queued_restore_once = True
+            await self.cancel_active_turn()
+            await self._dispatch_payload(payload)
+            return True
+        if decision == "queue":
+            self._queued_turn_payload = payload
+            self._clear_composer_after_submit(clear_attachments=True)
+            if replacing_queue:
+                self.post_notice("Queued", "Replaced the waiting message.")
+            else:
+                self.post_notice("Queued", "Will send after the current turn completes.")
+            return True
+        return False
+
+    async def _dispatch_queued_payload_if_ready(self) -> None:
+        if self._queued_turn_payload is None:
+            return
+        payload = self._queued_turn_payload
+        self._queued_turn_payload = None
+        self.post_notice("Queued", "Sending queued message.")
+        await self._dispatch_payload(payload)
+
+    def _restore_queued_payload_after_unsuccessful_turn(self) -> None:
+        if self._suppress_queued_restore_once:
+            self._suppress_queued_restore_once = False
+            return
+        if self._queued_turn_payload is None:
+            return
+        payload = self._queued_turn_payload
+        self._queued_turn_payload = None
+        self._restore_payload_to_composer(payload)
+        self.post_notice(
+            "Queued Message Held",
+            "Previous turn did not complete normally. Restored queued draft to the composer.",
+        )
+
+    async def handle_send(self) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        message = prompt.text.strip()
+        if not message:
+            return
+        if self._is_turn_running and not is_aside_command_text(message):
+            payload = self._build_turn_payload(message)
+            handled = await self._resolve_active_turn_send(payload)
+            if handled:
+                return
+            return
+
+        payload = self._build_turn_payload(message)
+        self._clear_composer_after_submit()
+
+        if self._consume_dropped_path_text(message):
+            return
+        await self._dispatch_payload(payload)
 
     async def _handle_agent_send_with_intent(self, message: str) -> None:
         assisted = await self._apply_intent_assist(message)
@@ -2293,14 +2430,17 @@ class ReupApp(App):
             return
 
         self._last_rendered_plan_text = None
+        self._turn_had_error = False
         await self.add_user_message(message)
         self._active_turn_task = asyncio.create_task(self._agent_turn(message))
         self._is_turn_running = True
         self._set_loading_state(self._progress_state_label(), busy=True)
+        completed_normally = False
 
         try:
             await self._active_turn_task
             await self.auto_save()
+            completed_normally = not self._turn_had_error
         except asyncio.CancelledError:
             self.post_notice("Interrupted", "Stopped current run.")
             await self.auto_save()
@@ -2308,6 +2448,11 @@ class ReupApp(App):
             self._active_turn_task = None
             self._is_turn_running = False
             self._set_loading_state("idle", busy=False)
+
+        if completed_normally:
+            await self._dispatch_queued_payload_if_ready()
+        else:
+            self._restore_queued_payload_after_unsuccessful_turn()
 
     async def _agent_turn(self, message: str) -> None:
         assert self.agent is not None
@@ -2368,6 +2513,7 @@ class ReupApp(App):
         if event.type == AgentEventType.AGENT_ERROR:
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
+            self._turn_had_error = True
             self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
             return
 
