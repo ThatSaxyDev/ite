@@ -20,7 +20,7 @@ from textual.containers import Container, Horizontal, ScrollableContainer, Verti
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, DirectoryTree, Footer, Header, Input, Label, Static, TextArea
+from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea, Tree
 from textual.widget import Widget
 
 from ite.agent.agent import Agent
@@ -271,6 +271,8 @@ class ReupApp(App):
         self._change_review_title: str = "Changes"
         self._change_review_source: str = "history"
         self._change_review_diff_lookup: dict[str, Any] = {}
+        self._change_review_selected_rel_path: str | None = None
+        self._change_review_snapshot_key: tuple[Any, ...] | None = None
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
@@ -290,7 +292,7 @@ class ReupApp(App):
                             yield Static("Changes", id="change-review-title")
                             yield Button("Close", id="change-review-close", variant="default")
                         with Horizontal(id="change-review-body"):
-                            yield ChangedFilesTree(self.config.cwd, id="change-review-tree")
+                            yield ChangedFilesTree(id="change-review-tree")
                             yield ScrollableContainer(id="change-review-preview")
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
@@ -317,6 +319,7 @@ class ReupApp(App):
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
+        self.set_interval(1.0, self._poll_change_review_panel)
         if self.config.needs_setup:
             completed = await self._open_setup_modal(exit_on_cancel=True)
             if not completed:
@@ -845,7 +848,10 @@ class ReupApp(App):
             change_set = await asyncio.to_thread(working_tree_change_set, cwd)
             if change_set is not None:
                 source = "git"
-                title = "Working tree"
+                title = (
+                    f"Working tree  {change_set.staged_count} staged"
+                    f"  {change_set.unstaged_count} unstaged"
+                )
                 mode = "changed"
         if change_set is None and self.agent and self.agent.session:
             change_set = self.agent.session.change_history.latest()
@@ -859,7 +865,29 @@ class ReupApp(App):
         self._change_review_mode = mode
         if change_set is None:
             self._change_review_visible = False
+            self._change_review_snapshot_key = None
         self._apply_change_review_panel_state()
+
+    def _change_review_signature(self, change_set: Any | None) -> tuple[Any, ...] | None:
+        if not change_set or not getattr(change_set, "changes", None):
+            return None
+
+        def _diff_key(diff: Any) -> tuple[Any, ...]:
+            return (
+                self._change_review_relpath(diff),
+                hash(getattr(diff, "old_content", "")),
+                hash(getattr(diff, "new_content", "")),
+                bool(getattr(diff, "is_new_file", False)),
+                bool(getattr(diff, "is_deletion", False)),
+            )
+
+        return (
+            self._change_review_source,
+            tuple(_diff_key(diff) for diff in getattr(change_set, "changes", [])),
+            tuple(self._change_review_relpath(diff) for diff in getattr(change_set, "staged_changes", [])),
+            tuple(self._change_review_relpath(diff) for diff in getattr(change_set, "unstaged_changes", [])),
+            tuple(self._change_review_relpath(diff) for diff in getattr(change_set, "untracked_changes", [])),
+        )
 
     def _change_review_entry_label(self, diff: Any) -> Text:
         action, color = change_entry_label(diff, mode=self._change_review_mode)
@@ -922,6 +950,11 @@ class ReupApp(App):
         header.append(rel, style="bold #d9e6fb")
         header.append("  ")
         header.append(action, style=f"bold {color}")
+        if self._change_review_source == "git":
+            stage_label_for = getattr(self._change_review_change_set, "stage_label_for", None)
+            if callable(stage_label_for):
+                header.append("  ")
+                header.append(stage_label_for(diff.path), style="bold #9caecb")
         body = Static(Syntax(self._change_review_diff_text(diff), "diff", theme="monokai", word_wrap=False), classes="change-review-diff")
         await preview.mount(Static(header, classes="change-review-path"), body)
 
@@ -938,17 +971,44 @@ class ReupApp(App):
 
         first_diff: Any | None = None
         self._change_review_diff_lookup = {}
-        changed_paths: list[Path] = []
         for diff in getattr(change_set, "changes", []):
             if first_diff is None:
                 first_diff = diff
             rel = self._change_review_relpath(diff)
             self._change_review_diff_lookup[rel] = diff
-            changed_paths.append(diff.path)
 
         self._apply_change_review_panel_state()
-        await tree.set_changed_files(changed_paths)
-        await self._render_change_review_preview(first_diff)
+        first_rel = None
+        if self._change_review_source == "git":
+            staged_paths = [
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "staged_changes", [])
+            ]
+            unstaged_paths = [
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "unstaged_changes", [])
+            ]
+            untracked_paths = {
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "untracked_changes", [])
+            }
+            plain_unstaged = [path for path in unstaged_paths if path not in untracked_paths]
+            groups = [
+                ("Staged", staged_paths),
+                ("Unstaged", plain_unstaged),
+                ("Untracked", sorted(untracked_paths)),
+            ]
+            first_rel = tree.populate_groups(groups, selected_rel_path=self._change_review_selected_rel_path)
+        else:
+            first_rel = tree.populate_groups(
+                [("Changed", [self._change_review_relpath(diff) for diff in getattr(change_set, "changes", [])])],
+                selected_rel_path=self._change_review_selected_rel_path,
+            )
+
+        self._change_review_selected_rel_path = first_rel
+        initial_diff = self._change_review_diff_lookup.get(first_rel) if first_rel else first_diff
+        self._change_review_snapshot_key = self._change_review_signature(change_set)
+        await self._render_change_review_preview(initial_diff)
 
     async def _open_change_review_panel(
         self,
@@ -976,6 +1036,21 @@ class ReupApp(App):
         self._change_review_visible = not self._change_review_visible
         self._apply_change_review_panel_state()
         if self._change_review_visible:
+            await self._populate_change_review_panel()
+
+    def _poll_change_review_panel(self) -> None:
+        if not self._change_review_visible or self._change_review_source != "git":
+            return
+        self.run_worker(self._sync_open_change_review_panel(), exclusive=True)
+
+    async def _sync_open_change_review_panel(self) -> None:
+        previous_signature = self._change_review_snapshot_key
+        await self._refresh_change_review_source()
+        change_set = self._change_review_change_set
+        if not self._change_review_visible or not change_set or not getattr(change_set, "changes", None):
+            return
+        current_signature = self._change_review_signature(change_set)
+        if current_signature != previous_signature:
             await self._populate_change_review_panel()
 
     def _render_aside_pending_text(self) -> Text:
@@ -1064,20 +1139,24 @@ class ReupApp(App):
     def _show_change_review_row(self, row_key_value: str | None) -> None:
         if not row_key_value:
             return
+        self._change_review_selected_rel_path = row_key_value
         diff = self._change_review_diff_lookup.get(row_key_value)
         if diff is not None:
             self.run_worker(self._render_change_review_preview(diff), exclusive=False)
 
-    @on(DirectoryTree.FileSelected, "#change-review-tree")
-    def on_change_review_file_selected(self, event: DirectoryTree.FileSelected) -> None:
-        self._show_change_review_row(self._change_review_relpath_from_path(event.path))
-
-    @on(DirectoryTree.NodeHighlighted, "#change-review-tree")
-    def on_change_review_node_highlighted(self, event: DirectoryTree.NodeHighlighted) -> None:
+    @on(Tree.NodeSelected, "#change-review-tree")
+    def on_change_review_node_selected(self, event: Tree.NodeSelected) -> None:
         data = getattr(event.node, "data", None)
-        path = getattr(data, "path", None)
-        if isinstance(path, Path) and path.is_file():
-            self._show_change_review_row(self._change_review_relpath_from_path(path))
+        rel_path = getattr(data, "rel_path", None)
+        if isinstance(rel_path, str):
+            self._show_change_review_row(rel_path)
+
+    @on(Tree.NodeHighlighted, "#change-review-tree")
+    def on_change_review_node_highlighted(self, event: Tree.NodeHighlighted) -> None:
+        data = getattr(event.node, "data", None)
+        rel_path = getattr(data, "rel_path", None)
+        if isinstance(rel_path, str):
+            self._show_change_review_row(rel_path)
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:

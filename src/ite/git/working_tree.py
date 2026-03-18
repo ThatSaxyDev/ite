@@ -1,10 +1,45 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ite.agent.change_history import ChangeSet
 from ite.tools.base import FileDiff
+
+
+@dataclass
+class GitWorkingTreeChangeSet:
+    id: str
+    label: str
+    changes: list[FileDiff] = field(default_factory=list)
+    staged_changes: list[FileDiff] = field(default_factory=list)
+    unstaged_changes: list[FileDiff] = field(default_factory=list)
+    untracked_changes: list[FileDiff] = field(default_factory=list)
+
+    def stage_label_for(self, path: Path) -> str:
+        rel = str(path)
+        has_staged = any(str(diff.path) == rel for diff in self.staged_changes)
+        has_unstaged = any(str(diff.path) == rel for diff in self.unstaged_changes)
+        if has_staged and has_unstaged:
+            return "staged + unstaged"
+        if has_staged:
+            return "staged"
+        if has_unstaged:
+            return "unstaged"
+        return "working tree"
+
+    @property
+    def staged_count(self) -> int:
+        return len(self.staged_changes)
+
+    @property
+    def unstaged_count(self) -> int:
+        return len(self.unstaged_changes)
+
+    @property
+    def untracked_count(self) -> int:
+        return len(self.untracked_changes)
 
 
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -30,6 +65,15 @@ def _head_has_path(cwd: Path, path: str) -> bool:
 
 def _head_content(cwd: Path, path: str) -> str:
     return _git_output(cwd, "show", f"HEAD:{path}")
+
+
+def _index_has_path(cwd: Path, path: str) -> bool:
+    result = _run_git(cwd, "cat-file", "-e", f":{path}")
+    return result.returncode == 0
+
+
+def _index_content(cwd: Path, path: str) -> str:
+    return _git_output(cwd, "show", f":{path}")
 
 
 def _parse_status_entries(cwd: Path) -> list[tuple[str, str]]:
@@ -62,71 +106,158 @@ def _expand_untracked_directory(cwd: Path, relative_dir: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def working_tree_change_set(cwd: Path) -> ChangeSet | None:
+def _read_worktree_content(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff | None:
+    in_head = _head_has_path(cwd, rel_path)
+    exists_now = abs_path.exists()
+
+    if not in_head and exists_now:
+        return FileDiff(
+            path=abs_path,
+            old_content="",
+            new_content=_read_worktree_content(abs_path),
+            is_new_file=True,
+            is_deletion=False,
+        )
+
+    old_content = _head_content(cwd, rel_path) if in_head else ""
+    if not exists_now:
+        return FileDiff(
+            path=abs_path,
+            old_content=old_content,
+            new_content="",
+            is_new_file=False,
+            is_deletion=True,
+        )
+
+    return FileDiff(
+        path=abs_path,
+        old_content=old_content,
+        new_content=_read_worktree_content(abs_path),
+        is_new_file=not in_head,
+        is_deletion=False,
+    )
+
+
+def _build_staged_diff(cwd: Path, rel_path: str, abs_path: Path, status_x: str) -> FileDiff | None:
+    if status_x in {" ", "?"}:
+        return None
+
+    in_head = _head_has_path(cwd, rel_path)
+    in_index = _index_has_path(cwd, rel_path)
+    if not in_index and status_x != "D":
+        return None
+
+    old_content = _head_content(cwd, rel_path) if in_head else ""
+
+    if status_x == "D":
+        return FileDiff(
+            path=abs_path,
+            old_content=old_content,
+            new_content="",
+            is_new_file=False,
+            is_deletion=True,
+        )
+
+    new_content = _index_content(cwd, rel_path)
+    return FileDiff(
+        path=abs_path,
+        old_content=old_content,
+        new_content=new_content,
+        is_new_file=not in_head,
+        is_deletion=False,
+    )
+
+
+def _build_unstaged_diff(cwd: Path, rel_path: str, abs_path: Path, status_y: str, status: str) -> FileDiff | None:
+    is_untracked = status == "??"
+    if status_y == " " and not is_untracked:
+        return None
+
+    if is_untracked:
+        if abs_path.is_dir() or not abs_path.exists():
+            return None
+        return FileDiff(
+            path=abs_path,
+            old_content="",
+            new_content=_read_worktree_content(abs_path),
+            is_new_file=True,
+            is_deletion=False,
+        )
+
+    in_index = _index_has_path(cwd, rel_path)
+    old_content = _index_content(cwd, rel_path) if in_index else ""
+
+    if status_y == "D" or not abs_path.exists():
+        return FileDiff(
+            path=abs_path,
+            old_content=old_content,
+            new_content="",
+            is_new_file=False,
+            is_deletion=True,
+        )
+
+    return FileDiff(
+        path=abs_path,
+        old_content=old_content,
+        new_content=_read_worktree_content(abs_path),
+        is_new_file=not in_index,
+        is_deletion=False,
+    )
+
+
+def working_tree_change_set(cwd: Path) -> GitWorkingTreeChangeSet | None:
     entries = _parse_status_entries(cwd)
     if not entries:
         return None
 
-    changes: list[FileDiff] = []
+    combined_changes: list[FileDiff] = []
+    staged_changes: list[FileDiff] = []
+    unstaged_changes: list[FileDiff] = []
+    untracked_changes: list[FileDiff] = []
     seen: set[str] = set()
+
     for status, raw_path in entries:
         candidate_paths = [raw_path.strip()]
         if status == "??" and raw_path.endswith("/"):
             candidate_paths = _expand_untracked_directory(cwd, raw_path.strip()) or []
 
-        for path in candidate_paths:
-            if not path or path in seen:
+        for rel_path in candidate_paths:
+            if not rel_path or rel_path in seen:
                 continue
-            seen.add(path)
-            abs_path = (cwd / path).resolve()
+            seen.add(rel_path)
+            abs_path = (cwd / rel_path).resolve()
             if abs_path.is_dir():
                 continue
 
-            in_head = _head_has_path(cwd, path)
-            exists_now = abs_path.exists()
+            combined = _build_combined_diff(cwd, rel_path, abs_path)
+            if combined is not None:
+                combined_changes.append(combined)
 
-            if not in_head and exists_now:
-                new_content = abs_path.read_text(encoding="utf-8", errors="replace")
-                changes.append(
-                    FileDiff(
-                        path=abs_path,
-                        old_content="",
-                        new_content=new_content,
-                        is_new_file=True,
-                        is_deletion=False,
-                    )
-                )
-                continue
+            status_x = status[0]
+            status_y = status[1]
 
-            old_content = _head_content(cwd, path) if in_head else ""
-            if not exists_now:
-                changes.append(
-                    FileDiff(
-                        path=abs_path,
-                        old_content=old_content,
-                        new_content="",
-                        is_new_file=False,
-                        is_deletion=True,
-                    )
-                )
-                continue
+            staged = _build_staged_diff(cwd, rel_path, abs_path, status_x)
+            if staged is not None:
+                staged_changes.append(staged)
 
-            new_content = abs_path.read_text(encoding="utf-8", errors="replace")
-            changes.append(
-                FileDiff(
-                    path=abs_path,
-                    old_content=old_content,
-                    new_content=new_content,
-                    is_new_file=not in_head,
-                    is_deletion=False,
-                )
-            )
+            unstaged = _build_unstaged_diff(cwd, rel_path, abs_path, status_y, status)
+            if unstaged is not None:
+                unstaged_changes.append(unstaged)
+                if status == "??":
+                    untracked_changes.append(unstaged)
 
-    if not changes:
+    if not combined_changes:
         return None
 
-    return ChangeSet(
+    return GitWorkingTreeChangeSet(
         id="working-tree",
         label="Working tree",
-        changes=changes,
+        changes=combined_changes,
+        staged_changes=staged_changes,
+        unstaged_changes=unstaged_changes,
+        untracked_changes=untracked_changes,
     )
