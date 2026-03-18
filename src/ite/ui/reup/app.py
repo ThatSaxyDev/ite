@@ -832,8 +832,8 @@ class ReupApp(App):
         toggle = self.query_one("#changes-toggle", Button)
         has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
         panel.display = self._change_review_visible and has_content
-        toggle.display = has_content
-        toggle.label = "/changes" if not self._change_review_visible else "Close"
+        toggle.display = has_content and not self._change_review_visible
+        toggle.label = "/changes"
 
     async def _refresh_change_review_source(self) -> None:
         cwd = Path(self.config.cwd).resolve()
@@ -2463,7 +2463,8 @@ class ReupApp(App):
             mode="changed",
         )
         await self.add_assistant_card("Changed", body, css_class="change")
-        await self._open_change_review_panel(change_set, title="Changed", mode="changed")
+        if self._change_review_visible:
+            await self._open_change_review_panel(change_set, title="Changed", mode="changed")
 
     async def _present_plan_ready_action_card(self) -> bool:
         conversation = self.query_one("#conversation", VerticalScroll)
