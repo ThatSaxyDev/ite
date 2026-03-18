@@ -6,16 +6,12 @@ import json
 import os
 import re
 import shlex
-from datetime import datetime
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from rich.console import Group
-from rich.cells import cell_len
 from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
-from rich.table import Table
 from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
@@ -48,6 +44,17 @@ from ite.ui.tool_narrative import activity_title, describe_tool_activity, progre
 
 from .adapters.registry import build_command_context
 from .change_views import build_change_card_body
+from .composer_views import (
+    SlashCommandOption,
+    build_command_palette_options,
+    build_empty_state_title,
+    build_turn_action_options,
+    build_turn_payload,
+    composer_meta_text,
+    filtered_command_palette,
+    render_command_palette,
+    render_turn_action_palette,
+)
 from .modals import (
     AttachPickerModal,
     BranchPickerModal,
@@ -56,12 +63,21 @@ from .modals import (
     SessionResumeModal,
     SetupModal,
 )
-
-
-@dataclass(frozen=True)
-class SlashCommandOption:
-    name: str
-    description: str
+from .tool_views import (
+    display_path,
+    extract_read_file_code,
+    guess_language,
+    render_args_table,
+    render_grep_output,
+    render_list_dir_output,
+    render_shell_command_line,
+    render_shell_result_payload,
+    render_shell_running_card,
+    render_text_payload,
+    render_todo_payload,
+    todo_start_hint,
+    truncate_for_tool,
+)
 
 
 class ReupPromptTextArea(TextArea):
@@ -358,10 +374,7 @@ class ReupApp(App):
 
     def _composer_meta_text(self) -> Text:
         plan_enabled = bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
-        status_text = "on" if plan_enabled else "off"
-        status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
         branch_label = "no-git"
-        branch_style = "bold #9ca3af"
         attachment_count = 0
         if self.agent and self.agent.session:
             attachment_count = len(self.agent.session.pending_attachment_paths)
@@ -369,83 +382,34 @@ class ReupApp(App):
             cwd = Path(self.config.cwd).resolve()
             if is_git_repo(cwd):
                 branch_label = current_branch(cwd)
-                branch_style = "bold #d1d5db"
         except Exception:
             pass
-
-        cell_pos = 0
-        text = Text(style="#d1d5db")
-        attach_start = cell_pos
-        text.append("📎", style="bold #d1d5db")
-        cell_pos += cell_len("📎")
-        if attachment_count:
-            badge = f" {attachment_count}"
-            text.append(badge, style="bold #5dcf84")
-            cell_pos += cell_len(badge)
-        attach_end = cell_pos
-        self._composer_attach_hitbox = (attach_start, attach_end)
-        spacer = "     "
-        text.append(spacer)
-        cell_pos += cell_len(spacer)
-        model_text = self.config.model_name
-        text.append(model_text, style="bold #d1d5db")
-        cell_pos += cell_len(model_text)
-        text.append(spacer)
-        cell_pos += cell_len(spacer)
-        plan_start = cell_pos
-        text.append("Plan", style="bold #d1d5db")
-        cell_pos += cell_len("Plan")
-        text.append(" ")
-        cell_pos += 1
-        text.append(status_text, style=status_style)
-        cell_pos += cell_len(status_text)
-        plan_end = cell_pos
-        text.append(spacer)
-        cell_pos += cell_len(spacer)
-        branch_start = cell_pos
-        git_prefix = "git "
-        text.append(git_prefix, style="bold #9ca3af")
-        cell_pos += cell_len(git_prefix)
-        text.append(branch_label, style=branch_style)
-        cell_pos += cell_len(branch_label)
-        branch_suffix = " ▾"
-        text.append(branch_suffix, style="bold #9ca3af")
-        cell_pos += cell_len(branch_suffix)
-        branch_end = cell_pos
-        self._composer_branch_hitbox = (branch_start, branch_end)
-        self._composer_plan_hitbox = (plan_start, plan_end)
+        text, attach_hitbox, branch_hitbox, plan_hitbox = composer_meta_text(
+            cwd=Path(self.config.cwd),
+            model_name=self.config.model_name,
+            attachment_count=attachment_count,
+            plan_enabled=plan_enabled,
+            branch_label=branch_label,
+        )
+        self._composer_attach_hitbox = attach_hitbox
+        self._composer_branch_hitbox = branch_hitbox
+        self._composer_plan_hitbox = plan_hitbox
         return text
 
     def _build_command_palette_options(self) -> list[SlashCommandOption]:
-        options = [
-            SlashCommandOption(name=command.name, description=command.description)
-            for command in self._command_registry.all_commands()
-        ]
-        return sorted(options, key=lambda option: option.name.lower())
+        return build_command_palette_options(self._command_registry)
 
     @staticmethod
     def _extract_slash_query(text: str) -> str | None:
-        raw = (text or "").lstrip()
-        if not raw or "\n" in raw:
-            return None
-        token = raw.split(maxsplit=1)[0]
-        if not token.startswith("/"):
-            return None
-        if raw != token and token.startswith("/"):
-            return None
-        return token.lower()
+        from .composer_views import extract_slash_query
+
+        return extract_slash_query(text)
 
     def _filtered_command_palette(self, text: str) -> list[SlashCommandOption]:
-        query = self._extract_slash_query(text)
-        if query is None:
-            return []
-        if query == "/":
-            return list(self._command_palette_options)
-        return [
-            option
-            for option in self._command_palette_options
-            if option.name.lower().startswith(query)
-        ]
+        return filtered_command_palette(
+            text,
+            command_palette_options=self._command_palette_options,
+        )
 
     def _command_palette_window(self) -> list[SlashCommandOption]:
         if not self._filtered_command_palette_options:
@@ -457,49 +421,17 @@ class ReupApp(App):
         return self._filtered_command_palette_options[start:end]
 
     def _render_command_palette(self) -> Text:
-        text = Text()
-        window = self._command_palette_window()
-        if not window:
-            return text
-        start = self._filtered_command_palette_options.index(window[0])
-        for idx, option in enumerate(window, start=start):
-            selected = idx == self._command_palette_index
-            line_style = "bold #f8fafc on #315b8a" if selected else "#dbe4f2"
-            desc_style = "bold #e5eefc on #315b8a" if selected else "#7f8ea3"
-            text.append(option.name.ljust(14), style=line_style)
-            text.append("  ", style=line_style)
-            text.append(option.description, style=desc_style)
-            if idx < start + len(window) - 1:
-                text.append("\n")
-        return text
+        return render_command_palette(
+            filtered_options=self._filtered_command_palette_options,
+            command_palette_index=self._command_palette_index,
+            max_rows=self.COMMAND_PALETTE_MAX_ROWS,
+        )
 
     def _build_turn_action_options(self, *, replacing_queue: bool) -> list[SlashCommandOption]:
-        queue_copy = (
-            "Replace the queued draft."
-            if replacing_queue
-            else "Send when the current turn finishes."
-        )
-        return [
-            SlashCommandOption(name="1. Shift", description="Stop now and send this draft."),
-            SlashCommandOption(name="2. Queue", description=queue_copy),
-            SlashCommandOption(name="3. /aside", description="Ask in the side panel without stopping."),
-            SlashCommandOption(name="4. Cancel", description="Keep this draft in the composer."),
-        ]
+        return build_turn_action_options(replacing_queue=replacing_queue)
 
     def _render_turn_action_palette(self) -> Text:
-        text = Text()
-        if not self._turn_action_options:
-            return text
-        for idx, option in enumerate(self._turn_action_options):
-            selected = idx == self._command_palette_index
-            line_style = "bold #f8fafc on #315b8a" if selected else "#dbe4f2"
-            desc_style = "bold #e5eefc on #315b8a" if selected else "#7f8ea3"
-            text.append(option.name.ljust(12), style=line_style)
-            text.append("  ", style=line_style)
-            text.append(option.description, style=desc_style)
-            if idx < len(self._turn_action_options) - 1:
-                text.append("\n")
-        return text
+        return render_turn_action_palette(self._turn_action_options, self._command_palette_index)
 
     def _show_turn_action_palette(self, payload: dict[str, Any], *, replacing_queue: bool) -> None:
         self._turn_action_payload = payload
@@ -811,31 +743,6 @@ class ReupApp(App):
         return True
 
     def _build_empty_state_title(self) -> str:
-        # Mirror GUI greeting logic so both surfaces stay consistent.
-        now = datetime.now()
-        hour = now.hour
-        if 5 <= hour < 12:
-            opener_variants = [
-                "Good morning",
-                "Fresh start",
-                "Morning focus",
-                "Let's get momentum",
-            ]
-        elif 12 <= hour < 17:
-            opener_variants = [
-                "Good afternoon",
-                "Afternoon check-in",
-                "Back to shipping",
-                "Let's make progress",
-            ]
-        else:
-            opener_variants = [
-                "Good evening",
-                "Evening build session",
-                "Quiet hours, solid output",
-                "Let's close the day strong",
-            ]
-
         try:
             thread_count = len(
                 [
@@ -849,27 +756,7 @@ class ReupApp(App):
             )
         except Exception:
             thread_count = 0
-
-        if thread_count > 0:
-            followup_variants = [
-                "Continue where you left off.",
-                "Pick up your last thread.",
-                "Your workspace is ready.",
-                "Resume the next step.",
-            ]
-        else:
-            followup_variants = [
-                "What should we build next?",
-                "Start a thread and let's map it out.",
-                "Drop in a goal to begin.",
-                "Tell me what you want to ship.",
-            ]
-
-        workspace_key = str(self.config.cwd.resolve())
-        seed = sum(ord(ch) for ch in f"{workspace_key}:{now.date().isoformat()}:{thread_count}")
-        opener = opener_variants[seed % len(opener_variants)]
-        followup = followup_variants[(seed // 3) % len(followup_variants)]
-        return f"{opener}. {followup}"
+        return build_empty_state_title(cwd=Path(self.config.cwd), thread_count=thread_count)
 
     def _refresh_empty_state(self) -> None:
         empty = self.query_one("#empty-state", Static)
@@ -1041,7 +928,13 @@ class ReupApp(App):
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
             if card is not None:
-                card.update(self._render_shell_running_card(args))
+                card.update(
+                    render_shell_running_card(
+                        args,
+                        cwd=self.config.cwd,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
 
     def _progress_state_label(
         self,
@@ -1528,10 +1421,7 @@ class ReupApp(App):
         attachments: list[str] = []
         if self.agent and self.agent.session:
             attachments = list(self.agent.session.pending_attachment_paths)
-        return {
-            "message": (message or "").strip(),
-            "attachments": attachments[:MAX_ATTACHMENTS],
-        }
+        return build_turn_payload(message, attachments, max_attachments=MAX_ATTACHMENTS)
 
     def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
         prompt = self.query_one("#prompt", TextArea)
@@ -2564,418 +2454,6 @@ class ReupApp(App):
             return None
         return tool.kind.value
 
-    def _ordered_args(self, tool_name: str, args: dict[str, Any]) -> list[tuple[str, Any]]:
-        preferred_order = {
-            "read_file": ["path", "offset", "limit"],
-            "write_file": ["path", "create_directories", "content"],
-            "edit": ["path", "replace_all", "old_string", "new_string"],
-            "shell": ["command", "timeout", "cwd"],
-            "list_dir": ["path", "include_hidden"],
-            "grep": ["path", "case_insensitive", "pattern"],
-            "glob": ["path", "pattern"],
-        }
-
-        preferred = preferred_order.get(tool_name, [])
-        ordered: list[tuple[str, Any]] = []
-        seen: set[str] = set()
-
-        for key in preferred:
-            if key in args:
-                ordered.append((key, args[key]))
-                seen.add(key)
-
-        for key, value in args.items():
-            if key not in seen:
-                ordered.append((key, value))
-
-        return ordered
-
-    def _display_path(self, path: str) -> str:
-        try:
-            base = self.config.cwd.resolve()
-            target = Path(path).expanduser().resolve()
-            return str(target.relative_to(base))
-        except Exception:
-            return path
-
-    def _todo_start_hint(self, arguments: dict[str, Any]) -> str:
-        scope = str(arguments.get("scope", "execution")).strip().lower()
-        action = str(arguments.get("action", "update")).strip().lower()
-        label = "planning checklist" if scope == "planning" else "task checklist"
-
-        if action == "add":
-            count = 0
-            items = arguments.get("items")
-            if isinstance(items, list):
-                count = len(items)
-            elif isinstance(arguments.get("content"), str) and arguments.get("content"):
-                count = 1
-            return f"Creating {label}" + (f" ({count} items)" if count else "")
-        if action == "complete":
-            return f"Marking item complete in {label}"
-        if action == "reopen":
-            return f"Reopening item in {label}"
-        if action == "remove":
-            return f"Removing item from {label}"
-        if action == "update":
-            return f"Updating item in {label}"
-        if action == "list":
-            return f"Refreshing {label}"
-        if action == "clear":
-            return f"Clearing {label}"
-        return "Updating checklist"
-
-    def _render_todo_payload(
-        self,
-        *,
-        output: str,
-        metadata: dict[str, Any] | None,
-    ) -> tuple[list[Any], bool]:
-        md = metadata if isinstance(metadata, dict) else {}
-        completed = md.get("completed", 0)
-        total = md.get("total", 0)
-        action = md.get("action", "")
-        scope = md.get("scope", "execution")
-        message = md.get("message", "")
-        output_display, was_truncated = self._truncate_for_tool(
-            "todos",
-            output,
-        )
-
-        blocks: list[Any] = []
-
-        if total > 0:
-            bar_width = 20
-            filled = int((completed / total) * bar_width) if total else 0
-            bar = "█" * filled + "░" * (bar_width - filled)
-            header = Text()
-            header.append(
-                f"{str(scope).capitalize()} tasks: {completed}/{total} completed ",
-                style="#8c97ab",
-            )
-            header.append(bar, style="green" if completed == total else "yellow")
-            blocks.append(header)
-            blocks.append(Text())
-        elif isinstance(scope, str):
-            blocks.append(Text(f"Scope: {scope}", style="#8c97ab"))
-            blocks.append(Text())
-
-        for line in output_display.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("☑"):
-                styled = Text()
-                styled.append("  ☑ ", style="bold green")
-                styled.append(stripped[1:].strip(), style="dim strike")
-                blocks.append(styled)
-            elif stripped.startswith("☐"):
-                styled = Text()
-                styled.append("  ☐ ", style="bold yellow")
-                styled.append(stripped[1:].strip(), style="white")
-                blocks.append(styled)
-
-        if action == "clear":
-            blocks.append(Text("  All todos cleared", style="#8c97ab"))
-        elif message:
-            blocks.append(Text(f"  {message}", style="#8c97ab"))
-
-        return blocks, was_truncated
-
-    def _render_args_table(self, tool_name: str, args: dict[str, Any]) -> Table:
-        table = Table.grid(padding=(0, 1))
-        table.add_column(style="#7d8aa5", justify="right", no_wrap=True)
-        table.add_column(style="#d5d9e2", overflow="fold")
-
-        for key, value in self._ordered_args(tool_name, args):
-            if key in {"path", "cwd"} and isinstance(value, str):
-                value = self._display_path(value)
-            elif isinstance(value, str) and key in {"content", "old_string", "new_string"}:
-                line_count = len(value.splitlines())
-                byte_count = len(value.encode("utf-8", errors="replace"))
-                value = f"<{line_count} lines, {byte_count} bytes>"
-            elif not isinstance(value, str):
-                value = str(value)
-            table.add_row(key, value)
-
-        return table
-
-    def _truncate_for_tool(self, name: str, text: str) -> tuple[str, bool]:
-        if not text:
-            return "", False
-
-        max_lines_by_tool = {
-            "read_file": 16,
-            "write_file": 18,
-            "edit": 18,
-            "list_dir": 10,
-            "glob": 10,
-            "grep": 24,
-            "shell": 18,
-            "web_fetch": 24,
-            "web_search": 18,
-            "todos": 14,
-            "memory": 12,
-        }
-        max_chars_by_tool = {
-            "read_file": 2600,
-            "write_file": 2400,
-            "edit": 2400,
-            "list_dir": 900,
-            "glob": 900,
-            "grep": 2800,
-            "shell": 2200,
-            "web_fetch": 3200,
-            "web_search": 2200,
-            "todos": 1600,
-            "memory": 1200,
-        }
-
-        max_lines = max_lines_by_tool.get(name, 16)
-        max_chars = max_chars_by_tool.get(name, 1800)
-
-        clipped = text
-        was_truncated = False
-
-        lines = clipped.splitlines()
-        if len(lines) > max_lines:
-            clipped = "\n".join(lines[:max_lines])
-            was_truncated = True
-
-        if len(clipped) > max_chars:
-            clipped = clipped[:max_chars]
-            was_truncated = True
-
-        return clipped, was_truncated
-
-    def _extract_read_file_code(self, text: str) -> tuple[int, str] | None:
-        body = text
-        header_match = re.match(r"Showing lines (\d+)-(\d+) of (\d+)\n\n", text)
-        if header_match:
-            body = text[header_match.end() :]
-
-        code_lines: list[str] = []
-        start_line: int | None = None
-        for line in body.splitlines():
-            match = re.match(r"^\s*(\d+)\|(.*)$", line)
-            if not match:
-                return None
-            line_no = int(match.group(1))
-            if start_line is None:
-                start_line = line_no
-            code_lines.append(match.group(2))
-
-        if start_line is None:
-            return None
-        return start_line, "\n".join(code_lines)
-
-    def _guess_language(self, path: str | None) -> str:
-        if not path:
-            return "text"
-        ext = Path(path).suffix.lower()
-        return {
-            ".py": "python",
-            ".ts": "typescript",
-            ".tsx": "tsx",
-            ".js": "javascript",
-            ".jsx": "jsx",
-            ".json": "json",
-            ".md": "markdown",
-            ".yml": "yaml",
-            ".yaml": "yaml",
-            ".toml": "toml",
-            ".css": "css",
-            ".html": "html",
-            ".sh": "bash",
-            ".diff": "diff",
-            ".patch": "diff",
-        }.get(ext, "text")
-
-    def _looks_like_markdown(self, text: str) -> bool:
-        if "```" in text:
-            return True
-        return bool(re.search(r"(?m)^(#{1,6}\s|\* |\d+\.\s|>\s)", text))
-
-    def _looks_like_json(self, text: str) -> bool:
-        stripped = text.strip()
-        return (stripped.startswith("{") and stripped.endswith("}")) or (
-            stripped.startswith("[") and stripped.endswith("]")
-        )
-
-    def _render_list_dir_output(self, output: str) -> Text:
-        def strip_existing_icon(text: str) -> str:
-            cleaned = text.lstrip()
-            while cleaned and cleaned[0] in {
-                "📁",
-                "📂",
-                "📄",
-                "🗀",
-                "🗁",
-                "🗂",
-                "🗃",
-                "🗄",
-                "🗋",
-                "🗎",
-            }:
-                cleaned = cleaned[1:].lstrip()
-            return cleaned
-
-        result = Text()
-        for raw_line in output.splitlines():
-            line = strip_existing_icon(raw_line.rstrip())
-            if not line:
-                result.append("\n")
-                continue
-            if line.endswith("/"):
-                result.append("📁 ", style="#9bc7ff")
-                result.append(line, style="#dce6ff")
-            else:
-                result.append("📄 ", style="#9da9bd")
-                result.append(line, style="#d5d9e2")
-            result.append("\n")
-        return result
-
-    def _render_grep_output(self, output: str) -> Any:
-        groups: list[tuple[str, list[str]]] = []
-        current_file: str | None = None
-        current_lines: list[str] = []
-
-        for raw in output.splitlines():
-            line = raw.rstrip()
-            if line.startswith("=== ") and line.endswith(" ==="):
-                if current_file is not None:
-                    groups.append((current_file, current_lines))
-                current_file = line[4:-4].strip()
-                current_lines = []
-                continue
-            if current_file is not None and line:
-                current_lines.append(line)
-        if current_file is not None:
-            groups.append((current_file, current_lines))
-
-        if not groups:
-            return Syntax(output, "text", theme="monokai", word_wrap=True)
-
-        table = Table.grid(padding=(0, 1))
-        table.add_column(style="#8c97ab", justify="right", no_wrap=True)
-        table.add_column(style="#d5d9e2")
-
-        for file_path, lines in groups:
-            table.add_row("", Text(self._display_path(file_path), style="bold #9bc7ff"))
-            for line in lines:
-                match = re.match(r"^\s*(\d+):(.*)$", line)
-                if match:
-                    table.add_row(match.group(1), Text(match.group(2).lstrip(), style="#d5d9e2"))
-                else:
-                    table.add_row("", Text(line, style="#d5d9e2"))
-            table.add_row("", Text(""))
-
-        return table
-
-    def _render_text_payload(self, text: str, *, success: bool, language: str = "text") -> Any:
-        if not text.strip():
-            return Text("No output", style="#8c97ab")
-        if "\x1b" in text:
-            return Text.from_ansi(text)
-        if success and self._looks_like_markdown(text):
-            return RichMarkdown(text)
-        if success and self._looks_like_json(text):
-            try:
-                payload = json.loads(text)
-            except Exception:
-                pass
-            else:
-                return Syntax(
-                    json.dumps(payload, indent=2, ensure_ascii=False),
-                    "json",
-                    theme="monokai",
-                    word_wrap=True,
-                )
-        return Syntax(text, language, theme="monokai", word_wrap=True)
-
-    def _split_shell_payload(self, payload: str) -> tuple[str, str]:
-        marker = "\n\n--- STDERR ---\n"
-        if marker in payload:
-            stdout, stderr = payload.split(marker, 1)
-            return stdout.strip(), stderr.strip()
-        if payload.startswith("--- STDERR ---\n"):
-            return "", payload.replace("--- STDERR ---\n", "", 1).strip()
-        return payload.strip(), ""
-
-    def _shell_spinner_frame(self) -> str:
-        frames = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-        return frames[self._top_spinner_index % len(frames)]
-
-    def _render_shell_command_line(self, command: str, cwd: str | None = None) -> Table:
-        table = Table.grid(expand=True)
-        table.add_column(width=2)
-        table.add_column(ratio=1)
-        table.add_row(
-            Text("$", style="bold #7cc7ff"),
-            Text(command.strip() or "(no command)", style="#dbe4f2"),
-        )
-        if isinstance(cwd, str) and cwd.strip():
-            table.add_row(
-                Text(""),
-                Text(f"in {self._display_path(cwd.strip())}", style="#8c97ab"),
-            )
-        return table
-
-    def _render_shell_running_card(self, arguments: dict[str, Any]) -> Group:
-        command = str(arguments.get("command", "")).strip()
-        cwd = arguments.get("cwd") if isinstance(arguments.get("cwd"), str) else None
-        header = Text()
-        header.append(f"{self._shell_spinner_frame()} ", style="bold #9bc7ff")
-        header.append("Running in shell", style="bold #9bc7ff")
-        header.append("  live", style="#8c97ab")
-        return Group(
-            header,
-            Text(""),
-            Text(describe_tool_activity("shell", arguments, stage="start"), style="#8c97ab"),
-            Text(""),
-            self._render_shell_command_line(command, cwd),
-        )
-
-    def _render_shell_result_payload(
-        self,
-        *,
-        payload: str,
-        metadata: dict[str, Any] | None,
-        exit_code: int | None,
-    ) -> list[Any]:
-        md = metadata if isinstance(metadata, dict) else {}
-        stdout_text, stderr_text = self._split_shell_payload(payload)
-        blocks: list[Any] = []
-
-        summary = Text()
-        safety = md.get("safety_classification")
-        if isinstance(safety, str) and safety.strip():
-            summary.append(f"{safety} command", style="#8c97ab")
-        if exit_code is not None:
-            if summary.plain:
-                summary.append("  •  ", style="#667084")
-            summary.append(f"exit {exit_code}", style="#8c97ab")
-        if md.get("timed_out"):
-            if summary.plain:
-                summary.append("  •  ", style="#667084")
-            summary.append("timed out", style="#f5b54f")
-        if summary.plain:
-            blocks.extend([summary, Text("")])
-
-        if stdout_text:
-            blocks.append(Text("stdout", style="bold #7ad69f"))
-            blocks.append(self._render_text_payload(stdout_text, success=True))
-            blocks.append(Text(""))
-        if stderr_text:
-            blocks.append(Text("stderr", style="bold #f5b54f"))
-            blocks.append(self._render_text_payload(stderr_text, success=False))
-            blocks.append(Text(""))
-
-        if not stdout_text and not stderr_text:
-            blocks.append(Text("No output", style="#8c97ab"))
-        elif blocks and isinstance(blocks[-1], Text) and blocks[-1].plain == "":
-            blocks.pop()
-
-        return blocks
-
     async def stream_assistant_delta(self, content: str) -> None:
         self._streaming_buffer += content
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -3110,9 +2588,9 @@ class ReupApp(App):
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab")]
         if name == "todos":
-            blocks.extend([Text(""), Text(self._todo_start_hint(arguments), style="#d5d9e2")])
+            blocks.extend([Text(""), Text(todo_start_hint(arguments), style="#d5d9e2")])
         elif arguments:
-            blocks.extend([Text(""), self._render_args_table(name, arguments)])
+            blocks.extend([Text(""), render_args_table(name, arguments, cwd=self.config.cwd)])
         else:
             blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
 
@@ -3120,7 +2598,13 @@ class ReupApp(App):
             running_shells = getattr(self, "_running_shell_call_ids", set())
             running_shells.add(call_id)
             self._running_shell_call_ids = running_shells
-            card.update(self._render_shell_running_card(arguments))
+            card.update(
+                render_shell_running_card(
+                    arguments,
+                    cwd=self.config.cwd,
+                    spinner_index=self._top_spinner_index,
+                )
+            )
         else:
             header = Text()
             header.append("⌛ ", style="bold #9bc7ff")
@@ -3179,14 +2663,14 @@ class ReupApp(App):
         primary_path = md.get("path") if isinstance(md.get("path"), str) else None
 
         if name == "read_file" and success:
-            extracted = self._extract_read_file_code(payload) if primary_path else None
+            extracted = extract_read_file_code(payload) if primary_path else None
             if primary_path and extracted is not None:
                 start_line, code = extracted
-                code_display, was_truncated = self._truncate_for_tool(name, code)
+                code_display, was_truncated = truncate_for_tool(name, code)
                 local_truncated = local_truncated or was_truncated
-                blocks.append(Text(self._display_path(primary_path), style="#8c97ab"))
+                blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
                 blocks.append(Text(""))
-                language = self._guess_language(primary_path)
+                language = guess_language(primary_path)
                 if language == "markdown":
                     blocks.append(RichMarkdown(code_display))
                 else:
@@ -3201,30 +2685,31 @@ class ReupApp(App):
                         )
                     )
             else:
-                output_display, was_truncated = self._truncate_for_tool(name, payload)
+                output_display, was_truncated = truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
-                blocks.append(self._render_text_payload(output_display, success=True))
+                blocks.append(render_text_payload(output_display, success=True))
         elif name in {"write_file", "edit"} and success and diff:
             if payload.strip():
                 blocks.append(Text(payload.strip(), style="#d9dee8"))
                 blocks.append(Text(""))
-            diff_display, was_truncated = self._truncate_for_tool(name, diff)
+            diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
             blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
         elif name == "shell":
             command = args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(
-                    self._render_shell_command_line(
+                    render_shell_command_line(
                         command.strip(),
-                        md.get("cwd") if isinstance(md.get("cwd"), str) else None,
+                        cwd=self.config.cwd,
+                        shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
                     )
                 )
                 blocks.append(Text(""))
-            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.extend(
-                self._render_shell_result_payload(
+                render_shell_result_payload(
                     payload=output_display,
                     metadata=md,
                     exit_code=exit_code,
@@ -3244,9 +2729,9 @@ class ReupApp(App):
             if summary_parts:
                 blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
                 blocks.append(Text(""))
-            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(self._render_text_payload(output_display, success=success))
+            blocks.append(render_text_payload(output_display, success=success))
         elif name == "web_fetch" and success:
             summary_parts: list[str] = []
             url = md.get("url") or args.get("url")
@@ -3261,34 +2746,34 @@ class ReupApp(App):
             if summary_parts:
                 blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
                 blocks.append(Text(""))
-            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(self._render_text_payload(output_display, success=success))
+            blocks.append(render_text_payload(output_display, success=success))
         elif name in {"list_dir", "glob", "grep"}:
-            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if name == "list_dir":
-                blocks.append(self._render_list_dir_output(output_display))
+                blocks.append(render_list_dir_output(output_display))
             elif name == "grep":
-                blocks.append(self._render_grep_output(output_display))
+                blocks.append(render_grep_output(output_display, cwd=self.config.cwd))
             else:
-                blocks.append(self._render_text_payload(output_display, success=success))
+                blocks.append(render_text_payload(output_display, success=success))
         elif name == "todos" and success:
-            todo_blocks, was_truncated = self._render_todo_payload(
+            todo_blocks, was_truncated = render_todo_payload(
                 output=payload,
                 metadata=md,
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
         else:
-            output_display, was_truncated = self._truncate_for_tool(name, payload)
+            output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if diff:
-                diff_display, diff_truncated = self._truncate_for_tool(name, diff)
+                diff_display, diff_truncated = truncate_for_tool(name, diff)
                 local_truncated = local_truncated or diff_truncated
                 blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
             elif output_display.strip():
-                blocks.append(self._render_text_payload(output_display, success=success))
+                blocks.append(render_text_payload(output_display, success=success))
             else:
                 blocks.append(Text("No output", style="#8c97ab"))
 

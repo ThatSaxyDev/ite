@@ -264,17 +264,23 @@ class ShellTool(Tool):
                 timeout=params.timeout,
             )
         except asyncio.CancelledError:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            else:
-                process.kill()
+            try:
+                if sys.platform != "win32":
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                pass
             await process.wait()
             raise
         except asyncio.TimeoutError:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            else:
-                process.kill()
+            try:
+                if sys.platform != "win32":
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                else:
+                    process.kill()
+            except ProcessLookupError:
+                pass
             await process.wait()
             return ToolResult.error_result(
                 f"Command timed out after {params.timeout} seconds",
