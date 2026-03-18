@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import json
 import uuid
 from ite.config.config import Config
@@ -922,6 +923,9 @@ class Agent:
                     args=tool_call.arguments,
                 )
 
+                if asyncio.current_task() and asyncio.current_task().cancelling():
+                    raise asyncio.CancelledError
+
                 result = await session.tool_registry.invoke(
                     tool_call.name,
                     tool_call.arguments,
@@ -934,6 +938,9 @@ class Agent:
                     set_plan_phase=session.set_plan_phase,
                     plan_question_callback=self.plan_question_callback,
                 )
+
+                if asyncio.current_task() and asyncio.current_task().cancelling():
+                    raise asyncio.CancelledError
 
                 if result.success and tool_call.name not in {"todos", "plan_question"}:
                     execution_progress_eligible = True

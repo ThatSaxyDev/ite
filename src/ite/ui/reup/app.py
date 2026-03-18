@@ -924,14 +924,15 @@ class ReupApp(App):
 
     def _build_turn_action_options(self, *, replacing_queue: bool) -> list[SlashCommandOption]:
         queue_copy = (
-            "Replace the already queued message."
+            "Replace the queued draft."
             if replacing_queue
-            else "Send after the current turn completes."
+            else "Send when the current turn finishes."
         )
         return [
-            SlashCommandOption(name="1. Steer", description="Stop current turn and send now."),
+            SlashCommandOption(name="1. Shift", description="Stop now and send this draft."),
             SlashCommandOption(name="2. Queue", description=queue_copy),
-            SlashCommandOption(name="3. Cancel", description="Keep editing without sending."),
+            SlashCommandOption(name="3. /aside", description="Ask in the side panel without stopping."),
+            SlashCommandOption(name="4. Cancel", description="Keep this draft in the composer."),
         ]
 
     def _render_turn_action_palette(self) -> Text:
@@ -993,18 +994,30 @@ class ReupApp(App):
         if payload is None:
             return
         if action == "steer":
-            self._clear_composer_after_submit(clear_attachments=True)
-            self._suppress_pending_restore_once = True
-            await self.cancel_active_turn()
-            await self._dispatch_payload(payload)
+            self.post_notice("Shift", "Stopping current turn. Sending next.")
+            self._restore_payload_to_composer(payload)
+            await self.action_interrupt_or_quit()
+            if self._is_turn_running:
+                return
+            await self.handle_send()
             return
         if action == "queue":
             self._queued_turn_payload = payload
             self._clear_composer_after_submit(clear_attachments=True)
             if replacing_queue:
-                self.post_notice("Queued", "Replaced the waiting message.")
+                self.post_notice("Queue", "Queued. Replaced previous draft.")
             else:
-                self.post_notice("Queued", "Will send after the current turn completes.")
+                self.post_notice("Queue", "Queued for after the current turn.")
+            return
+        if action == "aside":
+            message = str(payload.get("message", "")).strip()
+            if not message:
+                return
+            self.post_notice("Aside", "Sending in the side panel.")
+            aside_payload = dict(payload)
+            aside_payload["message"] = f"/aside {message}"
+            self._restore_payload_to_composer(aside_payload)
+            await self.handle_send()
             return
 
     def _sync_command_palette(self, text: str) -> None:
@@ -1071,7 +1084,7 @@ class ReupApp(App):
         if self._turn_action_payload is not None:
             if not self._turn_action_options:
                 return False
-            action = ("steer", "queue", "cancel")[self._command_palette_index]
+            action = ("steer", "queue", "aside", "cancel")[self._command_palette_index]
             self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
             return True
         if not self._filtered_command_palette_options:
@@ -1094,7 +1107,7 @@ class ReupApp(App):
                 return self._move_turn_action_selection(1)
             if event.key in {"tab", "enter"}:
                 return self._apply_command_palette_selection()
-            if event.key in {"1", "2", "3"}:
+            if event.key in {"1", "2", "3", "4"}:
                 self._command_palette_index = int(event.key) - 1
                 return self._apply_command_palette_selection()
             if event.key == "escape":
@@ -1139,7 +1152,7 @@ class ReupApp(App):
         row = max(0, min(len(self._turn_action_options) - 1, event.y))
         self._command_palette_index = row
         event.stop()
-        action = ("steer", "queue", "cancel")[row]
+        action = ("steer", "queue", "aside", "cancel")[row]
         self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
 
     async def _toggle_plan_mode_from_meta(self) -> None:
@@ -2017,7 +2030,7 @@ class ReupApp(App):
             return
         payload = self._queued_turn_payload
         self._queued_turn_payload = None
-        self.post_notice("Queued", "Sending queued message.")
+        self.post_notice("Queue", "Sending queued draft.")
         await self._dispatch_payload(payload)
 
     def _restore_queued_payload_after_unsuccessful_turn(self) -> None:
@@ -2030,8 +2043,8 @@ class ReupApp(App):
         self._queued_turn_payload = None
         self._restore_payload_to_composer(payload)
         self.post_notice(
-            "Queued Message Held",
-            "Previous turn did not complete normally. Restored queued draft to the composer.",
+            "Queue",
+            "Previous turn ended early. Restored queued draft to composer.",
         )
 
     async def handle_send(self) -> None:
