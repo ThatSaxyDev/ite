@@ -1352,11 +1352,11 @@ class ReupApp(App):
         if not confirmed:
             return
         result = await asyncio.to_thread(discard_all, Path(self.config.cwd).resolve())
+        await self._refresh_change_review_after_git_action()
         if not result.ok:
             self.post_system("Discard all", result.message, is_error=True)
             return
         self.post_notice("Discard all", result.message)
-        await self._refresh_change_review_after_git_action()
 
     @on(events.Click, "#change-review-discard-all")
     def on_change_review_discard_all(self, event: events.Click) -> None:

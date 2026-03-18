@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+import shutil
 
 from ite.agent.change_history import ChangeSet
 from ite.tools.base import FileDiff
@@ -112,6 +113,13 @@ def _expand_untracked_directory(cwd: Path, relative_dir: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+def _remove_path(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    elif path.exists() or path.is_symlink():
+        path.unlink()
+
+
 def _read_worktree_content(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -164,12 +172,44 @@ def unstage_all(cwd: Path) -> GitActionResult:
 
 
 def discard_all(cwd: Path) -> GitActionResult:
-    restore = _run_git(cwd, "restore", "--source=HEAD", "--staged", "--worktree", "--", ".")
-    if restore.returncode != 0:
-        return GitActionResult(False, _message_for(restore) or "Failed to discard tracked changes.")
-    clean = _run_git(cwd, "clean", "-fd", "--", ".")
-    if clean.returncode != 0:
-        return GitActionResult(False, _message_for(clean) or "Failed to remove untracked files.")
+    untracked_paths: list[str] = []
+    for status, raw_path in _parse_status_entries(cwd):
+        if status != "??":
+            continue
+        rel_path = raw_path.rstrip("/")
+        abs_path = (cwd / rel_path).resolve()
+        if raw_path.endswith("/") or abs_path.is_dir():
+            untracked_paths.extend(_expand_untracked_directory(cwd, raw_path))
+        else:
+            untracked_paths.append(rel_path)
+
+    tracked_restore = _run_git(cwd, "restore", "--source=HEAD", "--staged", "--worktree", "--", ".")
+
+    remove_errors: list[str] = []
+    seen: set[str] = set()
+    for rel_path in untracked_paths:
+        if rel_path in seen:
+            continue
+        seen.add(rel_path)
+        abs_path = (cwd / rel_path).resolve()
+        try:
+            _remove_path(abs_path)
+        except Exception as exc:
+            remove_errors.append(f"{rel_path}: {exc}")
+
+    if tracked_restore.returncode != 0 and remove_errors:
+        return GitActionResult(
+            False,
+            (
+                (_message_for(tracked_restore) or "Failed to discard tracked changes.")
+                + " Also failed to remove some untracked files: "
+                + "; ".join(remove_errors)
+            ),
+        )
+    if tracked_restore.returncode != 0:
+        return GitActionResult(False, _message_for(tracked_restore) or "Failed to discard tracked changes.")
+    if remove_errors:
+        return GitActionResult(False, "Failed to remove some untracked files: " + "; ".join(remove_errors))
     return GitActionResult(True, "Discarded all changes.")
 
 
