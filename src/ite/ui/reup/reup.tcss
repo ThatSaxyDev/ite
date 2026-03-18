@@ -36,14 +36,15 @@ Screen {
 
 #aside-toggle {
     width: auto;
-    min-width: 10;
+    min-width: 0;
     height: 1;
+    min-height: 1;
     margin-left: 2;
-    padding: 0 1;
+    padding: 0;
     color: #93f2e8;
     text-style: bold;
-    background: #152028;
-    border: round #2b4b52;
+    background: transparent;
+    border: none;
     content-align: center middle;
 }
 
@@ -121,7 +122,6 @@ Screen {
 }
 
 #aside-panel-title {
-    width: 1fr;
     color: #93f2e8;
     text-style: bold;
 }
@@ -129,17 +129,6 @@ Screen {
 #aside-panel-body {
     height: 1fr;
     padding: 0;
-}
-
-#aside-hide {
-    width: auto;
-    min-width: 7;
-    height: 1;
-    padding: 0 1;
-    color: #93f2e8;
-    background: transparent;
-    border: none;
-    content-align: center middle;
 }
 
 .aside-thread {

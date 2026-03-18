@@ -697,7 +697,7 @@ class ReupApp(App):
             with Horizontal(id="topbar"):
                 yield Static("New thread", id="title")
                 yield Static("", id="header-meta")
-                yield Static("Aside", id="aside-toggle")
+                yield Button("/aside", id="aside-toggle", variant="default")
             with Container(id="chat-panel"):
                 with Horizontal(id="chat-body"):
                     with Container(id="conversation-shell"):
@@ -706,7 +706,6 @@ class ReupApp(App):
                     with Container(id="aside-panel"):
                         with Horizontal(id="aside-panel-header"):
                             yield Static("Aside", id="aside-panel-title")
-                            yield Static("Close", id="aside-hide")
                         yield VerticalScroll(id="aside-panel-body")
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
@@ -717,7 +716,7 @@ class ReupApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.query_one("#aside-toggle", Static).display = False
+        self.query_one("#aside-toggle", Button).display = False
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
@@ -1221,9 +1220,9 @@ class ReupApp(App):
         body = self.query_one("#aside-panel-body", VerticalScroll)
         has_content = bool(self._aside_entries)
         panel.display = self._aside_panel_visible and has_content
-        toggle = self.query_one("#aside-toggle", Static)
+        toggle = self.query_one("#aside-toggle", Button)
         toggle.display = has_content
-        toggle.update("Aside" if not self._aside_panel_visible else "Hide Aside")
+        toggle.label = "/aside" if not self._aside_panel_visible else "Close"
         body.display = has_content
 
     async def _render_aside_panel(self) -> None:
@@ -1281,12 +1280,8 @@ class ReupApp(App):
         self._aside_panel_visible = not self._aside_panel_visible
         self._apply_aside_panel_state()
 
-    @on(events.Click, "#aside-toggle")
-    def on_aside_toggle_pressed(self, _event: events.Click) -> None:
-        self._toggle_aside_panel()
-
-    @on(events.Click, "#aside-hide")
-    def on_aside_hide_pressed(self, _event: events.Click) -> None:
+    @on(Button.Pressed, "#aside-toggle")
+    def on_aside_toggle_pressed(self, _event: Button.Pressed) -> None:
         self._toggle_aside_panel()
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
