@@ -880,6 +880,51 @@ class MessageBuilderMixin:
         self._safe_page_update()
         self._scroll_chat_to_bottom(force=True)
 
+    def _add_aside_card(self, question: str, answer: str):
+        if not self.messages_column or not self.page:
+            return
+
+        card = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Text("/aside", size=TYPE_SM, color="#93F2E8", weight=WEIGHT_BOLD),
+                            ft.Container(expand=True),
+                            ft.Text("side thread  •  no tools", size=TYPE_XS, color="#78B8B2", weight=WEIGHT_SEMIBOLD),
+                        ],
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Divider(height=1, color=ft.Colors.with_opacity(0.12, "#4ECDC4")),
+                    ft.Text(
+                        question,
+                        size=TYPE_MD,
+                        color="#D7F5F0",
+                        italic=True,
+                        selectable=True,
+                    ),
+                    self._build_chat_markdown(answer),
+                ],
+                spacing=CHAT_BLOCK_GAP,
+                tight=True,
+            ),
+            bgcolor="#122024",
+            border=ft.Border(
+                left=ft.BorderSide(3, "#4ECDC4"),
+                top=ft.BorderSide(1, ft.Colors.with_opacity(0.08, "#4ECDC4")),
+                right=ft.BorderSide(1, ft.Colors.with_opacity(0.08, "#4ECDC4")),
+                bottom=ft.BorderSide(1, ft.Colors.with_opacity(0.08, "#4ECDC4")),
+            ),
+            border_radius=RADIUS_MD,
+            padding=ft.Padding.symmetric(horizontal=CARD_PAD_X + 2, vertical=CARD_PAD_Y + 1),
+            width=SPECIAL_CARD_WIDTH,
+        )
+        self._append_chat_control(
+            self._wrap_in_lane(ft.Row([card], alignment=ft.MainAxisAlignment.START))
+        )
+        self._safe_page_update()
+        self._scroll_chat_to_bottom(force=True)
+
     def _add_plan_card(self, plan_text: str):
         if not self.messages_column or not self.page:
             return

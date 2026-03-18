@@ -3,6 +3,7 @@ import io
 from datetime import datetime
 import flet as ft
 from ite.agent.change_history import ChangeConflictError
+from ite.commands.aside import execute_aside
 from ..adapters.registry import build_command_context
 from ..tokens import *
 
@@ -138,6 +139,25 @@ class CommandControllerMixin:
                     color=TEXT_SECONDARY,
                 ),
             )
+            return True
+
+        if command == "/aside":
+            await self._ensure_agent()
+            if not self.agent or not self.agent.session:
+                self._add_message("system", "Error: agent not initialized", is_error=True)
+                return True
+            question = " ".join(args).strip()
+            if not question:
+                self._add_assistant_card(
+                    "Aside",
+                    ft.Text("Use /aside <question>.", color=TEXT_SECONDARY),
+                )
+                return True
+            result = await execute_aside(self.agent.session, question)
+            if result.error:
+                self._add_message("system", result.error, is_error=True)
+                return True
+            self._add_aside_card(result.question, result.answer)
             return True
 
         if command == "/undo":

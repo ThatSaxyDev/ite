@@ -37,6 +37,16 @@ Screen {
     height: 1fr;
 }
 
+#chat-body {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#conversation-shell {
+    width: 1fr;
+    height: 1fr;
+}
+
 #conversation {
     height: 1fr;
     padding: 1 4 0 4;
@@ -78,6 +88,61 @@ Screen {
     background: #121826 88%;
     padding: 0 1 0 1;
     margin: 0 1 0 1;
+}
+
+#aside-panel {
+    width: 44;
+    min-width: 36;
+    height: 1fr;
+    border-left: solid #253544;
+    background: #10161d;
+    padding: 1 1 0 1;
+    display: none;
+}
+
+#aside-panel-header {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#aside-panel-title {
+    color: #93f2e8;
+    text-style: bold;
+}
+
+#aside-panel-meta {
+    width: 1fr;
+    text-align: right;
+    color: #7bb7b2;
+}
+
+#aside-panel-body {
+    height: 1fr;
+    padding-right: 1;
+}
+
+.aside-entry {
+    border: none;
+    border-left: solid #4ecdc4;
+    background: #0f1b20 54%;
+    padding: 1 2;
+    margin-bottom: 1;
+}
+
+.aside-entry-title {
+    color: #89efe6;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.aside-entry-question {
+    color: #d7f5f0;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+.aside-entry-answer {
+    color: #dfe8ea;
 }
 
 .block {
@@ -183,6 +248,47 @@ Screen {
 .block.note .card-body {
     margin-top: 1;
     padding: 0 1 0 1;
+}
+
+.block.aside {
+    border: none;
+    border-left: solid #4ecdc4;
+    background: #0f1b20 54%;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.block.aside .card-title {
+    color: #89efe6;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.aside .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.aside-body {
+    layout: vertical;
+    height: auto;
+}
+
+.aside-meta {
+    color: #7bb7b2;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.aside-question {
+    color: #d7f5f0;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+.aside-answer {
+    color: #dfe8ea;
 }
 
 .activity-indicator {

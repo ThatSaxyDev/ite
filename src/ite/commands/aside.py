@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ite.client.response import StreamEventType
 from ite.commands import Command, CommandContext, CommandRegistry
 from rich.markdown import Markdown
@@ -18,8 +20,14 @@ def is_aside_command_text(text: str) -> bool:
     return lowered == "/aside" or lowered.startswith("/aside ")
 
 
-def _build_aside_messages(ctx: CommandContext, question: str) -> list[dict[str, object]]:
-    session = ctx.agent.session
+@dataclass
+class AsideResult:
+    question: str
+    answer: str
+    error: str | None = None
+
+
+def _build_aside_messages(session, question: str) -> list[dict[str, object]]:
     messages = list(session.context_manager.get_messages())
     plan_text = (session.current_plan_text() or "").strip()
     plan_context = (
@@ -45,21 +53,12 @@ def _build_aside_messages(ctx: CommandContext, question: str) -> list[dict[str, 
     return messages
 
 
-async def cmd_aside(ctx: CommandContext, args: list[str]) -> None:
-    if not ctx.agent or not ctx.agent.session:
-        ctx.console.print("[error]No active session[/error]")
-        return
+async def execute_aside(session, question: str) -> AsideResult:
+    question_text = question.strip()
+    if not question_text:
+        return AsideResult(question="", answer="", error="Missing aside question.")
 
-    question = " ".join(args).strip()
-    if not question:
-        ctx.console.print(
-            "[error]Missing aside question.[/error] [dim]Use /aside <question>[/dim]"
-        )
-        return
-
-    session = ctx.agent.session
-    messages = _build_aside_messages(ctx, question)
-
+    messages = _build_aside_messages(session, question_text)
     response_parts: list[str] = []
     usage = None
     error_text: str | None = None
@@ -79,9 +78,30 @@ async def cmd_aside(ctx: CommandContext, args: list[str]) -> None:
         session.context_manager.add_usage(usage)
 
     if error_text:
+        return AsideResult(question=question_text, answer="", error=error_text)
+
+    answer = "".join(response_parts).strip() or "No aside response returned."
+    return AsideResult(question=question_text, answer=answer)
+
+
+async def cmd_aside(ctx: CommandContext, args: list[str]) -> None:
+    if not ctx.agent or not ctx.agent.session:
+        ctx.console.print("[error]No active session[/error]")
+        return
+
+    question = " ".join(args).strip()
+    if not question:
+        ctx.console.print(
+            "[error]Missing aside question.[/error] [dim]Use /aside <question>[/dim]"
+        )
+        return
+
+    session = ctx.agent.session
+    result = await execute_aside(session, question)
+    if result.error:
         ctx.console.print(
             Panel(
-                Text(error_text, style="error"),
+                Text(result.error, style="error"),
                 title=Text("/aside", style="bold bright_white"),
                 title_align="left",
                 border_style="bright_red",
@@ -91,14 +111,10 @@ async def cmd_aside(ctx: CommandContext, args: list[str]) -> None:
         )
         return
 
-    answer = "".join(response_parts).strip()
-    if not answer:
-        answer = "No aside response returned."
-
     ctx.console.print()
     ctx.console.print(
         Panel(
-            Markdown(answer),
+            Markdown(result.answer),
             title=Text("/aside", style="bold bright_white"),
             title_align="left",
             border_style="cyan",

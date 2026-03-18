@@ -45,7 +45,7 @@ from ite.git.branches import (
     list_local_branches,
 )
 from ite.attachments import MAX_ATTACHMENTS
-from ite.commands.aside import is_aside_command_text
+from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
@@ -687,6 +687,9 @@ class ReupApp(App):
         self._command_palette_index: int = 0
         self._command_palette_rows: int = 0
         self._last_rendered_plan_text: str | None = None
+        self._aside_panel_visible: bool = False
+        self._aside_entries: list[dict[str, str]] = []
+        self._aside_toggle_button: Button | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -694,9 +697,18 @@ class ReupApp(App):
             with Horizontal(id="topbar"):
                 yield Static("New thread", id="title")
                 yield Static("", id="header-meta")
+                yield Button("Aside", id="aside-toggle", variant="default")
             with Container(id="chat-panel"):
-                yield VerticalScroll(id="conversation")
-                yield Static("", id="empty-state")
+                with Horizontal(id="chat-body"):
+                    with Container(id="conversation-shell"):
+                        yield VerticalScroll(id="conversation")
+                        yield Static("", id="empty-state")
+                    with Container(id="aside-panel"):
+                        with Horizontal(id="aside-panel-header"):
+                            yield Static("Aside", id="aside-panel-title")
+                            yield Static("Context only  •  no tools", id="aside-panel-meta")
+                            yield Button("Hide", id="aside-hide", variant="default")
+                        yield VerticalScroll(id="aside-panel-body")
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
                     yield ReupPromptTextArea(id="prompt", language="markdown")
@@ -706,10 +718,12 @@ class ReupApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
+        self._aside_toggle_button = self.query_one("#aside-toggle", Button)
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
+        self._apply_aside_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
         if self.config.needs_setup:
             completed = await self._open_setup_modal(exit_on_cancel=True)
@@ -1202,6 +1216,52 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         prompt.disabled = False
         self._refresh_empty_state()
+
+    def _apply_aside_panel_state(self) -> None:
+        panel = self.query_one("#aside-panel", Container)
+        body = self.query_one("#aside-panel-body", VerticalScroll)
+        has_content = bool(self._aside_entries)
+        panel.display = self._aside_panel_visible and has_content
+        if self._aside_toggle_button is not None:
+            self._aside_toggle_button.label = "Aside" if not self._aside_panel_visible else "Hide Aside"
+            self._aside_toggle_button.disabled = not has_content
+        body.display = has_content
+
+    async def _render_aside_panel(self) -> None:
+        body = self.query_one("#aside-panel-body", VerticalScroll)
+        await body.remove_children()
+        for entry in self._aside_entries:
+            question = str(entry.get("question", "")).strip()
+            answer = str(entry.get("answer", "")).strip()
+            await body.mount(
+                Container(
+                    Static("/aside", classes="aside-entry-title"),
+                    Static(question, classes="aside-entry-question"),
+                    Static(RichMarkdown(answer), classes="aside-entry-answer"),
+                    classes="aside-entry",
+                )
+            )
+        self._apply_aside_panel_state()
+        body.scroll_end(animate=False)
+
+    async def _push_aside_entry(self, question: str, answer: str) -> None:
+        self._aside_entries.append({"question": question, "answer": answer})
+        self._aside_panel_visible = True
+        await self._render_aside_panel()
+
+    def _toggle_aside_panel(self) -> None:
+        if not self._aside_entries:
+            return
+        self._aside_panel_visible = not self._aside_panel_visible
+        self._apply_aside_panel_state()
+
+    @on(Button.Pressed, "#aside-toggle")
+    def on_aside_toggle_pressed(self, _event: Button.Pressed) -> None:
+        self._toggle_aside_panel()
+
+    @on(Button.Pressed, "#aside-hide")
+    def on_aside_hide_pressed(self, _event: Button.Pressed) -> None:
+        self._toggle_aside_panel()
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:
@@ -1918,6 +1978,10 @@ class ReupApp(App):
             await self._run_workboard_command_native()
             return
 
+        if command == "/aside":
+            await self._run_aside_command_native(args)
+            return
+
         if command == "/setup":
             await self._open_setup_modal(exit_on_cancel=False)
             return
@@ -1957,6 +2021,23 @@ class ReupApp(App):
             self.refresh_header()
         if rendered:
             self.post_notice(f"Command {command}", rendered)
+
+    async def _run_aside_command_native(self, args: list[str]) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            self.post_system("Aside", "No active session.", is_error=True)
+            return
+
+        question = " ".join(args).strip()
+        if not question:
+            self.post_system("Aside", "Use `/aside <question>`.", is_error=True)
+            return
+
+        result = await execute_aside(self.agent.session, question)
+        if result.error:
+            self.post_system("Aside", result.error, is_error=True)
+            return
+        await self._push_aside_entry(result.question, result.answer)
 
     async def _run_plan_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
