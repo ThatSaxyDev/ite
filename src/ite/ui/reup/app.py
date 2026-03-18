@@ -29,7 +29,7 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Sta
 from textual.widget import Widget
 
 from ite.agent.agent import Agent
-from ite.agent.change_history import change_entries_with_stats
+from ite.agent.change_history import ChangeConflictError, change_entries_with_stats
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
@@ -2231,6 +2231,14 @@ class ReupApp(App):
             await self._run_aside_command_native(args)
             return
 
+        if command == "/undo":
+            await self._run_undo_command_native(args)
+            return
+
+        if command == "/redo":
+            await self._run_redo_command_native(args)
+            return
+
         if command == "/setup":
             await self._open_setup_modal(exit_on_cancel=False)
             return
@@ -2296,6 +2304,109 @@ class ReupApp(App):
             answer=result.answer,
             state="done",
         )
+
+    def _change_entry_label(self, diff: Any, *, mode: str) -> tuple[str, str]:
+        if mode == "undone":
+            if getattr(diff, "is_new_file", False) and not getattr(diff, "is_deletion", False):
+                return "deleted", "#f29b9b"
+            if getattr(diff, "is_deletion", False):
+                return "restored", "#79d8a4"
+            return "reverted", "#c6d2e3"
+
+        if mode == "redone":
+            if getattr(diff, "is_deletion", False):
+                return "deleted", "#f29b9b"
+            if getattr(diff, "is_new_file", False) and not getattr(diff, "is_deletion", False):
+                return "created", "#79d8a4"
+            return "reapplied", "#c6d2e3"
+
+        if getattr(diff, "is_deletion", False):
+            return "deleted", "#f29b9b"
+        if getattr(diff, "is_new_file", False):
+            return "created", "#79d8a4"
+        return "updated", "#8ec5ff"
+
+    def _build_change_card_body(
+        self,
+        change_set: Any,
+        *,
+        verb: str,
+        footer: str,
+        mode: str,
+    ) -> Text:
+        entries, extra = change_entries_with_stats(
+            change_set,
+            cwd=self.config.cwd,
+            max_items=3,
+        )
+        diffs = list(getattr(change_set, "changes", []) or [])
+        count = len(diffs)
+        files_text = f"{count} file" if count == 1 else f"{count} files"
+
+        body = Text()
+        for (name, additions, deletions), diff in zip(entries, diffs[: len(entries)], strict=False):
+            action_label, action_color = self._change_entry_label(diff, mode=mode)
+            body.append("• ", style="#7f8ea3")
+            body.append(name, style="bold #e7eefb")
+            body.append(f"  {action_label}", style=f"bold {action_color}")
+            if mode == "changed" and (additions or deletions):
+                if additions:
+                    body.append(f"  +{additions}", style="bold #79d8a4")
+                if deletions:
+                    body.append(f"  -{deletions}", style="bold #f29b9b")
+            body.append("\n")
+        if extra:
+            body.append("• ", style="#7f8ea3")
+            body.append(f"+{extra} more", style="#b8c4d9")
+            body.append("\n")
+        if entries or extra:
+            body.append("\n")
+        body.append(f"{verb} {files_text}.", style="#c6d2e3")
+        body.append("\n")
+        body.append(footer, style="#7f8ea3")
+        return body
+
+    async def _run_undo_command_native(self, args: list[str]) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            self.post_system("Undo", "No active session.", is_error=True)
+            return
+
+        force = "--force" in args
+        try:
+            change_set = self.agent.session.change_history.undo(force=force)
+        except ChangeConflictError as exc:
+            self.post_system("Undo", str(exc), is_error=True)
+            return
+
+        body = self._build_change_card_body(
+            change_set,
+            verb="Reverted",
+            footer="Run /redo to reapply.",
+            mode="undone",
+        )
+        await self.add_assistant_card("Undid changes", body, css_class="change")
+
+    async def _run_redo_command_native(self, args: list[str]) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            self.post_system("Redo", "No active session.", is_error=True)
+            return
+
+        force = "--force" in args
+        try:
+            change_set = self.agent.session.change_history.redo(force=force)
+        except ChangeConflictError as exc:
+            self.post_system("Redo", str(exc), is_error=True)
+            return
+
+        body = self._build_change_card_body(
+            change_set,
+            verb="Reapplied",
+            footer="Run /undo to revert again.",
+            mode="redone",
+        )
+        await self.add_assistant_card("Reapplied changes", body, css_class="change")
 
     async def _run_plan_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -2738,29 +2849,15 @@ class ReupApp(App):
         if not self.agent or not self.agent.session:
             return
         change_set = self.agent.session.change_history.last_turn_change_set
-        entries, extra = change_entries_with_stats(
-            change_set,
-            cwd=self.config.cwd,
-            max_items=3,
-        )
-        if not entries:
+        if not getattr(change_set, "changes", None):
             return
-        count = len(getattr(change_set, "changes", []) or [])
-        files_text = f"{count} file" if count == 1 else f"{count} files"
-        body = Text(style="#9fb0c7")
-        for name, additions, deletions in entries:
-            body.append(f"• {name}", style="#9fb0c7")
-            if additions:
-                body.append(f"  +{additions}", style="bold #7ad69f")
-            if deletions:
-                body.append(f"  -{deletions}", style="bold #f58b8b")
-            body.append("\n")
-        if extra:
-            body.append(f"• +{extra} more\n")
-        body.append("\n")
-        body.append(f"Changed {files_text} in this turn.\n")
-        body.append("Run /undo to revert these edits.")
-        await self.add_assistant_card("Changed", body, css_class="note")
+        body = self._build_change_card_body(
+            change_set,
+            verb="Changed",
+            footer="Run /undo to revert.",
+            mode="changed",
+        )
+        await self.add_assistant_card("Changed", body, css_class="change")
 
     async def _present_plan_ready_action_card(self) -> bool:
         conversation = self.query_one("#conversation", VerticalScroll)

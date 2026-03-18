@@ -283,6 +283,26 @@ Screen {
     padding: 0 1 0 1;
 }
 
+.block.change {
+    border: none;
+    border-left: solid #5b7caa;
+    background: #101725 58%;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.block.change .card-title {
+    color: #d9e6fb;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.change .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
 .block.aside {
     border: none;
     border-left: solid #4ecdc4;
