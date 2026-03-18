@@ -25,6 +25,7 @@ class CLIPromptTests(unittest.TestCase):
         self.assertIn("/help", names)
         self.assertIn("/exit", names)
         self.assertIn("/quit", names)
+        self.assertIn("/aside", names)
         self.assertEqual(len(names), len(set(names)))
 
     def test_command_entries_include_descriptions_for_aliases(self) -> None:

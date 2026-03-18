@@ -15,6 +15,7 @@ from ite.attachments import (
     MAX_ATTACHMENTS,
     build_user_model_content,
 )
+from ite.commands.aside import is_aside_command_text
 from ite.commands import build_registry
 from ite.config.config import Config
 from ite.config.loader import save_system_config
@@ -229,12 +230,12 @@ class GUIApp(
                 self._last_workboard_visible = self.workboard_visible
 
     def _apply_loading_controls(self):
-        is_busy = self._is_turn_running or self.loading_session_id is not None
+        is_busy = self.loading_session_id is not None
         if self.input_field:
             self.input_field.disabled = is_busy
             self._safe_control_update(self.input_field)
         if self.attach_button:
-            self.attach_button.disabled = is_busy
+            self.attach_button.disabled = self._is_turn_running or is_busy
             self._safe_control_update(self.attach_button)
         self._refresh_action_button()
 
@@ -1381,7 +1382,8 @@ class GUIApp(
             self._refresh_workboard_from_session()
 
     def _on_send(self, e):
-        if self._is_turn_running:
+        current_text = self.input_field.value.strip() if self.input_field else ""
+        if self._is_turn_running and not is_aside_command_text(current_text):
             if self.page:
                 self._stop_requested_by_user = True
                 self.page.run_task(self._stop_active_turn)
@@ -1390,7 +1392,7 @@ class GUIApp(
         if not self.input_field or not self.page:
             return
 
-        message = self.input_field.value.strip()
+        message = current_text
         if not message:
             return
         if not message.startswith("/") and self._consume_dropped_path_text(message):

@@ -45,6 +45,7 @@ from ite.git.branches import (
     list_local_branches,
 )
 from ite.attachments import MAX_ATTACHMENTS
+from ite.commands.aside import is_aside_command_text
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
@@ -1199,7 +1200,7 @@ class ReupApp(App):
             self.run_worker(self._hide_activity_indicator(version), exclusive=False)
 
         prompt = self.query_one("#prompt", TextArea)
-        prompt.disabled = busy
+        prompt.disabled = False
         self._refresh_empty_state()
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
@@ -1723,13 +1724,12 @@ class ReupApp(App):
         composer.styles.height = composer_height
 
     async def handle_send(self) -> None:
-        if self._is_turn_running:
-            await self.cancel_active_turn()
-            return
-
         prompt = self.query_one("#prompt", TextArea)
         message = prompt.text.strip()
         if not message:
+            return
+        if self._is_turn_running and not is_aside_command_text(message):
+            await self.cancel_active_turn()
             return
 
         self._record_composer_history(message)
