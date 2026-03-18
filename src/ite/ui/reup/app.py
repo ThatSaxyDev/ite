@@ -16,11 +16,11 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, ScrollableContainer, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
+from textual.widgets import Button, DirectoryTree, Footer, Header, Input, Label, Static, TextArea
 from textual.widget import Widget
 
 from ite.agent.agent import Agent
@@ -45,6 +45,7 @@ from ite.ui.tool_narrative import activity_title, describe_tool_activity, progre
 
 from .adapters.registry import build_command_context
 from .change_views import build_change_card_body, change_entry_label
+from .change_tree import ChangedFilesTree
 from .composer_views import (
     SlashCommandOption,
     build_command_palette_options,
@@ -270,7 +271,6 @@ class ReupApp(App):
         self._change_review_title: str = "Changes"
         self._change_review_source: str = "history"
         self._change_review_diff_lookup: dict[str, Any] = {}
-        self._change_review_row_keys: list[str] = []
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
@@ -290,8 +290,8 @@ class ReupApp(App):
                             yield Static("Changes", id="change-review-title")
                             yield Button("Close", id="change-review-close", variant="default")
                         with Horizontal(id="change-review-body"):
-                            yield DataTable(id="change-review-tree", cursor_type="row")
-                            yield VerticalScroll(id="change-review-preview")
+                            yield ChangedFilesTree(self.config.cwd, id="change-review-tree")
+                            yield ScrollableContainer(id="change-review-preview")
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
                         yield Static("", id="empty-state")
@@ -882,6 +882,12 @@ class ReupApp(App):
         except Exception:
             return str(diff.path)
 
+    def _change_review_relpath_from_path(self, path: Path) -> str:
+        try:
+            return str(path.resolve().relative_to(Path(self.config.cwd).resolve()))
+        except Exception:
+            return str(path)
+
     def _change_review_diff_text(self, diff: Any) -> str:
         import difflib
 
@@ -902,7 +908,7 @@ class ReupApp(App):
         return "".join(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile))
 
     async def _render_change_review_preview(self, diff: Any | None) -> None:
-        preview = self.query_one("#change-review-preview", VerticalScroll)
+        preview = self.query_one("#change-review-preview", ScrollableContainer)
         await preview.remove_children()
         if diff is None:
             await preview.mount(Static("Select a file to inspect.", classes="change-review-empty"))
@@ -920,9 +926,8 @@ class ReupApp(App):
         await preview.mount(Static(header, classes="change-review-path"), body)
 
     async def _populate_change_review_panel(self) -> None:
-        table = self.query_one("#change-review-tree", DataTable)
-        preview = self.query_one("#change-review-preview", VerticalScroll)
-        table.clear(columns=True)
+        tree = self.query_one("#change-review-tree", ChangedFilesTree)
+        preview = self.query_one("#change-review-preview", ScrollableContainer)
         await preview.remove_children()
         title = self.query_one("#change-review-title", Static)
         title.update(self._change_review_title)
@@ -933,31 +938,16 @@ class ReupApp(App):
 
         first_diff: Any | None = None
         self._change_review_diff_lookup = {}
-        self._change_review_row_keys = []
+        changed_paths: list[Path] = []
         for diff in getattr(change_set, "changes", []):
             if first_diff is None:
                 first_diff = diff
-        table.add_columns("Folder", "File", "Status")
-
-        for diff in getattr(change_set, "changes", []):
             rel = self._change_review_relpath(diff)
-            rel_path = Path(rel)
-            folder = str(rel_path.parent) if str(rel_path.parent) != "." else ""
-            file_name = rel_path.name or rel
-            action, color = change_entry_label(diff, mode=self._change_review_mode)
-            status = Text(action, style=f"bold {color}")
-            table.add_row(
-                Text(folder, style="#7f8ea3"),
-                Text(file_name, style="bold #e7eefb"),
-                status,
-                key=rel,
-            )
             self._change_review_diff_lookup[rel] = diff
-            self._change_review_row_keys.append(rel)
+            changed_paths.append(diff.path)
 
         self._apply_change_review_panel_state()
-        if self._change_review_row_keys:
-            table.move_cursor(row=0, column=0, animate=False)
+        await tree.set_changed_files(changed_paths)
         await self._render_change_review_preview(first_diff)
 
     async def _open_change_review_panel(
@@ -1072,15 +1062,16 @@ class ReupApp(App):
         if diff is not None:
             self.run_worker(self._render_change_review_preview(diff), exclusive=False)
 
-    @on(DataTable.RowHighlighted, "#change-review-tree")
-    def on_change_review_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        row_key = event.row_key.value if event.row_key is not None else None
-        self._show_change_review_row(row_key)
+    @on(DirectoryTree.FileSelected, "#change-review-tree")
+    def on_change_review_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        self._show_change_review_row(self._change_review_relpath_from_path(event.path))
 
-    @on(DataTable.RowSelected, "#change-review-tree")
-    def on_change_review_row_selected(self, event: DataTable.RowSelected) -> None:
-        row_key = event.row_key.value if event.row_key is not None else None
-        self._show_change_review_row(row_key)
+    @on(DirectoryTree.NodeHighlighted, "#change-review-tree")
+    def on_change_review_node_highlighted(self, event: DirectoryTree.NodeHighlighted) -> None:
+        data = getattr(event.node, "data", None)
+        path = getattr(data, "path", None)
+        if isinstance(path, Path) and path.is_file():
+            self._show_change_review_row(self._change_review_relpath_from_path(path))
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:

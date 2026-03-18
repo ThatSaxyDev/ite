@@ -77,9 +77,9 @@ Screen {
 }
 
 #change-review-panel {
-    width: 64;
-    min-width: 52;
-    max-width: 80;
+    width: 104;
+    min-width: 84;
+    max-width: 136;
     height: 1fr;
     border-right: solid #253544;
     background: #0f1622;
@@ -114,12 +114,16 @@ Screen {
 }
 
 #change-review-tree {
-    width: 22;
+    width: 24;
     min-width: 18;
     height: 1fr;
     border-right: solid #233044;
-    padding: 0 1 1 0;
-    background: #0f1622;
+    padding: 0 0 1 0;
+    background: transparent;
+}
+
+#change-review-tree:focus {
+    background-tint: transparent;
 }
 
 #change-review-preview {
@@ -127,20 +131,22 @@ Screen {
     height: 1fr;
     padding: 0 0 1 1;
     background: transparent;
+    overflow: auto auto;
 }
 
 .change-review-path {
     color: #d9e6fb;
     text-style: bold;
-    margin-bottom: 1;
+    margin-bottom: 0;
+    width: auto;
 }
 
 .change-review-diff {
-    width: 1fr;
+    width: auto;
     height: auto;
     min-height: 1;
     overflow: auto auto;
-    padding: 0 1 1 0;
+    padding: 0;
 }
 
 .change-review-empty {
