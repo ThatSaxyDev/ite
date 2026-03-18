@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
@@ -126,6 +126,106 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
                     "selected_index": None,
                 }
             )
+
+
+class CommitModal(ModalScreen[dict[str, Any] | None]):
+    BINDINGS = [("escape", "cancel", "Cancel")]
+
+    def __init__(
+        self,
+        *,
+        branch: str,
+        file_count: int,
+        additions: int,
+        deletions: int,
+    ) -> None:
+        super().__init__()
+        self._branch = branch
+        self._file_count = file_count
+        self._additions = additions
+        self._deletions = deletions
+        self._include_unstaged = True
+
+    def _include_unstaged_text(self) -> Text:
+        text = Text()
+        if self._include_unstaged:
+            text.append("YES", style="bold #79d8a4")
+            text.append("  ")
+            text.append("no", style="#7f8ea3")
+        else:
+            text.append("yes", style="#7f8ea3")
+            text.append("  ")
+            text.append("NO", style="bold #f29b9b")
+        return text
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal commit-modal"):
+            yield Label("Commit your changes", classes="modal-title")
+            with Vertical(classes="modal-body commit-body"):
+                with Horizontal(classes="commit-summary-row"):
+                    yield Static("Branch", classes="commit-label")
+                    yield Static(self._branch, classes="commit-branch")
+                with Horizontal(classes="commit-summary-row"):
+                    yield Static("Changes", classes="commit-label")
+                    stats = Text()
+                    file_label = f"{self._file_count} file" if self._file_count == 1 else f"{self._file_count} files"
+                    stats.append(file_label, style="bold #dfe8f8")
+                    stats.append("  ")
+                    stats.append(f"+{self._additions}", style="bold #79d8a4")
+                    stats.append("  ")
+                    stats.append(f"-{self._deletions}", style="bold #f29b9b")
+                    yield Static(stats, classes="commit-stats")
+                with Horizontal(classes="commit-toggle-row"):
+                    yield Static("Include unstaged", classes="commit-label")
+                    yield Static(
+                        self._include_unstaged_text(),
+                        id="commit-include-unstaged-choice",
+                        classes="commit-toggle-choice",
+                    )
+                yield Static("Commit message", classes="commit-label commit-message-label")
+                yield Input(
+                    placeholder="Leave blank to use a default message",
+                    id="commit-message",
+                )
+            with Horizontal(classes="modal-actions resume-actions commit-actions"):
+                yield Button("Commit", id="commit-confirm", variant="primary")
+                yield Button("Commit and push", id="commit-push", variant="success")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        self.query_one("#commit-message", Input).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def _dismiss_with_action(self, action: str) -> None:
+        message = self.query_one("#commit-message", Input).value.strip()
+        self.dismiss(
+            {
+                "action": action,
+                "message": message,
+                "include_unstaged": self._include_unstaged,
+            }
+        )
+
+    @on(events.Click, "#commit-include-unstaged-choice")
+    def on_include_unstaged_choice_clicked(self, _event: events.Click) -> None:
+        self._include_unstaged = not self._include_unstaged
+        self.query_one("#commit-include-unstaged-choice", Static).update(
+            self._include_unstaged_text()
+        )
+
+    @on(Button.Pressed, "#commit-confirm")
+    def on_commit_confirm_pressed(self, _event: Button.Pressed) -> None:
+        self._dismiss_with_action("commit")
+
+    @on(Button.Pressed, "#commit-push")
+    def on_commit_push_pressed(self, _event: Button.Pressed) -> None:
+        self._dismiss_with_action("commit_push")
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.action_cancel()
 
 
 class SessionResumeModal(ModalScreen[str | None]):

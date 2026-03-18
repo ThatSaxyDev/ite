@@ -815,6 +815,7 @@ Screen {
 }
 
 ConfirmModal,
+CommitModal,
 PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
@@ -875,6 +876,112 @@ ConfirmModal #no {
 
 ConfirmModal #no:hover {
     background: #364058;
+}
+
+CommitModal .commit-modal {
+    width: 82;
+    height: 20;
+    min-height: 20;
+    max-height: 20;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+CommitModal .commit-body {
+    height: 1fr;
+    min-height: 12;
+}
+
+CommitModal .commit-summary-row,
+CommitModal .commit-toggle-row {
+    height: 2;
+    align-vertical: middle;
+}
+
+CommitModal .commit-label {
+    width: 18;
+    min-width: 18;
+    color: #c6d2e3;
+    text-style: bold;
+}
+
+CommitModal .commit-branch {
+    color: #dfe8f8;
+    text-style: bold;
+}
+
+CommitModal .commit-stats {
+    align-vertical: middle;
+}
+
+CommitModal .commit-toggle-choice {
+    width: auto;
+    min-width: 8;
+    content-align: left middle;
+}
+
+CommitModal .commit-message-label {
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
+CommitModal #commit-message {
+    width: 1fr;
+    margin-top: 1;
+    margin-bottom: 0;
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+}
+
+CommitModal .commit-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+CommitModal #commit-confirm {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #b28af3;
+    color: #12111a;
+    border: none;
+}
+
+CommitModal #commit-confirm:hover {
+    background: #c59df8;
+}
+
+CommitModal #commit-push {
+    width: 18;
+    min-width: 18;
+    text-style: bold;
+    background: #5dcf84;
+    color: #0f1a12;
+    border: none;
+}
+
+CommitModal #commit-push:hover {
+    background: #75de99;
+}
+
+CommitModal #cancel {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: #262b3d;
+    color: #e4e6ef;
+    border: none;
+}
+
+CommitModal #cancel:hover {
+    background: #31374d;
 }
 
 PlanQuestionModal .plan-modal {

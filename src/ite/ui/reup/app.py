@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import io
 import json
 import os
@@ -38,7 +39,16 @@ from ite.git.branches import (
     is_git_repo,
     list_local_branches,
 )
-from ite.git.working_tree import discard_all, discard_path, stage_all, stage_path, unstage_all, unstage_path, working_tree_change_set
+from ite.git.working_tree import (
+    commit_changes,
+    discard_all,
+    discard_path,
+    stage_all,
+    stage_path,
+    unstage_all,
+    unstage_path,
+    working_tree_change_set,
+)
 from ite.attachments import MAX_ATTACHMENTS
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
@@ -60,6 +70,7 @@ from .composer_views import (
 from .modals import (
     AttachPickerModal,
     BranchPickerModal,
+    CommitModal,
     ConfirmModal,
     PlanQuestionModal,
     SessionResumeModal,
@@ -294,6 +305,7 @@ class ReupApp(App):
                             yield Static("Changes", id="change-review-title")
                             yield Static("Stage All", id="change-review-stage-all", classes="change-review-action")
                             yield Static("Discard All", id="change-review-discard-all", classes="change-review-action")
+                            yield Static("Commit", id="change-review-commit", classes="change-review-action")
                             yield Button("Close", id="change-review-close", variant="default")
                         with Horizontal(id="change-review-body"):
                             yield ChangedFilesTree(id="change-review-tree")
@@ -868,6 +880,7 @@ class ReupApp(App):
             discard_file = self.query_one("#change-review-discard-file", Static)
             stage_all_button = self.query_one("#change-review-stage-all", Static)
             discard_all_button = self.query_one("#change-review-discard-all", Static)
+            commit_button = self.query_one("#change-review-commit", Static)
         except NoMatches:
             return
 
@@ -882,6 +895,7 @@ class ReupApp(App):
 
         stage_all_button.display = self._change_review_source == "git" and has_content
         discard_all_button.display = self._change_review_source == "git" and has_content
+        commit_button.display = self._change_review_source == "git" and has_content
         has_any_staged = bool(
             self._change_review_change_set
             and getattr(self._change_review_change_set, "staged_changes", [])
@@ -906,6 +920,16 @@ class ReupApp(App):
             self._change_review_bulk_action = "stage"
             stage_all_button.disabled = True
         discard_all_button.disabled = not bool(self._change_review_source == "git" and has_content)
+        commit_button.disabled = not bool(
+            self._change_review_source == "git"
+            and (
+                has_any_staged
+                or (
+                    has_any_unstaged
+                    and has_content
+                )
+            )
+        )
 
     async def _refresh_change_review_source(self, *, prefer_git_only: bool = False) -> None:
         cwd = Path(self.config.cwd).resolve()
@@ -1274,6 +1298,32 @@ class ReupApp(App):
         )
         return bool(result)
 
+    async def _open_commit_modal(self) -> dict[str, Any] | None:
+        cwd = Path(self.config.cwd).resolve()
+        change_set = self._change_review_change_set
+        if not change_set:
+            return None
+        branch = await asyncio.to_thread(current_branch, cwd)
+        changes = list(getattr(change_set, "changes", []) or [])
+        additions = 0
+        deletions = 0
+        for diff in changes:
+            old_lines = getattr(diff, "old_content", "").splitlines()
+            new_lines = getattr(diff, "new_content", "").splitlines()
+            for line in difflib.ndiff(old_lines, new_lines):
+                if line.startswith("+ "):
+                    additions += 1
+                elif line.startswith("- "):
+                    deletions += 1
+        return await self._open_modal(
+            CommitModal(
+                branch=branch,
+                file_count=len(changes),
+                additions=additions,
+                deletions=deletions,
+            )
+        )
+
     @on(events.Click, "#change-review-stage-file")
     async def on_change_review_stage_file(self, _event: events.Click) -> None:
         if self.query_one("#change-review-stage-file", Static).disabled:
@@ -1339,6 +1389,34 @@ class ReupApp(App):
             return
         self.post_notice(title, result.message)
         await self._refresh_change_review_after_git_action()
+
+    async def _run_change_review_commit(self) -> None:
+        commit_chip = self.query_one("#change-review-commit", Static)
+        if commit_chip.disabled:
+            return
+        result = await self._open_commit_modal()
+        if not result:
+            return
+        action = str(result.get("action", "commit")).strip().lower()
+        include_unstaged = bool(result.get("include_unstaged"))
+        message = str(result.get("message", ""))
+        commit_result = await asyncio.to_thread(
+            commit_changes,
+            Path(self.config.cwd).resolve(),
+            message=message,
+            include_unstaged=include_unstaged,
+            push=action == "commit_push",
+        )
+        await self._refresh_change_review_after_git_action()
+        if not commit_result.ok:
+            self.post_system("Commit", commit_result.message, is_error=True)
+            return
+        self.post_notice("Commit", commit_result.message)
+
+    @on(events.Click, "#change-review-commit")
+    def on_change_review_commit(self, event: events.Click) -> None:
+        event.stop()
+        self.run_worker(self._run_change_review_commit(), exclusive=False)
 
     async def _run_change_review_discard_all(self) -> None:
         if self.query_one("#change-review-discard-all", Static).disabled:

@@ -213,6 +213,50 @@ def discard_all(cwd: Path) -> GitActionResult:
     return GitActionResult(True, "Discarded all changes.")
 
 
+def _has_staged_changes(cwd: Path) -> bool:
+    result = _run_git(cwd, "diff", "--cached", "--quiet", "--exit-code")
+    return result.returncode == 1
+
+
+def commit_changes(
+    cwd: Path,
+    *,
+    message: str,
+    include_unstaged: bool = False,
+    push: bool = False,
+) -> GitActionResult:
+    commit_message = message.strip() or "Update files"
+
+    if include_unstaged:
+        stage_result = _run_git(cwd, "add", "-A", "--", ".")
+        if stage_result.returncode != 0:
+            return GitActionResult(
+                False,
+                _message_for(stage_result) or "Failed to stage working tree changes before commit.",
+            )
+
+    if not _has_staged_changes(cwd):
+        return GitActionResult(False, "No staged changes to commit.")
+
+    commit_result = _run_git(cwd, "commit", "-m", commit_message)
+    if commit_result.returncode != 0:
+        return GitActionResult(
+            False,
+            _message_for(commit_result) or "Failed to create commit.",
+        )
+
+    if push:
+        push_result = _run_git(cwd, "push")
+        if push_result.returncode != 0:
+            return GitActionResult(
+                False,
+                _message_for(push_result) or "Commit created, but push failed.",
+            )
+        return GitActionResult(True, "Committed and pushed changes.")
+
+    return GitActionResult(True, "Committed changes.")
+
+
 def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff | None:
     in_head = _head_has_path(cwd, rel_path)
     exists_now = abs_path.exists()
