@@ -88,7 +88,7 @@ Screen {
 }
 
 #change-review-header {
-    height: 1;
+    height: auto;
     margin-bottom: 1;
     align-vertical: middle;
 }
@@ -101,11 +101,46 @@ Screen {
 
 #change-review-close {
     width: auto;
-    min-width: 7;
+    min-width: 0;
+    height: 1;
+    min-height: 1;
     padding: 0 1;
     background: transparent;
     color: #9caecb;
     border: none;
+}
+
+.change-review-action {
+    width: auto;
+    min-width: 0;
+    height: 1;
+    min-height: 1;
+    margin-right: 1;
+    padding: 0 1;
+    content-align: center middle;
+    text-style: bold;
+}
+
+#change-review-stage-all,
+#change-review-stage-file {
+    color: #8fbfff;
+    background: #16263e;
+}
+
+#change-review-unstage-file {
+    color: #c9d5e8;
+    background: #151c28;
+}
+
+#change-review-discard-all,
+#change-review-discard-file {
+    color: #ffcf89;
+    background: #33210b;
+}
+
+.change-review-action.-disabled {
+    color: #5f6d82;
+    background: #141922;
 }
 
 #change-review-body {
@@ -132,6 +167,17 @@ Screen {
     padding: 0 0 1 1;
     background: transparent;
     overflow: auto auto;
+}
+
+#change-review-preview-column {
+    width: 1fr;
+    height: 1fr;
+    padding-left: 1;
+}
+
+#change-review-preview-actions {
+    height: 1;
+    margin-bottom: 1;
 }
 
 .change-review-path {

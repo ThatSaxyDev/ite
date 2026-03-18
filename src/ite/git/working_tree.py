@@ -42,6 +42,12 @@ class GitWorkingTreeChangeSet:
         return len(self.untracked_changes)
 
 
+@dataclass
+class GitActionResult:
+    ok: bool
+    message: str
+
+
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
@@ -108,6 +114,63 @@ def _expand_untracked_directory(cwd: Path, relative_dir: str) -> list[str]:
 
 def _read_worktree_content(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _message_for(result: subprocess.CompletedProcess[str]) -> str:
+    return (result.stderr or result.stdout or "").strip()
+
+
+def stage_path(cwd: Path, rel_path: str) -> GitActionResult:
+    result = _run_git(cwd, "add", "-A", "--", rel_path)
+    if result.returncode != 0:
+        return GitActionResult(False, _message_for(result) or f"Failed to stage {rel_path}.")
+    return GitActionResult(True, f"Staged {rel_path}.")
+
+
+def unstage_path(cwd: Path, rel_path: str) -> GitActionResult:
+    result = _run_git(cwd, "restore", "--staged", "--", rel_path)
+    if result.returncode != 0:
+        return GitActionResult(False, _message_for(result) or f"Failed to unstage {rel_path}.")
+    return GitActionResult(True, f"Unstaged {rel_path}.")
+
+
+def discard_path(cwd: Path, rel_path: str) -> GitActionResult:
+    abs_path = (cwd / rel_path).resolve()
+    if abs_path.exists() and not _head_has_path(cwd, rel_path) and not _index_has_path(cwd, rel_path):
+        try:
+            abs_path.unlink()
+        except Exception as exc:
+            return GitActionResult(False, f"Failed to remove {rel_path}: {exc}")
+        return GitActionResult(True, f"Discarded {rel_path}.")
+
+    result = _run_git(cwd, "restore", "--source=HEAD", "--staged", "--worktree", "--", rel_path)
+    if result.returncode != 0:
+        return GitActionResult(False, _message_for(result) or f"Failed to discard {rel_path}.")
+    return GitActionResult(True, f"Discarded {rel_path}.")
+
+
+def stage_all(cwd: Path) -> GitActionResult:
+    result = _run_git(cwd, "add", "-A", "--", ".")
+    if result.returncode != 0:
+        return GitActionResult(False, _message_for(result) or "Failed to stage all changes.")
+    return GitActionResult(True, "Staged all changes.")
+
+
+def unstage_all(cwd: Path) -> GitActionResult:
+    result = _run_git(cwd, "restore", "--staged", "--", ".")
+    if result.returncode != 0:
+        return GitActionResult(False, _message_for(result) or "Failed to unstage changes.")
+    return GitActionResult(True, "Unstaged staged changes.")
+
+
+def discard_all(cwd: Path) -> GitActionResult:
+    restore = _run_git(cwd, "restore", "--source=HEAD", "--staged", "--worktree", "--", ".")
+    if restore.returncode != 0:
+        return GitActionResult(False, _message_for(restore) or "Failed to discard tracked changes.")
+    clean = _run_git(cwd, "clean", "-fd", "--", ".")
+    if clean.returncode != 0:
+        return GitActionResult(False, _message_for(clean) or "Failed to remove untracked files.")
+    return GitActionResult(True, "Discarded all changes.")
 
 
 def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff | None:

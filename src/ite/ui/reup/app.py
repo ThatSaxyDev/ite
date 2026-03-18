@@ -38,7 +38,7 @@ from ite.git.branches import (
     is_git_repo,
     list_local_branches,
 )
-from ite.git.working_tree import working_tree_change_set
+from ite.git.working_tree import discard_all, discard_path, stage_all, stage_path, unstage_all, unstage_path, working_tree_change_set
 from ite.attachments import MAX_ATTACHMENTS
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
@@ -273,6 +273,7 @@ class ReupApp(App):
         self._change_review_diff_lookup: dict[str, Any] = {}
         self._change_review_selected_rel_path: str | None = None
         self._change_review_snapshot_key: tuple[Any, ...] | None = None
+        self._change_review_bulk_action: str = "stage"
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
@@ -290,10 +291,17 @@ class ReupApp(App):
                     with Container(id="change-review-panel"):
                         with Horizontal(id="change-review-header"):
                             yield Static("Changes", id="change-review-title")
+                            yield Static("Stage All", id="change-review-stage-all", classes="change-review-action")
+                            yield Static("Discard All", id="change-review-discard-all", classes="change-review-action")
                             yield Button("Close", id="change-review-close", variant="default")
                         with Horizontal(id="change-review-body"):
                             yield ChangedFilesTree(id="change-review-tree")
-                            yield ScrollableContainer(id="change-review-preview")
+                            with Vertical(id="change-review-preview-column"):
+                                with Horizontal(id="change-review-preview-actions"):
+                                    yield Static("Stage", id="change-review-stage-file", classes="change-review-action")
+                                    yield Static("Unstage", id="change-review-unstage-file", classes="change-review-action")
+                                    yield Static("Discard", id="change-review-discard-file", classes="change-review-action")
+                                yield ScrollableContainer(id="change-review-preview")
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
                         yield Static("", id="empty-state")
@@ -837,6 +845,66 @@ class ReupApp(App):
         panel.display = self._change_review_visible and has_content
         toggle.display = has_content and not self._change_review_visible
         toggle.label = "/changes"
+        self._update_change_review_action_state()
+
+    def _change_review_path_flags(self, rel_path: str | None) -> tuple[bool, bool]:
+        if not rel_path or not self._change_review_change_set:
+            return False, False
+        staged = {
+            self._change_review_relpath(diff)
+            for diff in getattr(self._change_review_change_set, "staged_changes", [])
+        }
+        unstaged = {
+            self._change_review_relpath(diff)
+            for diff in getattr(self._change_review_change_set, "unstaged_changes", [])
+        }
+        return rel_path in staged, rel_path in unstaged
+
+    def _update_change_review_action_state(self) -> None:
+        try:
+            stage_file = self.query_one("#change-review-stage-file", Static)
+            unstage_file = self.query_one("#change-review-unstage-file", Static)
+            discard_file = self.query_one("#change-review-discard-file", Static)
+            stage_all_button = self.query_one("#change-review-stage-all", Static)
+            discard_all_button = self.query_one("#change-review-discard-all", Static)
+        except NoMatches:
+            return
+
+        has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
+        selected = self._change_review_selected_rel_path
+        has_staged, has_unstaged = self._change_review_path_flags(selected)
+        stage_file.display = bool(selected and has_unstaged)
+        unstage_file.display = bool(selected and has_staged and not has_unstaged)
+        stage_file.disabled = not bool(selected and has_unstaged)
+        unstage_file.disabled = not bool(selected and has_staged and not has_unstaged)
+        discard_file.disabled = not bool(selected)
+
+        stage_all_button.display = self._change_review_source == "git" and has_content
+        discard_all_button.display = self._change_review_source == "git" and has_content
+        has_any_staged = bool(
+            self._change_review_change_set
+            and getattr(self._change_review_change_set, "staged_changes", [])
+        )
+        has_any_unstaged = bool(
+            self._change_review_change_set
+            and (
+                getattr(self._change_review_change_set, "unstaged_changes", [])
+                or getattr(self._change_review_change_set, "untracked_changes", [])
+            )
+        )
+        if has_any_unstaged:
+            stage_all_button.update("Stage All")
+            self._change_review_bulk_action = "stage"
+            stage_all_button.disabled = False
+        elif has_any_staged:
+            stage_all_button.update("Unstage All")
+            self._change_review_bulk_action = "unstage"
+            stage_all_button.disabled = False
+        else:
+            stage_all_button.update("Stage All")
+            self._change_review_bulk_action = "stage"
+            stage_all_button.disabled = True
+        discard_all_button.disabled = not bool(self._change_review_source == "git" and has_content)
 
     async def _refresh_change_review_source(self) -> None:
         cwd = Path(self.config.cwd).resolve()
@@ -1008,6 +1076,7 @@ class ReupApp(App):
         self._change_review_selected_rel_path = first_rel
         initial_diff = self._change_review_diff_lookup.get(first_rel) if first_rel else first_diff
         self._change_review_snapshot_key = self._change_review_signature(change_set)
+        self._update_change_review_action_state()
         await self._render_change_review_preview(initial_diff)
 
     async def _open_change_review_panel(
@@ -1140,6 +1209,7 @@ class ReupApp(App):
         if not row_key_value:
             return
         self._change_review_selected_rel_path = row_key_value
+        self._update_change_review_action_state()
         diff = self._change_review_diff_lookup.get(row_key_value)
         if diff is not None:
             self.run_worker(self._render_change_review_preview(diff), exclusive=False)
@@ -1157,6 +1227,115 @@ class ReupApp(App):
         rel_path = getattr(data, "rel_path", None)
         if isinstance(rel_path, str):
             self._show_change_review_row(rel_path)
+
+    async def _refresh_change_review_after_git_action(self) -> None:
+        await self._refresh_change_review_source()
+        change_set = self._change_review_change_set
+        if not change_set or not getattr(change_set, "changes", None):
+            self._change_review_visible = False
+            self._change_review_selected_rel_path = None
+            self._apply_change_review_panel_state()
+            preview = self.query_one("#change-review-preview", ScrollableContainer)
+            await preview.remove_children()
+            await preview.mount(Static("No changes to inspect.", classes="change-review-empty"))
+            return
+        if (
+            self._change_review_selected_rel_path
+            and self._change_review_selected_rel_path
+            not in {self._change_review_relpath(diff) for diff in getattr(change_set, "changes", [])}
+        ):
+            self._change_review_selected_rel_path = None
+        await self._populate_change_review_panel()
+
+    async def _confirm_change_review_discard(self, *, title: str, body: str) -> bool:
+        result = await self._open_modal(
+            ConfirmModal(
+                title=title,
+                body=body,
+                yes_label="Discard",
+                no_label="Cancel",
+            )
+        )
+        return bool(result)
+
+    @on(events.Click, "#change-review-stage-file")
+    async def on_change_review_stage_file(self, _event: events.Click) -> None:
+        if self.query_one("#change-review-stage-file", Static).disabled:
+            return
+        rel_path = self._change_review_selected_rel_path
+        if not rel_path:
+            return
+        result = await asyncio.to_thread(stage_path, Path(self.config.cwd).resolve(), rel_path)
+        if not result.ok:
+            self.post_system("Stage file", result.message, is_error=True)
+            return
+        self.post_notice("Stage file", result.message)
+        await self._refresh_change_review_after_git_action()
+
+    @on(events.Click, "#change-review-unstage-file")
+    async def on_change_review_unstage_file(self, _event: events.Click) -> None:
+        if self.query_one("#change-review-unstage-file", Static).disabled:
+            return
+        rel_path = self._change_review_selected_rel_path
+        if not rel_path:
+            return
+        result = await asyncio.to_thread(unstage_path, Path(self.config.cwd).resolve(), rel_path)
+        if not result.ok:
+            self.post_system("Unstage file", result.message, is_error=True)
+            return
+        self.post_notice("Unstage file", result.message)
+        await self._refresh_change_review_after_git_action()
+
+    @on(events.Click, "#change-review-discard-file")
+    async def on_change_review_discard_file(self, _event: events.Click) -> None:
+        if self.query_one("#change-review-discard-file", Static).disabled:
+            return
+        rel_path = self._change_review_selected_rel_path
+        if not rel_path:
+            return
+        confirmed = await self._confirm_change_review_discard(
+            title="Discard file changes?",
+            body=f"Discard all staged and unstaged changes for `{rel_path}`?",
+        )
+        if not confirmed:
+            return
+        result = await asyncio.to_thread(discard_path, Path(self.config.cwd).resolve(), rel_path)
+        if not result.ok:
+            self.post_system("Discard file", result.message, is_error=True)
+            return
+        self.post_notice("Discard file", result.message)
+        await self._refresh_change_review_after_git_action()
+
+    @on(events.Click, "#change-review-stage-all")
+    async def on_change_review_stage_all(self, _event: events.Click) -> None:
+        stage_all_chip = self.query_one("#change-review-stage-all", Static)
+        if stage_all_chip.disabled:
+            return
+        git_fn = stage_all if self._change_review_bulk_action == "stage" else unstage_all
+        title = "Stage all" if self._change_review_bulk_action == "stage" else "Unstage all"
+        result = await asyncio.to_thread(git_fn, Path(self.config.cwd).resolve())
+        if not result.ok:
+            self.post_system(title, result.message, is_error=True)
+            return
+        self.post_notice(title, result.message)
+        await self._refresh_change_review_after_git_action()
+
+    @on(events.Click, "#change-review-discard-all")
+    async def on_change_review_discard_all(self, _event: events.Click) -> None:
+        if self.query_one("#change-review-discard-all", Static).disabled:
+            return
+        confirmed = await self._confirm_change_review_discard(
+            title="Discard all changes?",
+            body="Discard all staged, unstaged, and untracked changes in the current working tree?",
+        )
+        if not confirmed:
+            return
+        result = await asyncio.to_thread(discard_all, Path(self.config.cwd).resolve())
+        if not result.ok:
+            self.post_system("Discard all", result.message, is_error=True)
+            return
+        self.post_notice("Discard all", result.message)
+        await self._refresh_change_review_after_git_action()
 
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:
