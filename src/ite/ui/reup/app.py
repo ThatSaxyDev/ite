@@ -274,6 +274,7 @@ class ReupApp(App):
         self._change_review_selected_rel_path: str | None = None
         self._change_review_snapshot_key: tuple[Any, ...] | None = None
         self._change_review_bulk_action: str = "stage"
+        self._change_review_preview_version: int = 0
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
@@ -1003,9 +1004,13 @@ class ReupApp(App):
             new_lines[-1] += "\n"
         return "".join(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile))
 
-    async def _render_change_review_preview(self, diff: Any | None) -> None:
+    async def _render_change_review_preview(self, diff: Any | None, *, version: int | None = None) -> None:
+        if version is not None and version != self._change_review_preview_version:
+            return
         preview = self.query_one("#change-review-preview", ScrollableContainer)
         await preview.remove_children()
+        if version is not None and version != self._change_review_preview_version:
+            return
         if diff is None:
             await preview.mount(Static("Select a file to inspect.", classes="change-review-empty"))
             return
@@ -1024,6 +1029,8 @@ class ReupApp(App):
                 header.append("  ")
                 header.append(stage_label_for(diff.path), style="bold #9caecb")
         body = Static(Syntax(self._change_review_diff_text(diff), "diff", theme="monokai", word_wrap=False), classes="change-review-diff")
+        if version is not None and version != self._change_review_preview_version:
+            return
         await preview.mount(Static(header, classes="change-review-path"), body)
 
     async def _populate_change_review_panel(self) -> None:
@@ -1077,7 +1084,11 @@ class ReupApp(App):
         initial_diff = self._change_review_diff_lookup.get(first_rel) if first_rel else first_diff
         self._change_review_snapshot_key = self._change_review_signature(change_set)
         self._update_change_review_action_state()
-        await self._render_change_review_preview(initial_diff)
+        self._change_review_preview_version += 1
+        await self._render_change_review_preview(
+            initial_diff,
+            version=self._change_review_preview_version,
+        )
 
     async def _open_change_review_panel(
         self,
@@ -1212,7 +1223,14 @@ class ReupApp(App):
         self._update_change_review_action_state()
         diff = self._change_review_diff_lookup.get(row_key_value)
         if diff is not None:
-            self.run_worker(self._render_change_review_preview(diff), exclusive=False)
+            self._change_review_preview_version += 1
+            self.run_worker(
+                self._render_change_review_preview(
+                    diff,
+                    version=self._change_review_preview_version,
+                ),
+                exclusive=False,
+            )
 
     @on(Tree.NodeSelected, "#change-review-tree")
     def on_change_review_node_selected(self, event: Tree.NodeSelected) -> None:
