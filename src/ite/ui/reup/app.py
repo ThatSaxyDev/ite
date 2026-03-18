@@ -1811,6 +1811,13 @@ class ReupApp(App):
     def on_key(self, event: events.Key) -> None:
         # Global modal escape hatch: always allow resolving confirm prompts,
         # even if focus gets stuck or terminal mouse support is flaky.
+        if event.key == "ctrl+c":
+            self.run_worker(self.action_interrupt_or_quit(), exclusive=False)
+            event.stop()
+            if hasattr(event, "prevent_default"):
+                event.prevent_default()
+            return
+
         if self.screen_stack:
             top = self.screen_stack[-1]
             if isinstance(top, ConfirmModal):
@@ -3385,6 +3392,36 @@ class ReupApp(App):
         self._streaming_widget = None
         self._streaming_buffer = ""
 
+    async def _clear_inflight_turn_ui(self) -> None:
+        if self._streaming_widget is not None:
+            try:
+                await self._streaming_widget.remove()
+            except Exception:
+                pass
+            self._streaming_widget = None
+            self._streaming_buffer = ""
+            self._message_count = max(0, self._message_count - 1)
+
+        running_widgets = [card for card in self._tool_widgets.values() if card.has_class("running")]
+        for card in running_widgets:
+            try:
+                await card.remove()
+            except Exception:
+                pass
+            self._message_count = max(0, self._message_count - 1)
+
+        if running_widgets:
+            running_ids = {
+                call_id
+                for call_id, card in list(self._tool_widgets.items())
+                if card in running_widgets
+            }
+            for call_id in running_ids:
+                self._tool_widgets.pop(call_id, None)
+                self._tool_args_by_call_id.pop(call_id, None)
+
+        self._refresh_empty_state()
+
     async def add_user_message(self, message: str) -> None:
         await self.add_assistant_card("You", RichMarkdown(message), css_class="user")
 
@@ -3511,15 +3548,7 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
         card = self._tool_widgets.get(call_id)
         if card is None:
-            await self.add_tool_call_start(
-                call_id=call_id,
-                name=name,
-                tool_kind=tool_kind,
-                arguments=self._tool_args_by_call_id.get(call_id, {}),
-            )
-            card = self._tool_widgets.get(call_id)
-            if card is None:
-                return
+            return
 
         status = "done" if success else "failed"
         icon = "✅" if success else "❌"
@@ -3750,6 +3779,7 @@ class ReupApp(App):
                 pass
         self._active_turn_task = None
         self._is_turn_running = False
+        await self._clear_inflight_turn_ui()
         self._set_loading_state("idle", busy=False)
 
     async def start_new_thread(self) -> None:
