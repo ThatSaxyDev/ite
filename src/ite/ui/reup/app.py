@@ -1121,7 +1121,11 @@ class ReupApp(App):
     def _poll_change_review_panel(self) -> None:
         if not self._change_review_visible or self._change_review_source != "git":
             return
-        self.run_worker(self._sync_open_change_review_panel(), exclusive=True)
+        self.run_worker(
+            self._sync_open_change_review_panel(),
+            exclusive=True,
+            group="change-review-sync",
+        )
 
     async def _sync_open_change_review_panel(self) -> None:
         previous_signature = self._change_review_snapshot_key
