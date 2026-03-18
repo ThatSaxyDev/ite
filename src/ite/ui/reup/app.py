@@ -1321,6 +1321,7 @@ class ReupApp(App):
                 file_count=len(changes),
                 additions=additions,
                 deletions=deletions,
+                changed_paths=[self._change_review_relpath(diff) for diff in changes],
             )
         )
 

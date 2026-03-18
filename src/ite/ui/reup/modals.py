@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -138,12 +139,14 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         file_count: int,
         additions: int,
         deletions: int,
+        changed_paths: list[str],
     ) -> None:
         super().__init__()
         self._branch = branch
         self._file_count = file_count
         self._additions = additions
         self._deletions = deletions
+        self._changed_paths = changed_paths
         self._include_unstaged = True
 
     def _include_unstaged_text(self) -> Text:
@@ -157,6 +160,48 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             text.append("  ")
             text.append("NO", style="bold #f29b9b")
         return text
+
+    def _suggest_commit_message(self) -> str:
+        paths = [path for path in self._changed_paths if path]
+        if not paths:
+            return "chore: update working tree"
+
+        joined = " ".join(paths).lower()
+        if "reup" in joined and "commit" in joined:
+            return "feat(reup): refine commit modal flow"
+        if "reup" in joined and any(token in joined for token in {"modal", "modals", "tcss"}):
+            return "style(reup): polish modal layout and spacing"
+        if "working_tree" in joined and "reup" in joined:
+            return "feat(reup): improve working tree review actions"
+        if "working_tree" in joined or "changes" in joined:
+            return "feat(git): improve working tree change review"
+        if "app.py" in joined and "modals.py" in joined:
+            return "refactor(reup): tighten modal interactions"
+
+        if len(paths) == 1:
+            stem = Path(paths[0]).stem
+            words = re.sub(r"[_-]+", " ", stem).strip()
+            parent = Path(paths[0]).parent.name
+            scope = parent if parent and parent not in {"src", "ite"} else stem
+            return f"chore({scope}): update {words}"
+
+        common_prefix = os.path.commonpath(paths)
+        common_parts = [
+            part
+            for part in common_prefix.split(os.sep)
+            if part and part not in {"src", "ite", "ui", "docs"}
+        ]
+        if common_parts:
+            topic = " ".join(common_parts[-2:])
+            scope = common_parts[-1]
+            return f"refactor({scope}): refine {topic}"
+
+        top_level = {path.split("/", 1)[0] for path in paths if "/" in path}
+        if len(top_level) == 1:
+            scope = next(iter(top_level))
+            return f"chore({scope}): update related files"
+
+        return "chore: update related files"
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal commit-modal"):
@@ -183,10 +228,12 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         classes="commit-toggle-choice",
                     )
                 yield Static("Commit message", classes="commit-label commit-message-label")
-                yield Input(
-                    placeholder="Leave blank to use a default message",
-                    id="commit-message",
-                )
+                with Horizontal(classes="commit-message-row"):
+                    yield Input(
+                        placeholder="Leave blank to use a default message",
+                        id="commit-message",
+                    )
+                    yield Button("✦", id="commit-ai-fill", variant="default")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
                 yield Button("Commit", id="commit-confirm", variant="primary")
                 yield Button("Commit and push", id="commit-push", variant="success")
@@ -214,6 +261,12 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#commit-include-unstaged-choice", Static).update(
             self._include_unstaged_text()
         )
+
+    @on(Button.Pressed, "#commit-ai-fill")
+    def on_commit_ai_fill_pressed(self, _event: Button.Pressed) -> None:
+        input_widget = self.query_one("#commit-message", Input)
+        input_widget.value = self._suggest_commit_message()
+        input_widget.focus()
 
     @on(Button.Pressed, "#commit-confirm")
     def on_commit_confirm_pressed(self, _event: Button.Pressed) -> None:

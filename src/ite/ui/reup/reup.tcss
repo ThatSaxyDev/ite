@@ -927,13 +927,38 @@ CommitModal .commit-message-label {
     margin-bottom: 0;
 }
 
+CommitModal .commit-message-row {
+    height: auto;
+    min-height: 3;
+    align-vertical: middle;
+}
+
 CommitModal #commit-message {
     width: 1fr;
-    margin-top: 1;
     margin-bottom: 0;
     height: 3;
     min-height: 3;
     padding: 0 1;
+    margin-top: 0;
+    margin-right: 1;
+}
+
+CommitModal #commit-ai-fill {
+    width: 3;
+    min-width: 3;
+    height: 3;
+    min-height: 3;
+    margin-left: 0;
+    border: none;
+    background: #262b3d;
+    color: #c9a6ff;
+    text-style: bold;
+    content-align: center middle;
+}
+
+CommitModal #commit-ai-fill:hover {
+    background: #31374d;
+    color: #dcc0ff;
 }
 
 CommitModal .commit-actions {
