@@ -269,7 +269,7 @@ class ReupApp(App):
         self._change_review_change_set: Any = None
         self._change_review_mode: str = "changed"
         self._change_review_title: str = "Changes"
-        self._change_review_source: str = "history"
+        self._change_review_source: str = "git"
         self._change_review_diff_lookup: dict[str, Any] = {}
         self._change_review_selected_rel_path: str | None = None
         self._change_review_snapshot_key: tuple[Any, ...] | None = None
@@ -907,11 +907,11 @@ class ReupApp(App):
             stage_all_button.disabled = True
         discard_all_button.disabled = not bool(self._change_review_source == "git" and has_content)
 
-    async def _refresh_change_review_source(self) -> None:
+    async def _refresh_change_review_source(self, *, prefer_git_only: bool = False) -> None:
         cwd = Path(self.config.cwd).resolve()
         change_set = None
-        source = "history"
-        title = "Changed"
+        source = "git"
+        title = "Working tree"
         mode = "changed"
         if await asyncio.to_thread(is_git_repo, cwd):
             change_set = await asyncio.to_thread(working_tree_change_set, cwd)
@@ -921,12 +921,6 @@ class ReupApp(App):
                     f"Working tree  {change_set.staged_count} staged"
                     f"  {change_set.unstaged_count} unstaged"
                 )
-                mode = "changed"
-        if change_set is None and self.agent and self.agent.session:
-            change_set = self.agent.session.change_history.latest()
-            if change_set is not None:
-                source = "history"
-                title = "Changed"
                 mode = "changed"
         self._change_review_source = source
         self._change_review_change_set = change_set
@@ -1251,7 +1245,7 @@ class ReupApp(App):
             self._show_change_review_row(rel_path)
 
     async def _refresh_change_review_after_git_action(self) -> None:
-        await self._refresh_change_review_source()
+        await self._refresh_change_review_source(prefer_git_only=self._change_review_source == "git")
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
             self._change_review_visible = False
@@ -2237,21 +2231,16 @@ class ReupApp(App):
         )
 
     async def _run_changes_command_native(self) -> None:
-        await self.ensure_agent()
-        if not self.agent or not self.agent.session:
-            self.post_system("Changes", "No active session.", is_error=True)
-            return
-
         await self._refresh_change_review_source()
-        change_set = self._change_review_change_set or self.agent.session.change_history.latest()
+        change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
-            self.post_system("Changes", "No recorded file changes yet.", is_error=True)
+            self.post_system("Changes", "No git working tree changes to inspect.", is_error=True)
             return
 
         await self._open_change_review_panel(
             change_set,
-            title=self._change_review_title if self._change_review_change_set else "Changed",
-            mode=self._change_review_mode if self._change_review_change_set else "changed",
+            title=self._change_review_title,
+            mode=self._change_review_mode,
         )
 
     async def _run_undo_command_native(self, args: list[str]) -> None:
