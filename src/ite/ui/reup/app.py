@@ -2334,12 +2334,12 @@ class ReupApp(App):
         footer: str,
         mode: str,
     ) -> Text:
+        diffs = list(getattr(change_set, "changes", []) or [])
         entries, extra = change_entries_with_stats(
             change_set,
             cwd=self.config.cwd,
-            max_items=3,
+            max_items=max(1, len(diffs)),
         )
-        diffs = list(getattr(change_set, "changes", []) or [])
         count = len(diffs)
         files_text = f"{count} file" if count == 1 else f"{count} files"
 
@@ -2355,11 +2355,7 @@ class ReupApp(App):
                 if deletions:
                     body.append(f"  -{deletions}", style="bold #f29b9b")
             body.append("\n")
-        if extra:
-            body.append("• ", style="#7f8ea3")
-            body.append(f"+{extra} more", style="#b8c4d9")
-            body.append("\n")
-        if entries or extra:
+        if entries:
             body.append("\n")
         body.append(f"{verb} {files_text}.", style="#c6d2e3")
         body.append("\n")
