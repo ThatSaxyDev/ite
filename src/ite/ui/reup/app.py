@@ -706,8 +706,7 @@ class ReupApp(App):
                     with Container(id="aside-panel"):
                         with Horizontal(id="aside-panel-header"):
                             yield Static("Aside", id="aside-panel-title")
-                            yield Static("Context only  •  no tools", id="aside-panel-meta")
-                            yield Static("Hide", id="aside-hide")
+                            yield Static("Close", id="aside-hide")
                         yield VerticalScroll(id="aside-panel-body")
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
@@ -1234,25 +1233,17 @@ class ReupApp(App):
             state = str(entry.get("state", "done")).strip().lower()
             question = str(entry.get("question", "")).strip()
             answer = str(entry.get("answer", "")).strip()
-            state_label = {
-                "pending": "thinking",
-                "done": "done",
-                "error": "error",
-            }.get(state, state)
-            await body.mount(
-                Vertical(
-                    Container(
-                        Static(question, classes="aside-user-body"),
-                        classes="aside-user-entry",
-                    ),
-                    Container(
-                        Static(state_label, classes=f"aside-assistant-state {state}"),
-                        Static(RichMarkdown(answer), classes="aside-assistant-body"),
-                        classes="aside-assistant-entry",
-                    ),
-                    classes="aside-thread",
-                )
+            user_row = Horizontal(
+                Static(question, classes="aside-user-entry"),
+                classes="aside-user-row",
             )
+            if state == "pending":
+                response_widget = Static("Thinking...", classes="aside-thinking")
+            elif state == "error":
+                response_widget = Static(answer, classes="aside-error")
+            else:
+                response_widget = Static(RichMarkdown(answer), classes="aside-assistant-body")
+            await body.mount(Vertical(user_row, response_widget, classes="aside-thread"))
         self._apply_aside_panel_state()
         body.scroll_end(animate=False)
 
