@@ -316,6 +316,13 @@ class SessionManager:
 
         return SessionSnapshot.from_dict(data)
 
+    def delete_session(self, session_id: str) -> None:
+        file_path = self.sessions_dir / f"{session_id}.json"
+        try:
+            file_path.unlink()
+        except FileNotFoundError:
+            return
+
     def save_checkpoint(self, snapshot: SessionSnapshot) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         checkpoint_id = f"{snapshot.session_id}_{timestamp}"

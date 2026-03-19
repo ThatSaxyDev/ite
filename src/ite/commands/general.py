@@ -1,4 +1,4 @@
-"""General commands: /ite, /exit, /quit, /help, /clear, /new."""
+"""General commands: /ite, /exit, /quit, /help, /clear, /new, /close."""
 
 import sys
 from ite.commands import Command, CommandContext, CommandRegistry
@@ -182,6 +182,15 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
     )
 
 
+async def cmd_close(ctx: CommandContext, args: list[str]) -> None:
+    close_current_thread = getattr(ctx.tui, "_close_current_thread", None)
+    if callable(close_current_thread):
+        await close_current_thread()
+        return
+
+    ctx.console.print("[error]/close is only available in multi-thread surfaces.[/error]")
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/ite", description="Show welcome screen", handler=cmd_ite,
@@ -200,6 +209,10 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/new", description="Start a new thread/session",
         handler=cmd_new,
+    ))
+    registry.register(Command(
+        name="/close", description="Close the current thread/session",
+        handler=cmd_close,
     ))
     registry.register(
         Command(

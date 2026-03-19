@@ -213,6 +213,9 @@ class ReupTUIAdapter:
     async def _start_new_thread(self) -> None:
         await self._app.start_new_thread()
 
+    async def _close_current_thread(self) -> None:
+        await self._app.close_current_thread()
+
 
 @dataclass
 class SessionRunState:
@@ -531,6 +534,17 @@ class ReupApp(App):
                 continue
             return session_id
         return None
+
+    def _neighbor_session_id_for_close(self, session_id: str) -> str | None:
+        if session_id not in self._open_session_order:
+            return None
+        remaining = [sid for sid in self._open_session_order if sid != session_id]
+        if not remaining:
+            return None
+        index = self._open_session_order.index(session_id)
+        if index > 0:
+            return self._open_session_order[index - 1]
+        return remaining[0]
 
     def _session_tab_label(self, session_id: str) -> str:
         session = self._open_sessions.get(session_id)
@@ -2139,7 +2153,8 @@ class ReupApp(App):
         *,
         announce: str | None = None,
     ) -> bool:
-        await self.ensure_agent()
+        if self.agent is None:
+            await self.ensure_agent()
         if not self.agent:
             return False
         target = self._open_sessions.get(session_id)
@@ -2154,6 +2169,7 @@ class ReupApp(App):
             return True
         if (
             current_id
+            and current_id in self._open_sessions
             and self.agent.session
             and self.agent.session.turn_count > 0
             and not self._run_state(current_id).is_turn_running
@@ -2449,7 +2465,7 @@ class ReupApp(App):
         if self._is_turn_running:
             await self.cancel_active_turn()
         else:
-            self.post_notice("Exit", "Use `/exit` or `/quit` to close reup.")
+            self.post_notice("Exit", "Use `/exit` or `/quit` to close iTE.")
 
     async def action_send(self) -> None:
         await self.handle_send()
@@ -2926,6 +2942,10 @@ class ReupApp(App):
 
         if command == "/changes":
             await self._run_changes_command_native()
+            return
+
+        if command == "/close":
+            await self.close_current_thread()
             return
 
         if command == "/undo":
@@ -4267,6 +4287,72 @@ class ReupApp(App):
         self._message_count = 0
         self._reset_session_local_ui_state()
         self._refresh_empty_state()
+
+    async def close_current_thread(self) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session:
+            return
+
+        if len(self._open_session_order) <= 1:
+            self.post_notice("Exit", "Use `/exit` or `/quit` to close iTE.")
+            return
+
+        current_session = self.agent.session
+        current_session_id = self._active_session_id()
+        if not current_session_id:
+            return
+
+        is_running = self._run_state(current_session_id).is_turn_running
+        title = self._session_title(current_session)
+        body_lines = [f"Close `{title}`?"]
+        if is_running:
+            body_lines.append("The current run will be stopped first.")
+        body_lines.append("This thread will be closed completely and removed from the open tabs.")
+        confirmed = await self._open_modal(
+            ConfirmModal(
+                title="Close current thread?",
+                body="\n\n".join(body_lines),
+                yes_label="Close",
+                no_label="Keep",
+            )
+        )
+        if not confirmed:
+            return
+
+        if is_running:
+            await self.cancel_active_turn()
+
+        next_session_id = self._neighbor_session_id_for_close(current_session_id)
+        SessionManager().delete_session(current_session_id)
+
+        self._open_sessions.pop(current_session_id, None)
+        self._open_session_workspaces.pop(current_session_id, None)
+        self._open_session_order = [
+            sid for sid in self._open_session_order if sid != current_session_id
+        ]
+        self._session_run_states.pop(current_session_id, None)
+        closed_agent = self._session_agents.pop(current_session_id, None)
+
+        if next_session_id:
+            await self._activate_open_session(next_session_id)
+        else:
+            fresh = Session(config=self.config)
+            fresh_agent = self._build_session_agent(fresh)
+            await fresh_agent.__aenter__()
+            self._remember_open_session(fresh, agent=fresh_agent)
+            self.agent = fresh_agent
+            self.refresh_header()
+            conversation = self.query_one("#conversation", VerticalScroll)
+            await conversation.remove_children()
+            self._message_count = 0
+            self._reset_session_local_ui_state()
+            self._refresh_empty_state()
+
+        if closed_agent is not None:
+            try:
+                await closed_agent.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     async def auto_save(self) -> None:
         if not self.agent or not self.agent.session:

@@ -752,7 +752,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         with Container(classes="modal setup-modal"):
             yield Label("Setup ITE", classes="modal-title setup-title")
             yield Static(
-                "Connect your provider credentials to start using reup.",
+                "Connect your provider credentials to start using iTE.",
                 classes="modal-body setup-body",
             )
             yield Input(
