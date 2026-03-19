@@ -1268,16 +1268,24 @@ class ReupApp(App):
             if outbound.remote_name
             else outbound.branch
         )
+        commit_noun = "commit" if outbound.ahead_count == 1 else "commits"
+        details = [
+            f"{outbound.ahead_count} {commit_noun} ready to send from `{outbound.branch}`."
+        ]
+        if outbound.needs_publish:
+            details.append(f"This will publish the branch to `{target}` and set upstream tracking.")
+        elif outbound.upstream:
+            details.append(f"Destination: `{outbound.upstream}`.")
+        if outbound.behind_count > 0:
+            details.append(
+                f"Warning: the remote is {outbound.behind_count} commit"
+                + ("" if outbound.behind_count == 1 else "s")
+                + " ahead."
+            )
         confirmed = await self._open_modal(
             ConfirmModal(
                 title=f"{verb} branch?",
-                body=(
-                    f"{verb} `{outbound.branch}`"
-                    + (f" to `{target}`" if outbound.needs_publish else "")
-                    + f"? {outbound.ahead_count} commit"
-                    + ("" if outbound.ahead_count == 1 else "s")
-                    + " ready to send."
-                ),
+                body="\n\n".join(details),
                 yes_label=verb,
                 no_label="Cancel",
             )

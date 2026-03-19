@@ -157,6 +157,24 @@ def _message_for(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stderr or result.stdout or "").strip()
 
 
+def _friendly_push_error(message: str) -> str:
+    text = (message or "").strip()
+    lowered = text.lower()
+    if "index.lock" in text:
+        return "Git is locked by another process. Close the other git operation or remove the stale .git/index.lock file, then try again."
+    if "could not read from remote repository" in lowered or "permission denied" in lowered:
+        return "Push failed because Git could not authenticate with the remote repository."
+    if "repository not found" in lowered:
+        return "Push failed because the remote repository could not be found."
+    if "set the remote as upstream" in lowered or "no upstream branch" in lowered:
+        return "This branch is not published yet. Publish it first so Git can track the remote branch."
+    if "non-fast-forward" in lowered or "fetch first" in lowered or "rejected" in lowered:
+        return "Push was rejected because the remote branch has newer commits. Pull or rebase first, then push again."
+    if "network" in lowered or "could not resolve host" in lowered or "failed to connect" in lowered:
+        return "Push failed because the remote could not be reached."
+    return text or "Push failed."
+
+
 def git_outbound_state(cwd: Path) -> GitOutboundState | None:
     branch = _git_output(cwd, "rev-parse", "--abbrev-ref", "HEAD").strip()
     if not branch or branch == "HEAD":
@@ -333,13 +351,17 @@ def push_current_branch(cwd: Path) -> GitActionResult:
     if outbound.has_upstream:
         result = _run_git(cwd, "push")
         if result.returncode != 0:
-            return GitActionResult(False, _message_for(result) or "Failed to push branch.")
-        return GitActionResult(True, f"Pushed {outbound.branch}.")
+            return GitActionResult(False, _friendly_push_error(_message_for(result)))
+        count = outbound.ahead_count
+        noun = "commit" if count == 1 else "commits"
+        return GitActionResult(True, f"Pushed {count} {noun} from {outbound.branch}.")
 
     result = _run_git(cwd, "push", "-u", outbound.remote_name or "origin", "HEAD")
     if result.returncode != 0:
-        return GitActionResult(False, _message_for(result) or "Failed to publish branch.")
-    return GitActionResult(True, f"Published {outbound.branch} to {outbound.remote_name}.")
+        return GitActionResult(False, _friendly_push_error(_message_for(result)))
+    count = outbound.ahead_count
+    noun = "commit" if count == 1 else "commits"
+    return GitActionResult(True, f"Published {outbound.branch} to {outbound.remote_name} with {count} {noun}.")
 
 
 def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff | None:
