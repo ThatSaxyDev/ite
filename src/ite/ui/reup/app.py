@@ -865,9 +865,13 @@ class ReupApp(App):
         if has_content:
             toggle.label = "/changes"
         elif wants_publish:
-            toggle.label = "/publish"
+            count = self._git_outbound_state.ahead_count if self._git_outbound_state else 0
+            noun = "commit" if count == 1 else "commits"
+            toggle.label = f"/publish {count} {noun} ↑"
         else:
-            toggle.label = "/push"
+            count = self._git_outbound_state.ahead_count if self._git_outbound_state else 0
+            noun = "commit" if count == 1 else "commits"
+            toggle.label = f"/push {count} {noun} ↑"
         self._update_change_review_action_state()
 
     def _change_review_path_flags(self, rel_path: str | None) -> tuple[bool, bool]:
