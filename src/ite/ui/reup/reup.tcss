@@ -44,9 +44,25 @@ Screen {
     border: none;
 }
 
+.session-tab:hover,
+.session-tab:focus {
+    background: #171b22;
+    color: #b6c0ce;
+    border: none;
+    text-style: none;
+}
+
 .session-tab-live {
     background: #3a2410;
     color: #ffd08a;
+    text-style: bold;
+}
+
+.session-tab-live:hover,
+.session-tab-live:focus {
+    background: #3a2410;
+    color: #ffd08a;
+    border: none;
     text-style: bold;
 }
 
@@ -56,9 +72,25 @@ Screen {
     text-style: bold;
 }
 
+.session-tab-live.-primary:hover,
+.session-tab-live.-primary:focus {
+    background: #a85a12;
+    color: #fff4df;
+    border: none;
+    text-style: bold;
+}
+
 .session-tab.-primary {
     background: #1f4f92;
     color: #eef5ff;
+    text-style: bold;
+}
+
+.session-tab.-primary:hover,
+.session-tab.-primary:focus {
+    background: #1f4f92;
+    color: #eef5ff;
+    border: none;
     text-style: bold;
 }
 
