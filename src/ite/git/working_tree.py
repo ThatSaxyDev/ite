@@ -49,6 +49,35 @@ class GitActionResult:
     message: str
 
 
+@dataclass
+class GitOutboundState:
+    branch: str
+    upstream: str | None
+    remote_name: str | None
+    ahead_count: int = 0
+    behind_count: int = 0
+
+    @property
+    def has_upstream(self) -> bool:
+        return bool(self.upstream)
+
+    @property
+    def has_remote(self) -> bool:
+        return bool(self.remote_name)
+
+    @property
+    def has_outgoing(self) -> bool:
+        return self.ahead_count > 0
+
+    @property
+    def needs_publish(self) -> bool:
+        return not self.has_upstream and self.has_remote
+
+    @property
+    def action_label(self) -> str:
+        return "publish" if self.needs_publish else "push"
+
+
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
@@ -126,6 +155,44 @@ def _read_worktree_content(path: Path) -> str:
 
 def _message_for(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stderr or result.stdout or "").strip()
+
+
+def git_outbound_state(cwd: Path) -> GitOutboundState | None:
+    branch = _git_output(cwd, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    if not branch or branch == "HEAD":
+        return None
+
+    remotes = [line.strip() for line in _git_output(cwd, "remote").splitlines() if line.strip()]
+    upstream_result = _run_git(cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    upstream = upstream_result.stdout.strip() if upstream_result.returncode == 0 else None
+    remote_name: str | None = None
+    ahead = 0
+    behind = 0
+
+    if upstream:
+        remote_name = upstream.split("/", 1)[0]
+        counts = _git_output(cwd, "rev-list", "--left-right", "--count", f"HEAD...{upstream}").strip()
+        if counts:
+            left, right = (counts.split() + ["0", "0"])[:2]
+            try:
+                ahead = int(left)
+            except ValueError:
+                ahead = 0
+            try:
+                behind = int(right)
+            except ValueError:
+                behind = 0
+    elif remotes:
+        remote_name = "origin" if "origin" in remotes else remotes[0]
+        ahead = 1
+
+    return GitOutboundState(
+        branch=branch,
+        upstream=upstream,
+        remote_name=remote_name,
+        ahead_count=ahead,
+        behind_count=behind,
+    )
 
 
 def stage_path(cwd: Path, rel_path: str) -> GitActionResult:
@@ -255,6 +322,24 @@ def commit_changes(
         return GitActionResult(True, "Committed and pushed changes.")
 
     return GitActionResult(True, "Committed changes.")
+
+
+def push_current_branch(cwd: Path) -> GitActionResult:
+    outbound = git_outbound_state(cwd)
+    if outbound is None:
+        return GitActionResult(False, "Cannot push from a detached HEAD.")
+    if not outbound.has_remote:
+        return GitActionResult(False, "No git remote is configured for this repository.")
+    if outbound.has_upstream:
+        result = _run_git(cwd, "push")
+        if result.returncode != 0:
+            return GitActionResult(False, _message_for(result) or "Failed to push branch.")
+        return GitActionResult(True, f"Pushed {outbound.branch}.")
+
+    result = _run_git(cwd, "push", "-u", outbound.remote_name or "origin", "HEAD")
+    if result.returncode != 0:
+        return GitActionResult(False, _message_for(result) or "Failed to publish branch.")
+    return GitActionResult(True, f"Published {outbound.branch} to {outbound.remote_name}.")
 
 
 def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff | None:

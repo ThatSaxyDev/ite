@@ -145,6 +145,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         deletions: int,
         changed_paths: list[str],
         diff_context: str,
+        push_label: str = "Commit and push",
     ) -> None:
         super().__init__()
         self._config = config
@@ -154,6 +155,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._deletions = deletions
         self._changed_paths = changed_paths
         self._diff_context = diff_context
+        self._push_label = push_label
         self._include_unstaged = True
         self._generating_commit_message = False
         self._ai_spinner_index = 0
@@ -296,7 +298,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                     yield Button("✦", id="commit-ai-fill", variant="default")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
                 yield Button("Commit", id="commit-confirm", variant="primary", disabled=True)
-                yield Button("Commit and push", id="commit-push", variant="success", disabled=True)
+                yield Button(self._push_label, id="commit-push", variant="success", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
 
     async def on_mount(self) -> None:

@@ -43,6 +43,8 @@ from ite.git.working_tree import (
     commit_changes,
     discard_all,
     discard_path,
+    git_outbound_state,
+    push_current_branch,
     stage_all,
     stage_path,
     unstage_all,
@@ -286,6 +288,7 @@ class ReupApp(App):
         self._change_review_snapshot_key: tuple[Any, ...] | None = None
         self._change_review_bulk_action: str = "stage"
         self._change_review_preview_version: int = 0
+        self._git_outbound_state: Any = None
         self._queued_turn_payload: dict[str, Any] | None = None
         self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
@@ -856,8 +859,15 @@ class ReupApp(App):
         toggle = self.query_one("#changes-toggle", Button)
         has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
         panel.display = self._change_review_visible and has_content
-        toggle.display = has_content and not self._change_review_visible
-        toggle.label = "/changes"
+        has_outgoing = bool(self._git_outbound_state and self._git_outbound_state.has_outgoing)
+        wants_publish = bool(self._git_outbound_state and self._git_outbound_state.needs_publish)
+        toggle.display = (has_content or has_outgoing) and not self._change_review_visible
+        if has_content:
+            toggle.label = "/changes"
+        elif wants_publish:
+            toggle.label = "/publish"
+        else:
+            toggle.label = "/push"
         self._update_change_review_action_state()
 
     def _change_review_path_flags(self, rel_path: str | None) -> tuple[bool, bool]:
@@ -938,6 +948,7 @@ class ReupApp(App):
         title = "Working tree"
         mode = "changed"
         if await asyncio.to_thread(is_git_repo, cwd):
+            self._git_outbound_state = await asyncio.to_thread(git_outbound_state, cwd)
             change_set = await asyncio.to_thread(working_tree_change_set, cwd)
             if change_set is not None:
                 source = "git"
@@ -946,6 +957,8 @@ class ReupApp(App):
                     f"  {change_set.unstaged_count} unstaged"
                 )
                 mode = "changed"
+        else:
+            self._git_outbound_state = None
         self._change_review_source = source
         self._change_review_change_set = change_set
         self._change_review_title = title
@@ -1234,7 +1247,45 @@ class ReupApp(App):
 
     @on(Button.Pressed, "#changes-toggle")
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
-        await self._toggle_change_review_panel()
+        has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
+        if has_content:
+            await self._toggle_change_review_panel()
+            return
+        if self._git_outbound_state and self._git_outbound_state.has_outgoing:
+            self.run_worker(self._run_push_from_header(), exclusive=False)
+
+    async def _run_push_from_header(self) -> None:
+        outbound = self._git_outbound_state
+        if not outbound or not outbound.has_outgoing:
+            return
+        verb = "Publish" if outbound.needs_publish else "Push"
+        target = (
+            f"{outbound.remote_name}/{outbound.branch}"
+            if outbound.remote_name
+            else outbound.branch
+        )
+        confirmed = await self._open_modal(
+            ConfirmModal(
+                title=f"{verb} branch?",
+                body=(
+                    f"{verb} `{outbound.branch}`"
+                    + (f" to `{target}`" if outbound.needs_publish else "")
+                    + f"? {outbound.ahead_count} commit"
+                    + ("" if outbound.ahead_count == 1 else "s")
+                    + " ready to send."
+                ),
+                yes_label=verb,
+                no_label="Cancel",
+            )
+        )
+        if not confirmed:
+            return
+        result = await asyncio.to_thread(push_current_branch, Path(self.config.cwd).resolve())
+        await self._refresh_change_review_source(prefer_git_only=True)
+        if not result.ok:
+            self.post_system(verb, result.message, is_error=True)
+            return
+        self.post_notice(verb, result.message)
 
     @on(Button.Pressed, "#change-review-close")
     def on_change_review_close_pressed(self, _event: Button.Pressed) -> None:
@@ -1342,6 +1393,11 @@ class ReupApp(App):
                 deletions=deletions,
                 changed_paths=[self._change_review_relpath(diff) for diff in changes],
                 diff_context=diff_context,
+                push_label=(
+                    "Commit and publish"
+                    if self._git_outbound_state and self._git_outbound_state.needs_publish
+                    else "Commit and push"
+                ),
             )
         )
 
