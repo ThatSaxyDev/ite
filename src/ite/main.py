@@ -44,6 +44,26 @@ logger = logging.getLogger(__name__)
 console = get_console()
 
 
+class IteCommand(click.Command):
+    _hint_map = {
+        "c": "Use `ite` for reup. Use `ite -l` for legacy or `ite -d` for desktop.",
+        "chat": "Use `ite` for reup. Use `ite -l` for legacy or `ite -d` for desktop.",
+        "tui": "Use `ite --legacy` or `ite -l` for the legacy terminal UI.",
+        "gui": "Use `ite --desktop` or `ite -d` for the desktop app.",
+    }
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        try:
+            return super().parse_args(ctx, args)
+        except click.NoSuchOption as exc:
+            option_name = str(exc.option_name or "").strip()
+            hint = self._hint_map.get(option_name)
+            if hint:
+                rendered = f"-{option_name}" if len(option_name) == 1 else f"--{option_name}"
+                raise click.UsageError(f"No such option '{rendered}'. {hint}") from None
+            raise
+
+
 @dataclass(frozen=True)
 class CommandPromptEntry:
     name: str
@@ -1218,7 +1238,7 @@ class CLI:
                 AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
 
 
-@click.command()
+@click.command(cls=IteCommand)
 @click.version_option(version="0.0.13", prog_name="ite")
 @click.option(
     "--cwd",
@@ -1232,16 +1252,14 @@ class CLI:
 @click.option(
     "--desktop",
     "-d",
-    "--gui",
     is_flag=True,
     help="Launch the desktop app",
 )
 @click.option(
-    "--chat",
-    "-c",
-    "--reup",
+    "--legacy",
+    "-l",
     is_flag=True,
-    help="Launch the chat-first terminal app",
+    help="Launch the legacy terminal UI",
 )
 def main(
     cwd: Path | None,
@@ -1249,7 +1267,7 @@ def main(
     api_key: str | None,
     base_url: str | None,
     desktop: bool = False,
-    chat: bool = False,
+    legacy: bool = False,
 ):
     workspace_dir = cwd or Path.cwd()
     ensure_workspace_layout(workspace_dir)
@@ -1269,9 +1287,10 @@ def main(
         config.model.name = model
 
     # Setup routing:
-    # - TUI: keep terminal wizard behavior.
+    # - Legacy TUI: keep terminal wizard behavior.
     # - GUI: launch GUI setup view instead of forcing terminal wizard first.
-    if not desktop and config.needs_setup:
+    # - Reup (default): chat-first terminal app.
+    if not desktop and not legacy and config.needs_setup:
         from ite.config.setup import run_setup_wizard
 
         config = run_setup_wizard(console, config)
@@ -1293,13 +1312,14 @@ def main(
     if desktop:
         from ite.ui.gui import run_gui
         run_gui(config)
-    elif chat:
+    elif legacy:
+        cli = CLI(config)
+        asyncio.run(cli.run_interactive())
+    else:
+        # Default: launch reup (chat-first terminal app)
         from ite.ui.reup import run_reup
 
         run_reup(config)
-    else:
-        cli = CLI(config)
-        asyncio.run(cli.run_interactive())
 
 
 if __name__ == "__main__":

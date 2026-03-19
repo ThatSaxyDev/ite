@@ -1044,6 +1044,73 @@ class ReupApp(App):
             new_lines[-1] += "\n"
         return "".join(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile))
 
+    def _change_review_numbered_diff_renderable(self, diff: Any) -> Text:
+        import re
+
+        raw_diff = self._change_review_diff_text(diff)
+        hunk_re = re.compile(r"^@@ -(?P<old>\d+)(?:,(?P<old_count>\d+))? \+(?P<new>\d+)(?:,(?P<new_count>\d+))? @@")
+        rendered = Text(no_wrap=True)
+        old_lineno = 0
+        new_lineno = 0
+        gutter_style = "#7f8ea3"
+        context_style = "#e7edf7"
+        add_style = "#a7f36b"
+        del_style = "#ff9bb7"
+        hunk_style = "#b6b09c"
+
+        def append_line(
+            old_label: str,
+            new_label: str,
+            marker: str,
+            content: str,
+            *,
+            marker_style: str,
+            content_style: str,
+        ) -> None:
+            rendered.append(f"{old_label:>5} ", style=gutter_style)
+            rendered.append(f"{new_label:>5} ", style=gutter_style)
+            rendered.append(marker, style=marker_style)
+            rendered.append(" ")
+            rendered.append(content, style=content_style)
+            rendered.append("\n")
+
+        for line in raw_diff.splitlines():
+            if line.startswith("--- ") or line.startswith("+++ "):
+                style = del_style if line.startswith("--- ") else add_style
+                rendered.append(line, style=style)
+                rendered.append("\n")
+                continue
+
+            match = hunk_re.match(line)
+            if match:
+                old_lineno = int(match.group("old"))
+                new_lineno = int(match.group("new"))
+                rendered.append("  old   new    \n", style=gutter_style)
+                rendered.append(line, style=hunk_style)
+                rendered.append("\n")
+                continue
+
+            if line.startswith("-") and not line.startswith("--- "):
+                append_line(str(old_lineno), "", "-", line[1:], marker_style=del_style, content_style=del_style)
+                old_lineno += 1
+                continue
+
+            if line.startswith("+") and not line.startswith("+++ "):
+                append_line("", str(new_lineno), "+", line[1:], marker_style=add_style, content_style=add_style)
+                new_lineno += 1
+                continue
+
+            if line.startswith(" "):
+                append_line(str(old_lineno), str(new_lineno), " ", line[1:], marker_style=gutter_style, content_style=context_style)
+                old_lineno += 1
+                new_lineno += 1
+                continue
+
+            rendered.append(line, style=context_style)
+            rendered.append("\n")
+
+        return rendered
+
     async def _render_change_review_preview(self, diff: Any | None, *, version: int | None = None) -> None:
         if version is not None and version != self._change_review_preview_version:
             return
@@ -1068,7 +1135,7 @@ class ReupApp(App):
             if callable(stage_label_for):
                 header.append("  ")
                 header.append(stage_label_for(diff.path), style="bold #9caecb")
-        body = Static(Syntax(self._change_review_diff_text(diff), "diff", theme="monokai", word_wrap=False), classes="change-review-diff")
+        body = Static(self._change_review_numbered_diff_renderable(diff), classes="change-review-diff")
         if version is not None and version != self._change_review_preview_version:
             return
         await preview.mount(Static(header, classes="change-review-path"), body)
