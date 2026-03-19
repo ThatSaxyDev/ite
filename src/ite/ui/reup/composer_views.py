@@ -13,6 +13,7 @@ from rich.text import Text
 class SlashCommandOption:
     name: str
     description: str
+    insert_text: str | None = None
 
 
 def composer_meta_text(

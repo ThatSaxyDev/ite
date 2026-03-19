@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from typing import Any, Awaitable, Callable
 
 from ite.agent.agent import Agent
+from ite.attachment_refs import resolve_inline_attachment_refs
 from ite.attachments import (
     Attachment,
     AttachmentManager,
@@ -1412,6 +1413,18 @@ class GUIApp(
             return
 
         if not message.startswith("/"):
+            resolution = resolve_inline_attachment_refs(
+                message,
+                cwd=self.config.cwd,
+                existing_paths=self._pending_attachment_paths,
+            )
+            if resolution.errors:
+                for error in resolution.errors:
+                    self._show_transient_notice(error)
+                return
+            self._pending_attachment_paths = resolution.queued_paths
+            self._render_attachment_chips()
+            message = resolution.message
             plan_enabled = self._is_plan_mode_enabled()
             if self._should_suppress_intent_detection(message, plan_enabled=plan_enabled):
                 self._dispatch_message(message)

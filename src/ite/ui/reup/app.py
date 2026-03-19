@@ -36,7 +36,19 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
+from ite.attachment_refs import (
+    discover_attachable_files,
+    extract_at_query,
+    resolve_inline_attachment_refs,
+    suggest_inline_attachment_paths,
+)
 from ite.attachments import MAX_ATTACHMENTS
+from ite.attachments import (
+    Attachment,
+    AttachmentManager,
+    build_user_model_content,
+    build_user_text_with_manifest,
+)
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import ApprovalPolicy, Config
@@ -292,9 +304,12 @@ class ReupApp(App):
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
         self._command_palette_rows: int = 0
+        self._palette_mode: str = "command"
         self._turn_action_payload: dict[str, Any] | None = None
         self._turn_action_replacing_queue: bool = False
         self._turn_action_options: list[SlashCommandOption] = []
+        self._attachable_files_cache: list[Path] = []
+        self._attachable_files_cache_cwd: Path | None = None
         self._last_rendered_plan_text: str | None = None
         self._aside_panel_visible: bool = False
         self._aside_entries: list[dict[str, str]] = []
@@ -683,6 +698,45 @@ class ReupApp(App):
 
         return extract_slash_query(text)
 
+    @staticmethod
+    def _extract_at_query(text: str) -> str | None:
+        return extract_at_query(text)
+
+    def _discover_attachable_files(self) -> list[Path]:
+        cwd = Path(self.config.cwd).resolve()
+        if self._attachable_files_cache_cwd == cwd and self._attachable_files_cache:
+            return self._attachable_files_cache
+        files = discover_attachable_files(cwd)
+        self._attachable_files_cache = files
+        self._attachable_files_cache_cwd = cwd
+        return files
+
+    def _filtered_attachment_palette(self, text: str) -> list[SlashCommandOption]:
+        query = self._extract_at_query(text)
+        if query is None:
+            return []
+        cwd = Path(self.config.cwd).resolve()
+        matches = suggest_inline_attachment_paths(
+            query,
+            cwd=cwd,
+            files=self._discover_attachable_files(),
+            limit=50,
+        )
+        options: list[SlashCommandOption] = []
+        for path in matches:
+            try:
+                rel = str(path.resolve().relative_to(cwd))
+            except Exception:
+                rel = str(path.resolve())
+            options.append(
+                SlashCommandOption(
+                    name=f"@{rel}",
+                    description=path.name,
+                    insert_text=f"@{rel}",
+                )
+            )
+        return options
+
     def _filtered_command_palette(self, text: str) -> list[SlashCommandOption]:
         return filtered_command_palette(
             text,
@@ -798,7 +852,13 @@ class ReupApp(App):
     def _sync_command_palette(self, text: str) -> None:
         if self._turn_action_payload is not None:
             return
-        options = self._filtered_command_palette(text)
+        at_options = self._filtered_attachment_palette(text)
+        if at_options:
+            self._palette_mode = "attachment"
+            options = at_options
+        else:
+            self._palette_mode = "command"
+            options = self._filtered_command_palette(text)
         if self._filtered_command_palette_options == options and (
             not options or self._command_palette_index < len(options)
         ):
@@ -861,6 +921,24 @@ class ReupApp(App):
         self._resize_composer_for_prompt()
         await self.run_command(command_name)
 
+    def _apply_attachment_palette_selection(self, option: SlashCommandOption) -> None:
+        prompt = self.query_one("#prompt", TextArea)
+        text = prompt.text or ""
+        insert_text = option.insert_text or option.name
+        updated = re.sub(
+            r"(?:^|[\s(\[{])@[^\s@]*$",
+            lambda match: match.group(0)[:1] + insert_text
+            if match.group(0)[:1].isspace() or match.group(0)[:1] in "([{"
+            else insert_text,
+            text,
+        )
+        if updated == text:
+            updated = (text + " " + insert_text).strip()
+        prompt.load_text(updated + " ")
+        prompt.move_cursor((0, len(prompt.text)))
+        self._sync_command_palette(prompt.text)
+        self._resize_composer_for_prompt()
+
     def _apply_command_palette_selection(self) -> bool:
         if self._turn_action_payload is not None:
             if not self._turn_action_options:
@@ -873,6 +951,9 @@ class ReupApp(App):
         if not self._filtered_command_palette_options:
             return False
         option = self._filtered_command_palette_options[self._command_palette_index]
+        if self._palette_mode == "attachment":
+            self._apply_attachment_palette_selection(option)
+            return True
         self.run_worker(
             self._execute_command_palette_selection(option.name),
             exclusive=False,
@@ -2653,6 +2734,50 @@ class ReupApp(App):
             attachments = list(self.agent.session.pending_attachment_paths)
         return build_turn_payload(message, attachments, max_attachments=MAX_ATTACHMENTS)
 
+    def _resolve_inline_attachment_payload(
+        self,
+        *,
+        message: str,
+        attachments: list[str],
+    ) -> tuple[dict[str, Any] | None, list[str]]:
+        resolution = resolve_inline_attachment_refs(
+            message,
+            cwd=Path(self.config.cwd).resolve(),
+            existing_paths=attachments,
+            files=self._discover_attachable_files(),
+        )
+        if resolution.errors:
+            return None, resolution.errors
+        return (
+            build_turn_payload(
+                resolution.message,
+                resolution.queued_paths,
+                max_attachments=MAX_ATTACHMENTS,
+            ),
+            [],
+        )
+
+    def _prepare_attachments_for_turn(
+        self,
+        *,
+        message: str,
+        attachments: list[str],
+        turn_id: int,
+    ) -> tuple[str, str | list[dict] | None, str | None, list[Attachment]] | None:
+        if not attachments:
+            return message, None, None, []
+        manager = AttachmentManager(self.config.cwd)
+        temp_turn_id = f"reup_{turn_id}"
+        staged, errors = manager.stage_paths(attachments, temp_turn_id)
+        if errors:
+            for error in errors:
+                self.post_attachment_note(error)
+        if not staged:
+            return None
+        user_model_content = build_user_model_content(message, staged, self.config.cwd)
+        prepared_message = build_user_text_with_manifest(message, staged, self.config.cwd)
+        return prepared_message, user_model_content, temp_turn_id, staged
+
     def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
         prompt = self.query_one("#prompt", TextArea)
         self._record_composer_history(prompt.text.strip())
@@ -2727,18 +2852,26 @@ class ReupApp(App):
         message = prompt.text.strip()
         if not message:
             return
+        attachments: list[str] = []
+        if self.agent and self.agent.session:
+            attachments = list(self.agent.session.pending_attachment_paths)
+        payload, errors = self._resolve_inline_attachment_payload(
+            message=message,
+            attachments=attachments,
+        )
+        if payload is None:
+            for error in errors:
+                self.post_attachment_note(error)
+            return
         if self._is_turn_running and not is_aside_command_text(message):
-            payload = self._build_turn_payload(message)
             handled = await self._resolve_active_turn_send(payload)
             if handled:
                 return
             return
 
-        payload = self._build_turn_payload(message)
-        self._clear_composer_after_submit()
-
         if self._consume_dropped_path_text(message):
             return
+        self._clear_composer_after_submit()
         await self._dispatch_payload(payload)
 
     async def _handle_agent_send_with_intent(self, message: str) -> None:
@@ -3310,11 +3443,28 @@ class ReupApp(App):
         run_state = self._run_state(session_id)
         self._last_rendered_plan_text = None
         run_state.turn_had_error = False
-        await self.add_user_message(message)
+        attachments = list(getattr(active_agent.session, "pending_attachment_paths", []))
         run_state.active_turn_id += 1
         turn_id = run_state.active_turn_id
+        prepared = self._prepare_attachments_for_turn(
+            message=message,
+            attachments=attachments,
+            turn_id=turn_id,
+        )
+        if prepared is None:
+            return
+        prepared_message, user_model_content, temp_attachment_turn_id, _staged = prepared
+        active_agent.session.pending_attachment_paths = []
+        await self.add_user_message(message)
         run_state.active_turn_task = asyncio.create_task(
-            self._agent_turn(active_agent, message, session_id, turn_id)
+            self._agent_turn(
+                active_agent,
+                prepared_message,
+                session_id,
+                turn_id,
+                user_model_content=user_model_content,
+                attachment_turn_id=temp_attachment_turn_id,
+            )
         )
         run_state.is_turn_running = True
         self._set_loading_state(self._progress_state_label(), busy=True)
@@ -3350,10 +3500,21 @@ class ReupApp(App):
             self._restore_queued_payload_after_unsuccessful_turn()
 
     async def _agent_turn(
-        self, agent: Agent, message: str, session_id: str, turn_id: int
+        self,
+        agent: Agent,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        *,
+        user_model_content: str | list[dict] | None = None,
+        attachment_turn_id: str | None = None,
     ) -> None:
-        async for event in agent.run(message):
-            await self.handle_agent_event(event, session_id, turn_id)
+        try:
+            async for event in agent.run(message, user_model_content=user_model_content):
+                await self.handle_agent_event(event, session_id, turn_id)
+        finally:
+            if attachment_turn_id:
+                AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
 
     async def handle_agent_event(
         self, event: AgentEvent, session_id: str, turn_id: int

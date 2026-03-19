@@ -17,6 +17,7 @@ from ite.ui.tui import TUI, get_console
 from ite.agent.events import AgentEventType
 from ite.agent.agent import Agent
 from ite.agent.session_manager import SessionSnapshot, SessionManager
+from ite.attachment_refs import resolve_inline_attachment_refs
 from ite.attachments import (
     AttachmentManager,
     MAX_ATTACHMENTS,
@@ -388,6 +389,18 @@ class CLI:
                             continue
                         if self._consume_dropped_path_text(user_input):
                             continue
+                        if self.agent and self.agent.session and not user_input.startswith("/"):
+                            resolution = resolve_inline_attachment_refs(
+                                user_input,
+                                cwd=self.config.cwd,
+                                existing_paths=self.agent.session.pending_attachment_paths,
+                            )
+                            if resolution.errors:
+                                for error in resolution.errors:
+                                    console.print(f"[warning]{error}[/warning]")
+                                continue
+                            self.agent.session.pending_attachment_paths = resolution.queued_paths
+                            user_input = resolution.message
                         if not self._confirm_before_send(user_input):
                             continue
 

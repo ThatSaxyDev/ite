@@ -13,6 +13,7 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
+from ite.attachment_refs import discover_attachable_files
 from ite.attachments import MAX_ATTACHMENTS
 from ite.client.llm_client import LLMClient
 from ite.client.response import StreamEventType
@@ -632,36 +633,7 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
 
     @staticmethod
     def _discover_files(cwd: Path) -> list[Path]:
-        skip_dirs = {
-            ".git",
-            ".venv",
-            "venv",
-            "node_modules",
-            "__pycache__",
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            ".next",
-            "dist",
-            "build",
-            "coverage",
-            ".idea",
-            ".vscode",
-        }
-        files: list[Path] = []
-        for root, dirs, filenames in os.walk(cwd):
-            dirs[:] = [
-                name
-                for name in dirs
-                if name not in skip_dirs
-                and not str(Path(root, name)).startswith(str(cwd / ".ite" / "tmp_attachments"))
-            ]
-            root_path = Path(root)
-            for filename in filenames:
-                if len(files) >= 250:
-                    return files
-                files.append(root_path / filename)
-        return files
+        return discover_attachable_files(cwd)
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal attach-modal"):

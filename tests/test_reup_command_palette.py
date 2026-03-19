@@ -28,6 +28,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIsNone(ReupApp._extract_slash_query("/approval auto"))
         self.assertIsNone(ReupApp._extract_slash_query("/approval\nauto"))
 
+    def test_extract_at_query_only_when_editing_trailing_token(self) -> None:
+        self.assertEqual(ReupApp._extract_at_query("@"), "")
+        self.assertEqual(ReupApp._extract_at_query("inspect @sr"), "sr")
+        self.assertIsNone(ReupApp._extract_at_query("inspect @src/app.py now"))
+        self.assertIsNone(ReupApp._extract_at_query("inspect\n@src"))
+
     def test_filtered_command_palette_matches_registry_commands(self) -> None:
         app = self._app()
 
@@ -40,6 +46,16 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(slash_only[0].name, "/approval")
         self.assertEqual([entry.name for entry in filtered], ["/approval"])
         self.assertEqual(filtered[0].description, "Show or change approval mode")
+
+    def test_filtered_attachment_palette_matches_workspace_files(self) -> None:
+        app = self._app()
+        (self.cwd / "src").mkdir()
+        (self.cwd / "src" / "app.py").write_text("print('hi')\n", encoding="utf-8")
+
+        filtered = app._filtered_attachment_palette("inspect @src/a")
+
+        self.assertEqual([entry.name for entry in filtered[:1]], ["@src/app.py"])
+        self.assertEqual(filtered[0].insert_text, "@src/app.py")
 
     def test_palette_selection_clamps_at_bounds(self) -> None:
         app = self._app()
@@ -208,7 +224,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app.agent = SimpleNamespace(session=SimpleNamespace(session_id="s1"))
         app._queued_turn_payload = {"message": "next", "attachments": []}
 
-        async def fake_agent_turn(_agent, _message: str, _session_id: str, _turn_id: int) -> None:
+        async def fake_agent_turn(
+            _agent,
+            _message: str,
+            _session_id: str,
+            _turn_id: int,
+            *,
+            user_model_content=None,
+            attachment_turn_id=None,
+        ) -> None:
             app._turn_had_error = True
 
         async def scenario() -> None:
@@ -238,7 +262,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._remember_open_session(second, workspace=self.cwd / "two")
         app._remember_open_session(first, workspace=self.cwd / "one")
 
-        self.assertEqual(app._open_session_order, ["s2", "s1"])
+        self.assertEqual(app._open_session_order, ["s1", "s2"])
         self.assertEqual(app._open_sessions["s1"], first)
         self.assertEqual(app._workspace_for_session_id("s2"), (self.cwd / "two").resolve())
 
