@@ -1,5 +1,6 @@
-
 import platform
+import subprocess
+from functools import lru_cache
 from datetime import datetime
 from ite.config.config import Config
 from ite.tools.base import Tool
@@ -79,12 +80,22 @@ def _get_environment_section(config: Config) -> str:
     else:
         sandbox_info = "\n- **Sandbox**: Disabled — no path restrictions."
 
+    shell_path = _get_shell_info()
+    shell_runner = _get_shell_runner()
+    ripgrep_status = (
+        "available to the shell tool"
+        if _shell_command_available("rg", shell_runner)
+        else "not available to the shell tool; prefer `grep` instead"
+    )
+
     return f"""# Environment
 
 - **Current Date**: {now.strftime("%A, %B %d, %Y")}
 - **Operating System**: {os_info}
 - **Working Directory**: {config.cwd}
-- **Shell**: {_get_shell_info()}{sandbox_info}
+- **Shell**: {shell_path}
+- **Shell Tool Runner**: {shell_runner}
+- **Search CLI**: `rg` is {ripgrep_status}.{sandbox_info}
 
 The user has granted you access to run tools in service of their request. Use them when needed."""
 
@@ -100,6 +111,31 @@ def _get_shell_info() -> str:
         return "PowerShell/cmd.exe"
     else:
         return os.environ.get("SHELL", "/bin/bash")
+
+
+def _get_shell_runner() -> str:
+    import sys
+
+    if sys.platform == "win32":
+        return "cmd.exe"
+    return "/bin/bash"
+
+
+@lru_cache(maxsize=8)
+def _shell_command_available(command: str, shell_path: str) -> bool:
+    if not shell_path or not shell_path.startswith("/"):
+        return False
+    try:
+        result = subprocess.run(
+            [shell_path, "-lc", f"command -v {command} >/dev/null 2>&1"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
 
 
 def _get_agents_md_section() -> str:
@@ -182,9 +218,9 @@ You are a coding agent. Please keep going until the query is completely resolved
 ## Tool Usage
 
 - **Parallelism:** Execute multiple independent tool calls in parallel when feasible (i.e. searching the codebase, reading multiple files). Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially.
-- **Command Execution:** Use the `shell` tool for running shell commands. Before executing commands that modify the file system, codebase, or system state, provide a brief explanation of the command's purpose and potential impact. When searching for text or files, prefer using `rg` or `rg --files` respectively because `rg` is much faster than alternatives like `grep`. (If the `rg` command is not found, then use alternatives.)
+ - **Command Execution:** Use the `shell` tool for running shell commands. Before executing commands that modify the file system, codebase, or system state, provide a brief explanation of the command's purpose and potential impact. When searching for text or files, prefer `rg` / `rg --files` only when the environment says `rg` is available in the shell. Otherwise use `grep` and `find` directly instead of trying `rg` first.
 - **Web Research:** Use `web_search` when you need fresh or external information, and `web_fetch` when you already have a URL or search result to inspect. Prefer local file/search tools first for repository truth. When using web results in an answer, make the source URLs legible.
-- **File Operations:** Use specialized tools instead of bash commands when possible, as this provides a better user experience. For file operations, use dedicated tools: `read_file` for reading files instead of cat/head/tail, `edit` for single-file editing instead of sed/awk, `apply_patch` for multi-file edits (2+ files), and `write_file` for creating files instead of cat with heredoc or echo redirection. `apply_patch` requires raw patch text that starts with `*** Begin Patch` and ends with `*** End Patch`; do not wrap it in fenced code blocks and do not send git-style `diff --git`, `---`, or `+++` headers. Reserve bash tools exclusively for actual system commands and terminal operations that require shell execution. NEVER use bash echo or other command-line tools to communicate thoughts, explanations, or instructions to the user. Output all communication directly in your response text instead.
+- **File Operations:** Use specialized tools instead of bash commands when possible, as this provides a better user experience. For file operations, use dedicated tools: `read_file` for reading files instead of cat/head/tail, `edit` for single-file editing instead of sed/awk, `apply_patch` for coordinated multi-file edits, and `write_file` for creating files instead of cat with heredoc or echo redirection. Prefer `edit` for single-file version bumps or exact one-file replacements. Prefer `apply_patch` only when one change must update multiple files together or when a true patch is already available. `apply_patch` requires raw patch text that starts with `*** Begin Patch` and ends with `*** End Patch`; do not wrap it in fenced code blocks and do not send git-style `diff --git`, `---`, or `+++` headers. Reserve bash tools exclusively for actual system commands and terminal operations that require shell execution. NEVER use bash echo or other command-line tools to communicate thoughts, explanations, or instructions to the user. Output all communication directly in your response text instead.
 - **File Creation:** Do not create new files unless necessary for achieving your goal or explicitly requested. Prefer editing an existing file when possible. This includes markdown files.
 - **Remembering Facts:** Use the `memory` tool to store information across multiple stores:
   - `long_term` (default): For persistent *user-related* preferences that should survive across all sessions (e.g., preferred coding style, personal tool aliases).
@@ -365,7 +401,8 @@ You have access to the following tools to accomplish your tasks:
 
 1. **File Operations**:
    - Use `read_file` before editing to understand current content
-   - Use `edit` for surgical changes (search/replace)
+   - Use `edit` for surgical changes (search/replace) and single-file version bumps
+   - Use `apply_patch` only for coordinated multi-file edits or when you already have valid patch text
    - Use `write_file` for creating new files or complete rewrites
    - Prefer built-in tools first; only use MCP tools if no built-in tool can do the job or if explicitly requested
 

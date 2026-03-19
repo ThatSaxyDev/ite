@@ -177,6 +177,80 @@ class ApplyPatchToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result.success)
             self.assertIn("Invalid patch", result.error or "")
 
+    async def test_apply_patch_accepts_unified_diff(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            update_file = cwd / "update.txt"
+            update_file.write_text("hello\nworld\n", encoding="utf-8")
+
+            config = Config(cwd=cwd, api_key="test")
+            tool = ApplyPatchTool(config)
+            patch = """--- a/update.txt
++++ b/update.txt
+@@ -1,2 +1,2 @@
+ hello
+-world
++there
+"""
+
+            result = await tool.execute(
+                ToolInvocation(params={"patch": patch, "dry_run": False}, cwd=cwd)
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(update_file.read_text(encoding="utf-8"), "hello\nthere\n")
+
+    async def test_apply_patch_accepts_embedded_unified_headers(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            update_file = cwd / "update.txt"
+            update_file.write_text("hello\nworld\n", encoding="utf-8")
+
+            config = Config(cwd=cwd, api_key="test")
+            tool = ApplyPatchTool(config)
+            patch = """*** Begin Patch
+*** Update File: update.txt
+--- a/update.txt
++++ b/update.txt
+@@ -1,2 +1,2 @@
+ hello
+-world
++there
+*** End Patch
+"""
+
+            result = await tool.execute(
+                ToolInvocation(params={"patch": patch, "dry_run": False}, cwd=cwd)
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(update_file.read_text(encoding="utf-8"), "hello\nthere\n")
+
+    async def test_apply_patch_ignores_leading_blank_line_before_hunk(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            update_file = cwd / "update.txt"
+            update_file.write_text("[build-system]\nhello\n", encoding="utf-8")
+
+            config = Config(cwd=cwd, api_key="test")
+            tool = ApplyPatchTool(config)
+            patch = """*** Begin Patch
+*** Update File: update.txt
+
+@@
+ [build-system]
+-hello
++there
+*** End Patch
+"""
+
+            result = await tool.execute(
+                ToolInvocation(params={"patch": patch, "dry_run": False}, cwd=cwd)
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(update_file.read_text(encoding="utf-8"), "[build-system]\nthere\n")
+
     async def test_apply_patch_blocks_outside_sandbox(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

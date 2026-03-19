@@ -5,6 +5,7 @@ import sys
 import fnmatch
 import os
 import re
+import shutil
 from pathlib import Path
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from ite.tools.base import Tool, ToolKind, ToolInvocation, ToolResult
@@ -138,6 +139,12 @@ BLOCKED_COMMANDS = {
     "init 0",
     "init 6",
 }
+
+_SHELL_RUNNER_EXTRA_PATH_CANDIDATES = (
+    "/Applications/Codex.app/Contents/Resources",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+)
 
 
 class ShellParams(BaseModel):
@@ -359,5 +366,19 @@ class ShellTool(Tool):
 
         if shell_environment.set_vars:
             env.update(shell_environment.set_vars)
+
+        discovered_rg = shutil.which("rg")
+        candidate_dirs: list[str] = []
+        if discovered_rg:
+            candidate_dirs.append(str(Path(discovered_rg).resolve().parent))
+        candidate_dirs.extend(_SHELL_RUNNER_EXTRA_PATH_CANDIDATES)
+
+        existing_path = env.get("PATH", "")
+        existing_parts = [part for part in existing_path.split(os.pathsep) if part]
+        for candidate in candidate_dirs:
+            if candidate and Path(candidate).exists() and candidate not in existing_parts:
+                existing_parts.insert(0, candidate)
+        if existing_parts:
+            env["PATH"] = os.pathsep.join(existing_parts)
 
         return env

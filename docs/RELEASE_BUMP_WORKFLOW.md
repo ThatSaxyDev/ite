@@ -63,7 +63,8 @@ Rule:
 
 ### 3. Patch the version strings
 
-Use `apply_patch`, never ad-hoc file writes.
+Use `edit` for single-file version bumps and exact one-file replacements.
+Use `apply_patch` only when coordinating the same version change across multiple files in one patch.
 
 Update:
 
@@ -178,7 +179,8 @@ python3 -m twine upload --repository testpypi dist/ite_agent-X.Y.Z*
 
 ## Behavior Rules
 
-- Always use `apply_patch` for edits.
+- Use `edit` for single-file replacements.
+- Use `apply_patch` for multi-file coordinated edits.
 - Do not remove unrelated files from `dist/`.
 - Do not modify unrelated untracked directories.
 - Do not tag, commit, or push unless the user explicitly asks.

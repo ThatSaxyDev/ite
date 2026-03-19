@@ -165,6 +165,8 @@ class EditTool(Tool):
                 f"2. Set replace_all=true to replace all accurrences",
                 metadata={
                     "occurrence_count": occurrence_count,
+                    "recoverable": True,
+                    "recovery_hint": "Provide more context or set replace_all=true.",
                 },
             )
 

@@ -201,11 +201,15 @@ class ApplyPatchTool(Tool):
 
     def _parse_patch(self, patch_text: str) -> list[PatchOperation]:
         lines = patch_text.splitlines()
-        if not lines or lines[0].strip() != "*** Begin Patch":
-            raise ValueError("patch must start with '*** Begin Patch'")
-        if lines[-1].strip() != "*** End Patch":
-            raise ValueError("patch must end with '*** End Patch'")
+        if not lines:
+            raise ValueError("patch is empty")
+        if lines[0].strip() == "*** Begin Patch":
+            if lines[-1].strip() != "*** End Patch":
+                raise ValueError("patch must end with '*** End Patch'")
+            return self._parse_codex_patch(lines)
+        return self._parse_unified_diff(lines)
 
+    def _parse_codex_patch(self, lines: list[str]) -> list[PatchOperation]:
         operations: list[PatchOperation] = []
         idx = 1
         while idx < len(lines) - 1:
@@ -241,6 +245,70 @@ class ApplyPatchTool(Tool):
             raise ValueError("patch contains no operations")
         return operations
 
+    def _parse_unified_diff(self, lines: list[str]) -> list[PatchOperation]:
+        operations: list[PatchOperation] = []
+        idx = 0
+
+        while idx < len(lines):
+            line = lines[idx]
+            if line.startswith("diff --git "):
+                idx += 1
+                continue
+            if line.startswith("index ") or line.startswith("new file mode ") or line.startswith("deleted file mode "):
+                idx += 1
+                continue
+            if not line.startswith("--- "):
+                if line.strip():
+                    raise ValueError(f"unexpected patch line: {line}")
+                idx += 1
+                continue
+
+            old_path = self._normalize_diff_path(line[4:].strip())
+            idx += 1
+            if idx >= len(lines) or not lines[idx].startswith("+++ "):
+                raise ValueError("unified diff is missing '+++' header")
+            new_path = self._normalize_diff_path(lines[idx][4:].strip())
+            idx += 1
+
+            body: list[str] = []
+            while idx < len(lines):
+                current = lines[idx]
+                if current.startswith("diff --git ") or current.startswith("--- "):
+                    break
+                if current.startswith("index ") or current.startswith("new file mode ") or current.startswith("deleted file mode "):
+                    idx += 1
+                    continue
+                body.append(current)
+                idx += 1
+
+            if old_path == "/dev/null":
+                if new_path == "/dev/null":
+                    raise ValueError("invalid unified diff paths: both sides are /dev/null")
+                operations.append(PatchOperation(op="add", path=new_path, body_lines=body))
+                continue
+            if new_path == "/dev/null":
+                operations.append(PatchOperation(op="delete", path=old_path, body_lines=[]))
+                continue
+            if old_path != new_path:
+                raise ValueError(
+                    f"rename patches are not supported: '{old_path}' -> '{new_path}'"
+                )
+            operations.append(PatchOperation(op="update", path=old_path, body_lines=body))
+
+        if not operations:
+            raise ValueError("patch contains no operations")
+        return operations
+
+    def _normalize_diff_path(self, path: str) -> str:
+        cleaned = path.strip()
+        if cleaned in {"/dev/null", "dev/null"}:
+            return "/dev/null"
+        if "\t" in cleaned:
+            cleaned = cleaned.split("\t", 1)[0].strip()
+        if cleaned.startswith("a/") or cleaned.startswith("b/"):
+            return cleaned[2:]
+        return cleaned
+
     def _render_added_content(self, body_lines: list[str]) -> str:
         out: list[str] = []
         for line in body_lines:
@@ -252,6 +320,7 @@ class ApplyPatchTool(Tool):
         return "\n".join(out) + "\n"
 
     def _apply_update(self, old_content: str, body_lines: list[str], path: str) -> str:
+        body_lines = self._normalize_update_body_lines(body_lines)
         old_lines = old_content.splitlines()
         old_had_trailing_newline = old_content.endswith("\n")
         new_lines: list[str] = []
@@ -292,3 +361,25 @@ class ApplyPatchTool(Tool):
         if old_had_trailing_newline or any(line.startswith("+") for line in body_lines):
             rendered += "\n"
         return rendered
+
+    def _normalize_update_body_lines(self, body_lines: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen_hunk = False
+
+        for line in body_lines:
+            if not seen_hunk and not line:
+                continue
+            if not seen_hunk and (
+                line.startswith("diff --git ")
+                or line.startswith("index ")
+                or line.startswith("--- ")
+                or line.startswith("+++ ")
+            ):
+                continue
+            if line.startswith("@@"):
+                seen_hunk = True
+                normalized.append(line)
+                continue
+            normalized.append(line)
+
+        return normalized

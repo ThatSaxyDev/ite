@@ -12,6 +12,7 @@ from typing import AsyncGenerator
 from ite.agent.session import Session
 from ite.client.response import TokenUsage
 from ite.tools.base import ToolConfirmation
+from ite.tools.base import ToolResult
 from typing import Awaitable, Callable
 from ite.prompts.system import create_loop_breaker_prompt
 from ite.memory import (
@@ -444,6 +445,28 @@ class Agent:
                 value = str(item.get("id", "")).strip()
                 return value or None
         return None
+
+    def _should_suppress_malformed_tool_call(
+        self,
+        tool_name: str | None,
+        validation_errors: list[str],
+    ) -> bool:
+        if tool_name not in {"shell", "read_file", "grep", "edit", "apply_patch"}:
+            return False
+        if not validation_errors:
+            return False
+        required_errors = {
+            "shell": {"Parameter 'command': Field required"},
+            "read_file": {"Parameter 'path': Field required"},
+            "grep": {"Parameter 'pattern': Field required"},
+            "edit": {
+                "Parameter 'path': Field required",
+                "Parameter 'new_string': Field required",
+                "Parameter 'path': Field required; Parameter 'new_string': Field required",
+            },
+            "apply_patch": {"Parameter 'patch': Field required"},
+        }
+        return set(validation_errors).issubset(required_errors.get(tool_name, set()))
 
     def _is_planning_todo_already_completed(self, session: Session, todo_id: str) -> bool:
         state = session.export_todos_state()
@@ -958,25 +981,58 @@ class Agent:
             skipped_plan_validation_errors: list[str] = []
 
             for tool_call in tool_calls:
+                tool = session.tool_registry.get(tool_call.name)
+                normalized_args = tool_call.arguments
+                validation_errors: list[str] = []
+                if tool is not None:
+                    normalized_args = session.tool_registry.normalize_params(
+                        tool_name=tool_call.name,
+                        params=tool_call.arguments,
+                        plan_mode_enabled=session.plan_mode_enabled,
+                        plan_phase=session.plan_phase,
+                    )
+                    validation_errors = tool.validate_params(normalized_args)
+
                 if (
                     session.plan_mode_enabled
                     and session.plan_phase != "executing"
                     and tool_call.name != "plan_question"
                 ):
-                    tool = session.tool_registry.get(tool_call.name)
-                    if tool is not None:
-                        normalized_args = session.tool_registry.normalize_params(
-                            tool_name=tool_call.name,
-                            params=tool_call.arguments,
-                            plan_mode_enabled=session.plan_mode_enabled,
-                            plan_phase=session.plan_phase,
+                    if validation_errors:
+                        skipped_plan_validation_errors.append(
+                            f"{tool_call.name}: {'; '.join(validation_errors)}"
                         )
-                        validation_errors = tool.validate_params(normalized_args)
-                        if validation_errors:
-                            skipped_plan_validation_errors.append(
-                                f"{tool_call.name}: {'; '.join(validation_errors)}"
-                            )
-                            continue
+                        continue
+
+                if validation_errors and self._should_suppress_malformed_tool_call(
+                    tool_call.name, validation_errors
+                ):
+                    suppressed_result = ToolResult.error_result(
+                        f"Invalid parameters: {'; '.join(validation_errors)}",
+                        metadata={
+                            "recoverable": True,
+                            "suppressed": True,
+                            "validation_errors": validation_errors,
+                            "recovery_hint": "Retry with all required arguments.",
+                        },
+                    )
+                    tool_call_results.append(
+                        ToolResultMessage(
+                            tool_call_id=tool_call.call_id,
+                            content=(
+                                "Error: Invalid parameters: "
+                                + "; ".join(validation_errors)
+                                + "\n\nOutput:\nRetry this tool with all required arguments."
+                            ),
+                            is_error=True,
+                        )
+                    )
+                    yield AgentEvent.tool_call_complete(
+                        tool_call.call_id,
+                        tool_call.name or "tool",
+                        suppressed_result,
+                    )
+                    continue
 
                 yield AgentEvent.tool_call_start(
                     tool_call.call_id,

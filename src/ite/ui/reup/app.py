@@ -4205,19 +4205,21 @@ class ReupApp(App):
             return
 
         status = "done" if success else "failed"
-        icon = "✅" if success else "❌"
+        md = metadata if isinstance(metadata, dict) else {}
+        recoverable = bool(md.get("recoverable"))
+        icon = "✅" if success else ("↺" if recoverable else "❌")
         args = self._tool_args_by_call_id.get(call_id, {})
         narrative = describe_tool_activity(
             name,
             args,
-            metadata if isinstance(metadata, dict) else {},
+            md,
             stage="complete",
             success=success,
         )
 
-        border_style = "#2f9e63" if success else "#b23a3a"
-        title_style = "bold #a9ebbe" if success else "bold #ffb0b0"
-        title_text = activity_title(name, stage="complete", success=success)
+        border_style = "#2f9e63" if success else ("#a06b15" if recoverable else "#b23a3a")
+        title_style = "bold #a9ebbe" if success else ("bold #ffd27a" if recoverable else "bold #ffb0b0")
+        title_text = activity_title(name, stage="complete", success=success, metadata=md)
         self._run_state().running_shell_call_ids.discard(call_id)
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab")]
@@ -4225,7 +4227,6 @@ class ReupApp(App):
         payload = output if success else (error or output)
         payload = payload or ""
         local_truncated = False
-        md = metadata if isinstance(metadata, dict) else {}
         primary_path = md.get("path") if isinstance(md.get("path"), str) else None
 
         if name == "read_file" and success:

@@ -1227,7 +1227,9 @@ class MessageBuilderMixin:
                 line_limit=500,
                 markdown=False,
             )
-        title_text = activity_title(name, stage="complete", success=success)
+        md = metadata if isinstance(metadata, dict) else {}
+        recoverable = bool(md.get("recoverable"))
+        title_text = activity_title(name, stage="complete", success=success, metadata=md)
         summary_row = self._build_meta_summary(name, metadata if isinstance(metadata, dict) else None, exit_code)
 
         if name == "shell":
@@ -1236,18 +1238,19 @@ class MessageBuilderMixin:
                     [
                         self._shell_state_icon(state_text, state_color),
                         ft.Text(
-                            "Command finished" if success else "Command failed",
+                            "Command finished" if success else ("Command needs retry" if recoverable else "Command failed"),
                             size=TYPE_BODY,
                             weight=WEIGHT_BOLD,
                             color=TEXT_PRIMARY,
                         ),
                         ft.Container(expand=True),
                         self._build_status_chip(
-                            "done" if success else "failed",
+                            "done" if success else ("retry" if recoverable else "failed"),
                             state_color,
-                            SUCCESS_SOFT if success else DANGER_SOFT,
+                            SUCCESS_SOFT if success else (WARNING_SOFT if recoverable else DANGER_SOFT),
                             ft.Colors.with_opacity(
-                                0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+                                0.1,
+                                ft.Colors.GREEN_300 if success else (ft.Colors.AMBER_300 if recoverable else ft.Colors.RED_300),
                             ),
                         ),
                     ],

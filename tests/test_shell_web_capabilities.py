@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -126,6 +127,17 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.success, msg=result.error)
             self.assertIn("hello", result.output)
             self.assertEqual(result.metadata.get("safety_classification"), "safe")
+
+    async def test_shell_environment_prepends_discovered_rg_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+
+            with patch("ite.tools.builtin.shell.shutil.which", return_value="/Applications/Codex.app/Contents/Resources/rg"):
+                env = tool._build_environment()
+
+            path_parts = env.get("PATH", "").split(os.pathsep)
+            self.assertIn("/Applications/Codex.app/Contents/Resources", path_parts)
 
     async def test_shell_execute_blocks_outside_sandbox_with_quoted_absolute_path(self) -> None:
         with tempfile.TemporaryDirectory() as td:

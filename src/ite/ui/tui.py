@@ -746,9 +746,15 @@ class TUI:
             return
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
-        status_icon = "✅" if success else "❌"
-        status_style = "success" if success else "error"
-        title_text = activity_title(name, stage="complete", success=success)
+        recoverable = bool(isinstance(metadata, dict) and metadata.get("recoverable"))
+        status_icon = "✅" if success else ("↺" if recoverable else "❌")
+        status_style = "success" if success else ("warning" if recoverable else "error")
+        title_text = activity_title(
+            name,
+            stage="complete",
+            success=success,
+            metadata=metadata if isinstance(metadata, dict) else {},
+        )
 
         title = Text.assemble(
             (f"{status_icon} ", status_style),

@@ -8,25 +8,28 @@ def activity_title(
     *,
     stage: str = "start",
     success: bool | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> str:
+    metadata = metadata or {}
     running = stage == "start"
     done = bool(success)
+    recoverable = bool(metadata.get("recoverable"))
     if name == "read_file":
-        return "Reading file" if running else ("Completed reading" if done else "Read failed")
+        return "Reading file" if running else ("Completed reading" if done else ("Read needs retry" if recoverable else "Read failed"))
     if name == "write_file":
         return "Writing file" if running else ("Saved file" if done else "Write failed")
     if name == "edit":
-        return "Editing file" if running else ("Updated file" if done else "Edit failed")
+        return "Editing file" if running else ("Updated file" if done else ("Edit needs refinement" if recoverable else "Edit failed"))
     if name == "apply_patch":
-        return "Applying patch" if running else ("Applied patch" if done else "Patch failed")
+        return "Applying patch" if running else ("Applied patch" if done else ("Patch needs retry" if recoverable else "Patch failed"))
     if name == "list_dir":
         return "Checking folder" if running else ("Checked folder" if done else "List failed")
     if name == "grep":
-        return "Searching code" if running else ("Finished searching code" if done else "Search failed")
+        return "Searching code" if running else ("Finished searching code" if done else ("Search needs retry" if recoverable else "Search failed"))
     if name == "glob":
         return "Finding files" if running else ("Found matching files" if done else "File search failed")
     if name == "shell":
-        return "Running command" if running else ("Command finished" if done else "Command failed")
+        return "Running command" if running else ("Command finished" if done else ("Command needs retry" if recoverable else "Command failed"))
     if name.startswith("subagent_"):
         return "Asking specialist" if running else ("Specialist finished" if done else "Specialist failed")
     if name == "web_search":
@@ -37,7 +40,7 @@ def activity_title(
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else "Memory update failed")
-    return "Running tool" if running else ("Tool completed" if done else "Tool failed")
+    return "Running tool" if running else ("Tool completed" if done else ("Tool needs retry" if recoverable else "Tool failed"))
 
 
 def describe_tool_activity(
@@ -89,6 +92,8 @@ def describe_tool_activity(
             return f"Editing {path}."
         if success:
             return f"Updated {path}."
+        if metadata.get("recoverable"):
+            return f"Edit needs refinement for {path}."
         return f"Failed to edit {path}."
 
     if name == "apply_patch":
@@ -103,6 +108,8 @@ def describe_tool_activity(
             return "Applying patch."
         if success:
             return "Applied patch."
+        if metadata.get("recoverable"):
+            return "Patch needs retry."
         return "Failed to apply patch."
 
     if name == "shell":
