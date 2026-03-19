@@ -71,6 +71,95 @@ class ConfirmModal(ModalScreen[bool]):
         self.action_cancel()
 
 
+class PushReviewModal(ModalScreen[bool]):
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+c", "cancel", "Cancel"),
+        ("enter", "accept", "Accept"),
+    ]
+
+    def __init__(
+        self,
+        *,
+        branch: str,
+        target: str,
+        action_label: str,
+        ahead_count: int,
+        behind_count: int,
+        commit_subjects: list[str],
+    ) -> None:
+        super().__init__()
+        self._branch = branch
+        self._target = target
+        self._action_label = action_label
+        self._ahead_count = ahead_count
+        self._behind_count = behind_count
+        self._commit_subjects = commit_subjects
+
+    def compose(self) -> ComposeResult:
+        noun = "commit" if self._ahead_count == 1 else "commits"
+        with Container(classes="modal resume-modal push-review-modal"):
+            yield Label(
+                "Publish branch" if self._action_label == "publish" else "Push commits",
+                classes="modal-title",
+            )
+            with Vertical(classes="modal-body push-review-body"):
+                with Horizontal(classes="push-review-row"):
+                    yield Static("Branch", classes="push-review-label")
+                    yield Static(self._branch, classes="push-review-value")
+                with Horizontal(classes="push-review-row"):
+                    yield Static("Target", classes="push-review-label")
+                    yield Static(self._target, classes="push-review-value")
+                with Horizontal(classes="push-review-row"):
+                    yield Static("Outgoing", classes="push-review-label")
+                    stats = Text()
+                    stats.append(f"{self._ahead_count} {noun}", style="bold #dfe8f8")
+                    stats.append("  ")
+                    stats.append("↑", style="bold #79d8a4")
+                    if self._behind_count > 0:
+                        stats.append("    ")
+                        stats.append(f"{self._behind_count} behind", style="bold #f2b38f")
+                    yield Static(stats, classes="push-review-value")
+                if self._behind_count > 0:
+                    yield Static(
+                        "Remote has newer commits. Push may be rejected until you pull or rebase.",
+                        classes="push-review-warning",
+                    )
+                yield Static("Outgoing commits", classes="push-review-list-title")
+                with Container(classes="modal-list push-review-list"):
+                    yield DataTable(id="push-review-commits", classes="resume-table", cursor_type="row")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Cancel", id="cancel", variant="default")
+                yield Button(
+                    "Publish" if self._action_label == "publish" else "Push",
+                    id="confirm",
+                    variant="success",
+                )
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#push-review-commits", DataTable)
+        table.add_columns("Commit")
+        for subject in self._commit_subjects or ["No commit subjects found."]:
+            table.add_row(subject)
+        if table.row_count:
+            table.move_cursor(row=0, column=0)
+        self.query_one("#confirm", Button).focus()
+
+    def action_accept(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    @on(Button.Pressed, "#confirm")
+    def on_confirm_pressed(self, _event: Button.Pressed) -> None:
+        self.action_accept()
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.action_cancel()
+
+
 class PlanQuestionModal(ModalScreen[dict[str, Any]]):
     def __init__(
         self,

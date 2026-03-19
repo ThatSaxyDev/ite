@@ -44,6 +44,7 @@ from ite.git.working_tree import (
     discard_all,
     discard_path,
     git_outbound_state,
+    outbound_commit_subjects,
     push_current_branch,
     stage_all,
     stage_path,
@@ -75,6 +76,7 @@ from .modals import (
     CommitModal,
     ConfirmModal,
     PlanQuestionModal,
+    PushReviewModal,
     SessionResumeModal,
     SetupModal,
 )
@@ -1263,31 +1265,18 @@ class ReupApp(App):
         if not outbound or not outbound.has_outgoing:
             return
         verb = "Publish" if outbound.needs_publish else "Push"
-        target = (
-            f"{outbound.remote_name}/{outbound.branch}"
-            if outbound.remote_name
-            else outbound.branch
+        commit_subjects = await asyncio.to_thread(
+            outbound_commit_subjects,
+            Path(self.config.cwd).resolve(),
         )
-        commit_noun = "commit" if outbound.ahead_count == 1 else "commits"
-        details = [
-            f"{outbound.ahead_count} {commit_noun} ready to send from `{outbound.branch}`."
-        ]
-        if outbound.needs_publish:
-            details.append(f"This will publish the branch to `{target}` and set upstream tracking.")
-        elif outbound.upstream:
-            details.append(f"Destination: `{outbound.upstream}`.")
-        if outbound.behind_count > 0:
-            details.append(
-                f"Warning: the remote is {outbound.behind_count} commit"
-                + ("" if outbound.behind_count == 1 else "s")
-                + " ahead."
-            )
         confirmed = await self._open_modal(
-            ConfirmModal(
-                title=f"{verb} branch?",
-                body="\n\n".join(details),
-                yes_label=verb,
-                no_label="Cancel",
+            PushReviewModal(
+                branch=outbound.branch,
+                target=outbound.target_label,
+                action_label=outbound.action_label,
+                ahead_count=outbound.ahead_count,
+                behind_count=outbound.behind_count,
+                commit_subjects=commit_subjects,
             )
         )
         if not confirmed:

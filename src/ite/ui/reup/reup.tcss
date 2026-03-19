@@ -816,6 +816,7 @@ Screen {
 
 ConfirmModal,
 CommitModal,
+PushReviewModal,
 PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
@@ -1007,6 +1008,74 @@ CommitModal #cancel {
 
 CommitModal #cancel:hover {
     background: #31374d;
+}
+
+PushReviewModal .push-review-modal {
+    width: 96;
+    height: 24;
+    min-height: 20;
+    max-height: 28;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+PushReviewModal .push-review-body {
+    height: 1fr;
+}
+
+PushReviewModal .push-review-row {
+    height: 2;
+    align-vertical: middle;
+}
+
+PushReviewModal .push-review-label {
+    width: 14;
+    min-width: 14;
+    color: #c6d2e3;
+    text-style: bold;
+}
+
+PushReviewModal .push-review-value {
+    color: #dfe8f8;
+    text-style: bold;
+}
+
+PushReviewModal .push-review-warning {
+    margin-top: 1;
+    margin-bottom: 1;
+    color: #f2b38f;
+}
+
+PushReviewModal .push-review-list-title {
+    margin-top: 1;
+    margin-bottom: 0;
+    color: #c6d2e3;
+    text-style: bold;
+}
+
+PushReviewModal .push-review-list {
+    height: 1fr;
+    min-height: 8;
+    margin-top: 1;
+    border: solid #3b3f58;
+    background: #1c2234;
+    padding: 0;
+    overflow-y: auto;
+}
+
+PushReviewModal #confirm {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: #5dcf84;
+    color: #0f1a12;
+    border: none;
+}
+
+PushReviewModal #confirm:hover {
+    background: #75de99;
 }
 
 PlanQuestionModal .plan-modal {

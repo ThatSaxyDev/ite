@@ -77,6 +77,14 @@ class GitOutboundState:
     def action_label(self) -> str:
         return "publish" if self.needs_publish else "push"
 
+    @property
+    def target_label(self) -> str:
+        if self.upstream:
+            return self.upstream
+        if self.remote_name:
+            return f"{self.remote_name}/{self.branch}"
+        return self.branch
+
 
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -202,7 +210,11 @@ def git_outbound_state(cwd: Path) -> GitOutboundState | None:
                 behind = 0
     elif remotes:
         remote_name = "origin" if "origin" in remotes else remotes[0]
-        ahead = 1
+        local_only = _git_output(cwd, "rev-list", "--count", "HEAD", "--not", "--remotes").strip()
+        try:
+            ahead = int(local_only)
+        except ValueError:
+            ahead = 0
 
     return GitOutboundState(
         branch=branch,
@@ -211,6 +223,21 @@ def git_outbound_state(cwd: Path) -> GitOutboundState | None:
         ahead_count=ahead,
         behind_count=behind,
     )
+
+
+def outbound_commit_subjects(cwd: Path, *, limit: int = 8) -> list[str]:
+    outbound = git_outbound_state(cwd)
+    if outbound is None or limit <= 0:
+        return []
+
+    if outbound.has_upstream:
+        result = _run_git(cwd, "log", "--format=%s", f"{outbound.upstream}..HEAD", f"-n{limit}")
+    else:
+        result = _run_git(cwd, "log", "--format=%s", "HEAD", "--not", "--remotes", f"-n{limit}")
+
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def stage_path(cwd: Path, rel_path: str) -> GitActionResult:
