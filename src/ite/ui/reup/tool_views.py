@@ -83,30 +83,30 @@ def truncate_for_tool(name: str, text: str) -> tuple[str, bool]:
         return "", False
 
     max_lines_by_tool = {
-        "read_file": 16,
-        "write_file": 18,
-        "edit": 18,
-        "list_dir": 10,
-        "glob": 10,
-        "grep": 24,
-        "shell": 18,
-        "web_fetch": 24,
-        "web_search": 18,
-        "todos": 14,
-        "memory": 12,
+        "read_file": 10,
+        "write_file": 10,
+        "edit": 10,
+        "list_dir": 7,
+        "glob": 7,
+        "grep": 14,
+        "shell": 12,
+        "web_fetch": 14,
+        "web_search": 12,
+        "todos": 8,
+        "memory": 8,
     }
     max_chars_by_tool = {
-        "read_file": 2600,
-        "write_file": 2400,
-        "edit": 2400,
-        "list_dir": 900,
-        "glob": 900,
-        "grep": 2800,
-        "shell": 2200,
-        "web_fetch": 3200,
-        "web_search": 2200,
-        "todos": 1600,
-        "memory": 1200,
+        "read_file": 1500,
+        "write_file": 1400,
+        "edit": 1400,
+        "list_dir": 600,
+        "glob": 600,
+        "grep": 1700,
+        "shell": 1400,
+        "web_fetch": 1800,
+        "web_search": 1400,
+        "todos": 900,
+        "memory": 800,
     }
 
     max_lines = max_lines_by_tool.get(name, 16)
@@ -147,6 +147,122 @@ def extract_read_file_code(text: str) -> tuple[int, str] | None:
     if start_line is None:
         return None
     return start_line, "\n".join(code_lines)
+
+
+def extract_diff_hunk_headers(diff_text: str) -> list[str]:
+    headers: list[str] = []
+    for line in (diff_text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("@@"):
+            headers.append(stripped)
+    return headers
+
+
+def summarize_diff_hunk_ranges(diff_text: str) -> list[str]:
+    summaries: list[str] = []
+    pattern = re.compile(
+        r"^@@\s+-(?P<old_start>\d+)(?:,(?P<old_count>\d+))?\s+\+(?P<new_start>\d+)(?:,(?P<new_count>\d+))?\s+@@"
+    )
+    for header in extract_diff_hunk_headers(diff_text):
+        match = pattern.match(header)
+        if not match:
+            continue
+        old_start = int(match.group("old_start"))
+        old_count = int(match.group("old_count") or "1")
+        new_start = int(match.group("new_start"))
+        new_count = int(match.group("new_count") or "1")
+        old_end = old_start + max(old_count - 1, 0)
+        new_end = new_start + max(new_count - 1, 0)
+        summaries.append(f"old {old_start}-{old_end} -> new {new_start}-{new_end}")
+    return summaries
+
+
+def render_numbered_unified_diff(diff_text: str) -> Text:
+    hunk_re = re.compile(
+        r"^@@ -(?P<old>\d+)(?:,(?P<old_count>\d+))? \+(?P<new>\d+)(?:,(?P<new_count>\d+))? @@"
+    )
+    rendered = Text(no_wrap=True)
+    old_lineno = 0
+    new_lineno = 0
+    gutter_style = "#7f8ea3"
+    context_style = "#e7edf7"
+    add_style = "#a7f36b"
+    del_style = "#ff9bb7"
+    hunk_style = "#b6b09c"
+
+    def append_line(
+        old_label: str,
+        new_label: str,
+        marker: str,
+        content: str,
+        *,
+        marker_style: str,
+        content_style: str,
+    ) -> None:
+        rendered.append(f"{old_label:>5} ", style=gutter_style)
+        rendered.append(f"{new_label:>5} ", style=gutter_style)
+        rendered.append(marker, style=marker_style)
+        rendered.append(" ")
+        rendered.append(content, style=content_style)
+        rendered.append("\n")
+
+    for line in (diff_text or "").splitlines():
+        if line.startswith("--- ") or line.startswith("+++ "):
+            style = del_style if line.startswith("--- ") else add_style
+            rendered.append(line, style=style)
+            rendered.append("\n")
+            continue
+
+        match = hunk_re.match(line)
+        if match:
+            old_lineno = int(match.group("old"))
+            new_lineno = int(match.group("new"))
+            rendered.append("  old   new    \n", style=gutter_style)
+            rendered.append(line, style=hunk_style)
+            rendered.append("\n")
+            continue
+
+        if line.startswith("-") and not line.startswith("--- "):
+            append_line(
+                str(old_lineno),
+                "",
+                "-",
+                line[1:],
+                marker_style=del_style,
+                content_style=del_style,
+            )
+            old_lineno += 1
+            continue
+
+        if line.startswith("+") and not line.startswith("+++ "):
+            append_line(
+                "",
+                str(new_lineno),
+                "+",
+                line[1:],
+                marker_style=add_style,
+                content_style=add_style,
+            )
+            new_lineno += 1
+            continue
+
+        if line.startswith(" "):
+            append_line(
+                str(old_lineno),
+                str(new_lineno),
+                " ",
+                line[1:],
+                marker_style=gutter_style,
+                content_style=context_style,
+            )
+            old_lineno += 1
+            new_lineno += 1
+            continue
+
+        rendered.append(line, style=context_style)
+        rendered.append("\n")
+
+    return rendered
 
 
 def guess_language(path: str | None) -> str:
@@ -201,7 +317,7 @@ def render_todo_payload(
     blocks: list[Any] = []
 
     if total > 0:
-        bar_width = 20
+        bar_width = 10
         filled = int((completed / total) * bar_width) if total else 0
         bar = "█" * filled + "░" * (bar_width - filled)
         header = Text()
@@ -211,10 +327,8 @@ def render_todo_payload(
         )
         header.append(bar, style="green" if completed == total else "yellow")
         blocks.append(header)
-        blocks.append(Text())
     elif isinstance(scope, str):
         blocks.append(Text(f"Scope: {scope}", style="#8c97ab"))
-        blocks.append(Text())
 
     for line in output_display.splitlines():
         stripped = line.strip()

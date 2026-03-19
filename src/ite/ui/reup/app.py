@@ -106,11 +106,13 @@ from .tool_views import (
     render_args_table,
     render_grep_output,
     render_list_dir_output,
+    render_numbered_unified_diff,
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
     render_text_payload,
     render_todo_payload,
+    summarize_diff_hunk_ranges,
     todo_start_hint,
     truncate_for_tool,
 )
@@ -4155,13 +4157,11 @@ class ReupApp(App):
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab")]
         if name == "todos":
-            blocks.extend([Text(""), Text(todo_start_hint(arguments), style="#d5d9e2")])
+            blocks.append(Text(todo_start_hint(arguments), style="#d5d9e2"))
         elif arguments:
-            blocks.extend(
-                [Text(""), render_args_table(name, arguments, cwd=self.config.cwd)]
-            )
+            blocks.append(render_args_table(name, arguments, cwd=self.config.cwd))
         else:
-            blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
+            blocks.append(Text("(no args)", style="#8c97ab"))
 
         if name == "shell":
             self._run_state().running_shell_call_ids.add(call_id)
@@ -4177,7 +4177,7 @@ class ReupApp(App):
             header.append("⌛ ", style="bold #9bc7ff")
             header.append(title_text, style="bold #9bc7ff")
             header.append("  running", style="#8c97ab")
-            card.update(Group(header, Text(""), *blocks))
+            card.update(Group(header, *blocks))
         self._tool_widgets[call_id] = card
 
         await conversation.mount(card)
@@ -4220,7 +4220,7 @@ class ReupApp(App):
         title_text = activity_title(name, stage="complete", success=success)
         self._run_state().running_shell_call_ids.discard(call_id)
 
-        blocks: list[Any] = [Text(narrative, style="#8c97ab"), Text("")]
+        blocks: list[Any] = [Text(narrative, style="#8c97ab")]
 
         payload = output if success else (error or output)
         payload = payload or ""
@@ -4239,7 +4239,6 @@ class ReupApp(App):
                         display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
                     )
                 )
-                blocks.append(Text(""))
                 language = guess_language(primary_path)
                 if language == "markdown":
                     blocks.append(RichMarkdown(code_display))
@@ -4259,12 +4258,26 @@ class ReupApp(App):
                 local_truncated = local_truncated or was_truncated
                 blocks.append(render_text_payload(output_display, success=True))
         elif name in {"write_file", "edit"} and success and diff:
+            if primary_path:
+                blocks.append(
+                    Text(
+                        display_path(primary_path, cwd=self.config.cwd),
+                        style="#8c97ab",
+                    )
+                )
+            hunk_ranges = summarize_diff_hunk_ranges(diff)
+            if hunk_ranges:
+                blocks.append(
+                    Text(
+                        "Lines: " + "  |  ".join(hunk_ranges[:3]),
+                        style="#8c97ab",
+                    )
+                )
             if payload.strip():
                 blocks.append(Text(payload.strip(), style="#d9dee8"))
-                blocks.append(Text(""))
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
-            blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
+            blocks.append(render_numbered_unified_diff(diff_display))
         elif name == "shell":
             command = args.get("command")
             if isinstance(command, str) and command.strip():
@@ -4277,7 +4290,6 @@ class ReupApp(App):
                         else None,
                     )
                 )
-                blocks.append(Text(""))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.extend(
@@ -4302,7 +4314,6 @@ class ReupApp(App):
                 summary_parts.append(provider)
             if summary_parts:
                 blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
-                blocks.append(Text(""))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=success))
@@ -4319,7 +4330,6 @@ class ReupApp(App):
                 summary_parts.append(url.strip())
             if summary_parts:
                 blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
-                blocks.append(Text(""))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=success))
@@ -4354,7 +4364,7 @@ class ReupApp(App):
                 blocks.append(Text("No output", style="#8c97ab"))
 
         if local_truncated or truncated:
-            blocks.extend([Text(""), Text("... [truncated]", style="#f5b54f")])
+            blocks.append(Text("... [truncated]", style="#f5b54f"))
 
         header = Text()
         header.append(f"{icon} ", style=title_style)
@@ -4370,7 +4380,7 @@ class ReupApp(App):
             style="#8c97ab",
         )
 
-        card.update(Group(header, Text(""), *blocks))
+        card.update(Group(header, *blocks))
         card.remove_class("running")
         if success:
             card.add_class("success")
