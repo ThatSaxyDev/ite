@@ -1307,6 +1307,7 @@ class ReupApp(App):
         changes = list(getattr(change_set, "changes", []) or [])
         additions = 0
         deletions = 0
+        diff_sections: list[str] = []
         for diff in changes:
             old_lines = getattr(diff, "old_content", "").splitlines()
             new_lines = getattr(diff, "new_content", "").splitlines()
@@ -1315,13 +1316,29 @@ class ReupApp(App):
                     additions += 1
                 elif line.startswith("- "):
                     deletions += 1
+            rel_path = self._change_review_relpath(diff)
+            unified = list(
+                difflib.unified_diff(
+                    old_lines,
+                    new_lines,
+                    fromfile=f"a/{rel_path}",
+                    tofile=f"b/{rel_path}",
+                    lineterm="",
+                    n=3,
+                )
+            )
+            if unified:
+                diff_sections.append("\n".join(unified[:80]))
+        diff_context = "\n\n".join(diff_sections)[:12000]
         return await self._open_modal(
             CommitModal(
+                config=self.config,
                 branch=branch,
                 file_count=len(changes),
                 additions=additions,
                 deletions=deletions,
                 changed_paths=[self._change_review_relpath(diff) for diff in changes],
+                diff_context=diff_context,
             )
         )
 

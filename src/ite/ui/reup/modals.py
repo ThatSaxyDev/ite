@@ -14,6 +14,8 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
 from ite.attachments import MAX_ATTACHMENTS
+from ite.client.llm_client import LLMClient
+from ite.client.response import StreamEventType
 from ite.config.config import Config, DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_MODEL_NAME
 from ite.git.branches import BranchInfo
 from rich.text import Text
@@ -135,19 +137,24 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     def __init__(
         self,
         *,
+        config: Config,
         branch: str,
         file_count: int,
         additions: int,
         deletions: int,
         changed_paths: list[str],
+        diff_context: str,
     ) -> None:
         super().__init__()
+        self._config = config
         self._branch = branch
         self._file_count = file_count
         self._additions = additions
         self._deletions = deletions
         self._changed_paths = changed_paths
+        self._diff_context = diff_context
         self._include_unstaged = True
+        self._generating_commit_message = False
 
     def _include_unstaged_text(self) -> Text:
         text = Text()
@@ -202,6 +209,56 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             return f"chore({scope}): update related files"
 
         return "chore: update related files"
+
+    async def _generate_commit_message(self) -> str:
+        client = LLMClient(self._config)
+        try:
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You write excellent git commit subjects. "
+                        "Return exactly one concise commit subject line. "
+                        "Use conventional commit style when it fits naturally. "
+                        "Be specific about the change intent, not the file paths. "
+                        "Do not use quotes, bullets, prefixes like 'Commit message:', "
+                        "or any explanation."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Based on this git information, write the best commit subject.\n\n"
+                        f"Branch: {self._branch}\n"
+                        f"Files changed: {self._file_count}\n"
+                        f"Additions: {self._additions}\n"
+                        f"Deletions: {self._deletions}\n"
+                        f"Paths:\n- " + "\n- ".join(self._changed_paths[:20]) + "\n\n"
+                        "Diff context:\n"
+                        f"{self._diff_context}"
+                    ),
+                },
+            ]
+            async for event in client.chat_completion(messages, tools=None, stream=False):
+                if event.type == StreamEventType.MESSAGE_COMPLETE:
+                    content = ""
+                    if event.text_delta and event.text_delta.content:
+                        content = event.text_delta.content.strip()
+                    if content:
+                        return self._normalize_commit_message(content)
+                elif event.type == StreamEventType.ERROR:
+                    break
+        finally:
+            await client.close()
+        return self._suggest_commit_message()
+
+    @staticmethod
+    def _normalize_commit_message(content: str) -> str:
+        line = content.strip().splitlines()[0].strip()
+        line = line.strip("\"'` ")
+        line = re.sub(r"\s+", " ", line)
+        line = re.sub(r"^(commit message:|subject:)\s*", "", line, flags=re.IGNORECASE)
+        return line[:72].rstrip() or "chore: update related files"
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal commit-modal"):
@@ -264,9 +321,24 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
 
     @on(Button.Pressed, "#commit-ai-fill")
     def on_commit_ai_fill_pressed(self, _event: Button.Pressed) -> None:
+        if self._generating_commit_message:
+            return
+        self.run_worker(self._fill_commit_message_from_ai(), exclusive=False)
+
+    async def _fill_commit_message_from_ai(self) -> None:
+        self._generating_commit_message = True
+        button = self.query_one("#commit-ai-fill", Button)
         input_widget = self.query_one("#commit-message", Input)
-        input_widget.value = self._suggest_commit_message()
-        input_widget.focus()
+        original_label = button.label
+        button.label = "…"
+        button.disabled = True
+        try:
+            input_widget.value = await self._generate_commit_message()
+            input_widget.focus()
+        finally:
+            button.label = original_label
+            button.disabled = False
+            self._generating_commit_message = False
 
     @on(Button.Pressed, "#commit-confirm")
     def on_commit_confirm_pressed(self, _event: Button.Pressed) -> None:
