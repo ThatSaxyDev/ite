@@ -861,15 +861,18 @@ class ReupApp(App):
         toggle = self.query_one("#changes-toggle", Button)
         has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
         panel.display = self._change_review_visible and has_content
-        has_outgoing = bool(self._git_outbound_state and self._git_outbound_state.has_outgoing)
+        has_outgoing = bool(self._git_outbound_state and self._git_outbound_state.needs_attention)
         wants_publish = bool(self._git_outbound_state and self._git_outbound_state.needs_publish)
         toggle.display = (has_content or has_outgoing) and not self._change_review_visible
         if has_content:
             toggle.label = "/changes"
         elif wants_publish:
             count = self._git_outbound_state.ahead_count if self._git_outbound_state else 0
-            noun = "commit" if count == 1 else "commits"
-            toggle.label = f"/publish {count} {noun} ↑"
+            if count > 0:
+                noun = "commit" if count == 1 else "commits"
+                toggle.label = f"/publish {count} {noun} ↑"
+            else:
+                toggle.label = "/publish ↑"
         else:
             count = self._git_outbound_state.ahead_count if self._git_outbound_state else 0
             noun = "commit" if count == 1 else "commits"
@@ -1257,12 +1260,12 @@ class ReupApp(App):
         if has_content:
             await self._toggle_change_review_panel()
             return
-        if self._git_outbound_state and self._git_outbound_state.has_outgoing:
+        if self._git_outbound_state and self._git_outbound_state.needs_attention:
             self.run_worker(self._run_push_from_header(), exclusive=False)
 
     async def _run_push_from_header(self) -> None:
         outbound = self._git_outbound_state
-        if not outbound or not outbound.has_outgoing:
+        if not outbound or not outbound.needs_attention:
             return
         verb = "Publish" if outbound.needs_publish else "Push"
         commit_subjects = await asyncio.to_thread(

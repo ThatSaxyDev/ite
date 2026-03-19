@@ -70,6 +70,10 @@ class GitOutboundState:
         return self.ahead_count > 0
 
     @property
+    def needs_attention(self) -> bool:
+        return self.needs_publish or self.has_outgoing
+
+    @property
     def needs_publish(self) -> bool:
         return not self.has_upstream and self.has_remote
 
