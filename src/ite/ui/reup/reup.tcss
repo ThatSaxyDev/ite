@@ -16,12 +16,20 @@ Screen {
     align-vertical: middle;
 }
 
-#session-tabs {
-    height: auto;
-    min-height: 3;
-    padding: 0 3 0 3;
+#session-tabs-scroll {
+    height: 3;
+    width: 1fr;
     background: #111318;
     border-bottom: solid #252a33;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+#session-tabs {
+    height: auto;
+    width: auto;
+    padding: 0 3 0 3;
+    background: transparent;
 }
 
 .session-tab {

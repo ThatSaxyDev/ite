@@ -18,7 +18,7 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, ScrollableContainer, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, HorizontalScroll, ScrollableContainer, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
@@ -316,7 +316,8 @@ class ReupApp(App):
                 yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
                 yield Button("/aside", id="aside-toggle", variant="default")
-            yield Horizontal(id="session-tabs")
+            with HorizontalScroll(id="session-tabs-scroll"):
+                yield Horizontal(id="session-tabs")
             with Container(id="chat-panel"):
                 with Horizontal(id="chat-body"):
                     with Container(id="change-review-panel"):
