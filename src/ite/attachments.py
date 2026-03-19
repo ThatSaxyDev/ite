@@ -140,12 +140,12 @@ class AttachmentManager:
 def _manifest_lines(attachments: list[Attachment], workspace: Path) -> list[str]:
     lines = ["Attached files:"]
     for a in attachments:
-        temp = Path(a.temp_path)
+        source = Path(a.source_path)
         try:
-            rel = temp.resolve().relative_to(workspace.resolve())
+            rel = source.resolve().relative_to(workspace.resolve())
             rel_text = str(rel)
         except Exception:
-            rel_text = a.temp_path
+            rel_text = a.source_path
         lines.append(
             f"- {a.original_name} ({a.mime_type}, {a.size_bytes} bytes) -> {rel_text}"
         )

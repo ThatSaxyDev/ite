@@ -2,9 +2,9 @@
 
 ITE is a local-first coding agent with three user-facing surfaces built on the same core runtime:
 
-- `ite` launches the legacy Rich terminal UI.
-- `ite --chat` launches the Textual chat UI (`reup`).
-- `ite --desktop` launches the Flet desktop GUI.
+- `ite` launches the Textual chat UI (`reup`).
+- `ite -l` / `ite --legacy` launches the legacy Rich terminal UI.
+- `ite -d` / `ite --desktop` launches the Flet desktop GUI.
 
 All three surfaces share the same agent loop, session model, tool registry, approval policy, sandboxing, planning mode, todo system, and attachment staging.
 
