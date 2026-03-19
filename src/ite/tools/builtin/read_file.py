@@ -6,13 +6,16 @@ from ite.tools.base import ToolResult
 from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolKind
 from ite.tools.base import Tool
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class ReadFileParams(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     path: str = Field(
         ...,
         description="Path to the file to read (relative to working directory or absolute)",
+        validation_alias=AliasChoices("path", "file", "file_path", "filepath", "target"),
     )
     offset: int = Field(
         1,

@@ -965,7 +965,13 @@ class Agent:
                 ):
                     tool = session.tool_registry.get(tool_call.name)
                     if tool is not None:
-                        validation_errors = tool.validate_params(tool_call.arguments)
+                        normalized_args = session.tool_registry.normalize_params(
+                            tool_name=tool_call.name,
+                            params=tool_call.arguments,
+                            plan_mode_enabled=session.plan_mode_enabled,
+                            plan_phase=session.plan_phase,
+                        )
+                        validation_errors = tool.validate_params(normalized_args)
                         if validation_errors:
                             skipped_plan_validation_errors.append(
                                 f"{tool_call.name}: {'; '.join(validation_errors)}"

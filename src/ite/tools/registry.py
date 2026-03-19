@@ -88,6 +88,21 @@ class ToolRegistry:
             contracts[tool.name] = tool.get_metadata({}).to_dict()
         return contracts
 
+    def normalize_params(
+        self,
+        *,
+        tool_name: str,
+        params: dict[str, Any],
+        plan_mode_enabled: bool = False,
+        plan_phase: str = "idle",
+    ) -> dict[str, Any]:
+        return self._normalize_params_for_phase(
+            tool_name=tool_name,
+            params=params,
+            plan_mode_enabled=plan_mode_enabled,
+            plan_phase=plan_phase,
+        )
+
     async def invoke(
         self,
         name: str,
@@ -367,6 +382,15 @@ class ToolRegistry:
         if tool_name == "grep":
             adopt("pattern", "query", "search", "regex", "match")
             adopt("path", "file", "target", "directory", "dir")
+            return normalized
+
+        if tool_name == "read_file":
+            adopt("path", "file", "file_path", "filepath", "target")
+            return normalized
+
+        if tool_name == "write_file":
+            adopt("path", "file", "file_path", "filepath", "target")
+            adopt("content", "text", "body", "new_string", "new_text")
             return normalized
 
         if tool_name == "shell":

@@ -6,14 +6,21 @@ from ite.utils.paths import resolve_path
 from ite.tools.base import ToolResult
 from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolKind
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from ite.tools.base import Tool
 
 
 class GrepParams(BaseModel):
-    pattern: str = Field(description="Regex pattern to search for")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    pattern: str = Field(
+        description="Regex pattern to search for",
+        validation_alias=AliasChoices("pattern", "query", "search", "regex", "match"),
+    )
     path: str = Field(
-        ".", description="File or directory to search in (default: current directory)"
+        ".",
+        description="File or directory to search in (default: current directory)",
+        validation_alias=AliasChoices("path", "file", "target", "directory", "dir"),
     )
     case_insensitive: bool = Field(
         False,

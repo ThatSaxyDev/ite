@@ -6,6 +6,8 @@ from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
 from ite.tools.builtin.apply_patch import ApplyPatchParams
 from ite.tools.builtin.edit_file import EditParams
+from ite.tools.builtin.grep import GrepParams
+from ite.tools.builtin.read_file import ReadFileParams
 from ite.tools.builtin.shell import ShellParams
 from ite.tools.registry import create_default_registry
 
@@ -110,3 +112,12 @@ class ToolParamNormalizationTests(unittest.IsolatedAsyncioTestCase):
             patch_text="*** Begin Patch\n*** End Patch",
         )
         self.assertEqual(params.patch, "*** Begin Patch\n*** End Patch")
+
+    def test_read_file_schema_accepts_file_path_alias(self) -> None:
+        params = ReadFileParams(file_path="sample.txt")
+        self.assertEqual(params.path, "sample.txt")
+
+    def test_grep_schema_accepts_query_and_file_aliases(self) -> None:
+        params = GrepParams(query="release", file="README.md")
+        self.assertEqual(params.pattern, "release")
+        self.assertEqual(params.path, "README.md")
