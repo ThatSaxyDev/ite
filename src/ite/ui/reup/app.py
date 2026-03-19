@@ -696,7 +696,7 @@ class ReupApp(App):
     async def _open_branch_picker_from_meta(self) -> None:
         cwd = Path(self.config.cwd).resolve()
         if not await asyncio.to_thread(is_git_repo, cwd):
-            self.post_system("Branch", "Current workspace is not a git repository.", is_error=True)
+            self.post_system("Git", "Current workspace is not a git repository.", is_error=True)
             return
 
         branches = await asyncio.to_thread(list_local_branches, cwd)
@@ -708,7 +708,7 @@ class ReupApp(App):
         action = str(result.get("action", "")).strip().lower()
         branch = str(result.get("branch", "")).strip()
         if not branch:
-            self.post_system("Branch", "Branch name is required.", is_error=True)
+            self.post_system("Git", "Branch name is required.", is_error=True)
             return
 
         if action == "create":
@@ -717,9 +717,9 @@ class ReupApp(App):
             branch_result = await asyncio.to_thread(checkout_branch, cwd, branch)
 
         if branch_result.ok:
-            self.post_system("Branch", branch_result.message)
+            self.post_system("Git", branch_result.message)
         else:
-            self.post_system("Branch", branch_result.message, is_error=True)
+            self.post_system("Git", branch_result.message, is_error=True)
         self.refresh_header()
 
     async def _open_attach_picker_from_meta(self) -> None:
@@ -1287,9 +1287,9 @@ class ReupApp(App):
         result = await asyncio.to_thread(push_current_branch, Path(self.config.cwd).resolve())
         await self._refresh_change_review_source(prefer_git_only=True)
         if not result.ok:
-            self.post_system(verb, result.message, is_error=True)
+            self.post_system("Git", result.message, is_error=True)
             return
-        self.post_notice(verb, result.message)
+        self.post_notice("Git", result.message)
 
     @on(Button.Pressed, "#change-review-close")
     def on_change_review_close_pressed(self, _event: Button.Pressed) -> None:
@@ -1414,9 +1414,9 @@ class ReupApp(App):
             return
         result = await asyncio.to_thread(stage_path, Path(self.config.cwd).resolve(), rel_path)
         if not result.ok:
-            self.post_system("Stage file", result.message, is_error=True)
+            self.post_system("Git", result.message, is_error=True)
             return
-        self.post_notice("Stage file", result.message)
+        self.post_notice("Git", result.message)
         await self._refresh_change_review_after_git_action()
 
     @on(events.Click, "#change-review-unstage-file")
@@ -1428,9 +1428,9 @@ class ReupApp(App):
             return
         result = await asyncio.to_thread(unstage_path, Path(self.config.cwd).resolve(), rel_path)
         if not result.ok:
-            self.post_system("Unstage file", result.message, is_error=True)
+            self.post_system("Git", result.message, is_error=True)
             return
-        self.post_notice("Unstage file", result.message)
+        self.post_notice("Git", result.message)
         await self._refresh_change_review_after_git_action()
 
     async def _run_change_review_discard_file(self) -> None:
@@ -1447,9 +1447,9 @@ class ReupApp(App):
             return
         result = await asyncio.to_thread(discard_path, Path(self.config.cwd).resolve(), rel_path)
         if not result.ok:
-            self.post_system("Discard file", result.message, is_error=True)
+            self.post_system("Git", result.message, is_error=True)
             return
-        self.post_notice("Discard file", result.message)
+        self.post_notice("Git", result.message)
         await self._refresh_change_review_after_git_action()
 
     @on(events.Click, "#change-review-discard-file")
@@ -1463,12 +1463,11 @@ class ReupApp(App):
         if stage_all_chip.disabled:
             return
         git_fn = stage_all if self._change_review_bulk_action == "stage" else unstage_all
-        title = "Stage all" if self._change_review_bulk_action == "stage" else "Unstage all"
         result = await asyncio.to_thread(git_fn, Path(self.config.cwd).resolve())
         if not result.ok:
-            self.post_system(title, result.message, is_error=True)
+            self.post_system("Git", result.message, is_error=True)
             return
-        self.post_notice(title, result.message)
+        self.post_notice("Git", result.message)
         await self._refresh_change_review_after_git_action()
 
     async def _run_change_review_commit(self) -> None:
@@ -1490,9 +1489,9 @@ class ReupApp(App):
         )
         await self._refresh_change_review_after_git_action()
         if not commit_result.ok:
-            self.post_system("Commit", commit_result.message, is_error=True)
+            self.post_system("Git", commit_result.message, is_error=True)
             return
-        self.post_notice("Commit", commit_result.message)
+        self.post_notice("Git", commit_result.message)
 
     @on(events.Click, "#change-review-commit")
     def on_change_review_commit(self, event: events.Click) -> None:
@@ -1511,9 +1510,9 @@ class ReupApp(App):
         result = await asyncio.to_thread(discard_all, Path(self.config.cwd).resolve())
         await self._refresh_change_review_after_git_action()
         if not result.ok:
-            self.post_system("Discard all", result.message, is_error=True)
+            self.post_system("Git", result.message, is_error=True)
             return
-        self.post_notice("Discard all", result.message)
+        self.post_notice("Git", result.message)
 
     @on(events.Click, "#change-review-discard-all")
     def on_change_review_discard_all(self, event: events.Click) -> None:
