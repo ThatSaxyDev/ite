@@ -133,6 +133,7 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
 
 class CommitModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [("escape", "cancel", "Cancel")]
+    _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     def __init__(
         self,
@@ -155,6 +156,8 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._diff_context = diff_context
         self._include_unstaged = True
         self._generating_commit_message = False
+        self._ai_spinner_index = 0
+        self._ai_spinner_timer = None
 
     def _include_unstaged_text(self) -> Text:
         text = Text()
@@ -287,7 +290,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                 yield Static("Commit message", classes="commit-label commit-message-label")
                 with Horizontal(classes="commit-message-row"):
                     yield Input(
-                        placeholder="Leave blank to use a default message",
+                        placeholder="Type a commit message or use ✦ to generate one",
                         id="commit-message",
                     )
                     yield Button("✦", id="commit-ai-fill", variant="default")
@@ -338,17 +341,29 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             return
         self.run_worker(self._fill_commit_message_from_ai(), exclusive=False)
 
+    def _tick_ai_spinner(self) -> None:
+        if not self._generating_commit_message:
+            return
+        button = self.query_one("#commit-ai-fill", Button)
+        button.label = self._AI_SPINNER_FRAMES[self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)]
+        self._ai_spinner_index += 1
+
     async def _fill_commit_message_from_ai(self) -> None:
         self._generating_commit_message = True
         button = self.query_one("#commit-ai-fill", Button)
         input_widget = self.query_one("#commit-message", Input)
         original_label = button.label
-        button.label = "…"
+        self._ai_spinner_index = 0
+        button.label = self._AI_SPINNER_FRAMES[0]
         button.disabled = True
+        self._ai_spinner_timer = self.set_interval(0.08, self._tick_ai_spinner)
         try:
             input_widget.value = await self._generate_commit_message()
             input_widget.focus()
         finally:
+            if self._ai_spinner_timer is not None:
+                self._ai_spinner_timer.stop()
+                self._ai_spinner_timer = None
             button.label = original_label
             button.disabled = False
             self._generating_commit_message = False
