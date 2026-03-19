@@ -81,6 +81,10 @@ def _is_valid_branch_name(name: str) -> bool:
     return not any(re.search(pattern, name) for pattern in invalid_patterns)
 
 
+def is_valid_branch_name(name: str) -> bool:
+    return _is_valid_branch_name(name)
+
+
 def checkout_branch(cwd: Path, branch: str) -> BranchResult:
     branch = branch.strip()
     if not _is_valid_branch_name(branch):
@@ -107,4 +111,3 @@ def create_and_checkout(cwd: Path, branch: str) -> BranchResult:
         message=f"Created and switched to branch '{branch}'",
         current_branch=current_branch(cwd),
     )
-

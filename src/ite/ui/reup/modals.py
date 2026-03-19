@@ -17,7 +17,7 @@ from ite.attachments import MAX_ATTACHMENTS
 from ite.client.llm_client import LLMClient
 from ite.client.response import StreamEventType
 from ite.config.config import Config, DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_MODEL_NAME
-from ite.git.branches import BranchInfo
+from ite.git.branches import BranchInfo, is_valid_branch_name
 from rich.text import Text
 
 
@@ -470,9 +470,13 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
                 yield DataTable(id="branches", classes="resume-table", cursor_type="row")
             yield Input(placeholder="feature/my-branch", id="branch-name")
             with Horizontal(classes="modal-actions resume-actions"):
-                yield Button("Create", id="create", variant="success")
+                yield Button("Create", id="create", variant="success", disabled=True)
                 yield Button("Switch", id="switch", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
+
+    def _update_create_state(self) -> None:
+        value = self.query_one("#branch-name", Input).value.strip()
+        self.query_one("#create", Button).disabled = not is_valid_branch_name(value)
 
     async def on_mount(self) -> None:
         table = self.query_one("#branches", DataTable)
@@ -504,11 +508,22 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
     @on(Button.Pressed, "#create")
     def on_create_pressed(self, _event: Button.Pressed) -> None:
         value = self.query_one("#branch-name", Input).value.strip()
+        if not is_valid_branch_name(value):
+            self.query_one("#branch-name", Input).focus()
+            return
         self.dismiss({"action": "create", "branch": value})
+
+    @on(Input.Changed, "#branch-name")
+    def on_branch_name_changed(self, _event: Input.Changed) -> None:
+        self._update_create_state()
 
     @on(Input.Submitted, "#branch-name")
     def on_branch_name_submitted(self, event: Input.Submitted) -> None:
-        self.dismiss({"action": "create", "branch": event.value.strip()})
+        value = event.value.strip()
+        if not is_valid_branch_name(value):
+            self.query_one("#branch-name", Input).focus()
+            return
+        self.dismiss({"action": "create", "branch": value})
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
