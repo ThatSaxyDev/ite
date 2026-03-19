@@ -38,6 +38,22 @@ class ProviderErrorFormattingTests(unittest.TestCase):
         self.assertIn("ollama.com", rendered)
         self.assertIn("dns", rendered.lower())
 
+    def test_context_overflow_error_is_humanized(self) -> None:
+        message = (
+            'Error code: 400 - {"error": {"message": '
+            '"prompt too long; exceeded max context length by 1397 tokens"}}'
+        )
+
+        rendered = format_provider_error(
+            kind="api",
+            message=message,
+            status_code=400,
+        )
+
+        self.assertIn("exceeded the provider's context limit", rendered.lower())
+        self.assertIn("1397", rendered)
+        self.assertIn("thread history is too large", rendered.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -85,6 +85,57 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
+    async def test_context_overflow_retries_after_compaction(self) -> None:
+        workspace = self.base_path / "ws-overflow-retry"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.ERROR,
+                    error=(
+                        "The model provider returned an API error.\n"
+                        "- Status: 400\n"
+                        "- prompt too long; exceeded max context length by 1397 tokens"
+                    ),
+                )
+                return
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Recovered."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\ncontinue", TokenUsage(total_tokens=10)
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("trigger overflow retry"):
+            events.append(event.type)
+
+        self.assertEqual(call_count, 2)
+        self.assertIn(AgentEventType.CONTEXT_COMPACTED, events)
+        self.assertIn(AgentEventType.TEXT_COMPLETE, events)
+
     async def test_low_value_exit_prompt_is_not_used_as_focus(self) -> None:
         workspace = self.base_path / "ws-low-value-focus"
         workspace.mkdir()

@@ -489,8 +489,16 @@ class ReupApp(App):
         title = self._session_title(session)
         title = re.sub(r"\s+", " ", title).strip() or "New thread"
         if self._run_state(session_id).is_turn_running:
-            title = f"{title} *"
+            title = f"LIVE  {title}"
         return title
+
+    def _queue_session_tabs_refresh(self) -> None:
+        self._session_tabs_version += 1
+        self.run_worker(
+            self._refresh_session_tabs(),
+            exclusive=True,
+            group="session-tabs",
+        )
 
     async def _refresh_session_tabs(self) -> None:
         version = self._session_tabs_version
@@ -512,12 +520,15 @@ class ReupApp(App):
                 return
             label = self._session_tab_label(session_id)
             variant = "primary" if session_id == active_session_id else "default"
+            classes = "session-tab"
+            if self._run_state(session_id).is_turn_running:
+                classes += " session-tab-live"
             await tabs.mount(
                 Button(
                     label,
                     id=f"session-tab-{session_id}",
                     variant=variant,
-                    classes="session-tab",
+                    classes=classes,
                 )
             )
 
@@ -529,12 +540,7 @@ class ReupApp(App):
         composer_meta_line = self.query_one("#composer-meta-line", Static)
         composer_meta_line.update(self._composer_meta_text())
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
-        self._session_tabs_version += 1
-        self.run_worker(
-            self._refresh_session_tabs(),
-            exclusive=True,
-            group="session-tabs",
-        )
+        self._queue_session_tabs_refresh()
 
     async def _show_activity_indicator(self, label: str, version: int | None = None) -> None:
         if version is not None and version != self._activity_version:

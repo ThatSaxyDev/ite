@@ -42,6 +42,8 @@ class ContextManager:
     PRUNE_PROTECT_TOKENS = 40_000
     PRUNE_MINIMUM_TOKENS = 10_000
     COMPACTION_MIN_MESSAGES = 8
+    COMPACTION_TRIGGER_RATIO = 0.65
+    COMPACTION_MIN_RESERVE_TOKENS = 12_000
 
     def __init__(
         self,
@@ -240,7 +242,15 @@ class ContextManager:
             return False
         context_limit = self.config.model.context_window
         current_tokens = self.estimate_current_context_tokens()
-        return current_tokens > (context_limit * 0.8)
+        ratio_trigger = int(context_limit * self.COMPACTION_TRIGGER_RATIO)
+        reserve_trigger = max(
+            0,
+            context_limit - self.COMPACTION_MIN_RESERVE_TOKENS,
+        )
+        trigger_at = min(ratio_trigger, reserve_trigger)
+        if trigger_at <= 0:
+            return False
+        return current_tokens >= trigger_at
 
     def set_latest_usage(self, usage: TokenUsage) -> None:
         self._latest_usage = usage

@@ -101,6 +101,15 @@ def format_provider_error(
             details.append("This usually means a temporary upstream or networking problem.")
             return _render_error(headline, details)
 
+        if is_context_overflow_error(provider_message):
+            headline = "The request exceeded the provider's context limit."
+            details = []
+            if status_code is not None:
+                details.append(f"Status: {status_code}")
+            details.append(provider_message)
+            details.append("The thread history is too large for the current model or backend limit.")
+            return _render_error(headline, details)
+
         headline = "The model provider returned an API error."
         details = []
         if status_code is not None:
@@ -163,3 +172,18 @@ def _extract_quoted_value(text: str) -> str:
     if match:
         return match.group(1)
     return ""
+
+
+def is_context_overflow_error(message: str) -> bool:
+    lowered = str(message or "").lower()
+    phrases = (
+        "prompt too long",
+        "context length",
+        "maximum context length",
+        "max context length",
+        "too many tokens",
+        "maximum number of tokens",
+        "exceeded max context",
+        "exceeded context window",
+    )
+    return any(phrase in lowered for phrase in phrases)

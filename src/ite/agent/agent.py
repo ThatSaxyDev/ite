@@ -21,6 +21,7 @@ from ite.memory import (
     resolve_response_intent,
 )
 from ite.agent.change_history import file_diffs_from_tool_result
+from ite.utils.errors import is_context_overflow_error
 import re
 
 
@@ -669,6 +670,7 @@ class Agent:
         latest_user_model_content: str | list[dict] | None = None,
     ) -> AsyncGenerator[AgentEvent, None]:
         max_turns = self.config.max_turns
+        overflow_compaction_attempted = False
 
         for turn_num in range(max_turns):
             if self.session is not session:
@@ -751,12 +753,48 @@ class Agent:
                         tool_calls.append(event.tool_call)
                 elif event.type == StreamEventType.ERROR:
                     stream_error = event.error or "Unknown error occurred"
-                    yield AgentEvent.agent_error(stream_error)
                     break
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
 
             if stream_error:
+                if not overflow_compaction_attempted and is_context_overflow_error(stream_error):
+                    trigger_tokens = session.context_manager.estimate_current_context_tokens()
+                    context_window = self.config.model.context_window
+                    summary, compact_usage = await session.chat_compactor.compact(
+                        session.context_manager
+                    )
+                    if summary:
+                        lifecycle_focus = session._derive_current_focus()
+                        session.context_manager.replace_with_summary(summary)
+                        session.record_lifecycle_episode(
+                            session.build_lifecycle_summary(
+                                f"Context compacted after overflow at turn {session.turn_count}",
+                                focus_hint=lifecycle_focus,
+                            ),
+                            source="context_compaction_overflow_retry",
+                        )
+                        compacted_tokens = (
+                            session.context_manager.estimate_current_context_tokens()
+                        )
+                        session.context_manager.set_latest_usage(
+                            TokenUsage(
+                                prompt_tokens=compacted_tokens,
+                                completion_tokens=0,
+                                total_tokens=compacted_tokens,
+                                cached_tokens=0,
+                            )
+                        )
+                        if compact_usage:
+                            session.context_manager.add_usage(compact_usage)
+                        yield AgentEvent.context_compacted(
+                            trigger_tokens=trigger_tokens,
+                            context_window=context_window,
+                            summary_chars=len(summary),
+                        )
+                        overflow_compaction_attempted = True
+                        continue
+                yield AgentEvent.agent_error(stream_error)
                 # Fail this turn immediately instead of looping and repeating
                 # the same upstream/provider error up to max_turns.
                 return

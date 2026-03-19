@@ -1,7 +1,7 @@
 hooks_enabled = false
 
-# [model]
-# context_window = 16000
+[model]
+context_window = 200000
 
 [[hooks]]
 name = "test_before_tool"

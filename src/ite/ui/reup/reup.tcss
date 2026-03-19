@@ -44,6 +44,18 @@ Screen {
     border: none;
 }
 
+.session-tab-live {
+    background: #3a2410;
+    color: #ffd08a;
+    text-style: bold;
+}
+
+.session-tab-live.-primary {
+    background: #a85a12;
+    color: #fff4df;
+    text-style: bold;
+}
+
 .session-tab.-primary {
     background: #1f4f92;
     color: #eef5ff;
