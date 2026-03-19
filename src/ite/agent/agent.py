@@ -280,7 +280,7 @@ class Agent:
 
         state = session.export_todos_state()
         execution_items = state.get("execution", []) if isinstance(state, dict) else []
-        if execution_items:
+        if execution_items and not self._should_refresh_execution_todos(execution_items):
             return
 
         seed_items = self._derive_execution_seed_items(message)
@@ -307,6 +307,27 @@ class Agent:
             changed_ids = result.metadata.get("changed_ids", []) if isinstance(result.metadata, dict) else []
             if isinstance(changed_ids, list):
                 session.execution_seed_ids = [str(i) for i in changed_ids if str(i).strip()]
+
+    def _should_refresh_execution_todos(self, execution_items: list[dict]) -> bool:
+        if not isinstance(execution_items, list) or not execution_items:
+            return True
+        if all(bool(item.get("completed", False)) for item in execution_items if isinstance(item, dict)):
+            return True
+        generic_markers = (
+            "implement requested changes",
+            "run verification checks",
+            "summarize outcome and changed files",
+        )
+        normalized: list[str] = []
+        for item in execution_items:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content", "")).strip().lower()
+            if content:
+                normalized.append(content)
+        if not normalized:
+            return True
+        return all(any(marker in content for marker in generic_markers) for content in normalized)
 
     def _should_seed_execution_todos(self, message: str) -> bool:
         text = (message or "").strip().lower()
@@ -671,6 +692,7 @@ class Agent:
     ) -> AsyncGenerator[AgentEvent, None]:
         max_turns = self.config.max_turns
         overflow_compaction_attempted = False
+        execution_progress_made = False
 
         for turn_num in range(max_turns):
             if self.session is not session:
@@ -899,7 +921,7 @@ class Agent:
                             yield AgentEvent.plan_ready(plan_text)
                     else:
                         if controlled_response_text:
-                            if execution_progress_eligible:
+                            if execution_progress_made:
                                 async for progress_event in self._complete_execution_stage_todo(
                                     session,
                                     stage="summary",
@@ -911,7 +933,7 @@ class Agent:
                             )
                         session.set_plan_phase("idle")
                 elif controlled_response_text:
-                    if execution_progress_eligible:
+                    if execution_progress_made:
                         async for progress_event in self._complete_execution_stage_todo(
                             session,
                             stage="summary",
@@ -983,6 +1005,7 @@ class Agent:
 
                 if result.success and tool_call.name not in {"todos", "plan_question"}:
                     execution_progress_eligible = True
+                    execution_progress_made = True
                     if tool_call.name in {"write_file", "edit", "apply_patch"}:
                         diffs = file_diffs_from_tool_result(result)
                         if diffs:

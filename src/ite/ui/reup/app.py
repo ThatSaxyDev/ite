@@ -2307,6 +2307,18 @@ class ReupApp(App):
             return "planning"
         return "execution"
 
+    @staticmethod
+    def _is_internal_todo_event(call_id: str | None) -> bool:
+        value = str(call_id or "").strip()
+        return value.startswith(
+            (
+                "todos_seed_",
+                "todos_progress_",
+                "todos_exec_seed_",
+                "todos_exec_progress_",
+            )
+        )
+
     def _should_hide_todo_scope(self, scope: str) -> bool:
         if scope != "planning":
             return False
@@ -3599,6 +3611,15 @@ class ReupApp(App):
         if event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name", "tool")
             if tool_name == "todos":
+                if self._is_internal_todo_event(event.data.get("call_id")):
+                    self._set_loading_state(
+                        self._progress_state_label(
+                            tool_name=tool_name,
+                            arguments=event.data.get("arguments", {}),
+                        ),
+                        busy=True,
+                    )
+                    return
                 scope = self._resolve_todo_scope_for_event(
                     arguments=event.data.get("arguments")
                 )
@@ -3654,6 +3675,16 @@ class ReupApp(App):
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
             if tool_name == "todos":
+                if self._is_internal_todo_event(event.data.get("call_id")):
+                    self._set_loading_state(
+                        self._progress_state_label(
+                            tool_name=tool_name,
+                            metadata=event.data.get("metadata"),
+                            phase="post_tool",
+                        ),
+                        busy=True,
+                    )
+                    return
                 scope = self._resolve_todo_scope_for_event(
                     metadata=event.data.get("metadata")
                 )

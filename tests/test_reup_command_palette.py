@@ -34,6 +34,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIsNone(ReupApp._extract_at_query("inspect @src/app.py now"))
         self.assertIsNone(ReupApp._extract_at_query("inspect\n@src"))
 
+    def test_internal_todo_event_detection_matches_seeded_checklist_ids(self) -> None:
+        self.assertTrue(ReupApp._is_internal_todo_event("todos_exec_seed_abcd1234"))
+        self.assertTrue(ReupApp._is_internal_todo_event("todos_exec_progress_abcd1234"))
+        self.assertTrue(ReupApp._is_internal_todo_event("todos_seed_abcd1234"))
+        self.assertFalse(ReupApp._is_internal_todo_event("manual_todos_call"))
+
     def test_filtered_command_palette_matches_registry_commands(self) -> None:
         app = self._app()
 
