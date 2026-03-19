@@ -518,6 +518,20 @@ class ReupApp(App):
             return self._open_session_workspaces[session_id]
         return Path(self.config.cwd).resolve()
 
+    def _find_reusable_empty_session_id(self, *, exclude_session_id: str | None = None) -> str | None:
+        for session_id in self._open_session_order:
+            if exclude_session_id and session_id == exclude_session_id:
+                continue
+            session = self._open_sessions.get(session_id)
+            if session is None:
+                continue
+            if session.turn_count != 0:
+                continue
+            if self._run_state(session_id).is_turn_running:
+                continue
+            return session_id
+        return None
+
     def _session_tab_label(self, session_id: str) -> str:
         session = self._open_sessions.get(session_id)
         title = self._session_title(session)
@@ -4224,6 +4238,16 @@ class ReupApp(App):
             return
 
         current_session_id = self._active_session_id()
+        if self.agent.session.turn_count == 0:
+            return
+
+        reusable_empty_session_id = self._find_reusable_empty_session_id(
+            exclude_session_id=current_session_id,
+        )
+        if reusable_empty_session_id:
+            await self._activate_open_session(reusable_empty_session_id)
+            return
+
         if (
             self.agent.session.turn_count > 0
             and not self._run_state(current_session_id).is_turn_running
