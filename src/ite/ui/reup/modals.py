@@ -223,11 +223,12 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                     "role": "system",
                     "content": (
                         "You write excellent git commit subjects. "
-                        "Return exactly one concise commit subject line. "
-                        "Use conventional commit style when it fits naturally. "
-                        "Be specific about the change intent, not the file paths. "
-                        "Do not use quotes, bullets, prefixes like 'Commit message:', "
-                        "or any explanation."
+                        "Return exactly one concise subject line, max 72 characters. "
+                        "Prefer conventional commit style like feat(scope):, fix(scope):, refactor(scope):, "
+                        "style(scope):, chore(scope): when it fits naturally. "
+                        "Summarize the intent and user-visible effect of the change, not the filenames. "
+                        "Use an imperative verb. Avoid vague messages like 'update files' or 'misc fixes'. "
+                        "Do not use quotes, bullets, code fences, or any explanation."
                     ),
                 },
                 {
@@ -238,8 +239,10 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         f"Files changed: {self._file_count}\n"
                         f"Additions: {self._additions}\n"
                         f"Deletions: {self._deletions}\n"
-                        f"Paths:\n- " + "\n- ".join(self._changed_paths[:20]) + "\n\n"
-                        "Diff context:\n"
+                        "Changed paths:\n- "
+                        + "\n- ".join(self._changed_paths[:12])
+                        + "\n\n"
+                        "Focused change summary:\n"
                         f"{self._diff_context}"
                     ),
                 },

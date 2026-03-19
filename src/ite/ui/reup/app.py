@@ -1383,19 +1383,34 @@ class ReupApp(App):
                 elif line.startswith("- "):
                     deletions += 1
             rel_path = self._change_review_relpath(diff)
-            unified = list(
-                difflib.unified_diff(
-                    old_lines,
-                    new_lines,
-                    fromfile=f"a/{rel_path}",
-                    tofile=f"b/{rel_path}",
-                    lineterm="",
-                    n=3,
-                )
-            )
-            if unified:
-                diff_sections.append("\n".join(unified[:80]))
-        diff_context = "\n\n".join(diff_sections)[:12000]
+            status = "new" if getattr(diff, "is_new_file", False) else "deleted" if getattr(diff, "is_deletion", False) else "modified"
+            signal_lines: list[str] = []
+            for line in difflib.unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=f"a/{rel_path}",
+                tofile=f"b/{rel_path}",
+                lineterm="",
+                n=2,
+            ):
+                if line.startswith(("---", "+++", "@@")):
+                    continue
+                if not line.startswith(("+", "-")):
+                    continue
+                body = line[1:].strip()
+                if not body:
+                    continue
+                if body in {"{", "}", "[", "]", "(", ")"}:
+                    continue
+                if len(body) > 120:
+                    body = body[:117] + "..."
+                signal_lines.append(f"{line[0]} {body}")
+                if len(signal_lines) >= 6:
+                    break
+            section = [f"{rel_path} [{status}]"]
+            section.extend(signal_lines)
+            diff_sections.append("\n".join(section))
+        diff_context = "\n\n".join(diff_sections[:12])[:5000]
         return await self._open_modal(
             CommitModal(
                 config=self.config,
