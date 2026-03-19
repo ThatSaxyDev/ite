@@ -1011,10 +1011,10 @@ CommitModal #cancel:hover {
 }
 
 PushReviewModal .push-review-modal {
-    width: 96;
-    height: 20;
-    min-height: 18;
-    max-height: 24;
+    width: 88;
+    height: 14;
+    min-height: 14;
+    max-height: 16;
     border: heavy #4f4a70;
     background: #1a2031 96%;
     padding: 1 2;
@@ -1023,7 +1023,7 @@ PushReviewModal .push-review-modal {
 
 PushReviewModal .push-review-body {
     height: 1fr;
-    min-height: 10;
+    min-height: 8;
 }
 
 PushReviewModal .push-review-row {
@@ -1045,30 +1045,30 @@ PushReviewModal .push-review-value {
 
 PushReviewModal .push-review-warning {
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 0;
     color: #f2b38f;
 }
 
-PushReviewModal .push-review-list-title {
-    margin-top: 1;
-    margin-bottom: 0;
-    color: #c6d2e3;
+PushReviewModal .push-review-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+PushReviewModal #cancel {
+    width: 12;
+    min-width: 12;
     text-style: bold;
+    background: #262b3d;
+    color: #e4e6ef;
+    border: none;
 }
 
-PushReviewModal .push-review-list {
-    height: 1fr;
-    min-height: 5;
-    margin-top: 1;
-    border: solid #3b3f58;
-    background: #1c2234;
-    padding: 1;
-    overflow-y: auto;
-}
-
-PushReviewModal .push-review-commit-list {
-    color: #dfe8f8;
-    width: 1fr;
+PushReviewModal #cancel:hover {
+    background: #31374d;
 }
 
 PushReviewModal #confirm {

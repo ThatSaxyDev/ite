@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from textual import events, on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, ScrollableContainer, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, Input, Label, Static
 
@@ -98,13 +98,6 @@ class PushReviewModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         noun = "commit" if self._ahead_count == 1 else "commits"
-        commit_lines = self._commit_subjects or ["No commit subjects found."]
-        commit_text = Text()
-        for index, subject in enumerate(commit_lines):
-            if index:
-                commit_text.append("\n")
-            commit_text.append("• ", style="#79d8a4")
-            commit_text.append(subject, style="#dfe8f8")
         with Container(classes="modal resume-modal push-review-modal"):
             yield Label(
                 "Publish branch" if self._action_label == "publish" else "Push commits",
@@ -132,10 +125,7 @@ class PushReviewModal(ModalScreen[bool]):
                         "Remote has newer commits. Push may be rejected until you pull or rebase.",
                         classes="push-review-warning",
                     )
-                yield Static("Outgoing commits", classes="push-review-list-title")
-                with ScrollableContainer(classes="modal-list push-review-list"):
-                    yield Static(commit_text, classes="push-review-commit-list")
-            with Horizontal(classes="modal-actions resume-actions"):
+            with Horizontal(classes="modal-actions resume-actions push-review-actions"):
                 yield Button("Cancel", id="cancel", variant="default")
                 yield Button(
                     "Publish" if self._action_label == "publish" else "Push",
