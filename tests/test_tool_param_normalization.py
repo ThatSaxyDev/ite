@@ -4,6 +4,9 @@ from pathlib import Path
 
 from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
+from ite.tools.builtin.apply_patch import ApplyPatchParams
+from ite.tools.builtin.edit_file import EditParams
+from ite.tools.builtin.shell import ShellParams
 from ite.tools.registry import create_default_registry
 
 
@@ -87,3 +90,23 @@ class ToolParamNormalizationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.success, msg=result.error)
         self.assertEqual(target.read_text(encoding="utf-8"), "world\n")
+
+    def test_shell_schema_accepts_cmd_alias_during_validation(self) -> None:
+        params = ShellParams(cmd="printf 'ok'")
+        self.assertEqual(params.command, "printf 'ok'")
+
+    def test_edit_schema_accepts_common_aliases_during_validation(self) -> None:
+        params = EditParams(
+            file_path="sample.txt",
+            oldText="before",
+            newText="after",
+        )
+        self.assertEqual(params.path, "sample.txt")
+        self.assertEqual(params.old_string, "before")
+        self.assertEqual(params.new_string, "after")
+
+    def test_apply_patch_schema_accepts_patch_text_alias_during_validation(self) -> None:
+        params = ApplyPatchParams(
+            patch_text="*** Begin Patch\n*** End Patch",
+        )
+        self.assertEqual(params.patch, "*** Begin Patch\n*** End Patch")

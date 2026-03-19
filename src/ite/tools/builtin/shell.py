@@ -6,7 +6,7 @@ import fnmatch
 import os
 import re
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from ite.tools.base import Tool, ToolKind, ToolInvocation, ToolResult
 from ite.tools.base import ToolMetadata, ToolRiskLevel
 from ite.safety.approval import classify_command_safety, CommandSafety
@@ -141,7 +141,13 @@ BLOCKED_COMMANDS = {
 
 
 class ShellParams(BaseModel):
-    command: str = Field(..., description="The shell command to execute")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    command: str = Field(
+        ...,
+        description="The shell command to execute",
+        validation_alias=AliasChoices("command", "cmd", "script"),
+    )
     timeout: int = Field(
         120, ge=1, le=600, description="Timeout in seconds (default: 120)"
     )

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict
 from pydantic import Field
 
 from ite.tools.base import FileDiff
@@ -20,12 +20,15 @@ from ite.utils.paths import resolve_path
 
 
 class ApplyPatchParams(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     patch: str = Field(
         ...,
         description=(
             "Patch text in Codex patch format with markers: "
             "*** Begin Patch ... *** End Patch."
         ),
+        validation_alias=AliasChoices("patch", "content", "patch_text", "text"),
     )
     dry_run: bool = Field(
         False,

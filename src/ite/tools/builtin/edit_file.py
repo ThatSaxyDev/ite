@@ -3,22 +3,42 @@ from pathlib import Path
 from ite.tools.base import FileDiff
 from ite.utils.paths import ensure_parent_dir
 from ite.utils.paths import resolve_path
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from ite.tools.base import Tool, ToolKind, ToolInvocation, ToolResult
 
 
 class EditParams(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     path: str = Field(
         ...,
         description="Path to the file to edit (relative to working directory or absolute path)",
+        validation_alias=AliasChoices("path", "file", "file_path", "filepath", "target"),
     )
     old_string: str = Field(
         "",
         description="The exact text to find and replace. Must match exactly including all whitespace and indentation. For new files, leave this empty.",
+        validation_alias=AliasChoices(
+            "old_string",
+            "old",
+            "old_text",
+            "oldText",
+            "search",
+            "find",
+            "target_text",
+        ),
     )
     new_string: str = Field(
         ...,
         description="The text to replace old_string with. Can be empty to delete text",
+        validation_alias=AliasChoices(
+            "new_string",
+            "new",
+            "new_text",
+            "newText",
+            "replacement",
+            "replace_with",
+        ),
     )
     replace_all: bool = Field(
         False, description="Replace all occurrences of old_string (default: false)"
