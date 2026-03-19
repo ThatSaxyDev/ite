@@ -126,8 +126,9 @@ class PushReviewModal(ModalScreen[bool]):
                         classes="push-review-warning",
                     )
                 yield Static("Outgoing commits", classes="push-review-list-title")
-                with Container(classes="modal-list push-review-list"):
-                    yield DataTable(id="push-review-commits", classes="resume-table", cursor_type="row")
+                with Vertical(classes="modal-list push-review-list"):
+                    for subject in self._commit_subjects or ["No commit subjects found."]:
+                        yield Static(f"• {subject}", classes="push-review-commit-item")
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button("Cancel", id="cancel", variant="default")
                 yield Button(
@@ -137,12 +138,6 @@ class PushReviewModal(ModalScreen[bool]):
                 )
 
     async def on_mount(self) -> None:
-        table = self.query_one("#push-review-commits", DataTable)
-        table.add_columns("Commit")
-        for subject in self._commit_subjects or ["No commit subjects found."]:
-            table.add_row(subject)
-        if table.row_count:
-            table.move_cursor(row=0, column=0)
         self.query_one("#confirm", Button).focus()
 
     def action_accept(self) -> None:

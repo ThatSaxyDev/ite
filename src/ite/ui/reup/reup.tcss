@@ -1061,8 +1061,17 @@ PushReviewModal .push-review-list {
     margin-top: 1;
     border: solid #3b3f58;
     background: #1c2234;
-    padding: 0;
+    padding: 1;
     overflow-y: auto;
+}
+
+PushReviewModal .push-review-commit-item {
+    color: #dfe8f8;
+    margin-bottom: 1;
+}
+
+PushReviewModal .push-review-commit-item:last-child {
+    margin-bottom: 0;
 }
 
 PushReviewModal #confirm {
