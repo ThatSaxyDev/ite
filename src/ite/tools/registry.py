@@ -16,6 +16,7 @@ from typing import Any, Awaitable, Callable
 import logging
 import time
 import json
+import re
 from ite.tools.base import Tool
 from ite.safety.approval import classify_command_safety
 
@@ -331,10 +332,10 @@ class ToolRegistry:
         plan_mode_enabled: bool,
         plan_phase: str,
     ) -> dict[str, Any]:
+        normalized = self._normalize_common_tool_params(tool_name=tool_name, params=params)
         if tool_name != "todos":
-            return params
+            return normalized
 
-        normalized = dict(params)
         raw_scope = normalized.get("scope")
         if isinstance(raw_scope, str) and raw_scope.strip():
             normalized["scope"] = raw_scope.strip().lower()
@@ -343,6 +344,81 @@ class ToolRegistry:
         in_planning = plan_mode_enabled and plan_phase != "executing"
         normalized["scope"] = "planning" if in_planning else "execution"
         return normalized
+
+    def _normalize_common_tool_params(
+        self,
+        *,
+        tool_name: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        normalized = dict(params)
+
+        def adopt(target: str, *aliases: str) -> None:
+            existing = normalized.get(target)
+            if existing not in (None, ""):
+                return
+            for alias in aliases:
+                value = normalized.get(alias)
+                if value in (None, ""):
+                    continue
+                normalized[target] = value
+                return
+
+        if tool_name == "grep":
+            adopt("pattern", "query", "search", "regex", "match")
+            adopt("path", "file", "target", "directory", "dir")
+            return normalized
+
+        if tool_name == "shell":
+            adopt("command", "cmd", "script")
+            command = normalized.get("command")
+            if isinstance(command, str) and command.strip():
+                sanitized = self._sanitize_shell_command(command)
+                if sanitized != command:
+                    normalized["command"] = sanitized
+                    metadata = normalized.get("_normalization_notes")
+                    notes = list(metadata) if isinstance(metadata, list) else []
+                    notes.append("Removed /dev/null redirection for sandbox compatibility.")
+                    normalized["_normalization_notes"] = notes
+            return normalized
+
+        if tool_name == "edit":
+            adopt("path", "file", "file_path", "filepath", "target")
+            adopt(
+                "old_string",
+                "old",
+                "old_text",
+                "oldText",
+                "search",
+                "find",
+                "target_text",
+            )
+            adopt(
+                "new_string",
+                "new",
+                "new_text",
+                "newText",
+                "replacement",
+                "replace_with",
+            )
+            if "all" in normalized and "replace_all" not in normalized:
+                normalized["replace_all"] = bool(normalized.get("all"))
+            return normalized
+
+        if tool_name == "apply_patch":
+            adopt("patch", "content", "patch_text", "text")
+            if "preview" in normalized and "dry_run" not in normalized:
+                normalized["dry_run"] = bool(normalized.get("preview"))
+            return normalized
+
+        return normalized
+
+    @staticmethod
+    def _sanitize_shell_command(command: str) -> str:
+        cleaned = str(command)
+        cleaned = re.sub(r"\s*(?:1?>|2>)\s*/dev/null\b", "", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+        return cleaned
 
     def _emit_telemetry(
         self,
