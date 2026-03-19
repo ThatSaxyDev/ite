@@ -18,20 +18,28 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, HorizontalScroll, ScrollableContainer, Vertical, VerticalScroll
+from textual.containers import (
+    Container,
+    Horizontal,
+    HorizontalScroll,
+    ScrollableContainer,
+    Vertical,
+    VerticalScroll,
+)
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea, Tree
 from textual.widget import Widget
+from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea, Tree
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
+from ite.attachments import MAX_ATTACHMENTS
 from ite.commands import build_registry
-from ite.config.config import Config
-from ite.config.config import ApprovalPolicy
+from ite.commands.aside import execute_aside, is_aside_command_text
+from ite.config.config import ApprovalPolicy, Config
 from ite.config.loader import save_global_approval_mode, save_system_config
 from ite.git.branches import (
     checkout_branch,
@@ -53,13 +61,11 @@ from ite.git.working_tree import (
     unstage_path,
     working_tree_change_set,
 )
-from ite.attachments import MAX_ATTACHMENTS
-from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
-from .change_views import build_change_card_body, change_entry_label
 from .change_tree import ChangedFilesTree
+from .change_views import build_change_card_body, change_entry_label
 from .composer_views import (
     SlashCommandOption,
     build_command_palette_options,
@@ -323,17 +329,43 @@ class ReupApp(App):
                     with Container(id="change-review-panel"):
                         with Horizontal(id="change-review-header"):
                             yield Static("Changes", id="change-review-title")
-                            yield Static("Stage All", id="change-review-stage-all", classes="change-review-action")
-                            yield Static("Discard All", id="change-review-discard-all", classes="change-review-action")
-                            yield Static("Commit", id="change-review-commit", classes="change-review-action")
-                            yield Button("Close", id="change-review-close", variant="default")
+                            yield Static(
+                                "Stage All",
+                                id="change-review-stage-all",
+                                classes="change-review-action",
+                            )
+                            yield Static(
+                                "Discard All",
+                                id="change-review-discard-all",
+                                classes="change-review-action",
+                            )
+                            yield Static(
+                                "Commit",
+                                id="change-review-commit",
+                                classes="change-review-action",
+                            )
+                            yield Button(
+                                "Close", id="change-review-close", variant="default"
+                            )
                         with Horizontal(id="change-review-body"):
                             yield ChangedFilesTree(id="change-review-tree")
                             with Vertical(id="change-review-preview-column"):
                                 with Horizontal(id="change-review-preview-actions"):
-                                    yield Static("Stage", id="change-review-stage-file", classes="change-review-action")
-                                    yield Static("Unstage", id="change-review-unstage-file", classes="change-review-action")
-                                    yield Static("Discard", id="change-review-discard-file", classes="change-review-action")
+                                    yield Static(
+                                        "Stage",
+                                        id="change-review-stage-file",
+                                        classes="change-review-action",
+                                    )
+                                    yield Static(
+                                        "Unstage",
+                                        id="change-review-unstage-file",
+                                        classes="change-review-action",
+                                    )
+                                    yield Static(
+                                        "Discard",
+                                        id="change-review-discard-file",
+                                        classes="change-review-action",
+                                    )
                                 yield ScrollableContainer(id="change-review-preview")
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
@@ -471,7 +503,9 @@ class ReupApp(App):
         self._open_sessions[session_id] = session
         if agent is not None:
             self._session_agents[session_id] = agent
-        self._open_session_workspaces[session_id] = (workspace or self.config.cwd).resolve()
+        self._open_session_workspaces[session_id] = (
+            workspace or self.config.cwd
+        ).resolve()
         self._run_state(session_id)
         if session_id not in self._open_session_order:
             self._open_session_order.append(session_id)
@@ -489,7 +523,7 @@ class ReupApp(App):
         title = self._session_title(session)
         title = re.sub(r"\s+", " ", title).strip() or "New thread"
         if self._run_state(session_id).is_turn_running:
-            title = f"LIVE  {title}"
+            title = f"●●● {title}"
         return title
 
     def _queue_session_tabs_refresh(self) -> None:
@@ -542,7 +576,9 @@ class ReupApp(App):
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         self._queue_session_tabs_refresh()
 
-    async def _show_activity_indicator(self, label: str, version: int | None = None) -> None:
+    async def _show_activity_indicator(
+        self, label: str, version: int | None = None
+    ) -> None:
         if version is not None and version != self._activity_version:
             return
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -571,7 +607,9 @@ class ReupApp(App):
         self._refresh_empty_state()
 
     def _render_activity_indicator_text(self, label: str) -> Text:
-        frame = self._top_spinner_frames[self._top_spinner_index % len(self._top_spinner_frames)]
+        frame = self._top_spinner_frames[
+            self._top_spinner_index % len(self._top_spinner_frames)
+        ]
         suffix = self._activity_suffix_frames[
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
@@ -583,7 +621,9 @@ class ReupApp(App):
         return content
 
     def _composer_meta_text(self) -> Text:
-        plan_enabled = bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
+        plan_enabled = bool(
+            self.agent and self.agent.session and self.agent.session.plan_mode_enabled
+        )
         branch_label = "no-git"
         attachment_count = 0
         if self.agent and self.agent.session:
@@ -624,7 +664,9 @@ class ReupApp(App):
     def _command_palette_window(self) -> list[SlashCommandOption]:
         if not self._filtered_command_palette_options:
             return []
-        max_rows = min(self.COMMAND_PALETTE_MAX_ROWS, len(self._filtered_command_palette_options))
+        max_rows = min(
+            self.COMMAND_PALETTE_MAX_ROWS, len(self._filtered_command_palette_options)
+        )
         start = max(0, self._command_palette_index - max_rows + 1)
         end = min(len(self._filtered_command_palette_options), start + max_rows)
         start = max(0, end - max_rows)
@@ -637,16 +679,24 @@ class ReupApp(App):
             max_rows=self.COMMAND_PALETTE_MAX_ROWS,
         )
 
-    def _build_turn_action_options(self, *, replacing_queue: bool) -> list[SlashCommandOption]:
+    def _build_turn_action_options(
+        self, *, replacing_queue: bool
+    ) -> list[SlashCommandOption]:
         return build_turn_action_options(replacing_queue=replacing_queue)
 
     def _render_turn_action_palette(self) -> Text:
-        return render_turn_action_palette(self._turn_action_options, self._command_palette_index)
+        return render_turn_action_palette(
+            self._turn_action_options, self._command_palette_index
+        )
 
-    def _show_turn_action_palette(self, payload: dict[str, Any], *, replacing_queue: bool) -> None:
+    def _show_turn_action_palette(
+        self, payload: dict[str, Any], *, replacing_queue: bool
+    ) -> None:
         self._turn_action_payload = payload
         self._turn_action_replacing_queue = replacing_queue
-        self._turn_action_options = self._build_turn_action_options(replacing_queue=replacing_queue)
+        self._turn_action_options = self._build_turn_action_options(
+            replacing_queue=replacing_queue
+        )
         self._command_palette_index = 0
         self._command_palette_rows = len(self._turn_action_options)
         if not self.is_mounted:
@@ -671,11 +721,15 @@ class ReupApp(App):
             return False
         self._command_palette_index = max(
             0,
-            min(len(self._turn_action_options) - 1, self._command_palette_index + delta),
+            min(
+                len(self._turn_action_options) - 1, self._command_palette_index + delta
+            ),
         )
         if self.is_mounted:
             try:
-                self.query_one("#command-palette", Static).update(self._render_turn_action_palette())
+                self.query_one("#command-palette", Static).update(
+                    self._render_turn_action_palette()
+                )
             except Exception:
                 pass
         return True
@@ -720,11 +774,15 @@ class ReupApp(App):
         if self._filtered_command_palette_options == options and (
             not options or self._command_palette_index < len(options)
         ):
-            self._command_palette_rows = min(len(options), self.COMMAND_PALETTE_MAX_ROWS)
+            self._command_palette_rows = min(
+                len(options), self.COMMAND_PALETTE_MAX_ROWS
+            )
         else:
             self._filtered_command_palette_options = options
             self._command_palette_index = 0
-            self._command_palette_rows = min(len(options), self.COMMAND_PALETTE_MAX_ROWS)
+            self._command_palette_rows = min(
+                len(options), self.COMMAND_PALETTE_MAX_ROWS
+            )
 
         if not self.is_mounted:
             return
@@ -753,7 +811,9 @@ class ReupApp(App):
         )
         if self.is_mounted:
             try:
-                self.query_one("#command-palette", Static).update(self._render_command_palette())
+                self.query_one("#command-palette", Static).update(
+                    self._render_command_palette()
+                )
             except Exception:
                 pass
         return True
@@ -778,7 +838,9 @@ class ReupApp(App):
             if not self._turn_action_options:
                 return False
             action = ("steer", "queue", "aside", "cancel")[self._command_palette_index]
-            self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
+            self.run_worker(
+                self._execute_turn_action_selection(action), exclusive=False
+            )
             return True
         if not self._filtered_command_palette_options:
             return False
@@ -859,7 +921,9 @@ class ReupApp(App):
     async def _open_branch_picker_from_meta(self) -> None:
         cwd = Path(self.config.cwd).resolve()
         if not await asyncio.to_thread(is_git_repo, cwd):
-            self.post_system("Git", "Current workspace is not a git repository.", is_error=True)
+            self.post_system(
+                "Git", "Current workspace is not a git repository.", is_error=True
+            )
             return
 
         branches = await asyncio.to_thread(list_local_branches, cwd)
@@ -938,7 +1002,9 @@ class ReupApp(App):
 
         paths: list[str] = []
         for candidate in candidates:
-            if not any(sep in candidate for sep in ("/", "\\")) and not candidate.startswith("~"):
+            if not any(
+                sep in candidate for sep in ("/", "\\")
+            ) and not candidate.startswith("~"):
                 return False
             path = Path(candidate).expanduser()
             if not path.exists() or not path.is_file():
@@ -966,7 +1032,9 @@ class ReupApp(App):
             )
         except Exception:
             thread_count = 0
-        return build_empty_state_title(cwd=Path(self.config.cwd), thread_count=thread_count)
+        return build_empty_state_title(
+            cwd=Path(self.config.cwd), thread_count=thread_count
+        )
 
     def _refresh_empty_state(self) -> None:
         empty = self.query_one("#empty-state", Static)
@@ -996,7 +1064,9 @@ class ReupApp(App):
         self._activity_version += 1
         version = self._activity_version
         if busy:
-            self.run_worker(self._show_activity_indicator(state, version), exclusive=False)
+            self.run_worker(
+                self._show_activity_indicator(state, version), exclusive=False
+            )
         else:
             self.run_worker(self._hide_activity_indicator(version), exclusive=False)
 
@@ -1020,22 +1090,35 @@ class ReupApp(App):
     def _apply_change_review_panel_state(self) -> None:
         panel = self.query_one("#change-review-panel", Container)
         toggle = self.query_one("#changes-toggle", Button)
-        has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
+        has_content = bool(
+            self._change_review_change_set
+            and getattr(self._change_review_change_set, "changes", None)
+        )
         panel.display = self._change_review_visible and has_content
-        has_outgoing = bool(self._git_outbound_state and self._git_outbound_state.needs_attention)
-        wants_publish = bool(self._git_outbound_state and self._git_outbound_state.needs_publish)
-        toggle.display = (has_content or has_outgoing) and not self._change_review_visible
+        has_outgoing = bool(
+            self._git_outbound_state and self._git_outbound_state.needs_attention
+        )
+        wants_publish = bool(
+            self._git_outbound_state and self._git_outbound_state.needs_publish
+        )
+        toggle.display = (
+            has_content or has_outgoing
+        ) and not self._change_review_visible
         if has_content:
             toggle.label = "/changes"
         elif wants_publish:
-            count = self._git_outbound_state.ahead_count if self._git_outbound_state else 0
+            count = (
+                self._git_outbound_state.ahead_count if self._git_outbound_state else 0
+            )
             if count > 0:
                 noun = "commit" if count == 1 else "commits"
                 toggle.label = f"/publish {count} {noun} ↑"
             else:
                 toggle.label = "/publish ↑"
         else:
-            count = self._git_outbound_state.ahead_count if self._git_outbound_state else 0
+            count = (
+                self._git_outbound_state.ahead_count if self._git_outbound_state else 0
+            )
             noun = "commit" if count == 1 else "commits"
             toggle.label = f"/push {count} {noun} ↑"
         self._update_change_review_action_state()
@@ -1064,7 +1147,10 @@ class ReupApp(App):
         except NoMatches:
             return
 
-        has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
+        has_content = bool(
+            self._change_review_change_set
+            and getattr(self._change_review_change_set, "changes", None)
+        )
         selected = self._change_review_selected_rel_path
         has_staged, has_unstaged = self._change_review_path_flags(selected)
         stage_file.display = bool(selected and has_unstaged)
@@ -1099,19 +1185,17 @@ class ReupApp(App):
             stage_all_button.update("Stage All")
             self._change_review_bulk_action = "stage"
             stage_all_button.disabled = True
-        discard_all_button.disabled = not bool(self._change_review_source == "git" and has_content)
+        discard_all_button.disabled = not bool(
+            self._change_review_source == "git" and has_content
+        )
         commit_button.disabled = not bool(
             self._change_review_source == "git"
-            and (
-                has_any_staged
-                or (
-                    has_any_unstaged
-                    and has_content
-                )
-            )
+            and (has_any_staged or (has_any_unstaged and has_content))
         )
 
-    async def _refresh_change_review_source(self, *, prefer_git_only: bool = False) -> None:
+    async def _refresh_change_review_source(
+        self, *, prefer_git_only: bool = False
+    ) -> None:
         cwd = Path(self.config.cwd).resolve()
         change_set = None
         source = "git"
@@ -1138,7 +1222,9 @@ class ReupApp(App):
             self._change_review_snapshot_key = None
         self._apply_change_review_panel_state()
 
-    def _change_review_signature(self, change_set: Any | None) -> tuple[Any, ...] | None:
+    def _change_review_signature(
+        self, change_set: Any | None
+    ) -> tuple[Any, ...] | None:
         if not change_set or not getattr(change_set, "changes", None):
             return None
 
@@ -1154,9 +1240,18 @@ class ReupApp(App):
         return (
             self._change_review_source,
             tuple(_diff_key(diff) for diff in getattr(change_set, "changes", [])),
-            tuple(self._change_review_relpath(diff) for diff in getattr(change_set, "staged_changes", [])),
-            tuple(self._change_review_relpath(diff) for diff in getattr(change_set, "unstaged_changes", [])),
-            tuple(self._change_review_relpath(diff) for diff in getattr(change_set, "untracked_changes", [])),
+            tuple(
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "staged_changes", [])
+            ),
+            tuple(
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "unstaged_changes", [])
+            ),
+            tuple(
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "untracked_changes", [])
+            ),
         )
 
     def _change_review_entry_label(self, diff: Any) -> Text:
@@ -1168,7 +1263,9 @@ class ReupApp(App):
         label.append(name, style="bold #e7eefb")
         label.append("  ")
         label.append(action, style=f"bold {color}")
-        if self._change_review_mode == "changed" and not getattr(diff, "is_deletion", False):
+        if self._change_review_mode == "changed" and not getattr(
+            diff, "is_deletion", False
+        ):
             additions = len([line for line in diff.new_content.splitlines() if line])
             if additions and getattr(diff, "is_new_file", False):
                 label.append(f"  +{additions}", style="bold #79d8a4")
@@ -1193,7 +1290,12 @@ class ReupApp(App):
             old_lines = diff.new_content.splitlines(keepends=True)
             new_lines = diff.old_content.splitlines(keepends=True)
             fromfile = str(diff.path)
-            tofile = "/dev/null" if getattr(diff, "is_new_file", False) and not getattr(diff, "is_deletion", False) else str(diff.path)
+            tofile = (
+                "/dev/null"
+                if getattr(diff, "is_new_file", False)
+                and not getattr(diff, "is_deletion", False)
+                else str(diff.path)
+            )
             if getattr(diff, "is_deletion", False):
                 fromfile = "/dev/null"
         else:
@@ -1203,13 +1305,17 @@ class ReupApp(App):
             old_lines[-1] += "\n"
         if new_lines and not new_lines[-1].endswith("\n"):
             new_lines[-1] += "\n"
-        return "".join(difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile))
+        return "".join(
+            difflib.unified_diff(old_lines, new_lines, fromfile=fromfile, tofile=tofile)
+        )
 
     def _change_review_numbered_diff_renderable(self, diff: Any) -> Text:
         import re
 
         raw_diff = self._change_review_diff_text(diff)
-        hunk_re = re.compile(r"^@@ -(?P<old>\d+)(?:,(?P<old_count>\d+))? \+(?P<new>\d+)(?:,(?P<new_count>\d+))? @@")
+        hunk_re = re.compile(
+            r"^@@ -(?P<old>\d+)(?:,(?P<old_count>\d+))? \+(?P<new>\d+)(?:,(?P<new_count>\d+))? @@"
+        )
         rendered = Text(no_wrap=True)
         old_lineno = 0
         new_lineno = 0
@@ -1252,17 +1358,38 @@ class ReupApp(App):
                 continue
 
             if line.startswith("-") and not line.startswith("--- "):
-                append_line(str(old_lineno), "", "-", line[1:], marker_style=del_style, content_style=del_style)
+                append_line(
+                    str(old_lineno),
+                    "",
+                    "-",
+                    line[1:],
+                    marker_style=del_style,
+                    content_style=del_style,
+                )
                 old_lineno += 1
                 continue
 
             if line.startswith("+") and not line.startswith("+++ "):
-                append_line("", str(new_lineno), "+", line[1:], marker_style=add_style, content_style=add_style)
+                append_line(
+                    "",
+                    str(new_lineno),
+                    "+",
+                    line[1:],
+                    marker_style=add_style,
+                    content_style=add_style,
+                )
                 new_lineno += 1
                 continue
 
             if line.startswith(" "):
-                append_line(str(old_lineno), str(new_lineno), " ", line[1:], marker_style=gutter_style, content_style=context_style)
+                append_line(
+                    str(old_lineno),
+                    str(new_lineno),
+                    " ",
+                    line[1:],
+                    marker_style=gutter_style,
+                    content_style=context_style,
+                )
                 old_lineno += 1
                 new_lineno += 1
                 continue
@@ -1272,7 +1399,9 @@ class ReupApp(App):
 
         return rendered
 
-    async def _render_change_review_preview(self, diff: Any | None, *, version: int | None = None) -> None:
+    async def _render_change_review_preview(
+        self, diff: Any | None, *, version: int | None = None
+    ) -> None:
         if version is not None and version != self._change_review_preview_version:
             return
         preview = self.query_one("#change-review-preview", ScrollableContainer)
@@ -1280,7 +1409,9 @@ class ReupApp(App):
         if version is not None and version != self._change_review_preview_version:
             return
         if diff is None:
-            await preview.mount(Static("Select a file to inspect.", classes="change-review-empty"))
+            await preview.mount(
+                Static("Select a file to inspect.", classes="change-review-empty")
+            )
             return
         header = Text()
         try:
@@ -1292,11 +1423,16 @@ class ReupApp(App):
         header.append("  ")
         header.append(action, style=f"bold {color}")
         if self._change_review_source == "git":
-            stage_label_for = getattr(self._change_review_change_set, "stage_label_for", None)
+            stage_label_for = getattr(
+                self._change_review_change_set, "stage_label_for", None
+            )
             if callable(stage_label_for):
                 header.append("  ")
                 header.append(stage_label_for(diff.path), style="bold #9caecb")
-        body = Static(self._change_review_numbered_diff_renderable(diff), classes="change-review-diff")
+        body = Static(
+            self._change_review_numbered_diff_renderable(diff),
+            classes="change-review-diff",
+        )
         if version is not None and version != self._change_review_preview_version:
             return
         await preview.mount(Static(header, classes="change-review-path"), body)
@@ -1335,21 +1471,35 @@ class ReupApp(App):
                 self._change_review_relpath(diff)
                 for diff in getattr(change_set, "untracked_changes", [])
             }
-            plain_unstaged = [path for path in unstaged_paths if path not in untracked_paths]
+            plain_unstaged = [
+                path for path in unstaged_paths if path not in untracked_paths
+            ]
             groups = [
                 ("Staged", staged_paths),
                 ("Unstaged", plain_unstaged),
                 ("Untracked", sorted(untracked_paths)),
             ]
-            first_rel = tree.populate_groups(groups, selected_rel_path=self._change_review_selected_rel_path)
+            first_rel = tree.populate_groups(
+                groups, selected_rel_path=self._change_review_selected_rel_path
+            )
         else:
             first_rel = tree.populate_groups(
-                [("Changed", [self._change_review_relpath(diff) for diff in getattr(change_set, "changes", [])])],
+                [
+                    (
+                        "Changed",
+                        [
+                            self._change_review_relpath(diff)
+                            for diff in getattr(change_set, "changes", [])
+                        ],
+                    )
+                ],
                 selected_rel_path=self._change_review_selected_rel_path,
             )
 
         self._change_review_selected_rel_path = first_rel
-        initial_diff = self._change_review_diff_lookup.get(first_rel) if first_rel else first_diff
+        initial_diff = (
+            self._change_review_diff_lookup.get(first_rel) if first_rel else first_diff
+        )
         self._change_review_snapshot_key = self._change_review_signature(change_set)
         self._update_change_review_action_state()
         self._change_review_preview_version += 1
@@ -1367,7 +1517,9 @@ class ReupApp(App):
     ) -> None:
         if self._change_review_visible and self._change_review_source == "git":
             await self._refresh_change_review_source()
-            if self._change_review_change_set and getattr(self._change_review_change_set, "changes", None):
+            if self._change_review_change_set and getattr(
+                self._change_review_change_set, "changes", None
+            ):
                 self._change_review_visible = True
                 await self._populate_change_review_panel()
             return
@@ -1379,7 +1531,9 @@ class ReupApp(App):
 
     async def _toggle_change_review_panel(self) -> None:
         await self._refresh_change_review_source()
-        if not self._change_review_change_set or not getattr(self._change_review_change_set, "changes", None):
+        if not self._change_review_change_set or not getattr(
+            self._change_review_change_set, "changes", None
+        ):
             return
         self._change_review_visible = not self._change_review_visible
         self._apply_change_review_panel_state()
@@ -1439,13 +1593,19 @@ class ReupApp(App):
             elif state == "error":
                 response_widget = Static(answer, classes="aside-error")
             else:
-                response_widget = Static(RichMarkdown(answer), classes="aside-assistant-body")
-            await body.mount(Vertical(user_row, response_widget, classes="aside-thread"))
+                response_widget = Static(
+                    RichMarkdown(answer), classes="aside-assistant-body"
+                )
+            await body.mount(
+                Vertical(user_row, response_widget, classes="aside-thread")
+            )
         self._apply_aside_panel_state()
         body.scroll_end(animate=False)
 
     async def _push_aside_entry(self, question: str, answer: str) -> None:
-        self._aside_entries.append({"question": question, "answer": answer, "state": "done"})
+        self._aside_entries.append(
+            {"question": question, "answer": answer, "state": "done"}
+        )
         self._aside_panel_visible = True
         await self._render_aside_panel()
 
@@ -1464,7 +1624,9 @@ class ReupApp(App):
         await self._render_aside_panel()
         return entry_id
 
-    async def _complete_aside_entry(self, entry_id: str, *, answer: str, state: str = "done") -> None:
+    async def _complete_aside_entry(
+        self, entry_id: str, *, answer: str, state: str = "done"
+    ) -> None:
         for entry in self._aside_entries:
             if str(entry.get("id", "")) == entry_id:
                 entry["answer"] = answer
@@ -1484,7 +1646,10 @@ class ReupApp(App):
 
     @on(Button.Pressed, "#changes-toggle")
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
-        has_content = bool(self._change_review_change_set and getattr(self._change_review_change_set, "changes", None))
+        has_content = bool(
+            self._change_review_change_set
+            and getattr(self._change_review_change_set, "changes", None)
+        )
         if has_content:
             await self._toggle_change_review_panel()
             return
@@ -1512,7 +1677,9 @@ class ReupApp(App):
         )
         if not confirmed:
             return
-        result = await asyncio.to_thread(push_current_branch, Path(self.config.cwd).resolve())
+        result = await asyncio.to_thread(
+            push_current_branch, Path(self.config.cwd).resolve()
+        )
         await self._refresh_change_review_source(prefer_git_only=True)
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
@@ -1555,7 +1722,9 @@ class ReupApp(App):
             self._show_change_review_row(rel_path)
 
     async def _refresh_change_review_after_git_action(self) -> None:
-        await self._refresh_change_review_source(prefer_git_only=self._change_review_source == "git")
+        await self._refresh_change_review_source(
+            prefer_git_only=self._change_review_source == "git"
+        )
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
             self._change_review_visible = False
@@ -1563,12 +1732,17 @@ class ReupApp(App):
             self._apply_change_review_panel_state()
             preview = self.query_one("#change-review-preview", ScrollableContainer)
             await preview.remove_children()
-            await preview.mount(Static("No changes to inspect.", classes="change-review-empty"))
+            await preview.mount(
+                Static("No changes to inspect.", classes="change-review-empty")
+            )
             return
         if (
             self._change_review_selected_rel_path
             and self._change_review_selected_rel_path
-            not in {self._change_review_relpath(diff) for diff in getattr(change_set, "changes", [])}
+            not in {
+                self._change_review_relpath(diff)
+                for diff in getattr(change_set, "changes", [])
+            }
         ):
             self._change_review_selected_rel_path = None
         await self._populate_change_review_panel()
@@ -1603,7 +1777,13 @@ class ReupApp(App):
                 elif line.startswith("- "):
                     deletions += 1
             rel_path = self._change_review_relpath(diff)
-            status = "new" if getattr(diff, "is_new_file", False) else "deleted" if getattr(diff, "is_deletion", False) else "modified"
+            status = (
+                "new"
+                if getattr(diff, "is_new_file", False)
+                else "deleted"
+                if getattr(diff, "is_deletion", False)
+                else "modified"
+            )
             signal_lines: list[str] = []
             for line in difflib.unified_diff(
                 old_lines,
@@ -1642,7 +1822,8 @@ class ReupApp(App):
                 diff_context=diff_context,
                 push_label=(
                     "Commit and publish"
-                    if self._git_outbound_state and self._git_outbound_state.needs_publish
+                    if self._git_outbound_state
+                    and self._git_outbound_state.needs_publish
                     else "Commit and push"
                 ),
             )
@@ -1655,7 +1836,9 @@ class ReupApp(App):
         rel_path = self._change_review_selected_rel_path
         if not rel_path:
             return
-        result = await asyncio.to_thread(stage_path, Path(self.config.cwd).resolve(), rel_path)
+        result = await asyncio.to_thread(
+            stage_path, Path(self.config.cwd).resolve(), rel_path
+        )
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
             return
@@ -1669,7 +1852,9 @@ class ReupApp(App):
         rel_path = self._change_review_selected_rel_path
         if not rel_path:
             return
-        result = await asyncio.to_thread(unstage_path, Path(self.config.cwd).resolve(), rel_path)
+        result = await asyncio.to_thread(
+            unstage_path, Path(self.config.cwd).resolve(), rel_path
+        )
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
             return
@@ -1688,7 +1873,9 @@ class ReupApp(App):
         )
         if not confirmed:
             return
-        result = await asyncio.to_thread(discard_path, Path(self.config.cwd).resolve(), rel_path)
+        result = await asyncio.to_thread(
+            discard_path, Path(self.config.cwd).resolve(), rel_path
+        )
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
             return
@@ -1705,7 +1892,9 @@ class ReupApp(App):
         stage_all_chip = self.query_one("#change-review-stage-all", Static)
         if stage_all_chip.disabled:
             return
-        git_fn = stage_all if self._change_review_bulk_action == "stage" else unstage_all
+        git_fn = (
+            stage_all if self._change_review_bulk_action == "stage" else unstage_all
+        )
         result = await asyncio.to_thread(git_fn, Path(self.config.cwd).resolve())
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
@@ -1780,7 +1969,9 @@ class ReupApp(App):
         self.config.model.name = result["model_name"]
         self.config.approval = ApprovalPolicy(result["approval"])
         self.refresh_header()
-        self.post_notice("Setup complete", "Saved credentials and defaults. Reup is ready.")
+        self.post_notice(
+            "Setup complete", "Saved credentials and defaults. Reup is ready."
+        )
 
     async def _open_setup_modal(self, *, exit_on_cancel: bool = False) -> bool:
         result = await self._open_modal(SetupModal(self.config))
@@ -1880,7 +2071,9 @@ class ReupApp(App):
         async def _confirm(confirmation, sid: str = session_id) -> bool:
             return await self._confirmation_callback_for_session(sid, confirmation)
 
-        async def _plan_question(payload: dict[str, Any], sid: str = session_id) -> dict[str, Any]:
+        async def _plan_question(
+            payload: dict[str, Any], sid: str = session_id
+        ) -> dict[str, Any]:
             return await self._plan_question_callback_for_session(sid, payload)
 
         return Agent(
@@ -1890,7 +2083,9 @@ class ReupApp(App):
             plan_question_callback=_plan_question,
         )
 
-    async def _confirmation_callback_for_session(self, session_id: str, confirmation) -> bool:
+    async def _confirmation_callback_for_session(
+        self, session_id: str, confirmation
+    ) -> bool:
         if session_id and session_id != self._active_session_id():
             await self._activate_open_session(
                 session_id,
@@ -1920,14 +2115,9 @@ class ReupApp(App):
         self._aside_panel_visible = False
         self._aside_entries = []
         self._aside_pending_widgets = {}
-        self._change_review_visible = False
-        self._change_review_change_set = None
-        self._change_review_selected_rel_path = None
-        self._change_review_snapshot_key = None
         self._run_state().running_shell_call_ids.clear()
         if self.is_mounted:
             self._apply_aside_panel_state()
-            self._apply_change_review_panel_state()
 
     async def _activate_open_session(
         self,
@@ -2030,7 +2220,10 @@ class ReupApp(App):
             return raw
 
         session = self.agent.session
-        if session.plan_mode_enabled and session.plan_phase == "awaiting_implementation_confirmation":
+        if (
+            session.plan_mode_enabled
+            and session.plan_phase == "awaiting_implementation_confirmation"
+        ):
             session.seed_execution_todos_from_plan(session.pending_plan_text)
             session.promote_pending_plan_to_active()
             session.set_plan_mode(False)
@@ -2044,13 +2237,17 @@ class ReupApp(App):
         )
         return None
 
-    def _should_suppress_intent_detection(self, message: str, *, plan_enabled: bool) -> bool:
+    def _should_suppress_intent_detection(
+        self, message: str, *, plan_enabled: bool
+    ) -> bool:
         text = (message or "").strip()
         min_len = 7 if plan_enabled else 12
         if len(text) < min_len:
             return True
         if len(text.split()) < 3:
-            if not (plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())):
+            if not (
+                plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())
+            ):
                 return True
         if message == Agent.PLAN_EXECUTE_PROMPT:
             return True
@@ -2072,7 +2269,11 @@ class ReupApp(App):
         if any(p in text for p in strong_phrases):
             return True
 
-        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text)):
+        if bool(
+            re.search(
+                r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text
+            )
+        ):
             return True
 
         build_intent_markers = (
@@ -2100,10 +2301,14 @@ class ReupApp(App):
             "api",
             "dashboard",
         )
-        if any(m in text for m in build_intent_markers) and any(t in text for t in product_targets):
+        if any(m in text for m in build_intent_markers) and any(
+            t in text for t in product_targets
+        ):
             return True
 
-        return bool(re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text)
+        return bool(
+            re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text
+        )
 
     def _detect_execution_intent(self, message: str) -> bool:
         text = (message or "").strip().lower()
@@ -2130,7 +2335,11 @@ class ReupApp(App):
         )
         if any(p in text for p in phrases):
             return True
-        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text)):
+        if bool(
+            re.search(
+                r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text
+            )
+        ):
             return True
         if bool(
             re.search(r"\b(build|implement|start coding|execute)\b", text)
@@ -2170,7 +2379,9 @@ class ReupApp(App):
                 session.set_plan_mode(True)
                 session.set_plan_phase("idle")
                 self.refresh_header()
-                self.post_plan_note("Plan mode enabled", "Planning mode is now active for this thread.")
+                self.post_plan_note(
+                    "Plan mode enabled", "Planning mode is now active for this thread."
+                )
             return message
 
         if plan_enabled and self._detect_execution_intent(message):
@@ -2188,7 +2399,9 @@ class ReupApp(App):
                 session.set_plan_mode(False)
                 session.set_plan_phase("idle")
                 self.refresh_header()
-                self.post_plan_note("Plan mode disabled", "Execution mode is now active.")
+                self.post_plan_note(
+                    "Plan mode disabled", "Execution mode is now active."
+                )
                 return message
 
             self.post_plan_note(
@@ -2285,7 +2498,10 @@ class ReupApp(App):
                     event.prevent_default()
                 return
 
-        if self._plan_question_future is not None and not self._plan_question_future.done():
+        if (
+            self._plan_question_future is not None
+            and not self._plan_question_future.done()
+        ):
             if event.key in {"escape", "ctrl+c"}:
                 self.run_worker(
                     self._resolve_plan_question_choice(
@@ -2359,7 +2575,9 @@ class ReupApp(App):
                 self._composer_history_index = len(self._composer_history) - 1
             else:
                 self._composer_history_index = max(0, self._composer_history_index - 1)
-            self._set_prompt_text_from_history(self._composer_history[self._composer_history_index])
+            self._set_prompt_text_from_history(
+                self._composer_history[self._composer_history_index]
+            )
             return True
 
         if key == "down" and self._composer_history_index is not None:
@@ -2382,7 +2600,9 @@ class ReupApp(App):
         composer = self.query_one("#composer", Horizontal)
 
         line_count = max(1, prompt.text.count("\n") + 1)
-        prompt_lines = min(max(line_count, self.MIN_PROMPT_LINES), self.MAX_PROMPT_LINES)
+        prompt_lines = min(
+            max(line_count, self.MIN_PROMPT_LINES), self.MAX_PROMPT_LINES
+        )
         prompt_height = prompt_lines + self.PROMPT_TOP_PAD
         container_height = (
             prompt_height
@@ -2418,14 +2638,18 @@ class ReupApp(App):
         prompt.text = str(payload.get("message", "")).strip()
         self._resize_composer_for_prompt()
         if self.agent and self.agent.session:
-            self.agent.session.pending_attachment_paths = list(payload.get("attachments", []))[:MAX_ATTACHMENTS]
+            self.agent.session.pending_attachment_paths = list(
+                payload.get("attachments", [])
+            )[:MAX_ATTACHMENTS]
 
     async def _dispatch_payload(self, payload: dict[str, Any]) -> None:
         message = str(payload.get("message", "")).strip()
         if not message:
             return
         if self.agent and self.agent.session:
-            self.agent.session.pending_attachment_paths = list(payload.get("attachments", []))[:MAX_ATTACHMENTS]
+            self.agent.session.pending_attachment_paths = list(
+                payload.get("attachments", [])
+            )[:MAX_ATTACHMENTS]
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:
@@ -2493,7 +2717,9 @@ class ReupApp(App):
             return
         await self.run_agent_message(assisted)
 
-    async def _list_resume_sessions(self, all_workspaces: bool = False) -> list[dict[str, Any]]:
+    async def _list_resume_sessions(
+        self, all_workspaces: bool = False
+    ) -> list[dict[str, Any]]:
         sessions = SessionManager().list_sessions(
             workspace_path=None if all_workspaces else self.config.cwd,
             include_legacy_unscoped=all_workspaces,
@@ -2514,7 +2740,9 @@ class ReupApp(App):
 
         snapshot = SessionManager().load_session(selected_id)
         if snapshot is None:
-            self.post_system("Sessions", f"Session not found: {selected_id}", is_error=True)
+            self.post_system(
+                "Sessions", f"Session not found: {selected_id}", is_error=True
+            )
             return
 
         await self._resume_snapshot(snapshot)
@@ -2586,11 +2814,15 @@ class ReupApp(App):
             if role == "system":
                 continue
             if role == "user":
-                await self.add_assistant_card("You", RichMarkdown(str(content)), css_class="user")
+                await self.add_assistant_card(
+                    "You", RichMarkdown(str(content)), css_class="user"
+                )
                 continue
             if role == "assistant":
                 if content:
-                    await self.add_assistant_card("iTE", RichMarkdown(str(content)), css_class="assistant")
+                    await self.add_assistant_card(
+                        "iTE", RichMarkdown(str(content)), css_class="assistant"
+                    )
                 for tool_call in message.get("tool_calls") or []:
                     call_id = str(tool_call.get("id", "") or "")
                     function = tool_call.get("function", {}) or {}
@@ -2659,7 +2891,9 @@ class ReupApp(App):
         if command == "/resume" and args:
             snapshot = SessionManager().load_session(args[0])
             if snapshot is None:
-                self.post_system("Resume", f"Session not found: {args[0]}", is_error=True)
+                self.post_system(
+                    "Resume", f"Session not found: {args[0]}", is_error=True
+                )
                 return
             await self._resume_snapshot(snapshot)
             return
@@ -2758,7 +2992,9 @@ class ReupApp(App):
         await self._refresh_change_review_source()
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
-            self.post_system("Changes", "No git working tree changes to inspect.", is_error=True)
+            self.post_system(
+                "Changes", "No git working tree changes to inspect.", is_error=True
+            )
             return
 
         await self._open_change_review_panel(
@@ -2788,7 +3024,9 @@ class ReupApp(App):
             mode="undone",
         )
         await self.add_assistant_card("Undid changes", body, css_class="change")
-        await self._open_change_review_panel(change_set, title="Undid changes", mode="undone")
+        await self._open_change_review_panel(
+            change_set, title="Undid changes", mode="undone"
+        )
 
     async def _run_redo_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -2811,7 +3049,9 @@ class ReupApp(App):
             mode="redone",
         )
         await self.add_assistant_card("Reapplied changes", body, css_class="change")
-        await self._open_change_review_panel(change_set, title="Reapplied changes", mode="redone")
+        await self._open_change_review_panel(
+            change_set, title="Reapplied changes", mode="redone"
+        )
 
     async def _run_plan_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -2929,7 +3169,11 @@ class ReupApp(App):
             f"- **Planning todos:** `{'shown' if show_planning else 'hidden'}`\n"
             f"- **Overall progress:** `{completed}/{total} completed` · `{pending} pending`"
         )
-        sections.append(self._make_workboard_section("Summary", RichMarkdown(summary_md), tone="summary"))
+        sections.append(
+            self._make_workboard_section(
+                "Summary", RichMarkdown(summary_md), tone="summary"
+            )
+        )
 
         checklist_children: list[Widget] = []
         rendered_any_scope = False
@@ -2938,9 +3182,15 @@ class ReupApp(App):
             if not isinstance(entries, list) or not entries:
                 continue
             rendered_any_scope = True
-            done_entries = [entry for entry in entries if bool(entry.get("completed", False))]
-            pending_entries = [entry for entry in entries if not bool(entry.get("completed", False))]
-            scope_title = "Execution Checklist" if scope == "execution" else "Planning Checklist"
+            done_entries = [
+                entry for entry in entries if bool(entry.get("completed", False))
+            ]
+            pending_entries = [
+                entry for entry in entries if not bool(entry.get("completed", False))
+            ]
+            scope_title = (
+                "Execution Checklist" if scope == "execution" else "Planning Checklist"
+            )
             lines = [
                 f"**{len(done_entries)}/{len(entries)} completed** · **{len(pending_entries)} pending**",
             ]
@@ -2986,7 +3236,9 @@ class ReupApp(App):
             plan_body = RichMarkdown(plan_text)
         else:
             plan_body = Static("No current plan saved.", classes="workboard-empty")
-        sections.append(self._make_workboard_section("Implementation Plan", plan_body, tone="plan"))
+        sections.append(
+            self._make_workboard_section("Implementation Plan", plan_body, tone="plan")
+        )
 
         return Vertical(*sections, classes="workboard-root")
 
@@ -3063,11 +3315,15 @@ class ReupApp(App):
         elif self._active_session_id() == session_id:
             self._restore_queued_payload_after_unsuccessful_turn()
 
-    async def _agent_turn(self, agent: Agent, message: str, session_id: str, turn_id: int) -> None:
+    async def _agent_turn(
+        self, agent: Agent, message: str, session_id: str, turn_id: int
+    ) -> None:
         async for event in agent.run(message):
             await self.handle_agent_event(event, session_id, turn_id)
 
-    async def handle_agent_event(self, event: AgentEvent, session_id: str, turn_id: int) -> None:
+    async def handle_agent_event(
+        self, event: AgentEvent, session_id: str, turn_id: int
+    ) -> None:
         run_state = self._run_state(session_id)
         if turn_id != run_state.active_turn_id:
             return
@@ -3103,7 +3359,8 @@ class ReupApp(App):
                     and plan_only_phase
                     and self.agent
                     and self.agent.session
-                    and self.agent.session.plan_phase == "awaiting_implementation_confirmation"
+                    and self.agent.session.plan_phase
+                    == "awaiting_implementation_confirmation"
                 ):
                     self._last_rendered_plan_text = self._normalize_plan_text(content)
             elif content and not plan_only_phase:
@@ -3113,7 +3370,8 @@ class ReupApp(App):
                 and plan_only_phase
                 and self.agent
                 and self.agent.session
-                and self.agent.session.plan_phase == "awaiting_implementation_confirmation"
+                and self.agent.session.plan_phase
+                == "awaiting_implementation_confirmation"
             ):
                 await self._render_plan_text_if_needed(content)
             if self._is_turn_running:
@@ -3128,7 +3386,9 @@ class ReupApp(App):
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             run_state.turn_had_error = True
-            self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
+            self.post_system(
+                "Error", str(event.data.get("error", "Unknown error")), is_error=True
+            )
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
@@ -3144,7 +3404,9 @@ class ReupApp(App):
         if event.type == AgentEventType.TOOL_CALL_START:
             tool_name = event.data.get("name", "tool")
             if tool_name == "todos":
-                scope = self._resolve_todo_scope_for_event(arguments=event.data.get("arguments"))
+                scope = self._resolve_todo_scope_for_event(
+                    arguments=event.data.get("arguments")
+                )
                 if self._should_hide_todo_scope(scope):
                     self._set_loading_state(
                         self._progress_state_label(
@@ -3163,7 +3425,11 @@ class ReupApp(App):
                     busy=True,
                 )
                 return
-            if plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}:
+            if plan_only_phase and tool_name not in {
+                "todos",
+                "web_search",
+                "web_fetch",
+            }:
                 self._set_loading_state(
                     self._progress_state_label(
                         tool_name=tool_name,
@@ -3193,7 +3459,9 @@ class ReupApp(App):
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
             if tool_name == "todos":
-                scope = self._resolve_todo_scope_for_event(metadata=event.data.get("metadata"))
+                scope = self._resolve_todo_scope_for_event(
+                    metadata=event.data.get("metadata")
+                )
                 if self._should_hide_todo_scope(scope):
                     self._set_loading_state(
                         self._progress_state_label(
@@ -3265,7 +3533,9 @@ class ReupApp(App):
                 self.refresh_header()
                 await self.run_agent_message(Agent.PLAN_EXECUTE_PROMPT)
             elif self.agent and self.agent.session:
-                self.agent.session.set_plan_phase("awaiting_implementation_confirmation")
+                self.agent.session.set_plan_phase(
+                    "awaiting_implementation_confirmation"
+                )
                 self.refresh_header()
                 self.post_plan_note(
                     "Plan saved for refinement",
@@ -3288,7 +3558,9 @@ class ReupApp(App):
         )
         await self.add_assistant_card("Changed", body, css_class="change")
         if self._change_review_visible:
-            await self._open_change_review_panel(change_set, title="Changed", mode="changed")
+            await self._open_change_review_panel(
+                change_set, title="Changed", mode="changed"
+            )
 
     async def _present_plan_ready_action_card(self) -> bool:
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -3300,8 +3572,12 @@ class ReupApp(App):
                 pass
             self._plan_ready_action_card = None
         self._plan_ready_future = loop.create_future()
-        keep_button = Button("Keep in Plan Mode", id="plan-ready-keep", variant="default")
-        implement_button = Button("Implement", id="plan-ready-implement", variant="success")
+        keep_button = Button(
+            "Keep in Plan Mode", id="plan-ready-keep", variant="default"
+        )
+        implement_button = Button(
+            "Implement", id="plan-ready-implement", variant="success"
+        )
 
         action_card = Container(
             Static("Plan ready. Choose next step.", classes="card-title"),
@@ -3393,7 +3669,9 @@ class ReupApp(App):
         self._plan_question_custom_submit = custom_submit
 
         card = Container(
-            Static(f"Asking questions {self._plan_question_number}", classes="card-title"),
+            Static(
+                f"Asking questions {self._plan_question_number}", classes="card-title"
+            ),
             Static(question, classes="card-body plan-question-prompt"),
             option_container,
             custom_row,
@@ -3435,7 +3713,9 @@ class ReupApp(App):
         if self._plan_question_custom_submit is not None:
             self._plan_question_custom_submit.disabled = True
 
-        if isinstance(selected_index, int) and 0 <= selected_index < len(self._plan_question_option_buttons):
+        if isinstance(selected_index, int) and 0 <= selected_index < len(
+            self._plan_question_option_buttons
+        ):
             selected_button = self._plan_question_option_buttons[selected_index]
             selected_button.variant = "primary"
             selected_button.add_class("selected")
@@ -3531,7 +3811,9 @@ class ReupApp(App):
             self._streaming_buffer = ""
             self._message_count = max(0, self._message_count - 1)
 
-        running_widgets = [card for card in self._tool_widgets.values() if card.has_class("running")]
+        running_widgets = [
+            card for card in self._tool_widgets.values() if card.has_class("running")
+        ]
         for card in running_widgets:
             try:
                 await card.remove()
@@ -3555,21 +3837,30 @@ class ReupApp(App):
         await self.add_assistant_card("You", RichMarkdown(message), css_class="user")
 
     async def add_assistant_message(self, message: str) -> None:
-        await self.add_assistant_card("iTE", RichMarkdown(message), css_class="assistant")
+        await self.add_assistant_card(
+            "iTE", RichMarkdown(message), css_class="assistant"
+        )
 
     def post_system(self, title: str, message: str, is_error: bool = False) -> None:
         css_class = "system error" if is_error else "system"
-        self.run_worker(self.add_assistant_card(title, message, css_class=css_class), exclusive=False)
+        self.run_worker(
+            self.add_assistant_card(title, message, css_class=css_class),
+            exclusive=False,
+        )
 
     def post_notice(self, title: str, message: str) -> None:
         self.run_worker(
-            self.add_assistant_card(title, Text(message, style="#d7deea"), css_class="note"),
+            self.add_assistant_card(
+                title, Text(message, style="#d7deea"), css_class="note"
+            ),
             exclusive=False,
         )
 
     def post_plan_note(self, title: str, markdown_text: str) -> None:
         self.run_worker(
-            self.add_assistant_card(title, RichMarkdown(markdown_text), css_class="plan"),
+            self.add_assistant_card(
+                title, RichMarkdown(markdown_text), css_class="plan"
+            ),
             exclusive=False,
         )
 
@@ -3583,7 +3874,9 @@ class ReupApp(App):
             exclusive=False,
         )
 
-    async def add_assistant_card(self, title: str, body: Any, css_class: str = "assistant") -> None:
+    async def add_assistant_card(
+        self, title: str, body: Any, css_class: str = "assistant"
+    ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
 
         if isinstance(body, Widget):
@@ -3638,7 +3931,9 @@ class ReupApp(App):
         if name == "todos":
             blocks.extend([Text(""), Text(todo_start_hint(arguments), style="#d5d9e2")])
         elif arguments:
-            blocks.extend([Text(""), render_args_table(name, arguments, cwd=self.config.cwd)])
+            blocks.extend(
+                [Text(""), render_args_table(name, arguments, cwd=self.config.cwd)]
+            )
         else:
             blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
 
@@ -3713,7 +4008,11 @@ class ReupApp(App):
                 start_line, code = extracted
                 code_display, was_truncated = truncate_for_tool(name, code)
                 local_truncated = local_truncated or was_truncated
-                blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
+                blocks.append(
+                    Text(
+                        display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
+                    )
+                )
                 blocks.append(Text(""))
                 language = guess_language(primary_path)
                 if language == "markdown":
@@ -3747,7 +4046,9 @@ class ReupApp(App):
                     render_shell_command_line(
                         command.strip(),
                         cwd=self.config.cwd,
-                        shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
+                        shell_cwd=md.get("cwd")
+                        if isinstance(md.get("cwd"), str)
+                        else None,
                     )
                 )
                 blocks.append(Text(""))
@@ -3766,9 +4067,11 @@ class ReupApp(App):
             provider = md.get("provider")
             summary_parts: list[str] = []
             if isinstance(query, str) and query.strip():
-                summary_parts.append(f"\"{query.strip()}\"")
+                summary_parts.append(f'"{query.strip()}"')
             if isinstance(results_count, int):
-                summary_parts.append(f"{results_count} result{'s' if results_count != 1 else ''}")
+                summary_parts.append(
+                    f"{results_count} result{'s' if results_count != 1 else ''}"
+                )
             if isinstance(provider, str) and provider.strip():
                 summary_parts.append(provider)
             if summary_parts:
@@ -3816,7 +4119,9 @@ class ReupApp(App):
             if diff:
                 diff_display, diff_truncated = truncate_for_tool(name, diff)
                 local_truncated = local_truncated or diff_truncated
-                blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
+                blocks.append(
+                    Syntax(diff_display, "diff", theme="monokai", word_wrap=True)
+                )
             elif output_display.strip():
                 blocks.append(render_text_payload(output_display, success=success))
             else:
@@ -3835,9 +4140,7 @@ class ReupApp(App):
         else:
             header.append(title_text, style=title_style)
         header.append(
-            "  "
-            + status
-            + (f" · exit {exit_code}" if exit_code is not None else ""),
+            "  " + status + (f" · exit {exit_code}" if exit_code is not None else ""),
             style="#8c97ab",
         )
 
@@ -3941,8 +4244,6 @@ class ReupApp(App):
         self._reset_session_local_ui_state()
         self._refresh_empty_state()
 
-        self.post_system("Thread", "Started a fresh thread without closing the others.")
-
     async def auto_save(self) -> None:
         if not self.agent or not self.agent.session:
             return
@@ -3984,7 +4285,11 @@ class ReupApp(App):
             for msg in messages:
                 if msg.get("role") == "user" and not first_user:
                     first_user = msg.get("content", "")[:200]
-                elif msg.get("role") == "assistant" and first_user and not first_assistant:
+                elif (
+                    msg.get("role") == "assistant"
+                    and first_user
+                    and not first_assistant
+                ):
                     first_assistant = msg.get("content", "")[:200]
                     break
 
@@ -4021,7 +4326,6 @@ class ReupApp(App):
 
         fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
         return fallback.strip() or "New thread"
-
 
 
 def run_reup(config: Config) -> None:
