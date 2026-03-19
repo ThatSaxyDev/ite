@@ -292,18 +292,22 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                     )
                     yield Button("✦", id="commit-ai-fill", variant="default")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
-                yield Button("Commit", id="commit-confirm", variant="primary")
-                yield Button("Commit and push", id="commit-push", variant="success")
+                yield Button("Commit", id="commit-confirm", variant="primary", disabled=True)
+                yield Button("Commit and push", id="commit-push", variant="success", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
 
     async def on_mount(self) -> None:
         self.query_one("#commit-message", Input).focus()
+        self._update_commit_actions()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
 
     def _dismiss_with_action(self, action: str) -> None:
         message = self.query_one("#commit-message", Input).value.strip()
+        if not message:
+            self.query_one("#commit-message", Input).focus()
+            return
         self.dismiss(
             {
                 "action": action,
@@ -312,12 +316,21 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             }
         )
 
+    def _update_commit_actions(self) -> None:
+        has_message = bool(self.query_one("#commit-message", Input).value.strip())
+        self.query_one("#commit-confirm", Button).disabled = not has_message
+        self.query_one("#commit-push", Button).disabled = not has_message
+
     @on(events.Click, "#commit-include-unstaged-choice")
     def on_include_unstaged_choice_clicked(self, _event: events.Click) -> None:
         self._include_unstaged = not self._include_unstaged
         self.query_one("#commit-include-unstaged-choice", Static).update(
             self._include_unstaged_text()
         )
+
+    @on(Input.Changed, "#commit-message")
+    def on_commit_message_changed(self, _event: Input.Changed) -> None:
+        self._update_commit_actions()
 
     @on(Button.Pressed, "#commit-ai-fill")
     def on_commit_ai_fill_pressed(self, _event: Button.Pressed) -> None:

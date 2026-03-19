@@ -1137,21 +1137,24 @@ class ReupApp(App):
             await self._populate_change_review_panel()
 
     def _poll_change_review_panel(self) -> None:
-        if not self._change_review_visible or self._change_review_source != "git":
-            return
         self.run_worker(
-            self._sync_open_change_review_panel(),
+            self._sync_change_review_panel_state(),
             exclusive=True,
             group="change-review-sync",
         )
 
-    async def _sync_open_change_review_panel(self) -> None:
+    async def _sync_change_review_panel_state(self) -> None:
         previous_signature = self._change_review_snapshot_key
+        was_visible = self._change_review_visible
         await self._refresh_change_review_source()
         change_set = self._change_review_change_set
-        if not self._change_review_visible or not change_set or not getattr(change_set, "changes", None):
+        if not change_set or not getattr(change_set, "changes", None):
+            self._change_review_snapshot_key = None
             return
         current_signature = self._change_review_signature(change_set)
+        self._change_review_snapshot_key = current_signature
+        if not was_visible or not self._change_review_visible:
+            return
         if current_signature != previous_signature:
             await self._populate_change_review_panel()
 
