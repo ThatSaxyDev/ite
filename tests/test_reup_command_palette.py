@@ -1,11 +1,14 @@
 import unittest
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, PropertyMock, patch
 from types import SimpleNamespace
 
 from ite.config.config import Config
+from ite.client.response import TokenUsage
+from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
 
 
@@ -179,7 +182,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
     def test_run_agent_message_auto_dispatches_queued_payload_after_clean_finish(self) -> None:
         app = self._app()
-        app.agent = SimpleNamespace(session=None)
+        app.agent = SimpleNamespace(session=SimpleNamespace(session_id="s1"))
         app._queued_turn_payload = {"message": "next", "attachments": []}
 
         async def scenario() -> None:
@@ -190,6 +193,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "auto_save", new=AsyncMock()),
                 patch.object(app, "_progress_state_label", return_value="thinking"),
                 patch.object(app, "_set_loading_state"),
+                patch.object(app, "refresh_header"),
                 patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()) as dispatch_queued,
                 patch.object(app, "_restore_queued_payload_after_unsuccessful_turn") as restore_queued,
             ):
@@ -201,10 +205,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
     def test_run_agent_message_restores_queued_payload_after_error(self) -> None:
         app = self._app()
-        app.agent = SimpleNamespace(session=None)
+        app.agent = SimpleNamespace(session=SimpleNamespace(session_id="s1"))
         app._queued_turn_payload = {"message": "next", "attachments": []}
 
-        async def fake_agent_turn(_message: str) -> None:
+        async def fake_agent_turn(_agent, _message: str, _session_id: str, _turn_id: int) -> None:
             app._turn_had_error = True
 
         async def scenario() -> None:
@@ -215,6 +219,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "auto_save", new=AsyncMock()),
                 patch.object(app, "_progress_state_label", return_value="thinking"),
                 patch.object(app, "_set_loading_state"),
+                patch.object(app, "refresh_header"),
                 patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()) as dispatch_queued,
                 patch.object(app, "_restore_queued_payload_after_unsuccessful_turn") as restore_queued,
             ):
@@ -223,6 +228,105 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 restore_queued.assert_called_once()
 
         asyncio.run(scenario())
+
+    def test_remember_open_session_tracks_order_and_workspace(self) -> None:
+        app = self._app()
+        first = SimpleNamespace(session_id="s1", name="One", turn_count=1)
+        second = SimpleNamespace(session_id="s2", name="Two", turn_count=1)
+
+        app._remember_open_session(first, workspace=self.cwd / "one")
+        app._remember_open_session(second, workspace=self.cwd / "two")
+        app._remember_open_session(first, workspace=self.cwd / "one")
+
+        self.assertEqual(app._open_session_order, ["s2", "s1"])
+        self.assertEqual(app._open_sessions["s1"], first)
+        self.assertEqual(app._workspace_for_session_id("s2"), (self.cwd / "two").resolve())
+
+    def test_start_new_thread_keeps_previous_session_open(self) -> None:
+        app = self._app()
+        previous = SimpleNamespace(
+            session_id="s1",
+            turn_count=3,
+            client=SimpleNamespace(close=AsyncMock()),
+            mcp_manager=SimpleNamespace(shutdown=AsyncMock()),
+            approval_manager=SimpleNamespace(confirmation_callback="cb"),
+        )
+        fresh = SimpleNamespace(
+            session_id="s2",
+            turn_count=0,
+            initialize=AsyncMock(),
+            approval_manager=SimpleNamespace(confirmation_callback=None),
+            client=SimpleNamespace(close=AsyncMock()),
+            mcp_manager=SimpleNamespace(shutdown=AsyncMock()),
+        )
+        conversation = SimpleNamespace(remove_children=AsyncMock())
+        app.agent = SimpleNamespace(session=previous)
+        app._remember_open_session(previous, workspace=self.cwd)
+        fresh_agent = SimpleNamespace(session=fresh, __aenter__=AsyncMock(return_value=None))
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "auto_save", new=AsyncMock()) as auto_save,
+                patch.object(app, "_build_session_agent", return_value=fresh_agent),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_system"),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_reset_session_local_ui_state"),
+                patch.object(app, "query_one", return_value=conversation),
+                patch("ite.ui.reup.app.Session", return_value=fresh),
+            ):
+                await app.start_new_thread()
+                auto_save.assert_awaited_once()
+
+        asyncio.run(scenario())
+
+        previous.client.close.assert_not_awaited()
+        previous.mcp_manager.shutdown.assert_not_awaited()
+        fresh_agent.__aenter__.assert_awaited_once()
+        self.assertIs(app.agent, fresh_agent)
+        self.assertEqual(app._open_session_order, ["s1", "s2"])
+        self.assertIs(app._open_sessions["s1"], previous)
+        self.assertIs(app._open_sessions["s2"], fresh)
+
+    def test_resume_snapshot_reuses_already_open_session(self) -> None:
+        app = self._app()
+        current = SimpleNamespace(
+            session_id="current",
+            client=SimpleNamespace(close=AsyncMock()),
+            mcp_manager=SimpleNamespace(shutdown=AsyncMock()),
+        )
+        existing = SimpleNamespace(session_id="saved", name="Saved", turn_count=2)
+        app.agent = SimpleNamespace(session=current)
+        app._remember_open_session(current, workspace=self.cwd)
+        app._remember_open_session(existing, workspace=self.cwd / "saved")
+        snapshot = SessionSnapshot(
+            session_id="saved",
+            name="Saved",
+            workspace_path=str((self.cwd / "saved").resolve()),
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            turn_count=2,
+            messages=[],
+            total_usage=TokenUsage(),
+        )
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "_activate_open_session", new=AsyncMock(return_value=True)) as activate,
+                patch("ite.ui.reup.app.Session") as session_cls,
+            ):
+                await app._resume_snapshot(snapshot)
+                activate.assert_awaited_once_with(
+                    "saved",
+                    announce="Switched to already-open thread.",
+                )
+                session_cls.assert_not_called()
+
+        asyncio.run(scenario())
+        current.client.close.assert_not_awaited()
+        current.mcp_manager.shutdown.assert_not_awaited()
 
 
 if __name__ == "__main__":

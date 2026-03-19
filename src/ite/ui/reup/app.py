@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -207,6 +208,16 @@ class ReupTUIAdapter:
         await self._app.start_new_thread()
 
 
+@dataclass
+class SessionRunState:
+    active_turn_task: asyncio.Task | None = None
+    active_turn_id: int = 0
+    is_turn_running: bool = False
+    turn_had_error: bool = False
+    queued_turn_payload: dict[str, Any] | None = None
+    running_shell_call_ids: set[str] = field(default_factory=set)
+
+
 class ReupApp(App):
     CSS_PATH = "reup.tcss"
     TITLE = "iTE"
@@ -230,10 +241,10 @@ class ReupApp(App):
         self.title = "iTE"
         self.config = config
         self.agent: Agent | None = None
+        self._session_agents: dict[str, Agent] = {}
+        self._session_run_states: dict[str, SessionRunState] = {}
+        self._fallback_run_state = SessionRunState()
         self._command_registry = build_registry()
-        self._active_turn_task: asyncio.Task | None = None
-        self._active_turn_id: int = 0
-        self._is_turn_running: bool = False
         self._streaming_widget: Static | None = None
         self._streaming_buffer: str = ""
         self._tool_widgets: dict[str, Static] = {}
@@ -291,9 +302,11 @@ class ReupApp(App):
         self._change_review_bulk_action: str = "stage"
         self._change_review_preview_version: int = 0
         self._git_outbound_state: Any = None
-        self._queued_turn_payload: dict[str, Any] | None = None
-        self._turn_had_error: bool = False
         self._suppress_pending_restore_once: bool = False
+        self._open_sessions: dict[str, Session] = {}
+        self._open_session_order: list[str] = []
+        self._open_session_workspaces: dict[str, Path] = {}
+        self._session_tabs_version: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -303,6 +316,7 @@ class ReupApp(App):
                 yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
                 yield Button("/aside", id="aside-toggle", variant="default")
+            yield Horizontal(id="session-tabs")
             with Container(id="chat-panel"):
                 with Horizontal(id="chat-body"):
                     with Container(id="change-review-panel"):
@@ -357,20 +371,154 @@ class ReupApp(App):
 
     async def on_unmount(self) -> None:
         await self.cancel_active_turn()
+        agents_to_close: dict[str, Agent] = {}
+        if self.agent is not None and self.agent.session is not None:
+            session_id = self._session_id(self.agent.session)
+            if session_id:
+                agents_to_close[session_id] = self.agent
+        agents_to_close.update(self._session_agents)
+        for agent in agents_to_close.values():
+            try:
+                await agent.__aexit__(None, None, None)
+            except Exception:
+                pass
         if self.agent is not None:
-            await self.agent.__aexit__(None, None, None)
             self.agent = None
 
     def _current_session_title(self) -> str:
-        if not self.agent or not self.agent.session:
-            return "New thread"
+        return self._session_title(self.agent.session if self.agent else None)
 
-        session = self.agent.session
+    def _session_title(self, session: Session | None) -> str:
+        if session is None:
+            return "New thread"
         if isinstance(session.name, str) and session.name.strip():
             return session.name.strip()
         if session.turn_count > 0:
             return "Untitled thread"
         return "New thread"
+
+    def _session_id(self, session: Session | None) -> str | None:
+        if session is None:
+            return None
+        session_id = str(getattr(session, "session_id", "") or "").strip()
+        return session_id or None
+
+    def _active_session_id(self) -> str | None:
+        return self._session_id(self.agent.session if self.agent else None)
+
+    def _run_state(self, session_id: str | None = None) -> SessionRunState:
+        sid = session_id or self._active_session_id()
+        if not sid:
+            return self._fallback_run_state
+        state = self._session_run_states.get(sid)
+        if state is None:
+            state = SessionRunState()
+            self._session_run_states[sid] = state
+        return state
+
+    @property
+    def _active_turn_task(self) -> asyncio.Task | None:
+        return self._run_state().active_turn_task
+
+    @_active_turn_task.setter
+    def _active_turn_task(self, value: asyncio.Task | None) -> None:
+        self._run_state().active_turn_task = value
+
+    @property
+    def _active_turn_id(self) -> int:
+        return self._run_state().active_turn_id
+
+    @_active_turn_id.setter
+    def _active_turn_id(self, value: int) -> None:
+        self._run_state().active_turn_id = value
+
+    @property
+    def _is_turn_running(self) -> bool:
+        return self._run_state().is_turn_running
+
+    @_is_turn_running.setter
+    def _is_turn_running(self, value: bool) -> None:
+        self._run_state().is_turn_running = value
+
+    @property
+    def _turn_had_error(self) -> bool:
+        return self._run_state().turn_had_error
+
+    @_turn_had_error.setter
+    def _turn_had_error(self, value: bool) -> None:
+        self._run_state().turn_had_error = value
+
+    @property
+    def _queued_turn_payload(self) -> dict[str, Any] | None:
+        return self._run_state().queued_turn_payload
+
+    @_queued_turn_payload.setter
+    def _queued_turn_payload(self, value: dict[str, Any] | None) -> None:
+        self._run_state().queued_turn_payload = value
+
+    def _remember_open_session(
+        self,
+        session: Session,
+        *,
+        workspace: Path | None = None,
+        agent: Agent | None = None,
+        move_to_end: bool = False,
+    ) -> None:
+        session_id = self._session_id(session)
+        if not session_id:
+            return
+        self._open_sessions[session_id] = session
+        if agent is not None:
+            self._session_agents[session_id] = agent
+        self._open_session_workspaces[session_id] = (workspace or self.config.cwd).resolve()
+        self._run_state(session_id)
+        if session_id not in self._open_session_order:
+            self._open_session_order.append(session_id)
+        elif move_to_end:
+            self._open_session_order.remove(session_id)
+            self._open_session_order.append(session_id)
+
+    def _workspace_for_session_id(self, session_id: str | None) -> Path:
+        if session_id and session_id in self._open_session_workspaces:
+            return self._open_session_workspaces[session_id]
+        return Path(self.config.cwd).resolve()
+
+    def _session_tab_label(self, session_id: str) -> str:
+        session = self._open_sessions.get(session_id)
+        title = self._session_title(session)
+        title = re.sub(r"\s+", " ", title).strip() or "New thread"
+        if self._run_state(session_id).is_turn_running:
+            title = f"{title} *"
+        return title
+
+    async def _refresh_session_tabs(self) -> None:
+        version = self._session_tabs_version
+        if not self.is_mounted:
+            return
+        try:
+            tabs = self.query_one("#session-tabs", Horizontal)
+        except Exception:
+            return
+        await tabs.remove_children()
+        if version != self._session_tabs_version:
+            return
+        active_session_id = self._session_id(self.agent.session if self.agent else None)
+        tabs.display = len(self._open_session_order) > 1
+        if not tabs.display:
+            return
+        for session_id in self._open_session_order:
+            if version != self._session_tabs_version:
+                return
+            label = self._session_tab_label(session_id)
+            variant = "primary" if session_id == active_session_id else "default"
+            await tabs.mount(
+                Button(
+                    label,
+                    id=f"session-tab-{session_id}",
+                    variant=variant,
+                    classes="session-tab",
+                )
+            )
 
     def refresh_header(self) -> None:
         title = self.query_one("#title", Static)
@@ -380,6 +528,12 @@ class ReupApp(App):
         composer_meta_line = self.query_one("#composer-meta-line", Static)
         composer_meta_line.update(self._composer_meta_text())
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
+        self._session_tabs_version += 1
+        self.run_worker(
+            self._refresh_session_tabs(),
+            exclusive=True,
+            group="session-tabs",
+        )
 
     async def _show_activity_indicator(self, label: str, version: int | None = None) -> None:
         if version is not None and version != self._activity_version:
@@ -1644,7 +1798,7 @@ class ReupApp(App):
             pending_text = self._render_aside_pending_text()
             for widget in list(self._aside_pending_widgets.values()):
                 widget.update(pending_text)
-        for call_id in getattr(self, "_running_shell_call_ids", set()):
+        for call_id in self._run_state().running_shell_call_ids:
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
             if card is not None:
@@ -1704,13 +1858,112 @@ class ReupApp(App):
 
     async def ensure_agent(self) -> None:
         if self.agent is not None:
+            if self.agent.session is not None:
+                self._remember_open_session(self.agent.session, agent=self.agent)
             return
-        self.agent = Agent(
-            config=self.config,
-            confirmation_callback=self.confirmation_callback,
-            plan_question_callback=self.plan_question_callback,
-        )
+        fresh = Session(config=self.config)
+        self.agent = self._build_session_agent(fresh)
         await self.agent.__aenter__()
+        if self.agent.session is not None:
+            self._remember_open_session(self.agent.session, agent=self.agent)
+
+    def _build_session_agent(self, session: Session) -> Agent:
+        session_id = self._session_id(session) or ""
+
+        async def _confirm(confirmation, sid: str = session_id) -> bool:
+            return await self._confirmation_callback_for_session(sid, confirmation)
+
+        async def _plan_question(payload: dict[str, Any], sid: str = session_id) -> dict[str, Any]:
+            return await self._plan_question_callback_for_session(sid, payload)
+
+        return Agent(
+            config=self.config,
+            session=session,
+            confirmation_callback=_confirm,
+            plan_question_callback=_plan_question,
+        )
+
+    async def _confirmation_callback_for_session(self, session_id: str, confirmation) -> bool:
+        if session_id and session_id != self._active_session_id():
+            await self._activate_open_session(
+                session_id,
+                announce="Switched to thread requiring approval.",
+            )
+        return await self.confirmation_callback(confirmation)
+
+    async def _plan_question_callback_for_session(
+        self,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if session_id and session_id != self._active_session_id():
+            await self._activate_open_session(
+                session_id,
+                announce="Switched to thread asking a planning question.",
+            )
+        return await self.plan_question_callback(payload)
+
+    def _reset_session_local_ui_state(self) -> None:
+        self._tool_widgets.clear()
+        self._tool_args_by_call_id.clear()
+        self._streaming_widget = None
+        self._streaming_buffer = ""
+        self._activity_widget = None
+        self._last_rendered_plan_text = None
+        self._aside_panel_visible = False
+        self._aside_entries = []
+        self._aside_pending_widgets = {}
+        self._change_review_visible = False
+        self._change_review_change_set = None
+        self._change_review_selected_rel_path = None
+        self._change_review_snapshot_key = None
+        self._run_state().running_shell_call_ids.clear()
+        if self.is_mounted:
+            self._apply_aside_panel_state()
+            self._apply_change_review_panel_state()
+
+    async def _activate_open_session(
+        self,
+        session_id: str,
+        *,
+        announce: str | None = None,
+    ) -> bool:
+        await self.ensure_agent()
+        if not self.agent:
+            return False
+        target = self._open_sessions.get(session_id)
+        if target is None:
+            return False
+        target_agent = self._session_agents.get(session_id)
+        if target_agent is None:
+            return False
+        current_id = self._session_id(self.agent.session)
+        if current_id == session_id:
+            self.refresh_header()
+            return True
+        if (
+            current_id
+            and self.agent.session
+            and self.agent.session.turn_count > 0
+            and not self._run_state(current_id).is_turn_running
+        ):
+            await self.auto_save()
+
+        workspace = self._workspace_for_session_id(session_id)
+        self.config.cwd = workspace
+        self.agent = target_agent
+        self._remember_open_session(target, workspace=workspace, agent=target_agent)
+        self.refresh_header()
+        await self._hydrate_chat_from_snapshot(
+            target.context_manager.get_messages() if target.context_manager else []
+        )
+        if self._is_turn_running:
+            self._set_loading_state(self._progress_state_label(), busy=True)
+        else:
+            self._set_loading_state("idle", busy=False)
+        if announce:
+            self.post_notice("Thread", announce)
+        return True
 
     async def _open_modal(self, screen: ModalScreen[Any]) -> Any:
         """Open a modal and await dismissal from regular event handlers safely."""
@@ -2263,7 +2516,18 @@ class ReupApp(App):
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
             return
-
+        if snapshot.session_id in self._open_sessions:
+            workspace = (
+                Path(snapshot.workspace_path).resolve()
+                if snapshot.workspace_path
+                else Path(self.config.cwd).resolve()
+            )
+            self._open_session_workspaces[snapshot.session_id] = workspace
+            await self._activate_open_session(
+                snapshot.session_id,
+                announce="Switched to already-open thread.",
+            )
+            return
         if snapshot.workspace_path:
             target_workspace = Path(snapshot.workspace_path).resolve()
             if target_workspace != self.config.cwd.resolve():
@@ -2283,19 +2547,22 @@ class ReupApp(App):
         resumed.pending_plan_text = snapshot.pending_plan_text
         resumed.active_plan_text = snapshot.active_plan_text
         resumed.show_planning_todos = snapshot.show_planning_todos
-
-        await self.agent.session.client.close()
-        await self.agent.session.mcp_manager.shutdown()
-        await resumed.initialize()
+        resumed_agent = self._build_session_agent(resumed)
+        await resumed_agent.__aenter__()
 
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.restore_change_history_state(snapshot.change_history_state)
-        resumed.approval_manager.confirmation_callback = self.confirmation_callback
-        self.agent.session = resumed
+        self._remember_open_session(
+            resumed,
+            workspace=Path(snapshot.workspace_path).resolve()
+            if snapshot.workspace_path
+            else Path(self.config.cwd).resolve(),
+            agent=resumed_agent,
+        )
+        self.agent = resumed_agent
         self.refresh_header()
-
         await self._hydrate_chat_from_snapshot(snapshot.messages)
         await self._remove_cards_by_title({"Session Loaded"})
 
@@ -2303,8 +2570,7 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
         self._message_count = 0
-        self._tool_widgets.clear()
-        self._tool_args_by_call_id.clear()
+        self._reset_session_local_ui_state()
         tool_call_names: dict[str, str] = {}
 
         for message in messages:
@@ -2353,6 +2619,17 @@ class ReupApp(App):
                     exit_code=None,
                 )
         self._refresh_empty_state()
+
+    @on(Button.Pressed)
+    async def on_session_tab_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if not button_id.startswith("session-tab-"):
+            return
+        session_id = button_id.removeprefix("session-tab-").strip()
+        if not session_id:
+            return
+        event.stop()
+        await self._activate_open_session(session_id)
 
     async def run_command(self, command_line: str) -> None:
         parts = command_line.split()
@@ -2728,45 +3005,68 @@ class ReupApp(App):
 
     async def run_agent_message(self, message: str) -> None:
         await self.ensure_agent()
-        if not self.agent:
+        if not self.agent or not self.agent.session:
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
+        session_id = self._active_session_id()
+        if not session_id:
+            self.post_system("Error", "No active thread.", is_error=True)
+            return
+        active_agent = self.agent
+        run_state = self._run_state(session_id)
         self._last_rendered_plan_text = None
-        self._turn_had_error = False
+        run_state.turn_had_error = False
         await self.add_user_message(message)
-        self._active_turn_id += 1
-        turn_id = self._active_turn_id
-        self._active_turn_task = asyncio.create_task(self._agent_turn(message, turn_id))
-        self._is_turn_running = True
+        run_state.active_turn_id += 1
+        turn_id = run_state.active_turn_id
+        run_state.active_turn_task = asyncio.create_task(
+            self._agent_turn(active_agent, message, session_id, turn_id)
+        )
+        run_state.is_turn_running = True
         self._set_loading_state(self._progress_state_label(), busy=True)
+        self.refresh_header()
         completed_normally = False
 
         try:
-            await self._active_turn_task
-            await self.auto_save()
-            completed_normally = not self._turn_had_error
+            await run_state.active_turn_task
+            if self._active_session_id() == session_id:
+                await self.auto_save()
+            else:
+                previous_agent = self.agent
+                self.agent = active_agent
+                try:
+                    await self.auto_save()
+                finally:
+                    self.agent = previous_agent
+            completed_normally = not run_state.turn_had_error
         except asyncio.CancelledError:
-            self.post_notice("Interrupted", "Stopped current run.")
-            await self.auto_save()
+            if self._active_session_id() == session_id:
+                self.post_notice("Interrupted", "Stopped current run.")
+                await self.auto_save()
         finally:
-            self._active_turn_task = None
-            self._is_turn_running = False
-            self._set_loading_state("idle", busy=False)
+            run_state.active_turn_task = None
+            run_state.is_turn_running = False
+            self.refresh_header()
+            if self._active_session_id() == session_id:
+                self._set_loading_state("idle", busy=False)
 
-        if completed_normally:
+        if completed_normally and self._active_session_id() == session_id:
             await self._dispatch_queued_payload_if_ready()
-        else:
+        elif self._active_session_id() == session_id:
             self._restore_queued_payload_after_unsuccessful_turn()
 
-    async def _agent_turn(self, message: str, turn_id: int) -> None:
-        assert self.agent is not None
+    async def _agent_turn(self, agent: Agent, message: str, session_id: str, turn_id: int) -> None:
+        async for event in agent.run(message):
+            await self.handle_agent_event(event, session_id, turn_id)
 
-        async for event in self.agent.run(message):
-            await self.handle_agent_event(event, turn_id)
-
-    async def handle_agent_event(self, event: AgentEvent, turn_id: int) -> None:
-        if turn_id != self._active_turn_id:
+    async def handle_agent_event(self, event: AgentEvent, session_id: str, turn_id: int) -> None:
+        run_state = self._run_state(session_id)
+        if turn_id != run_state.active_turn_id:
+            return
+        if session_id != self._active_session_id():
+            if event.type == AgentEventType.AGENT_ERROR:
+                run_state.turn_had_error = True
             return
         plan_only_phase = self._is_plan_only_phase()
         suppressed_tools = {"memory", "plan_question"}
@@ -2820,7 +3120,7 @@ class ReupApp(App):
         if event.type == AgentEventType.AGENT_ERROR:
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
-            self._turn_had_error = True
+            run_state.turn_had_error = True
             self.post_system("Error", str(event.data.get("error", "Unknown error")), is_error=True)
             return
 
@@ -3336,9 +3636,7 @@ class ReupApp(App):
             blocks.extend([Text(""), Text("(no args)", style="#8c97ab")])
 
         if name == "shell":
-            running_shells = getattr(self, "_running_shell_call_ids", set())
-            running_shells.add(call_id)
-            self._running_shell_call_ids = running_shells
+            self._run_state().running_shell_call_ids.add(call_id)
             card.update(
                 render_shell_running_card(
                     arguments,
@@ -3392,8 +3690,7 @@ class ReupApp(App):
         border_style = "#2f9e63" if success else "#b23a3a"
         title_style = "bold #a9ebbe" if success else "bold #ffb0b0"
         title_text = activity_title(name, stage="complete", success=success)
-        running_shells = getattr(self, "_running_shell_call_ids", set())
-        running_shells.discard(call_id)
+        self._run_state().running_shell_call_ids.discard(call_id)
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab"), Text("")]
 
@@ -3616,34 +3913,28 @@ class ReupApp(App):
         if not self.agent or not self.agent.session:
             return
 
-        await self.cancel_active_turn()
-
-        if self.agent.session.turn_count > 0:
+        current_session_id = self._active_session_id()
+        if (
+            self.agent.session.turn_count > 0
+            and not self._run_state(current_session_id).is_turn_running
+        ):
             await self.auto_save()
 
-        previous = self.agent.session
         fresh = Session(config=self.config)
-
-        await previous.client.close()
-        await previous.mcp_manager.shutdown()
-        await fresh.initialize()
-        fresh.approval_manager.confirmation_callback = self.confirmation_callback
-        self.agent.session = fresh
+        fresh_agent = self._build_session_agent(fresh)
+        await fresh_agent.__aenter__()
+        self._remember_open_session(fresh, agent=fresh_agent)
+        self.agent = fresh_agent
         self.refresh_header()
 
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
 
-        self._tool_widgets.clear()
-        self._tool_args_by_call_id.clear()
-        self._streaming_widget = None
-        self._streaming_buffer = ""
-        self._activity_widget = None
-        self._last_rendered_plan_text = None
         self._message_count = 0
+        self._reset_session_local_ui_state()
         self._refresh_empty_state()
 
-        self.post_system("Thread", "Started a fresh session.")
+        self.post_system("Thread", "Started a fresh thread without closing the others.")
 
     async def auto_save(self) -> None:
         if not self.agent or not self.agent.session:

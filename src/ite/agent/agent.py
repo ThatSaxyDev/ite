@@ -32,6 +32,7 @@ class Agent:
     def __init__(
         self,
         config: Config,
+        session: Session | None = None,
         confirmation_callback: (
             Callable[[ToolConfirmation], bool | Awaitable[bool]] | None
         ) = None,
@@ -40,7 +41,7 @@ class Agent:
         ) = None,
     ):
         self.config = config
-        self.session: Session | None = Session(self.config)
+        self.session: Session | None = session or Session(self.config)
         self.session.approval_manager.confirmation_callback = confirmation_callback
         self.plan_question_callback = plan_question_callback
 
@@ -1110,7 +1111,8 @@ class Agent:
         return best
 
     async def __aenter__(self) -> Agent:
-        await self.session.initialize()
+        if self.session and self.session.context_manager is None:
+            await self.session.initialize()
         return self
 
     async def __aexit__(
