@@ -1012,8 +1012,8 @@ CommitModal #cancel:hover {
 
 PushReviewModal .push-review-modal {
     width: 88;
-    height: 14;
-    min-height: 14;
+    height: auto;
+    min-height: 12;
     max-height: 16;
     border: heavy #4f4a70;
     background: #1a2031 96%;
@@ -1022,8 +1022,9 @@ PushReviewModal .push-review-modal {
 }
 
 PushReviewModal .push-review-body {
-    height: 1fr;
-    min-height: 8;
+    height: auto;
+    min-height: 6;
+    margin-bottom: 1;
 }
 
 PushReviewModal .push-review-row {
@@ -1055,7 +1056,7 @@ PushReviewModal .push-review-actions {
     align-horizontal: right;
     border-top: none;
     padding-top: 0;
-    margin-top: 0;
+    margin-top: 1;
 }
 
 PushReviewModal #cancel {
