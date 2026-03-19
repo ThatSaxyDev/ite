@@ -1252,7 +1252,7 @@ class CLI:
 
 
 @click.command(cls=IteCommand)
-@click.version_option(version="0.0.14", prog_name="ite")
+@click.version_option(version="0.0.15", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",
