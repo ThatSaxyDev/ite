@@ -14,6 +14,7 @@ class SlashCommandOption:
     name: str
     description: str
     insert_text: str | None = None
+    attachment_path: str | None = None
 
 
 def composer_meta_text(

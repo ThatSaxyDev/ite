@@ -738,7 +738,8 @@ class ReupApp(App):
                 SlashCommandOption(
                     name=path.name,
                     description=secondary,
-                    insert_text=f"@{rel}",
+                    insert_text=f"@{path.name}",
+                    attachment_path=str(path.resolve()),
                 )
             )
         return options
@@ -931,6 +932,9 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         text = prompt.text or ""
         insert_text = option.insert_text or option.name
+        attachment_path = (option.attachment_path or "").strip()
+        if attachment_path:
+            self._queue_attachment_paths([attachment_path])
         updated = re.sub(
             r"(?:^|[\s(\[{])@[^\s@]*$",
             lambda match: match.group(0)[:1] + insert_text
@@ -4100,7 +4104,6 @@ class ReupApp(App):
             if ref.start > cursor:
                 text.append(message[cursor:ref.start], style="#e8edf5")
             basename = Path(ref.value).name or ref.value
-            text.append("@", style="bold #7fb3ff")
             text.append(basename, style="bold #8bd5ff")
             if ref.trailing:
                 text.append(ref.trailing, style="#e8edf5")

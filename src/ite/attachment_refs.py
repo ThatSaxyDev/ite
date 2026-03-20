@@ -145,7 +145,13 @@ def suggest_inline_attachment_paths(
     return [path for _, _, path in scored[:limit]]
 
 
-def _resolve_ref_path(ref: str, *, cwd: Path, files: list[Path]) -> tuple[Path | None, str | None]:
+def _resolve_ref_path(
+    ref: str,
+    *,
+    cwd: Path,
+    files: list[Path],
+    existing_paths: list[str] | tuple[str, ...] | None = None,
+) -> tuple[Path | None, str | None]:
     raw = (ref or "").strip()
     if not raw:
         return None, "Empty file reference."
@@ -157,6 +163,32 @@ def _resolve_ref_path(ref: str, *, cwd: Path, files: list[Path]) -> tuple[Path |
         direct = direct.resolve()
     if direct.exists() and direct.is_file():
         return direct, None
+
+    queued_matches: list[Path] = []
+    normalized_raw_name = Path(raw).name.lower()
+    for existing in existing_paths or []:
+        existing_path = Path(existing).expanduser()
+        try:
+            resolved_existing = existing_path.resolve()
+        except Exception:
+            continue
+        rel_existing = ""
+        try:
+            rel_existing = str(resolved_existing.relative_to(cwd.resolve())).replace("\\", "/").lower()
+        except Exception:
+            rel_existing = str(resolved_existing).replace("\\", "/").lower()
+        if rel_existing == raw.replace("\\", "/").lstrip("./").lower():
+            queued_matches.append(resolved_existing)
+            continue
+        if resolved_existing.name.lower() == normalized_raw_name:
+            queued_matches.append(resolved_existing)
+
+    if queued_matches:
+        unique_queued = sorted({str(path): path for path in queued_matches}.values(), key=lambda p: str(p))
+        if len(unique_queued) == 1:
+            return unique_queued[0], None
+        options = ", ".join(str(path.relative_to(cwd)) for path in unique_queued[:3])
+        return None, f"Ambiguous @{raw}. Matches: {options}"
 
     normalized = raw.replace("\\", "/").lstrip("./").lower()
     rel_matches: list[Path] = []
@@ -217,7 +249,12 @@ def resolve_inline_attachment_refs(
     cursor = 0
     for ref in refs:
         rebuilt.append(message[cursor:ref.start])
-        resolved, error = _resolve_ref_path(ref.value, cwd=cwd, files=available_files)
+        resolved, error = _resolve_ref_path(
+            ref.value,
+            cwd=cwd,
+            files=available_files,
+            existing_paths=unique_existing + resolved_paths,
+        )
         if error is not None:
             errors.append(error)
             rebuilt.append(message[ref.start:ref.end])
