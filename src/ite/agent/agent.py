@@ -451,7 +451,7 @@ class Agent:
         tool_name: str | None,
         validation_errors: list[str],
     ) -> bool:
-        if tool_name not in {"shell", "read_file", "grep", "edit", "apply_patch"}:
+        if tool_name not in {"shell", "read_file", "grep", "edit", "apply_patch", "memory"}:
             return False
         if not validation_errors:
             return False
@@ -465,6 +465,7 @@ class Agent:
                 "Parameter 'path': Field required; Parameter 'new_string': Field required",
             },
             "apply_patch": {"Parameter 'patch': Field required"},
+            "memory": {"Parameter 'action': Field required"},
         }
         return set(validation_errors).issubset(required_errors.get(tool_name, set()))
 
@@ -1126,7 +1127,7 @@ class Agent:
             if loop_message:
                 yield AgentEvent.loop_detected(loop_message)
                 loop_breaker_prompt = create_loop_breaker_prompt(loop_message)
-                session.context_manager.add_user_message(loop_breaker_prompt)
+                session.context_manager.add_system_message(loop_breaker_prompt)
 
             if usage:
                 session.context_manager.set_latest_usage(usage)

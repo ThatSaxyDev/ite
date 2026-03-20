@@ -2,12 +2,24 @@ import json
 from ite.config.loader import get_data_dir
 from ite.memory import MemoryManager, VALID_STORES, should_reject_durable_memory_capture
 from ite.tools.base import Tool, ToolInvocation, ToolKind, ToolResult
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class MemoryParams(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     action: str = Field(
-        ..., description="Action: 'set', 'get', 'delete', 'list', 'clear'"
+        ...,
+        description="Action: 'set', 'get', 'delete', 'list', 'clear'",
+        validation_alias=AliasChoices(
+            "action",
+            "op",
+            "operation",
+            "mode",
+            "verb",
+            "type",
+            "command",
+        ),
     )
     store: str = Field(
         "long_term",
@@ -17,6 +29,27 @@ class MemoryParams(BaseModel):
         None, description="Memory key (required for `set`, `get`, `delete`)"
     )
     value: str | None = Field(None, description="Value to store (required for `set`)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_action_when_missing(cls, data):
+        if not isinstance(data, dict):
+            return data
+        if any(
+            key in data
+            for key in ("action", "op", "operation", "mode", "verb", "type", "command")
+        ):
+            return data
+        inferred = dict(data)
+        if inferred.get("value") not in (None, ""):
+            inferred["action"] = "set"
+        elif inferred.get("key") not in (None, ""):
+            inferred["action"] = "get"
+        else:
+            inferred["action"] = "list"
+        return inferred
+
+
 class MemoryTool(Tool):
     name = "memory"
     description = (
@@ -103,7 +136,7 @@ class MemoryTool(Tool):
 
         self._migrate_legacy()
 
-        action = params.action.lower()
+        action = self._normalize_action(params.action, params)
 
         if store == "episodic":
             return self._handle_episodic(manager, action, params)
@@ -120,6 +153,24 @@ class MemoryTool(Tool):
             return self._handle_clear(manager, store)
         else:
             return ToolResult.error_result(f"Unknown action: {action}")
+
+    def _normalize_action(self, action: str, params: MemoryParams) -> str:
+        normalized = (action or "").strip().lower()
+        synonyms = {
+            "update": "set",
+            "save": "set",
+            "store": "set",
+            "remember": "set",
+            "append": "set",
+            "add": "set",
+            "read": "get",
+            "fetch": "get",
+            "show": "get" if params.key else "list",
+            "remove": "delete",
+            "forget": "delete",
+            "erase": "delete",
+        }
+        return synonyms.get(normalized, normalized)
 
     def _handle_set(self, manager: MemoryManager, store: str, params: MemoryParams) -> ToolResult:
         if not params.key or not params.value:

@@ -1150,10 +1150,6 @@ class CLI:
 
                 elif event.type == AgentEventType.LOOP_DETECTED:
                     self.tui.stop_spinner()
-                    loop_message = event.data.get("message", "Repetitive pattern detected")
-                    console.print(
-                        f"\n[bold yellow]⚠ Loop detected:[/bold yellow] [yellow]{loop_message}[/yellow]"
-                    )
                     self.tui.start_spinner("Recovering...")
 
                 elif event.type == AgentEventType.CONTEXT_COMPACTED:

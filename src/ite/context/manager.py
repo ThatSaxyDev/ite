@@ -131,6 +131,17 @@ class ContextManager:
 
         self._messages.append(item)
 
+    def add_system_message(self, content: str) -> None:
+        item = MessageItem(
+            role="system",
+            content=content,
+            token_count=count_tokens(
+                content,
+                self._model_name,
+            ),
+        )
+        self._messages.append(item)
+
     def _drop_unresolved_tool_calls(self) -> int:
         if not self._messages:
             return 0

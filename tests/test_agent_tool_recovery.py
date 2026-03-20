@@ -55,3 +55,11 @@ class AgentToolRecoveryTests(unittest.TestCase):
                 ["Parameter 'patch': Field required"],
             )
         )
+
+    def test_suppresses_malformed_empty_memory_call(self) -> None:
+        self.assertTrue(
+            self.agent._should_suppress_malformed_tool_call(
+                "memory",
+                ["Parameter 'action': Field required"],
+            )
+        )

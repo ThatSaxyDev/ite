@@ -224,8 +224,15 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
     return f"{opener}. {followup}"
 
 
-def build_turn_payload(message: str, attachments: list[str], *, max_attachments: int) -> dict[str, Any]:
+def build_turn_payload(
+    message: str,
+    attachments: list[str],
+    *,
+    max_attachments: int,
+    display_message: str | None = None,
+) -> dict[str, Any]:
     return {
         "message": (message or "").strip(),
+        "display_message": (display_message or message or "").strip(),
         "attachments": attachments[:max_attachments],
     }

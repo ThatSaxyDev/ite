@@ -38,6 +38,7 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.attachment_refs import (
     discover_attachable_files,
+    extract_inline_attachment_refs,
     extract_at_query,
     resolve_inline_attachment_refs,
     suggest_inline_attachment_paths,
@@ -730,10 +731,13 @@ class ReupApp(App):
                 rel = str(path.resolve().relative_to(cwd))
             except Exception:
                 rel = str(path.resolve())
+            rel_path = Path(rel)
+            parent = str(rel_path.parent)
+            secondary = "workspace root" if parent in {"", "."} else parent
             options.append(
                 SlashCommandOption(
-                    name=f"@{rel}",
-                    description=path.name,
+                    name=path.name,
+                    description=secondary,
                     insert_text=f"@{rel}",
                 )
             )
@@ -2746,7 +2750,12 @@ class ReupApp(App):
         attachments: list[str] = []
         if self.agent and self.agent.session:
             attachments = list(self.agent.session.pending_attachment_paths)
-        return build_turn_payload(message, attachments, max_attachments=MAX_ATTACHMENTS)
+        return build_turn_payload(
+            message,
+            attachments,
+            max_attachments=MAX_ATTACHMENTS,
+            display_message=message,
+        )
 
     def _resolve_inline_attachment_payload(
         self,
@@ -2767,6 +2776,7 @@ class ReupApp(App):
                 resolution.message,
                 resolution.queued_paths,
                 max_attachments=MAX_ATTACHMENTS,
+                display_message=message,
             ),
             [],
         )
@@ -2804,7 +2814,9 @@ class ReupApp(App):
 
     def _restore_payload_to_composer(self, payload: dict[str, Any]) -> None:
         prompt = self.query_one("#prompt", TextArea)
-        prompt.text = str(payload.get("message", "")).strip()
+        prompt.text = str(
+            payload.get("display_message", payload.get("message", ""))
+        ).strip()
         self._resize_composer_for_prompt()
         if self.agent and self.agent.session:
             self.agent.session.pending_attachment_paths = list(
@@ -2813,6 +2825,9 @@ class ReupApp(App):
 
     async def _dispatch_payload(self, payload: dict[str, Any]) -> None:
         message = str(payload.get("message", "")).strip()
+        display_message = str(
+            payload.get("display_message", payload.get("message", ""))
+        ).strip()
         if not message:
             return
         if self.agent and self.agent.session:
@@ -2830,7 +2845,10 @@ class ReupApp(App):
             return
 
         self.run_worker(
-            self._handle_agent_send_with_intent(message),
+            self._handle_agent_send_with_intent(
+                message,
+                display_message=display_message or message,
+            ),
             exclusive=False,
         )
 
@@ -2888,11 +2906,16 @@ class ReupApp(App):
         self._clear_composer_after_submit()
         await self._dispatch_payload(payload)
 
-    async def _handle_agent_send_with_intent(self, message: str) -> None:
+    async def _handle_agent_send_with_intent(
+        self,
+        message: str,
+        *,
+        display_message: str | None = None,
+    ) -> None:
         assisted = await self._apply_intent_assist(message)
         if assisted is None:
             return
-        await self.run_agent_message(assisted)
+        await self.run_agent_message(assisted, display_message=display_message or message)
 
     async def _list_resume_sessions(
         self, all_workspaces: bool = False
@@ -3443,7 +3466,12 @@ class ReupApp(App):
             classes=classes,
         )
 
-    async def run_agent_message(self, message: str) -> None:
+    async def run_agent_message(
+        self,
+        message: str,
+        *,
+        display_message: str | None = None,
+    ) -> None:
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
             self.post_system("Error", "Agent is not initialized", is_error=True)
@@ -3469,7 +3497,7 @@ class ReupApp(App):
             return
         prepared_message, user_model_content, temp_attachment_turn_id, _staged = prepared
         active_agent.session.pending_attachment_paths = []
-        await self.add_user_message(message)
+        await self.add_user_message(display_message or message)
         run_state.active_turn_task = asyncio.create_task(
             self._agent_turn(
                 active_agent,
@@ -4061,8 +4089,32 @@ class ReupApp(App):
 
         self._refresh_empty_state()
 
+    def _render_user_message(self, message: str) -> Text | RichMarkdown:
+        refs = extract_inline_attachment_refs(message)
+        if not refs:
+            return RichMarkdown(message)
+
+        text = Text(style="#e8edf5")
+        cursor = 0
+        for ref in refs:
+            if ref.start > cursor:
+                text.append(message[cursor:ref.start], style="#e8edf5")
+            basename = Path(ref.value).name or ref.value
+            text.append("@", style="bold #7fb3ff")
+            text.append(basename, style="bold #8bd5ff")
+            if ref.trailing:
+                text.append(ref.trailing, style="#e8edf5")
+            cursor = ref.end
+        if cursor < len(message):
+            text.append(message[cursor:], style="#e8edf5")
+        return text
+
     async def add_user_message(self, message: str) -> None:
-        await self.add_assistant_card("You", RichMarkdown(message), css_class="user")
+        await self.add_assistant_card(
+            "You",
+            self._render_user_message(message),
+            css_class="user",
+        )
 
     async def add_assistant_message(self, message: str) -> None:
         await self.add_assistant_card(

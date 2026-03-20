@@ -102,6 +102,30 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertIn("# Active Response Controls", system_prompt)
         self.assertIn("absolute file paths", system_prompt.lower())
 
+    def test_context_manager_preserves_internal_system_messages(self) -> None:
+        workspace = self.base_path / "ws-system-note"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: None,
+        )
+        context_manager.add_user_message("where were we?")
+        context_manager.add_system_message("Internal loop-breaker note")
+
+        messages = context_manager.get_messages()
+
+        self.assertEqual(messages[0]["role"], "system")
+        self.assertTrue(
+            any(
+                msg.get("role") == "system"
+                and msg.get("content") == "Internal loop-breaker note"
+                for msg in messages[1:]
+            )
+        )
+
     def test_newer_preference_controls_override_older_ones(self) -> None:
         workspace = self.base_path / "ws-controls"
         workspace.mkdir()
@@ -378,6 +402,87 @@ class MemoryManagerTests(unittest.TestCase):
 
             manager = MemoryManager(workspace, session_id=session.session_id)
             self.assertEqual(manager.list_entries("semantic"), [])
+
+        import asyncio
+
+        asyncio.run(run())
+
+    def test_memory_tool_infers_set_when_action_missing(self) -> None:
+        workspace = self.base_path / "ws-tool-infer-action"
+        workspace.mkdir()
+        config = Config(cwd=workspace, api_key="test")
+
+        async def run() -> None:
+            session = Session(config=config)
+            await session.initialize()
+            tool = session.tool_registry.get("memory")
+            self.assertIsInstance(tool, MemoryTool)
+            assert isinstance(tool, MemoryTool)
+
+            result = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "store": "short_term",
+                        "key": "phrase",
+                        "value": "mango submarine velvet",
+                    },
+                    cwd=workspace,
+                )
+            )
+            self.assertTrue(result.success)
+
+            found = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "action": "get",
+                        "store": "short_term",
+                        "key": "phrase",
+                    },
+                    cwd=workspace,
+                )
+            )
+            self.assertIn("mango submarine velvet", found.output)
+
+        import asyncio
+
+        asyncio.run(run())
+
+    def test_memory_tool_accepts_update_alias_for_set(self) -> None:
+        workspace = self.base_path / "ws-tool-action-alias"
+        workspace.mkdir()
+        config = Config(cwd=workspace, api_key="test")
+
+        async def run() -> None:
+            session = Session(config=config)
+            await session.initialize()
+            tool = session.tool_registry.get("memory")
+            self.assertIsInstance(tool, MemoryTool)
+            assert isinstance(tool, MemoryTool)
+
+            result = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "action": "update",
+                        "store": "semantic",
+                        "key": "tests",
+                        "value": "Use pytest for tests",
+                    },
+                    cwd=workspace,
+                )
+            )
+            self.assertTrue(result.success)
+
+            found = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "action": "get",
+                        "store": "semantic",
+                        "key": "tests",
+                    },
+                    cwd=workspace,
+                )
+            )
+            self.assertIn("Use pytest for tests", found.output)
 
         import asyncio
 

@@ -39,7 +39,7 @@ def activity_title(
     if name == "todos":
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
-        return "Updating memory" if running else ("Memory updated" if done else "Memory update failed")
+        return "Updating memory" if running else ("Memory updated" if done else ("Memory retry needed" if recoverable else "Memory update failed"))
     return "Running tool" if running else ("Tool completed" if done else ("Tool needs retry" if recoverable else "Tool failed"))
 
 
@@ -267,11 +267,15 @@ def describe_tool_activity(
                 return f"Updating memory `{_trim(key, 40)}`."
             if success:
                 return f"Updated memory `{_trim(key, 40)}`."
+            if metadata.get("recoverable"):
+                return f"Memory retry needed for `{_trim(key, 40)}`."
             return f"Failed to update memory `{_trim(key, 40)}`."
         if stage == "start":
             return f"Running memory action `{action}`."
         if success:
             return f"Completed memory action `{action}`."
+        if metadata.get("recoverable"):
+            return f"Memory action `{action}` needs retry."
         return f"Failed memory action `{action}`."
 
     if name == "plan_question":
