@@ -40,6 +40,20 @@ def activity_title(
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else ("Memory retry needed" if recoverable else "Memory update failed"))
+    if name == "git_status":
+        return "Checking git status" if running else ("Git status updated" if done else "Git status failed")
+    if name == "git_diff":
+        return "Inspecting git diff" if running else ("Git diff ready" if done else "Git diff failed")
+    if name == "git_log":
+        return "Reading git history" if running else ("Git history ready" if done else "Git history failed")
+    if name == "git_branch":
+        return "Managing branch" if running else ("Branch updated" if done else "Branch action failed")
+    if name == "git_remote":
+        return "Managing remotes" if running else ("Remote updated" if done else "Remote action failed")
+    if name == "git_commit":
+        return "Creating commit" if running else ("Commit created" if done else "Commit failed")
+    if name == "git_push":
+        return "Publishing branch" if running else ("Publish complete" if done else "Publish failed")
     return "Running tool" if running else ("Tool completed" if done else ("Tool needs retry" if recoverable else "Tool failed"))
 
 
@@ -293,6 +307,68 @@ def describe_tool_activity(
             return "Captured a planning answer."
         return "Planning question failed."
 
+    if name == "git_status":
+        branch = str(metadata.get("branch") or "").strip()
+        if stage == "start":
+            return f"Checking git status for {branch}." if branch else "Checking git status."
+        if success:
+            return f"Updated git status for {branch}." if branch else "Updated git status."
+        return f"Failed to check git status for {branch}." if branch else "Failed to check git status."
+
+    if name == "git_diff":
+        selection = str(metadata.get("selection") or "").strip() or "working tree"
+        path = str(args.get("path", "")).strip()
+        if stage == "start":
+            return f"Inspecting {selection} diff for {path}." if path else f"Inspecting {selection} diff."
+        if success:
+            return f"Loaded {selection} diff for {path}." if path else f"Loaded {selection} diff."
+        return f"Failed to load {selection} diff for {path}." if path else f"Failed to load {selection} diff."
+
+    if name == "git_log":
+        ref = str(args.get("ref") or metadata.get("ref") or "HEAD").strip()
+        limit = args.get("limit") or metadata.get("count")
+        if stage == "start":
+            return f"Reading recent commits from {ref}."
+        if success and isinstance(limit, int):
+            return f"Loaded {limit} recent commit{'s' if limit != 1 else ''} from {ref}."
+        if success:
+            return f"Loaded recent commits from {ref}."
+        return f"Failed to read commit history from {ref}."
+
+    if name == "git_branch":
+        action = str(args.get("action", "")).strip().lower() or str(metadata.get("action", "")).strip().lower() or "list"
+        branch = str(args.get("branch") or metadata.get("branch") or "").strip()
+        if stage == "start":
+            return f"Running branch action `{action}` for {branch}." if branch else f"Running branch action `{action}`."
+        if success:
+            return f"Completed branch action `{action}` for {branch}." if branch else f"Completed branch action `{action}`."
+        return f"Failed branch action `{action}` for {branch}." if branch else f"Failed branch action `{action}`."
+
+    if name == "git_remote":
+        action = str(args.get("action", "")).strip().lower() or str(metadata.get("action", "")).strip().lower() or "list"
+        remote = str(args.get("name") or metadata.get("name") or "").strip()
+        if stage == "start":
+            return f"Running remote action `{action}` for {remote}." if remote else f"Running remote action `{action}`."
+        if success:
+            return f"Completed remote action `{action}` for {remote}." if remote else f"Completed remote action `{action}`."
+        return f"Failed remote action `{action}` for {remote}." if remote else f"Failed remote action `{action}`."
+
+    if name == "git_commit":
+        message = str(args.get("message") or metadata.get("message") or "").strip()
+        if stage == "start":
+            return f"Creating commit: {_trim(message, 72)}" if message else "Creating git commit."
+        if success:
+            return f"Created commit: {_trim(message, 72)}" if message else "Created git commit."
+        return f"Failed to create commit: {_trim(message, 72)}" if message else "Failed to create git commit."
+
+    if name == "git_push":
+        target = str(metadata.get("upstream") or metadata.get("remote_name") or "").strip()
+        if stage == "start":
+            return f"Publishing current branch to {target}." if target else "Publishing current branch."
+        if success:
+            return f"Published current branch to {target}." if target else "Published current branch."
+        return f"Failed to publish current branch to {target}." if target else "Failed to publish current branch."
+
     if stage == "start":
         return f"Running tool `{name}`."
     if success:
@@ -335,6 +411,20 @@ def progress_label(
         label = "Updating planning checklist" if scope == "planning" else "Updating checklist"
     elif name == "memory":
         label = "Updating memory"
+    elif name == "git_status":
+        label = "Checking git status"
+    elif name == "git_diff":
+        label = "Inspecting diff"
+    elif name == "git_log":
+        label = "Reading git history"
+    elif name == "git_branch":
+        label = "Managing branches"
+    elif name == "git_remote":
+        label = "Managing remotes"
+    elif name == "git_commit":
+        label = "Creating commit"
+    elif name == "git_push":
+        label = "Publishing branch"
     elif name.startswith("subagent_"):
         label = "Delegating to specialist"
 

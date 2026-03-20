@@ -1,6 +1,7 @@
 import unittest
 
 from ite.ui.tool_narrative import describe_tool_activity
+from ite.ui.tool_narrative import activity_title
 
 
 class ToolNarrativeTests(unittest.TestCase):
@@ -26,6 +27,22 @@ class ToolNarrativeTests(unittest.TestCase):
         self.assertEqual(
             describe_tool_activity("mystery_tool", stage="complete", success=False),
             "Tool `mystery_tool` failed.",
+        )
+
+    def test_git_diff_has_specific_narrative_and_title(self) -> None:
+        self.assertEqual(
+            activity_title("git_diff", stage="complete", success=True),
+            "Git diff ready",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "git_diff",
+                {"path": "lib/app.dart"},
+                {"selection": "unstaged"},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded unstaged diff for lib/app.dart.",
         )
 
 

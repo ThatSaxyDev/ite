@@ -265,6 +265,19 @@ def render_numbered_unified_diff(diff_text: str) -> Text:
     return rendered
 
 
+def normalize_unified_diff_paths(diff_text: str, *, cwd: Path) -> str:
+    normalized_lines: list[str] = []
+    for line in (diff_text or "").splitlines():
+        if line.startswith("--- ") or line.startswith("+++ "):
+            prefix, raw_path = line[:4], line[4:].strip()
+            if raw_path != "/dev/null":
+                raw_path = display_path(raw_path, cwd=cwd)
+            normalized_lines.append(f"{prefix}{raw_path}")
+            continue
+        normalized_lines.append(line)
+    return "\n".join(normalized_lines)
+
+
 def guess_language(path: str | None) -> str:
     if not path:
         return "text"
@@ -438,6 +451,30 @@ def render_grep_output(output: str, *, cwd: Path) -> Any:
             else:
                 table.add_row("", Text(line, style="#d5d9e2"))
         table.add_row("", Text(""))
+
+    return table
+
+
+def render_git_log_output(metadata: dict[str, Any] | None) -> Any:
+    md = metadata if isinstance(metadata, dict) else {}
+    commits = md.get("commits")
+    if not isinstance(commits, list) or not commits:
+        return Text("No commits found.", style="#8c97ab")
+
+    table = Table.grid(padding=(0, 1))
+    table.add_column(style="#7cc7ff", no_wrap=True)
+    table.add_column(style="#8c97ab", no_wrap=True)
+    table.add_column(style="#b9c3d6")
+    table.add_column(style="#dfe8f8")
+
+    for commit in commits:
+        if not isinstance(commit, dict):
+            continue
+        short_sha = str(commit.get("short_sha", "")).strip()
+        date = str(commit.get("date", "")).strip()
+        author = str(commit.get("author", "")).strip()
+        subject = str(commit.get("subject", "")).strip()
+        table.add_row(short_sha, date, author, subject)
 
     return table
 

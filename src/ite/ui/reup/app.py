@@ -108,7 +108,9 @@ from .tool_views import (
     guess_language,
     render_args_table,
     render_grep_output,
+    render_git_log_output,
     render_list_dir_output,
+    normalize_unified_diff_paths,
     render_numbered_unified_diff,
     render_shell_command_line,
     render_shell_result_payload,
@@ -4475,6 +4477,62 @@ class ReupApp(App):
                 blocks.append(render_grep_output(output_display, cwd=self.config.cwd))
             else:
                 blocks.append(render_text_payload(output_display, success=success))
+        elif name == "git_diff":
+            selection = md.get("selection")
+            files = md.get("files")
+            diff_count = md.get("diff_count")
+            summary_parts: list[str] = []
+            if isinstance(selection, str) and selection.strip():
+                summary_parts.append(selection.strip())
+            if isinstance(diff_count, int):
+                summary_parts.append(
+                    f"{diff_count} file{'s' if diff_count != 1 else ''}"
+                )
+            if summary_parts:
+                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+            if isinstance(files, list) and files:
+                for entry in files[:6]:
+                    if not isinstance(entry, dict):
+                        continue
+                    rel_path = str(entry.get("path", "")).strip()
+                    stage_label = str(entry.get("stage_label", "")).strip()
+                    change_type = str(entry.get("change_type", "")).strip()
+                    detail = Text()
+                    detail.append("• ", style="#8c97ab")
+                    detail.append(rel_path, style="#dfe8f8")
+                    meta_bits = [part for part in [stage_label, change_type] if part]
+                    if meta_bits:
+                        detail.append("  ")
+                        detail.append(" / ".join(meta_bits), style="#8c97ab")
+                    blocks.append(detail)
+            output_display, was_truncated = truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            if output_display.strip().startswith(("--- ", "+++ ", "@@ ")):
+                blocks.append(
+                    render_numbered_unified_diff(
+                        normalize_unified_diff_paths(
+                            output_display,
+                            cwd=self.config.cwd,
+                        )
+                    )
+                )
+            elif output_display.strip():
+                blocks.append(render_text_payload(output_display, success=success))
+            else:
+                blocks.append(Text("No diff output", style="#8c97ab"))
+        elif name == "git_log" and success:
+            count = md.get("count")
+            ref = md.get("ref")
+            summary_parts: list[str] = []
+            if isinstance(count, int):
+                summary_parts.append(
+                    f"{count} commit{'s' if count != 1 else ''}"
+                )
+            if isinstance(ref, str) and ref.strip():
+                summary_parts.append(ref.strip())
+            if summary_parts:
+                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+            blocks.append(render_git_log_output(md))
         elif name == "todos" and success:
             todo_blocks, was_truncated = render_todo_payload(
                 output=payload,
