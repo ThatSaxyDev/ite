@@ -15,6 +15,22 @@ from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_ins
 from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
+from dataclasses import dataclass, field
+
+
+@dataclass
+class RuntimeIssue:
+    component: str
+    severity: str
+    message: str
+    details: str
+
+
+@dataclass
+class RuntimeStatus:
+    degraded: bool = False
+    issues: list[RuntimeIssue] = field(default_factory=list)
+    disabled_capabilities: list[str] = field(default_factory=list)
 
 
 class Session:
@@ -59,6 +75,7 @@ class Session:
         self.execution_seed_ids: list[str] = []
         self.pending_attachment_paths: list[str] = []
         self.change_history = ChangeHistory(self.config.cwd)
+        self.runtime_status = RuntimeStatus()
 
         self._turn_count = 0
 
@@ -71,12 +88,42 @@ class Session:
         self._turn_count = value
 
     async def initialize(self) -> None:
-        await self.mcp_manager.initialize()
-        self.mcp_manager.register_tools(self.tool_registry)
+        self.runtime_status = RuntimeStatus()
+
+        try:
+            await self.mcp_manager.initialize()
+            self.mcp_manager.register_tools(self.tool_registry)
+        except Exception as exc:
+            self._record_runtime_issue(
+                component="mcp",
+                capability="mcp",
+                message="MCP unavailable; continuing without external MCP tools.",
+                details=str(exc),
+            )
+
+        user_memory: dict | None = None
+        try:
+            user_memory = self._load_memory()
+        except Exception as exc:
+            self._record_runtime_issue(
+                component="memory",
+                capability="persistent_memory",
+                message="Persistent memory unavailable; continuing with empty prompt memory.",
+                details=str(exc),
+            )
+
+        if self.memory_manager.degraded_mode:
+            self._record_runtime_issue(
+                component="memory",
+                capability="persistent_memory",
+                message="Persistent memory unavailable; using in-memory fallback for this session.",
+                details=self.memory_manager.degraded_reason or "memory manager degraded",
+            )
+
         self.discovery_manager.discover_all()
         self.context_manager = ContextManager(
             config=self.config,
-            user_memory=self._load_memory(),
+            user_memory=user_memory,
             tools=self.tool_registry.get_tools(),
             memory_provider=self._load_prompt_memory,
         )
@@ -92,6 +139,50 @@ class Session:
         self.session_id = session_id
         self.memory_manager.set_session_id(session_id)
         self._sync_memory_tool_session()
+
+    def is_degraded(self) -> bool:
+        return self.runtime_status.degraded
+
+    def runtime_summary(self) -> str:
+        if not self.runtime_status.degraded:
+            return ""
+
+        parts = []
+        if "persistent_memory" in self.runtime_status.disabled_capabilities:
+            parts.append("persistent memory unavailable")
+        if "mcp" in self.runtime_status.disabled_capabilities:
+            parts.append("MCP unavailable")
+
+        if not parts:
+            parts = [issue.message.rstrip(".") for issue in self.runtime_status.issues[:2]]
+        return "Running in degraded mode: " + "; ".join(parts) + "."
+
+    def _record_runtime_issue(
+        self,
+        *,
+        component: str,
+        capability: str,
+        message: str,
+        details: str,
+        severity: str = "warning",
+    ) -> None:
+        if any(
+            issue.component == component and issue.message == message
+            for issue in self.runtime_status.issues
+        ):
+            return
+
+        self.runtime_status.degraded = True
+        if capability not in self.runtime_status.disabled_capabilities:
+            self.runtime_status.disabled_capabilities.append(capability)
+        self.runtime_status.issues.append(
+            RuntimeIssue(
+                component=component,
+                severity=severity,
+                message=message,
+                details=details,
+            )
+        )
 
     def _sync_memory_tool_session(self) -> None:
         tool = self.tool_registry.get("memory")

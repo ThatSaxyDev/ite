@@ -734,11 +734,12 @@ class ReupApp(App):
             rel_path = Path(rel)
             parent = str(rel_path.parent)
             secondary = "workspace root" if parent in {"", "."} else parent
+            display_ref = f"@{rel}"
             options.append(
                 SlashCommandOption(
-                    name=path.name,
+                    name=display_ref,
                     description=secondary,
-                    insert_text=f"@{path.name}",
+                    insert_text=display_ref,
                     attachment_path=str(path.resolve()),
                 )
             )

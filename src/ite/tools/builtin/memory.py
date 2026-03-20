@@ -63,15 +63,23 @@ class MemoryTool(Tool):
     def __init__(self, config) -> None:
         super().__init__(config)
         self._session_id: str | None = None
+        self._managers: dict[tuple[str, str | None], MemoryManager] = {}
 
     def set_session_id(self, session_id: str | None) -> None:
         self._session_id = session_id
 
     def _manager(self, cwd: str | None = None, session_id: str | None = None) -> MemoryManager:
-        return MemoryManager(
-            cwd or self.config.cwd,
-            session_id=session_id or self._session_id,
-        )
+        resolved_cwd = str(cwd or self.config.cwd)
+        resolved_session_id = session_id or self._session_id
+        key = (resolved_cwd, resolved_session_id)
+        manager = self._managers.get(key)
+        if manager is None:
+            manager = MemoryManager(
+                resolved_cwd,
+                session_id=resolved_session_id,
+            )
+            self._managers[key] = manager
+        return manager
 
     def _get_memory_path(self, store: str, cwd: str | None = None):
         return self._manager(cwd)._store_path(store)
@@ -142,17 +150,24 @@ class MemoryTool(Tool):
             return self._handle_episodic(manager, action, params)
 
         if action == "set":
-            return self._handle_set(manager, store, params)
+            result = self._handle_set(manager, store, params)
         elif action == "get":
-            return self._handle_get(manager, store, params)
+            result = self._handle_get(manager, store, params)
         elif action == "delete":
-            return self._handle_delete(manager, store, params)
+            result = self._handle_delete(manager, store, params)
         elif action == "list":
-            return self._handle_list(manager, store)
+            result = self._handle_list(manager, store)
         elif action == "clear":
-            return self._handle_clear(manager, store)
+            result = self._handle_clear(manager, store)
         else:
-            return ToolResult.error_result(f"Unknown action: {action}")
+            result = ToolResult.error_result(f"Unknown action: {action}")
+
+        metadata = result.metadata or {}
+        metadata.setdefault("store", store)
+        metadata["persistent"] = manager.persistent_available
+        metadata["degraded_mode"] = manager.degraded_mode
+        result.metadata = metadata
+        return result
 
     def _normalize_action(self, action: str, params: MemoryParams) -> str:
         normalized = (action or "").strip().lower()

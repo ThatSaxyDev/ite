@@ -50,6 +50,18 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         episodes = agent.session.memory_manager.list_episodes()
         self.assertTrue(any("Session saved (1 turns): hello" in ep["summary"] for ep in episodes))
 
+    async def test_session_initialize_is_not_degraded_when_dependencies_are_available(self) -> None:
+        workspace = self.base_path / "ws-healthy-startup"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        self.assertFalse(agent.session.is_degraded())
+        self.assertEqual(agent.session.runtime_status.disabled_capabilities, [])
+        self.assertEqual(agent.session.runtime_summary(), "")
+
     async def test_context_compaction_records_episode(self) -> None:
         workspace = self.base_path / "ws-compact"
         workspace.mkdir()
@@ -148,6 +160,45 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         summary = session.build_lifecycle_summary("Session exited")
         self.assertEqual(summary, "Session exited")
+
+    async def test_session_initialize_degrades_when_memory_persistence_fails(self) -> None:
+        workspace = self.base_path / "ws-degraded-startup"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+
+        with patch(
+            "ite.memory.manager.MemoryManager._memory_root",
+            side_effect=PermissionError("storage unavailable"),
+        ):
+            await agent.session.initialize()
+
+        session = agent.session
+        self.assertTrue(session.is_degraded())
+        self.assertIn("persistent_memory", session.runtime_status.disabled_capabilities)
+        self.assertIsNotNone(session.context_manager)
+        self.assertIn("persistent memory unavailable", session.runtime_summary().lower())
+
+    async def test_session_initialize_degrades_when_mcp_fails(self) -> None:
+        workspace = self.base_path / "ws-mcp-failure"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+
+        with patch.object(
+            agent.session.mcp_manager,
+            "initialize",
+            side_effect=RuntimeError("mcp boot failed"),
+        ):
+            await agent.session.initialize()
+
+        session = agent.session
+        self.assertTrue(session.is_degraded())
+        self.assertIn("mcp", session.runtime_status.disabled_capabilities)
+        self.assertIsNotNone(session.context_manager)
+        self.assertIn("mcp unavailable", session.runtime_summary().lower())
 
     async def _fake_chat_completion(self, messages, tools=None, stream=True):
         yield StreamEvent(

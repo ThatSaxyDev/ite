@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from ite.memory.response_intent import resolve_response_intent
 
 VALID_STORES = ("short_term", "long_term", "episodic", "semantic")
 MAX_EPISODIC_ENTRIES = 50
+logger = logging.getLogger(__name__)
 
 
 def _project_hash(cwd: str | Path) -> str:
@@ -114,6 +116,14 @@ class MemoryManager:
     ) -> None:
         self.cwd = Path(cwd).resolve()
         self._session_id = session_id
+        self._degraded_mode = False
+        self._degraded_reason: str | None = None
+        self._fallback_entries: dict[str, dict[str, dict[str, Any]]] = {
+            "short_term": {},
+            "long_term": {},
+            "semantic": {},
+        }
+        self._fallback_episodes: list[dict[str, Any]] = []
 
     @property
     def session_id(self) -> str | None:
@@ -121,6 +131,53 @@ class MemoryManager:
 
     def set_session_id(self, session_id: str | None) -> None:
         self._session_id = session_id
+
+    @property
+    def degraded_mode(self) -> bool:
+        return self._degraded_mode
+
+    @property
+    def degraded_reason(self) -> str | None:
+        return self._degraded_reason
+
+    @property
+    def persistent_available(self) -> bool:
+        return not self._degraded_mode
+
+    def _activate_degraded_mode(
+        self,
+        reason: str,
+        *,
+        store: str | None = None,
+        entries: dict[str, dict[str, Any]] | None = None,
+        episodes: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if not self._degraded_mode:
+            logger.warning("Memory manager entering degraded mode: %s", reason)
+        self._degraded_mode = True
+        self._degraded_reason = self._degraded_reason or reason
+        if store in self._fallback_entries and entries is not None:
+            self._fallback_entries[store] = {key: dict(value) for key, value in entries.items()}
+        if episodes is not None:
+            self._fallback_episodes = [dict(episode) for episode in episodes[-MAX_EPISODIC_ENTRIES:]]
+
+    def _safe_store_path(self, store: str) -> Path | None:
+        if self._degraded_mode:
+            return None
+        try:
+            return self._store_path(store)
+        except OSError as exc:
+            self._activate_degraded_mode(f"persistent storage unavailable for {store}: {exc}")
+            return None
+
+    def _safe_legacy_semantic_path(self) -> Path | None:
+        if self._degraded_mode:
+            return None
+        try:
+            return self._legacy_semantic_path()
+        except OSError as exc:
+            self._activate_degraded_mode(f"legacy semantic storage unavailable: {exc}")
+            return None
 
     def _memory_root(self) -> Path:
         root = get_data_dir() / "memory"
@@ -215,12 +272,27 @@ class MemoryManager:
         return record
 
     def _load_entries(self, store: str) -> dict[str, dict[str, Any]]:
-        path = self._store_path(store)
+        if self._degraded_mode:
+            return {
+                key: dict(value)
+                for key, value in self._fallback_entries.get(store, {}).items()
+            }
+
+        path = self._safe_store_path(store)
+        if path is None:
+            return {
+                key: dict(value)
+                for key, value in self._fallback_entries.get(store, {}).items()
+            }
         data = self._load_json(path, default={"entries": {}})
 
         if store == "semantic" and not data.get("entries"):
-            legacy_path = self._legacy_semantic_path()
-            legacy = self._load_json(legacy_path, default={"entries": {}})
+            legacy_path = self._safe_legacy_semantic_path()
+            legacy = (
+                self._load_json(legacy_path, default={"entries": {}})
+                if legacy_path is not None
+                else {"entries": {}}
+            )
             if legacy.get("entries"):
                 data = legacy
 
@@ -234,10 +306,30 @@ class MemoryManager:
         return normalized
 
     def _save_entries(self, store: str, entries: dict[str, dict[str, Any]]) -> None:
-        self._atomic_write_json(
-            self._store_path(store),
-            {"entries": entries},
-        )
+        normalized_entries = {
+            key: dict(value)
+            for key, value in entries.items()
+        }
+        if self._degraded_mode:
+            self._fallback_entries[store] = normalized_entries
+            return
+
+        path = self._safe_store_path(store)
+        if path is None:
+            self._fallback_entries[store] = normalized_entries
+            return
+
+        try:
+            self._atomic_write_json(
+                path,
+                {"entries": normalized_entries},
+            )
+        except OSError as exc:
+            self._activate_degraded_mode(
+                f"failed to persist {store} entries: {exc}",
+                store=store,
+                entries=normalized_entries,
+            )
 
     def _normalize_episode(self, value: dict[str, Any]) -> dict[str, Any]:
         summary = str(value.get("summary", "")).strip()
@@ -252,7 +344,14 @@ class MemoryManager:
         }
 
     def _load_episodes(self) -> list[dict[str, Any]]:
-        data = self._load_json(self._store_path("episodic"), default={"episodes": []})
+        if self._degraded_mode:
+            return [dict(episode) for episode in self._fallback_episodes]
+
+        path = self._safe_store_path("episodic")
+        if path is None:
+            return [dict(episode) for episode in self._fallback_episodes]
+
+        data = self._load_json(path, default={"episodes": []})
         episodes = data.get("episodes", [])
         if not isinstance(episodes, list):
             episodes = []
@@ -264,10 +363,26 @@ class MemoryManager:
         return normalized
 
     def _save_episodes(self, episodes: list[dict[str, Any]]) -> None:
-        self._atomic_write_json(
-            self._store_path("episodic"),
-            {"episodes": episodes[-MAX_EPISODIC_ENTRIES:]},
-        )
+        normalized = [dict(episode) for episode in episodes[-MAX_EPISODIC_ENTRIES:]]
+        if self._degraded_mode:
+            self._fallback_episodes = normalized
+            return
+
+        path = self._safe_store_path("episodic")
+        if path is None:
+            self._fallback_episodes = normalized
+            return
+
+        try:
+            self._atomic_write_json(
+                path,
+                {"episodes": normalized},
+            )
+        except OSError as exc:
+            self._activate_degraded_mode(
+                f"failed to persist episodic memory: {exc}",
+                episodes=normalized,
+            )
 
     def set_entry(
         self,
@@ -413,6 +528,10 @@ class MemoryManager:
 
     def clear_session_short_term(self, session_id: str | None = None) -> None:
         target = session_id or self._session_id
+        if self._degraded_mode:
+            if target is None or target == self._session_id:
+                self._fallback_entries["short_term"] = {}
+            return
         if not target:
             legacy_path = self._memory_root() / "short_term.json"
             if legacy_path.exists():

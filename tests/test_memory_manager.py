@@ -56,6 +56,46 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertEqual(len(manager_a.list_episodes()), 1)
         self.assertEqual(manager_b.list_episodes(), [])
 
+    def test_memory_manager_falls_back_to_in_memory_when_persistence_fails(self) -> None:
+        workspace = self.base_path / "ws-degraded-memory"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+
+        with patch.object(
+            MemoryManager,
+            "_atomic_write_json",
+            side_effect=PermissionError("storage unavailable"),
+        ):
+            record = manager.set_entry(
+                "long_term",
+                "style",
+                "Keep answers concise",
+                source="test",
+            )
+
+        self.assertEqual(record["value"], "Keep answers concise")
+        self.assertTrue(manager.degraded_mode)
+        self.assertFalse(manager.persistent_available)
+        stored = manager.get_entry("long_term", "style", increment_access=False)
+        assert stored is not None
+        self.assertEqual(stored["value"], "Keep answers concise")
+
+    def test_memory_manager_degraded_mode_keeps_episodic_entries_in_memory(self) -> None:
+        workspace = self.base_path / "ws-degraded-episodes"
+        workspace.mkdir()
+        manager = MemoryManager(workspace, session_id="session-a")
+
+        with patch.object(
+            MemoryManager,
+            "_atomic_write_json",
+            side_effect=PermissionError("storage unavailable"),
+        ):
+            entry = manager.append_episode("Fell back to degraded mode", source="test")
+
+        self.assertTrue(manager.degraded_mode)
+        self.assertEqual(entry["summary"], "Fell back to degraded mode")
+        self.assertEqual(len(manager.list_episodes()), 1)
+
     def test_prompt_memory_prefers_relevant_semantic_entries(self) -> None:
         workspace = self.base_path / "ws"
         workspace.mkdir()
@@ -483,6 +523,57 @@ class MemoryManagerTests(unittest.TestCase):
                 )
             )
             self.assertIn("Use pytest for tests", found.output)
+
+        import asyncio
+
+        asyncio.run(run())
+
+    def test_memory_tool_reports_degraded_metadata_when_persistence_fails(self) -> None:
+        workspace = self.base_path / "ws-tool-degraded"
+        workspace.mkdir()
+        config = Config(cwd=workspace, api_key="test")
+
+        async def run() -> None:
+            session = Session(config=config)
+            await session.initialize()
+            tool = session.tool_registry.get("memory")
+            self.assertIsInstance(tool, MemoryTool)
+            assert isinstance(tool, MemoryTool)
+
+            with patch.object(
+                MemoryManager,
+                "_atomic_write_json",
+                side_effect=PermissionError("storage unavailable"),
+            ):
+                result = await tool.execute(
+                    ToolInvocation(
+                        params={
+                            "action": "set",
+                            "store": "semantic",
+                            "key": "tests",
+                            "value": "Use pytest for tests",
+                        },
+                        cwd=workspace,
+                    )
+                )
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.metadata.get("persistent"), False)
+            self.assertEqual(result.metadata.get("degraded_mode"), True)
+
+            found = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "action": "get",
+                        "store": "semantic",
+                        "key": "tests",
+                    },
+                    cwd=workspace,
+                )
+            )
+            self.assertIn("Use pytest for tests", found.output)
+            self.assertEqual(found.metadata.get("persistent"), False)
+            self.assertEqual(found.metadata.get("degraded_mode"), True)
 
         import asyncio
 

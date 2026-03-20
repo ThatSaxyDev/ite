@@ -11,6 +11,11 @@ from ite.tools.builtin.write_file import WriteFileTool
 from ite.tools.builtin.read_file import ReadFileTool
 from ite.tools.builtin.shell import ShellTool
 from ite.tools.builtin.apply_patch import ApplyPatchTool
+from ite.tools.builtin.git_tools import GitBranchTool
+from ite.tools.builtin.git_tools import GitCommitTool
+from ite.tools.builtin.git_tools import GitDiffTool
+from ite.tools.builtin.git_tools import GitLogTool
+from ite.tools.builtin.git_tools import GitStatusTool
 
 __all__ = [
     "ReadFileTool",
@@ -26,6 +31,11 @@ __all__ = [
     "TodosTool",
     "MemoryTool",
     "PlanQuestionTool",
+    "GitStatusTool",
+    "GitDiffTool",
+    "GitLogTool",
+    "GitBranchTool",
+    "GitCommitTool",
 ]
 
 
@@ -44,4 +54,9 @@ def get_all_builtin_tools() -> list[type]:
         TodosTool,
         MemoryTool,
         PlanQuestionTool,
+        GitStatusTool,
+        GitDiffTool,
+        GitLogTool,
+        GitBranchTool,
+        GitCommitTool,
     ]
