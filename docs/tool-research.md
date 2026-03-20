@@ -1,268 +1,459 @@
-# Tool System Research: Baseline Tool Gaps for a Production Coding Agent
+# Tool System Research v2: Production Gaps and Build Plan for `ite`
 
-**Context:** A general-purpose coding agent (not code-only), built on Python, using tools as its backbone for external world interaction.
+**Context:** `ite` is a Python agent framework that uses tools as its execution backbone. This note evaluates the current tool surface in this repository, identifies production gaps, and recommends the next tools and hardening work to build.
 
-**Goal:** Identify gaps in current baseline tools and recommend what's needed for production readiness, with MCP filling extensibility gaps.
+**Scope of this document:**
+- What tools exist in this repo today
+- What is already strong
+- What is missing for production readiness
+- What should be built first
 
 ---
 
-## Current Baseline Tools (16 built-in)
+## Current Tool Inventory
+
+### Built-in tools: 13
+
+Defined in [src/ite/tools/builtin/__init__.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/tools/builtin/__init__.py).
 
 | Category | Tools | Status |
 |----------|-------|--------|
-| **File Operations** | `read_file`, `write_file`, `edit`, `apply_patch` | ✅ Core coverage |
-| **Search** | `grep`, `glob`, `list_dir` | ✅ Basic |
-| **Execution** | `shell` | ⚠️ Needs hardening |
-| **Web** | `web_search`, `web_fetch` | ✅ Basic |
-| **Memory** | `memory`, `todos`, `plan_question` | ✅ Core |
-| **Subagents** | `SubagentTool` | ✅ Dynamic |
+| File operations | `read_file`, `write_file`, `edit`, `apply_patch` | Strong baseline |
+| Search and navigation | `grep`, `glob`, `list_dir` | Good baseline |
+| Execution | `shell` | Useful but needs hardening |
+| Web | `web_search`, `web_fetch` | Basic only |
+| Session memory and workflow | `memory`, `todos`, `plan_question` | Good agent-specific baseline |
+
+### Subagent tools: 5 in this workspace
+
+Default subagents are defined in [src/ite/tools/subagent.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/tools/subagent.py):
+- `subagent_codebase_investigator`
+- `subagent_code_reviewer`
+- `subagent_tooling_guardian`
+- `subagent_verification_reviewer`
+
+Project-defined subagent in this repo:
+- `subagent_security_auditor` from [.ite/subagents/security_auditor.toml](/Users/kiishidavid/Documents/Dev/Projects/ite/.ite/subagents/security_auditor.toml)
+
+### Discovered custom tools: 1 in this workspace
+
+Project-defined custom tool:
+- `test_tool` from [.ite/tools/test_tool.py](/Users/kiishidavid/Documents/Dev/Projects/ite/.ite/tools/test_tool.py)
+
+### MCP tools: 0 currently connected
+
+MCP support exists in the codebase via [src/ite/tools/mcp/mcp_manager.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/tools/mcp/mcp_manager.py), but no MCP servers are enabled in [.ite/config.toml](/Users/kiishidavid/Documents/Dev/Projects/ite/.ite/config.toml).
+
+### Total active tools in this workspace: 19
+
+- 13 built-ins
+- 5 subagent tools
+- 1 discovered custom tool
 
 ---
 
-## Critical Gaps for a General-Purpose Coding Agent
+## How The Tool System Works Today
 
-### 1. Git Operations — **CRITICAL**
+The current architecture is good and worth keeping.
 
-Git is non-negotiable for any coding agent that touches real repositories.
+### Core flow
 
-**Current state:** No git tools. Agent relies on `shell` to run raw git commands.
+The registry and invocation pipeline live in [src/ite/tools/registry.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/tools/registry.py):
 
-**Problems:**
-- Raw shell commands are brittle, error-prone, hard to parse
-- No structured understanding of git state (branches, remotes, conflicts)
-- Can't do meaningful PR review without git context
+1. Tool schemas are exposed to the model.
+2. The model chooses a tool.
+3. The registry normalizes parameters.
+4. The registry validates parameters.
+5. Policy checks run.
+6. Approval checks run for mutating actions.
+7. The tool executes.
+8. Tool output is fed back into the agent loop.
 
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `git_status` | Show modified/staged/untracked files |
-| `git_diff` | Structured diff output with context |
-| `git_log` | Recent commits, authorship |
-| `git_branch` | List/create/switch branches |
-| `git_commit` | Stage files and commit with message |
-| `git_checkout` | Switch branches or restore files |
-| `git_merge` | Merge branches (with conflict detection) |
+The agent integrates this loop in [src/ite/agent/agent.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/agent/agent.py).
 
-**Reference:** Claude Code treats git as first-class. GitHub Copilot has git tools. This is industry standard.
+### Existing strengths
 
----
+- Tool registration is centralized and deterministic.
+- Tools are schema-driven with Pydantic validation.
+- There is a policy layer for planning vs execution.
+- There is an approval layer for mutating operations.
+- Filesystem sandboxing exists.
+- Built-in support exists for local custom tools and subagents.
+- MCP is already designed as an extension layer.
 
-### 2. Structured Data Manipulation — **HIGH PRIORITY**
-
-Codebases contain JSON, YAML, TOML, XML, ENV files. Agent needs to read and write these reliably.
-
-**Current state:** No structured data tools. Agent must parse via shell or raw text editing.
-
-**Problems:**
-- Editing YAML/JSON by string manipulation is error-prone
-- No validation before write
-- ENV file handling is dangerous with raw text tools
-
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `read_json` | Parse and read JSON files |
-| `write_json` | Write JSON with validation |
-| `read_yaml` | Parse YAML files |
-| `write_yaml` | Write YAML with formatting |
-| `read_toml` | Parse TOML (common in Python) |
-| `read_env` | Read .env files safely |
-| `edit_json` | Patch JSON paths (jq-like) |
+This is a strong foundation for a local agent.
 
 ---
 
-### 3. Testing & Quality Assurance — **HIGH PRIORITY**
+## What Is Already Good Enough
 
-A coding agent that can't run or understand tests is limited to "dead code" scenarios.
+These areas are not the main problem.
 
-**Current state:** No test tools. Agent relies on `shell` to run test commands.
+### 1. File editing baseline is solid
 
-**Problems:**
-- No standardized test discovery or reporting
-- Can't understand test failures in context
-- No coverage awareness
+The combination of `read_file`, `write_file`, `edit`, and especially `apply_patch` gives the agent a credible editing stack.
 
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `run_tests` | Execute test suite, parse output |
-| `get_test_status` | Check if specific tests pass/fail |
-| `run_linter` | Execute linting, parse errors |
-| `run_typecheck` | Execute type checking |
-| `format_code` | Auto-format files (prettier, black, etc.) |
+Important nuance:
+- `edit` is fragile because it is string-match based.
+- `apply_patch` is the stronger primitive and already supports atomic multi-file changes.
 
----
+Conclusion:
+- Do not replace this layer.
+- Keep it and add better structured-edit tools beside it.
 
-### 4. Image & Binary Inspection — **MEDIUM**
+### 2. Search and navigation are adequate for baseline work
 
-Modern codebases include images, PDFs, SVGs, icons. A general-purpose agent needs to inspect these.
+`grep`, `glob`, and `list_dir` are enough for codebase exploration.
 
-**Current state:** None.
+They are not perfect, but they are not the main production blocker.
 
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `read_image` | Extract image metadata (dimensions, format) |
-| `read_pdf` | Extract text from PDFs |
-| `read_svg` | Parse SVG for inspection/modification |
+### 3. Tool-focused testing exists
 
----
+The tooling layer is not untested. The current test suite includes coverage around:
+- tool registry behavior
+- shell safety behavior
+- web tool contracts
+- apply_patch
+- todo scoping
+- parameter normalization
 
-### 5. Archive & Compression — **MEDIUM**
-
-Codebases ship as archives. Agent should inspect them.
-
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `list_archive` | Inspect zip/tar contents |
-| `extract_archive` | Extract to directory |
-| `create_archive` | Package files |
+This is materially better than a prototype with no verification story.
 
 ---
 
-### 6. HTTP/REST Client — **MEDIUM**
+## Production Gaps
 
-For agents working with APIs, webhooks, or microservices.
+The current system is still not sufficient for production use, especially for a serious coding agent working on real repositories.
 
-**Current state:** `web_fetch` exists but limited to GET on URLs.
+### 1. Git tools are the biggest missing first-class capability
 
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `http_request` | Full HTTP client (GET, POST, PUT, DELETE, headers, body) |
+**Severity:** Critical
+
+Current state:
+- There are git helper modules under [src/ite/git/](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/git), but they are not exposed as tools.
+- The agent currently relies on raw `shell` for git operations.
+
+Why this is a problem:
+- Git state is core context for coding work.
+- Raw shell output is harder for the agent to reason about reliably.
+- There is no structured branch, diff, status, or commit model.
+- Review and change validation are weaker without native git context.
+
+Recommended first-party tools:
+- `git_status`
+- `git_diff`
+- `git_log`
+- `git_branch`
+- `git_commit`
+
+Optional later additions:
+- `git_checkout`
+- `git_merge`
+- `git_stage`
+- `git_unstage`
+
+### 2. Structured config and data tools are missing
+
+**Severity:** Critical
+
+Current state:
+- JSON, YAML, TOML, and `.env` files are edited as raw text.
+
+Why this is a problem:
+- Raw string edits are fragile for structured documents.
+- The agent cannot validate syntax before write.
+- Config updates are a common coding workflow, not an edge case.
+
+Recommended tools:
+- `read_json`
+- `edit_json`
+- `write_json`
+- `read_yaml`
+- `write_yaml`
+- `read_toml`
+- `write_toml`
+- `read_env`
+- `write_env`
+
+If scope must stay tighter:
+- Start with JSON, TOML, and `.env`
+- Add YAML next
+
+### 3. Test and quality tools should be first-class, not shell conventions
+
+**Severity:** High
+
+Current state:
+- Testing, linting, and type checking all depend on raw `shell`.
+
+Why this is a problem:
+- Output parsing is inconsistent.
+- The agent has no standardized notion of test failure vs infrastructure failure.
+- There is no structured reporting by suite, file, or failure count.
+- This is a major bottleneck for autonomous verification.
+
+Recommended tools:
+- `run_tests`
+- `run_linter`
+- `run_typecheck`
+- `format_code`
+
+Nice follow-ups:
+- `get_test_status`
+- `run_tests_changed_files`
+- `run_tests_by_path`
+
+### 4. Shell is useful but not yet production-hardened
+
+**Severity:** High
+
+Current state:
+- `shell` has command classification, approvals, and sandbox path checks.
+- This is implemented in [src/ite/tools/builtin/shell.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/tools/builtin/shell.py) and [src/ite/safety/approval.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/safety/approval.py).
+
+Why this is still insufficient:
+- Safety classification is regex-based and heuristic.
+- Commands are one-shot only.
+- There is no persistent session abstraction.
+- There is no streaming execution model for long-running commands.
+- There is no resource quota model.
+- There is no robust policy around allowed executables by workspace or tool category.
+
+Recommended improvements:
+- Streaming shell output
+- Persistent shell sessions
+- Per-command execution metadata
+- Allowlist/denylist by executable
+- Better audit logging
+- CPU/time/output quotas
+
+### 5. Runtime robustness is a production blocker
+
+**Severity:** High
+
+This is easy to miss if you only count tools.
+
+Current state:
+- Session initialization loads memory and app state early in [src/ite/agent/session.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/agent/session.py).
+- Memory writes go to app data paths via [src/ite/memory/manager.py](/Users/kiishidavid/Documents/Dev/Projects/ite/src/ite/memory/manager.py).
+
+Observed issue:
+- In a restricted environment, initialization can fail if those paths are not writable.
+
+Why this matters:
+- A production tool platform must degrade gracefully.
+- Tooling quality is irrelevant if session startup is brittle.
+
+Recommended work:
+- Fallback memory mode when app-data storage is unavailable
+- Clear startup diagnostics
+- Read-only degraded mode
+- Better separation between optional persistence and core tool availability
+
+### 6. Web capabilities are basic, not production-grade
+
+**Severity:** Medium
+
+Current state:
+- `web_search` is DuckDuckGo search wrapper only.
+- `web_fetch` is direct GET plus basic HTML-to-markdown extraction.
+
+Why this is limited:
+- No source trust controls
+- No auth support
+- No POST/PUT/PATCH/DELETE
+- No rate limiting
+- No retries/backoff policy
+- No provenance scoring
+- No domain policies
+
+Recommended addition:
+- `http_request`
+
+Recommended hardening:
+- request/response schema support
+- headers and body support
+- timeout and retry policy
+- domain allowlists
+
+### 7. Binary and document inspection are missing
+
+**Severity:** Medium
+
+Current state:
+- `read_file` correctly rejects binary files.
+- There is no separate inspection path for images, PDFs, or SVGs.
+
+Recommended tools:
+- `read_image`
+- `read_pdf`
+- `read_svg`
+
+This matters for modern repos with:
+- screenshots
+- design assets
+- icons
+- documentation PDFs
+
+### 8. Archive tools are absent
+
+**Severity:** Medium
+
+Recommended tools:
+- `list_archive`
+- `extract_archive`
+- `create_archive`
+
+Useful for:
+- release bundles
+- vendor packages
+- uploaded artifacts
+
+### 9. Database tools are not core yet, but will matter if scope expands
+
+**Severity:** Low to Medium
+
+Recommended tools:
+- `db_query`
+- `db_migrate_status`
+
+These should likely remain optional or MCP-based unless database work is a core product scenario.
 
 ---
 
-### 7. Database Operations — **LOW-MEDIUM** (depends on use case)
+## MCP Positioning
 
-For agents that need to verify database migrations or run queries.
+MCP is the right extension story, but not the baseline story.
 
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `db_query` | Execute read-only SQL queries |
-| `db_migrate_status` | Check migration state |
+That means:
+- baseline coding workflows must work with built-in tools alone
+- MCP should add specialized integrations
+- MCP should not be required for basic software development tasks
 
----
+Good MCP candidates:
+- databases
+- cloud providers
+- Kubernetes
+- Slack or ticketing systems
+- proprietary internal systems
 
-### 8. Terminal Session Management — **LOW** (nice to have)
-
-Current `shell` executes commands in isolation. Persistent sessions would help with complex workflows.
-
-**Recommended tools:**
-| Tool | Purpose |
-|------|---------|
-| `shell_session` | Create/query/terminate shell sessions |
-| `shell_send` | Send input to a session |
+Bad use of MCP:
+- depending on MCP for basic git, tests, or config editing
 
 ---
 
-## Tool Quality Issues in Current Baseline
+## Production Readiness Verdict
 
-Even for tools that exist, several quality issues need addressing:
+### Current maturity
 
-### Shell Tool (384 lines)
-- Single command execution only
-- No session/persistence
-- No streaming output
-- Command aliasing in registry is good but limited
-- Sandbox compliance check exists but command allowlists would be safer
+| Area | Assessment |
+|------|------------|
+| Registry architecture | Strong |
+| Validation and normalization | Strong |
+| File editing | Good |
+| Search/navigation | Good |
+| Approval and sandbox model | Good baseline, not hardened |
+| Web tools | Basic |
+| Git support | Missing |
+| Structured config editing | Missing |
+| Test/lint/typecheck integration | Missing |
+| Runtime robustness | Not production-ready |
+| Observability and auditability | Partial |
 
-### Edit Tool (252 lines)
-- String-matching approach is fragile for large files
-- `apply_patch` (385 lines) exists as more robust alternative but may have overlap/confusion
-- No atomic multi-file transactions
+### Bottom line
 
-### Read File Tool (144 lines)
-- Line offset/limit is good
-- Binary file handling is unclear
-- Large file truncation strategy needs verification
+`ite` already has a serious local-agent tooling backbone.
 
-### Grep Tool (146 lines)
-- Basic regex matching
-- Missing: context lines, case sensitivity options, file type filters
-
----
-
-## MCP as Extensibility Layer
-
-Current architecture supports MCP tools (separate `_mcp_tools` dict in registry). This is the right approach for:
-
-| Use Case | MCP Approach |
-|----------|--------------|
-| Database tools | `mcp-sqltool` or custom |
-| Kubernetes | `mcp-kubernetes` |
-| Cloud APIs | Custom MCP servers |
-| Slack/Teams integration | `mcp-slack`, etc. |
-
-**However:** MCP should extend, not replace. Baseline tools must work without MCP servers being configured.
+It is not yet production-ready for a general-purpose coding agent because it still lacks:
+- first-class git tools
+- first-class structured config/data tools
+- first-class verification tools
+- hardened shell execution
+- robust degraded startup behavior
 
 ---
 
-## Prioritization Recommendation
+## Recommended Build Order
 
-### Phase 1: Immediate Production Needs
-1. **Git tools** — Without git, the agent can't do real development
-2. **Structured data tools** — JSON/YAML/ENV are everywhere
-3. **Shell hardening** — Command allowlists, output streaming, session support
+This is the practical order to execute.
 
-### Phase 2: Quality of Life
-4. **Test runner integration** — Standardize test execution/parsing
-5. **Linter/type-checker integration** — Format and validate code
-6. **Image inspection** — SVGs, screenshots, icons
+### Phase 0: Hardening before expansion
 
-### Phase 3: Polish
-7. **HTTP client** — For API-first workflows
-8. **Archive tools** — Package inspection
-9. **Terminal sessions** — Complex workflow support
+1. Make startup and memory persistence degrade gracefully
+2. Improve shell observability and execution metadata
+3. Add clearer failure modes around unavailable storage, hooks, and MCP
 
----
+### Phase 1: Table-stakes coding tools
 
-## Implementation Considerations
+1. `git_status`
+2. `git_diff`
+3. `git_log`
+4. `git_branch`
+5. `git_commit`
+6. `run_tests`
+7. `run_linter`
+8. `run_typecheck`
 
-### Tool Design Patterns to Follow
-1. **Parameter normalization** — Already done in registry; continue for new tools
-2. **Schema-driven params** — Use Pydantic models (existing pattern)
-3. **Structured output** — Return parsed/typed results, not just strings
-4. **Error categorization** — Distinguish user errors from system errors
-5. **Dry-run support** — For destructive operations
-6. **Parallel execution** — Read tools should be safe to parallelize
+### Phase 2: Structured configuration tools
 
-### Safety Requirements
-1. Sandbox path validation (exists)
-2. Command allowlists for shell
-3. Rate limiting on network tools
-4. Approval workflow for mutating tools (exists)
-5. Audit logging/telemetry (exists in registry)
+1. `read_json`
+2. `edit_json`
+3. `write_json`
+4. `read_toml`
+5. `write_toml`
+6. `read_env`
+7. `write_env`
+8. `read_yaml`
+9. `write_yaml`
 
----
+### Phase 3: Shell and workflow upgrades
 
-## Competitor Analysis
+1. streaming shell output
+2. persistent shell sessions
+3. executable allowlists
+4. resource quotas
+5. improved structured error categories
 
-| Agent | Notable Tools |
-|-------|--------------|
-| **Claude Code** | Git native, test running, PR creation, MCP, subagents |
-| **GitHub Copilot** | Code completion, PR summary, documentation generation |
-| **Cursor Composer** | Multi-file editing, agentic editing across codebase |
-| **OpenCode** | Session management, persistent storage, vim-like editing |
-| **Augment Code** | Codebase intelligence, architectural pattern understanding |
+### Phase 4: Breadth and polish
 
-**Common theme:** Git operations + test integration + MCP extensibility = table stakes.
+1. `http_request`
+2. archive tools
+3. image and PDF inspection
+4. optional database tools
 
 ---
 
-## Conclusion
+## Proposed Next 10 Tools
 
-Your baseline tool set is a solid foundation for a **file-manipulation-focused** agent. However, for a **general-purpose coding agent**, you are missing:
+If the goal is to move the platform materially toward production, these are the highest-leverage next tools:
 
-1. **Git** — The single biggest gap
-2. **Structured data** — JSON/YAML/ENV are critical
-3. **Test integration** — Essential for a "live code" agent
-4. **Quality tools** — Linting, formatting, type checking
+1. `git_status`
+2. `git_diff`
+3. `git_log`
+4. `git_branch`
+5. `git_commit`
+6. `run_tests`
+7. `run_linter`
+8. `run_typecheck`
+9. `read_json`
+10. `edit_json`
 
-MCP can fill specialized gaps, but these core categories should be built-in. They represent what users expect from any coding assistant that touches real codebases.
+These 10 would close the most important gap between "file editor with shell access" and "real coding agent."
 
 ---
 
-*Generated: March 2026*
+## Final Recommendation
+
+Do not rethink the whole tool architecture. The architecture is fine.
+
+Do this instead:
+- keep the existing registry, policy, approval, discovery, and MCP model
+- harden startup and shell behavior
+- add first-class built-ins for git, verification, and structured config
+- treat MCP as an extension layer, not the baseline product
+
+That is the shortest path from the current system to production readiness.
+
+---
+
+*Updated: March 20, 2026*
