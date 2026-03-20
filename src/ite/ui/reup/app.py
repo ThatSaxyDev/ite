@@ -1780,6 +1780,13 @@ class ReupApp(App):
         outbound = self._git_outbound_state
         if not outbound or not outbound.needs_attention:
             return
+        if not outbound.has_remote:
+            self.post_system(
+                "Git",
+                "No remote configured. Set one up with:\n\ngit remote add origin <url>",
+                is_error=True,
+            )
+            return
         verb = "Publish" if outbound.needs_publish else "Push"
         commit_subjects = await asyncio.to_thread(
             outbound_commit_subjects,

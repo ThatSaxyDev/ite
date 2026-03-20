@@ -129,6 +129,22 @@ class GitToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.metadata.get("push_action"), "publish")
             self.assertIn("Publish required", result.output)
 
+    async def test_git_status_exposes_publish_intent_without_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            _init_repo(cwd)
+            _commit_file(cwd, "app.py", "print('one')\n", "initial commit")
+
+            tool = GitStatusTool(Config(cwd=cwd, api_key="test"))
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(result.metadata.get("needs_publish"), True)
+            self.assertEqual(result.metadata.get("needs_remote_setup"), True)
+            self.assertEqual(result.metadata.get("has_remote"), False)
+            self.assertEqual(result.metadata.get("push_action"), "publish")
+            self.assertIn("Publish required: configure a remote", result.output)
+
     async def test_git_log_returns_recent_commits(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

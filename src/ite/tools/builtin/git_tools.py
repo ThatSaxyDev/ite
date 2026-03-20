@@ -224,7 +224,10 @@ class GitStatusTool(Tool):
             lines.append("Remote: none")
 
         if outbound and outbound.needs_publish:
-            lines.append(f"Publish required: {outbound.target_label}")
+            if outbound.needs_remote_setup:
+                lines.append("Publish required: configure a remote for this repository")
+            else:
+                lines.append(f"Publish required: {outbound.target_label}")
         elif outbound and outbound.has_outgoing:
             lines.append(f"Push available: {outbound.ahead_count} outgoing commit(s)")
 
@@ -255,6 +258,7 @@ class GitStatusTool(Tool):
             "has_remote": outbound.has_remote if outbound else False,
             "has_upstream": outbound.has_upstream if outbound else False,
             "needs_publish": outbound.needs_publish if outbound else False,
+            "needs_remote_setup": outbound.needs_remote_setup if outbound else False,
             "has_outgoing": outbound.has_outgoing if outbound else False,
             "push_action": outbound.action_label if outbound else "push",
             "push_target": outbound.target_label if outbound else branch,

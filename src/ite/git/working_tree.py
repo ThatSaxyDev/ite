@@ -75,7 +75,11 @@ class GitOutboundState:
 
     @property
     def needs_publish(self) -> bool:
-        return not self.has_upstream and self.has_remote
+        return not self.has_upstream
+
+    @property
+    def needs_remote_setup(self) -> bool:
+        return self.needs_publish and not self.has_remote
 
     @property
     def action_label(self) -> str:
@@ -87,6 +91,8 @@ class GitOutboundState:
             return self.upstream
         if self.remote_name:
             return f"{self.remote_name}/{self.branch}"
+        if self.needs_publish:
+            return "configure a remote"
         return self.branch
 
 
