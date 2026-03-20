@@ -895,6 +895,7 @@ Screen {
 ConfirmModal,
 CommitModal,
 PushReviewModal,
+RemoteSetupModal,
 PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
@@ -1128,6 +1129,29 @@ PushReviewModal .push-review-warning {
     color: #f2b38f;
 }
 
+RemoteSetupModal .push-review-row {
+    height: 2;
+    align-vertical: middle;
+}
+
+RemoteSetupModal .push-review-label {
+    width: 14;
+    min-width: 14;
+    color: #c6d2e3;
+    text-style: bold;
+}
+
+RemoteSetupModal .push-review-value {
+    color: #dfe8f8;
+    text-style: bold;
+}
+
+RemoteSetupModal .push-review-warning {
+    margin-top: 1;
+    margin-bottom: 0;
+    color: #f2b38f;
+}
+
 PushReviewModal .push-review-actions {
     height: 1;
     min-height: 1;
@@ -1160,6 +1184,73 @@ PushReviewModal #confirm {
 }
 
 PushReviewModal #confirm:hover {
+    background: #75de99;
+}
+
+RemoteSetupModal .remote-setup-modal {
+    width: 96;
+    height: 22;
+    min-height: 22;
+    max-height: 22;
+    border: heavy #4f4a70;
+    background: #1a2031 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+RemoteSetupModal .remote-setup-body {
+    height: 1fr;
+    min-height: 14;
+    margin-bottom: 1;
+}
+
+RemoteSetupModal #remote-name,
+RemoteSetupModal #remote-url {
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+RemoteSetupModal .remote-setup-help {
+    color: #a9b7c9;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+RemoteSetupModal .remote-setup-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 1;
+}
+
+RemoteSetupModal #cancel {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #262b3d;
+    color: #e4e6ef;
+    border: none;
+}
+
+RemoteSetupModal #cancel:hover {
+    background: #31374d;
+}
+
+RemoteSetupModal #confirm {
+    width: 18;
+    min-width: 18;
+    text-style: bold;
+    background: #5dcf84;
+    color: #0f1a12;
+    border: none;
+}
+
+RemoteSetupModal #confirm:hover {
     background: #75de99;
 }
 
@@ -1284,6 +1375,7 @@ AttachPickerModal .modal-list {
 SessionResumeModal .modal-title,
 BranchPickerModal .modal-title,
 AttachPickerModal .modal-title,
+RemoteSetupModal .modal-title,
 SetupModal .modal-title {
     text-align: center;
     text-style: bold;
@@ -1295,6 +1387,7 @@ SetupModal .modal-title {
 SessionResumeModal .modal-body,
 BranchPickerModal .modal-body,
 AttachPickerModal .modal-body,
+RemoteSetupModal .modal-body,
 SetupModal .modal-body {
     color: #d5d7e2;
     margin-bottom: 1;
@@ -1311,6 +1404,7 @@ SessionResumeModal .resume-warning {
 SessionResumeModal .modal-actions,
 BranchPickerModal .modal-actions,
 AttachPickerModal .modal-actions,
+RemoteSetupModal .modal-actions,
 SetupModal .modal-actions {
     height: 1;
     min-height: 1;
@@ -1338,6 +1432,7 @@ SessionResumeModal #resume:hover {
 SessionResumeModal #cancel,
 BranchPickerModal #cancel,
 AttachPickerModal #cancel,
+RemoteSetupModal #cancel,
 SetupModal #cancel {
     width: 12;
     min-width: 12;
@@ -1350,6 +1445,7 @@ SetupModal #cancel {
 SessionResumeModal #cancel:hover,
 BranchPickerModal #cancel:hover,
 AttachPickerModal #cancel:hover,
+RemoteSetupModal #cancel:hover,
 SetupModal #cancel:hover {
     background: #31374d;
 }

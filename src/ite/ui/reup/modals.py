@@ -152,6 +152,105 @@ class PushReviewModal(ModalScreen[bool]):
         self.action_cancel()
 
 
+class RemoteSetupModal(ModalScreen[dict[str, str] | None]):
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+c", "cancel", "Cancel"),
+        ("enter", "submit", "Submit"),
+    ]
+
+    def __init__(
+        self,
+        *,
+        branch: str,
+        remote_name: str = "origin",
+        remote_url: str = "",
+    ) -> None:
+        super().__init__()
+        self._branch = branch
+        self._remote_name = remote_name
+        self._remote_url = remote_url
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal remote-setup-modal"):
+            yield Label("Set up publish remote", classes="modal-title")
+            with Vertical(classes="modal-body remote-setup-body"):
+                with Horizontal(classes="push-review-row"):
+                    yield Static("Branch", classes="push-review-label")
+                    yield Static(self._branch, classes="push-review-value")
+                yield Static("Remote name", classes="commit-label")
+                yield Input(value=self._remote_name, id="remote-name")
+                yield Static("Remote URL", classes="commit-label")
+                yield Input(
+                    value=self._remote_url,
+                    placeholder="git@github.com:user/repo.git",
+                    id="remote-url",
+                )
+                yield Static(
+                    "Examples: git@github.com:user/repo.git  or  https://github.com/user/repo.git",
+                    classes="remote-setup-help",
+                )
+                yield Static("", id="remote-setup-error", classes="push-review-warning")
+            with Horizontal(classes="modal-actions resume-actions remote-setup-actions"):
+                yield Button("Cancel", id="cancel", variant="default")
+                yield Button("Save and publish", id="confirm", variant="success")
+
+    async def on_mount(self) -> None:
+        self.query_one("#remote-url", Input).focus()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_submit(self) -> None:
+        self._submit()
+
+    def _set_error(self, message: str) -> None:
+        self.query_one("#remote-setup-error", Static).update(message)
+
+    @staticmethod
+    def _is_valid_remote_name(value: str) -> bool:
+        text = value.strip()
+        return bool(text) and not text.startswith("-") and not any(ch.isspace() for ch in text)
+
+    @staticmethod
+    def _is_valid_remote_url(value: str) -> bool:
+        text = value.strip()
+        if not text or any(ch.isspace() for ch in text):
+            return False
+        if re.match(r"^[^@\s:]+@[^:\s]+:.+$", text) or re.match(r"^[^:\s]+:[^/].+$", text):
+            return True
+        if text.startswith(("/", "./", "../", "~/")):
+            return True
+        parsed = urlparse(text)
+        if parsed.scheme in {"http", "https", "ssh", "git", "file"}:
+            return bool(parsed.netloc or parsed.path)
+        return "/" in text or text.endswith(".git")
+
+    def _submit(self) -> None:
+        remote_name = self.query_one("#remote-name", Input).value.strip()
+        remote_url = self.query_one("#remote-url", Input).value.strip()
+        if not self._is_valid_remote_name(remote_name):
+            self._set_error("Remote name cannot be empty or contain spaces.")
+            return
+        if not self._is_valid_remote_url(remote_url):
+            self._set_error("Remote URL must be a valid git URL or path.")
+            return
+        self.dismiss({"remote_name": remote_name, "remote_url": remote_url})
+
+    @on(Button.Pressed, "#confirm")
+    def on_confirm_pressed(self, _event: Button.Pressed) -> None:
+        self._submit()
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.action_cancel()
+
+    @on(Input.Submitted, "#remote-name")
+    @on(Input.Submitted, "#remote-url")
+    def on_input_submitted(self, _event: Input.Submitted) -> None:
+        self._submit()
+
+
 class PlanQuestionModal(ModalScreen[dict[str, Any]]):
     def __init__(
         self,

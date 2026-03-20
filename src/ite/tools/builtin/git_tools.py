@@ -13,6 +13,9 @@ from ite.git.branches import (
     is_git_repo,
     list_local_branches,
 )
+from ite.git.remotes import add_remote
+from ite.git.remotes import list_remotes
+from ite.git.remotes import set_remote_url
 from ite.git.working_tree import (
     commit_changes,
     git_outbound_state,
@@ -175,6 +178,32 @@ class GitCommitParams(BaseModel):
 
 class GitPushParams(BaseModel):
     pass
+
+
+class GitRemoteParams(BaseModel):
+    action: str = Field(
+        "list",
+        description="Remote action: list, add, or set-url.",
+    )
+    name: str | None = Field(
+        None,
+        description="Remote name for add or set-url actions.",
+    )
+    url: str | None = Field(
+        None,
+        description="Remote URL for add or set-url actions.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_remote_requirements(self) -> "GitRemoteParams":
+        action = self.action.strip().lower()
+        if action not in {"list", "add", "set-url"}:
+            raise ValueError("action must be one of: list, add, set-url")
+        if action in {"add", "set-url"} and not (self.name or "").strip():
+            raise ValueError("name is required for add/set-url actions")
+        if action in {"add", "set-url"} and not (self.url or "").strip():
+            raise ValueError("url is required for add/set-url actions")
+        return self
 
 
 class GitStatusTool(Tool):
@@ -618,5 +647,104 @@ class GitPushTool(Tool):
                 "remote_name": refreshed.remote_name if refreshed else None,
                 "ahead_count": refreshed.ahead_count if refreshed else 0,
                 "behind_count": refreshed.behind_count if refreshed else 0,
+            },
+        )
+
+
+class GitRemoteTool(Tool):
+    name = "git_remote"
+    description = "List git remotes, add a new remote, or update an existing remote URL."
+    kind = ToolKind.WRITE
+    schema = GitRemoteParams
+
+    def is_mutating(self, params: dict[str, Any]) -> bool:
+        try:
+            payload = GitRemoteParams(**params)
+        except Exception:
+            return True
+        return payload.action.strip().lower() != "list"
+
+    def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
+        mutating = self.is_mutating(params)
+        return ToolMetadata(
+            mutating=mutating,
+            risk_level=ToolRiskLevel.MEDIUM if not mutating else ToolRiskLevel.HIGH,
+            allowed_in_plan_mode=not mutating,
+            supports_subagent_use=True,
+            output_schema={"type": "string"},
+        )
+
+    async def get_confirmation(self, invocation: ToolInvocation) -> ToolConfirmation | None:
+        params = GitRemoteParams(**invocation.params)
+        action = params.action.strip().lower()
+        if action == "list":
+            return None
+        return ToolConfirmation(
+            tool_name=self.name,
+            description=f"Git remote {action}: {params.name}",
+            params=invocation.params,
+            affected_paths=[invocation.cwd.resolve()],
+        )
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        params = GitRemoteParams(**invocation.params)
+        cwd = invocation.cwd.resolve()
+
+        sandbox_error = self._sandbox_check(cwd, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
+        repo_error = _ensure_repo(cwd)
+        if repo_error:
+            return repo_error
+
+        action = params.action.strip().lower()
+        if action == "list":
+            remotes = list_remotes(cwd)
+            if not remotes:
+                return ToolResult.success_result(
+                    "No git remotes configured.",
+                    metadata={"count": 0, "remotes": []},
+                )
+            lines = [f"{remote.name}  {remote.url}" for remote in remotes]
+            return ToolResult.success_result(
+                "\n".join(lines),
+                metadata={
+                    "count": len(remotes),
+                    "remotes": [
+                        {"name": remote.name, "url": remote.url}
+                        for remote in remotes
+                    ],
+                },
+            )
+
+        remote_name = (params.name or "").strip()
+        remote_url = (params.url or "").strip()
+        if action == "add":
+            result = add_remote(cwd, remote_name, remote_url)
+        else:
+            result = set_remote_url(cwd, remote_name, remote_url)
+
+        if not result.ok:
+            return ToolResult.error_result(
+                result.message,
+                metadata={
+                    "action": action,
+                    "name": remote_name,
+                    "url": remote_url,
+                },
+            )
+
+        remotes = list_remotes(cwd)
+        return ToolResult.success_result(
+            result.message,
+            metadata={
+                "action": action,
+                "name": remote_name,
+                "url": remote_url,
+                "remotes": [
+                    {"name": remote.name, "url": remote.url}
+                    for remote in remotes
+                ],
             },
         )

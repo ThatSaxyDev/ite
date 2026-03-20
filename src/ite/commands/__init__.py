@@ -74,6 +74,7 @@ def build_registry() -> CommandRegistry:
     """Build and return the full command registry with all commands."""
     from ite.commands.general import register as register_general
     from ite.commands.branch import register as register_branch
+    from ite.commands.publish import register as register_publish
     from ite.commands.model import register as register_model
     from ite.commands.plan import register as register_plan
     from ite.commands.info import register as register_info
@@ -88,6 +89,7 @@ def build_registry() -> CommandRegistry:
     registry = CommandRegistry()
     register_general(registry)
     register_branch(registry)
+    register_publish(registry)
     register_model(registry)
     register_plan(registry)
     register_info(registry)

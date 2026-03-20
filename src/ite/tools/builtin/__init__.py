@@ -16,6 +16,7 @@ from ite.tools.builtin.git_tools import GitCommitTool
 from ite.tools.builtin.git_tools import GitDiffTool
 from ite.tools.builtin.git_tools import GitLogTool
 from ite.tools.builtin.git_tools import GitPushTool
+from ite.tools.builtin.git_tools import GitRemoteTool
 from ite.tools.builtin.git_tools import GitStatusTool
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "GitBranchTool",
     "GitCommitTool",
     "GitPushTool",
+    "GitRemoteTool",
 ]
 
 
@@ -62,4 +64,5 @@ def get_all_builtin_tools() -> list[type]:
         GitBranchTool,
         GitCommitTool,
         GitPushTool,
+        GitRemoteTool,
     ]

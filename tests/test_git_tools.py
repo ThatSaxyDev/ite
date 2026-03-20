@@ -11,6 +11,7 @@ from ite.tools.builtin.git_tools import (
     GitDiffTool,
     GitLogTool,
     GitPushTool,
+    GitRemoteTool,
     GitStatusTool,
 )
 from ite.tools.registry import create_default_registry
@@ -159,6 +160,40 @@ class GitToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.metadata.get("count"), 2)
             self.assertEqual(result.metadata["commits"][0]["subject"], "second commit")
 
+    async def test_git_remote_lists_adds_and_updates_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            remote_a = cwd / "remote-a.git"
+            remote_b = cwd / "remote-b.git"
+            _init_repo(cwd)
+            _commit_file(cwd, "app.py", "print('one')\n", "initial commit")
+            subprocess.run(["git", "init", "--bare", str(remote_a)], check=False, capture_output=True, text=True)
+            subprocess.run(["git", "init", "--bare", str(remote_b)], check=False, capture_output=True, text=True)
+
+            tool = GitRemoteTool(Config(cwd=cwd, api_key="test"))
+
+            added = await tool.execute(
+                ToolInvocation(
+                    params={"action": "add", "name": "origin", "url": str(remote_a)},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(added.success, msg=added.error)
+
+            listed = await tool.execute(ToolInvocation(params={"action": "list"}, cwd=cwd))
+            self.assertTrue(listed.success, msg=listed.error)
+            self.assertEqual(listed.metadata.get("count"), 1)
+            self.assertEqual(listed.metadata["remotes"][0]["name"], "origin")
+
+            updated = await tool.execute(
+                ToolInvocation(
+                    params={"action": "set-url", "name": "origin", "url": str(remote_b)},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(updated.success, msg=updated.error)
+            self.assertEqual(updated.metadata["remotes"][0]["url"], str(remote_b))
+
     async def test_git_branch_lists_and_creates_branches(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -215,7 +250,15 @@ class GitToolTests(unittest.IsolatedAsyncioTestCase):
             tool_names = {tool.name for tool in registry.get_tools()}
 
             self.assertTrue(
-                {"git_status", "git_diff", "git_log", "git_branch", "git_commit", "git_push"}.issubset(tool_names)
+                {
+                    "git_status",
+                    "git_diff",
+                    "git_log",
+                    "git_branch",
+                    "git_remote",
+                    "git_commit",
+                    "git_push",
+                }.issubset(tool_names)
             )
 
     async def test_git_tools_fail_cleanly_outside_repo(self) -> None:

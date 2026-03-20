@@ -61,6 +61,7 @@ from ite.git.branches import (
     is_git_repo,
     list_local_branches,
 )
+from ite.git.remotes import upsert_remote
 from ite.git.working_tree import (
     commit_changes,
     discard_all,
@@ -97,6 +98,7 @@ from .modals import (
     ConfirmModal,
     PlanQuestionModal,
     PushReviewModal,
+    RemoteSetupModal,
     SessionResumeModal,
     SetupModal,
 )
@@ -1774,20 +1776,64 @@ class ReupApp(App):
             await self._toggle_change_review_panel()
             return
         if self._git_outbound_state and self._git_outbound_state.needs_attention:
-            self.run_worker(self._run_push_from_header(), exclusive=False)
+            self.run_worker(self._run_publish_flow(), exclusive=False)
 
-    async def _run_push_from_header(self) -> None:
+    async def _configure_remote_for_publish(
+        self,
+        *,
+        remote_name: str,
+        remote_url: str,
+    ) -> bool:
+        cwd = Path(self.config.cwd).resolve()
+        result = await asyncio.to_thread(
+            upsert_remote,
+            cwd,
+            remote_name,
+            remote_url,
+        )
+        await self._refresh_change_review_source(prefer_git_only=True)
+        if not result.ok:
+            self.post_system("Git", result.message, is_error=True)
+            return False
+        self.post_notice("Git", result.message)
+        return True
+
+    async def _prompt_for_remote_setup(self, branch: str) -> bool:
+        result = await self._open_modal(
+            RemoteSetupModal(branch=branch, remote_name="origin")
+        )
+        if not result:
+            return False
+        return await self._configure_remote_for_publish(
+            remote_name=result["remote_name"],
+            remote_url=result["remote_url"],
+        )
+
+    async def _run_publish_flow(
+        self,
+        *,
+        configured_remote: tuple[str, str] | None = None,
+    ) -> None:
+        if configured_remote is not None:
+            configured = await self._configure_remote_for_publish(
+                remote_name=configured_remote[0],
+                remote_url=configured_remote[1],
+            )
+            if not configured:
+                return
+
         outbound = self._git_outbound_state
         if not outbound or not outbound.needs_attention:
+            await self._refresh_change_review_source(prefer_git_only=True)
+            outbound = self._git_outbound_state
+        if not outbound or not outbound.needs_attention:
+            self.post_notice("Git", "Nothing to publish.")
             return
         if not outbound.has_remote:
-            self.post_system(
-                "Git",
-                "No remote configured. Set one up with:\n\ngit remote add origin <url>",
-                is_error=True,
-            )
+            configured = await self._prompt_for_remote_setup(outbound.branch)
+            if configured:
+                await self._run_publish_flow()
             return
-        verb = "Publish" if outbound.needs_publish else "Push"
         commit_subjects = await asyncio.to_thread(
             outbound_commit_subjects,
             Path(self.config.cwd).resolve(),
@@ -3126,6 +3172,10 @@ class ReupApp(App):
             await self._run_changes_command_native()
             return
 
+        if command == "/publish":
+            await self._run_publish_command_native(args)
+            return
+
         if command == "/close":
             await self.close_current_thread()
             return
@@ -3217,6 +3267,25 @@ class ReupApp(App):
             change_set,
             title=self._change_review_title,
             mode=self._change_review_mode,
+        )
+
+    async def _run_publish_command_native(self, args: list[str]) -> None:
+        if not await asyncio.to_thread(is_git_repo, Path(self.config.cwd).resolve()):
+            self.post_system("Publish", "Not a git repository in current workspace.", is_error=True)
+            return
+        if not args:
+            await self._run_publish_flow()
+            return
+        if len(args) == 1:
+            await self._run_publish_flow(configured_remote=("origin", args[0]))
+            return
+        if len(args) == 2:
+            await self._run_publish_flow(configured_remote=(args[0], args[1]))
+            return
+        self.post_system(
+            "Publish",
+            "Usage: /publish\n/publish <remote-url>\n/publish <remote-name> <remote-url>",
+            is_error=True,
         )
 
     async def _run_undo_command_native(self, args: list[str]) -> None:

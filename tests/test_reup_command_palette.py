@@ -50,6 +50,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(slash_only, sorted(slash_only, key=lambda entry: entry.name.lower()))
         self.assertGreater(len(slash_only), 8)
         self.assertEqual(slash_only[0].name, "/approval")
+        self.assertIn("/publish", [entry.name for entry in slash_only])
         self.assertEqual([entry.name for entry in filtered], ["/approval"])
         self.assertEqual(filtered[0].description, "Show or change approval mode")
 
