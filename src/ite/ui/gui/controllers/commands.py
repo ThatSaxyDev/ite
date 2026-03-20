@@ -47,6 +47,8 @@ class CommandControllerMixin:
             await self._command_registry.dispatch(command, args, ctx)
             if command == "/branch" and self.page:
                 self.page.run_task(self._refresh_branch_options_async)
+            if command == "/rename" and self.agent and self.agent.session:
+                self._set_current_session_title(self.agent.session.name)
             if hasattr(self, "_refresh_workboard_from_session"):
                 self._refresh_workboard_from_session()
 

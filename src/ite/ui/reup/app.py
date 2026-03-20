@@ -3138,7 +3138,7 @@ class ReupApp(App):
             return
 
         rendered = output.getvalue().strip()
-        if command in {"/branch", "/attach", "/model"}:
+        if command in {"/branch", "/attach", "/model", "/rename"}:
             self.refresh_header()
         if rendered:
             self.post_notice(f"Command {command}", rendered)

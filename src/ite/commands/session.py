@@ -1,4 +1,4 @@
-"""Session commands: /save, /sessions, /resume (checkpointing remains internal)."""
+"""Session commands: /sessions, /resume, /rename (checkpointing remains internal)."""
 
 import os
 import sys
@@ -13,6 +13,29 @@ from rich.markdown import Markdown
 from rich.table import Table
 from rich.text import Text
 from rich import box
+
+
+def _current_session_snapshot(ctx: CommandContext) -> SessionSnapshot:
+    session = ctx.agent.session
+    return SessionSnapshot(
+        session_id=session.session_id,
+        name=session.name,
+        workspace_path=str(ctx.config.cwd.resolve()),
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        turn_count=session.turn_count,
+        messages=session.context_manager.get_messages(),
+        total_usage=session.context_manager.total_usage,
+        plan_mode_enabled=session.plan_mode_enabled,
+        plan_phase=session.plan_phase,
+        plan_questions_asked=session.plan_questions_asked,
+        plan_target_questions=session.plan_target_questions,
+        pending_plan_text=session.pending_plan_text,
+        active_plan_text=session.active_plan_text,
+        todos_state=session.export_todos_state(),
+        show_planning_todos=session.show_planning_todos,
+        change_history_state=session.export_change_history_state(),
+    )
 
 
 def _tool_kind_for_name(ctx: CommandContext, tool_name: str) -> str | None:
@@ -181,25 +204,7 @@ async def _pick_session_to_resume(
 
 async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
     session_manager = SessionManager()
-    session_snapshot = SessionSnapshot(
-        session_id=ctx.agent.session.session_id,
-        name=ctx.agent.session.name,
-        workspace_path=str(ctx.config.cwd.resolve()),
-        created_at=ctx.agent.session.created_at,
-        updated_at=ctx.agent.session.updated_at,
-        turn_count=ctx.agent.session.turn_count,
-        messages=ctx.agent.session.context_manager.get_messages(),
-        total_usage=ctx.agent.session.context_manager.total_usage,
-        plan_mode_enabled=ctx.agent.session.plan_mode_enabled,
-        plan_phase=ctx.agent.session.plan_phase,
-        plan_questions_asked=ctx.agent.session.plan_questions_asked,
-        plan_target_questions=ctx.agent.session.plan_target_questions,
-        pending_plan_text=ctx.agent.session.pending_plan_text,
-        active_plan_text=ctx.agent.session.active_plan_text,
-        todos_state=ctx.agent.session.export_todos_state(),
-        show_planning_todos=ctx.agent.session.show_planning_todos,
-        change_history_state=ctx.agent.session.export_change_history_state(),
-    )
+    session_snapshot = _current_session_snapshot(ctx)
     session_manager.save_session(session_snapshot)
 
     ctx.agent.session.record_lifecycle_episode(
@@ -376,6 +381,46 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     _render_resumed_transcript(ctx, snapshot.messages)
 
 
+async def cmd_rename(ctx: CommandContext, args: list[str]) -> None:
+    if not ctx.agent or not ctx.agent.session:
+        ctx.console.print("[error]No active session.[/error]")
+        return
+
+    new_name = " ".join(args).strip()
+    if not new_name:
+        current = (ctx.agent.session.name or "Untitled thread").strip()
+        ctx.console.print(
+            f"[error]Missing new session name.[/error]  "
+            f"[dim]Usage: [green]/rename <new name>[/green]  Current: {current}[/dim]"
+        )
+        return
+
+    if len(new_name) > 60:
+        new_name = new_name[:60].rstrip()
+
+    ctx.agent.session.name = new_name
+    ctx.agent.session.updated_at = datetime.now()
+
+    session_manager = SessionManager()
+    session_manager.save_session(_current_session_snapshot(ctx))
+
+    title = Text.assemble(("✏️  ", ""), ("Session renamed", "bold bright_white"))
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Text.assemble(
+                ("New name: ", "dim"),
+                (new_name, "bold cyan"),
+            ),
+            title=title,
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 async def cmd_checkpoint(ctx: CommandContext, args: list[str]) -> None:
     session_manager = SessionManager()
     session_snapshot = SessionSnapshot(
@@ -524,6 +569,10 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/resume", description="Resume a saved session",
         handler=cmd_resume,
+    ))
+    registry.register(Command(
+        name="/rename", description="Rename the current session",
+        handler=cmd_rename,
     ))
     # Checkpoint commands intentionally not registered for user-facing CLI.
     # Internal auto-checkpoint flow remains active.
