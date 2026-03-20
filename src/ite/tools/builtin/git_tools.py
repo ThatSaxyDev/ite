@@ -16,6 +16,7 @@ from ite.git.branches import (
 from ite.git.working_tree import (
     commit_changes,
     git_outbound_state,
+    push_current_branch,
     working_tree_change_set,
 )
 from ite.tools.base import (
@@ -49,6 +50,51 @@ def _rel_path(path: Path, cwd: Path) -> str:
         return str(path.resolve().relative_to(cwd.resolve()))
     except Exception:
         return str(path)
+
+
+def _build_file_entries(change_set: Any | None, cwd: Path) -> list[dict[str, Any]]:
+    if change_set is None:
+        return []
+
+    staged = {_rel_path(diff.path, cwd) for diff in getattr(change_set, "staged_changes", [])}
+    unstaged = {_rel_path(diff.path, cwd) for diff in getattr(change_set, "unstaged_changes", [])}
+    untracked = {_rel_path(diff.path, cwd) for diff in getattr(change_set, "untracked_changes", [])}
+    combined = getattr(change_set, "changes", []) or []
+
+    entries: list[dict[str, Any]] = []
+    for diff in combined:
+        rel = _rel_path(diff.path, cwd)
+        if rel in staged and rel in unstaged:
+            stage_label = "staged + unstaged"
+        elif rel in staged:
+            stage_label = "staged"
+        elif rel in unstaged:
+            stage_label = "unstaged"
+        else:
+            stage_label = "working tree"
+
+        if rel in untracked:
+            change_type = "untracked"
+        elif getattr(diff, "is_new_file", False):
+            change_type = "new"
+        elif getattr(diff, "is_deletion", False):
+            change_type = "deleted"
+        else:
+            change_type = "modified"
+
+        entries.append(
+            {
+                "path": rel,
+                "stage_label": stage_label,
+                "change_type": change_type,
+                "staged": rel in staged,
+                "unstaged": rel in unstaged,
+                "untracked": rel in untracked,
+                "is_new_file": bool(getattr(diff, "is_new_file", False)),
+                "is_deletion": bool(getattr(diff, "is_deletion", False)),
+            }
+        )
+    return entries
 
 
 class GitStatusParams(BaseModel):
@@ -127,6 +173,10 @@ class GitCommitParams(BaseModel):
     )
 
 
+class GitPushParams(BaseModel):
+    pass
+
+
 class GitStatusTool(Tool):
     name = "git_status"
     description = "Inspect the current repository state including branch, upstream, and working tree changes."
@@ -157,6 +207,7 @@ class GitStatusTool(Tool):
         branch = current_branch(cwd)
         outbound = git_outbound_state(cwd)
         change_set = working_tree_change_set(cwd)
+        file_entries = _build_file_entries(change_set, cwd)
         staged = [_rel_path(diff.path, cwd) for diff in getattr(change_set, "staged_changes", [])]
         unstaged = [_rel_path(diff.path, cwd) for diff in getattr(change_set, "unstaged_changes", [])]
         untracked = [_rel_path(diff.path, cwd) for diff in getattr(change_set, "untracked_changes", [])]
@@ -171,6 +222,11 @@ class GitStatusTool(Tool):
             lines.append(f"Remote: {outbound.remote_name} (not published)")
         else:
             lines.append("Remote: none")
+
+        if outbound and outbound.needs_publish:
+            lines.append(f"Publish required: {outbound.target_label}")
+        elif outbound and outbound.has_outgoing:
+            lines.append(f"Push available: {outbound.ahead_count} outgoing commit(s)")
 
         if clean:
             lines.append("Working tree: clean")
@@ -196,9 +252,16 @@ class GitStatusTool(Tool):
             "remote_name": outbound.remote_name if outbound else None,
             "ahead_count": outbound.ahead_count if outbound else 0,
             "behind_count": outbound.behind_count if outbound else 0,
+            "has_remote": outbound.has_remote if outbound else False,
+            "has_upstream": outbound.has_upstream if outbound else False,
+            "needs_publish": outbound.needs_publish if outbound else False,
+            "has_outgoing": outbound.has_outgoing if outbound else False,
+            "push_action": outbound.action_label if outbound else "push",
+            "push_target": outbound.target_label if outbound else branch,
             "staged_files": staged,
             "unstaged_files": unstaged,
             "untracked_files": untracked,
+            "files": file_entries,
         }
         return ToolResult.success_result("\n".join(lines), metadata=metadata)
 
@@ -258,7 +321,9 @@ class GitDiffTool(Tool):
                 metadata={"changed_files": [], "diff_count": 0, "selection": selection},
             )
 
+        all_file_entries = {entry["path"]: entry for entry in _build_file_entries(change_set, cwd)}
         changed_files = [_rel_path(diff.path, cwd) for diff in diffs]
+        selected_entries = [all_file_entries[path] for path in changed_files if path in all_file_entries]
         output = "\n\n".join(diff.to_diff().rstrip() for diff in diffs if diff.to_diff().strip())
         return ToolResult.success_result(
             output or "No diff output available.",
@@ -266,6 +331,7 @@ class GitDiffTool(Tool):
                 "changed_files": changed_files,
                 "diff_count": len(diffs),
                 "selection": selection,
+                "files": selected_entries,
             },
             file_diffs=diffs,
         )
@@ -485,5 +551,68 @@ class GitCommitTool(Tool):
                 "sha": sha,
                 "short_sha": short_sha,
                 "current_branch": current_branch(cwd),
+            },
+        )
+
+
+class GitPushTool(Tool):
+    name = "git_push"
+    description = "Push or publish the current branch to its remote."
+    kind = ToolKind.WRITE
+    schema = GitPushParams
+
+    def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
+        return ToolMetadata(
+            mutating=True,
+            risk_level=ToolRiskLevel.HIGH,
+            allowed_in_plan_mode=False,
+            supports_subagent_use=True,
+            output_schema={"type": "string"},
+        )
+
+    async def get_confirmation(self, invocation: ToolInvocation) -> ToolConfirmation | None:
+        cwd = invocation.cwd.resolve()
+        outbound = git_outbound_state(cwd)
+        action = outbound.action_label if outbound else "push"
+        target = outbound.target_label if outbound else current_branch(cwd)
+        return ToolConfirmation(
+            tool_name=self.name,
+            description=f"Git {action} current branch to {target}",
+            params=invocation.params,
+            affected_paths=[cwd],
+        )
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        cwd = invocation.cwd.resolve()
+
+        sandbox_error = self._sandbox_check(cwd, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+
+        repo_error = _ensure_repo(cwd)
+        if repo_error:
+            return repo_error
+
+        outbound = git_outbound_state(cwd)
+        result = push_current_branch(cwd)
+        if not result.ok:
+            return ToolResult.error_result(
+                result.message,
+                metadata={
+                    "branch": outbound.branch if outbound else current_branch(cwd),
+                    "upstream": outbound.upstream if outbound else None,
+                    "remote_name": outbound.remote_name if outbound else None,
+                },
+            )
+
+        refreshed = git_outbound_state(cwd)
+        return ToolResult.success_result(
+            result.message,
+            metadata={
+                "branch": refreshed.branch if refreshed else current_branch(cwd),
+                "upstream": refreshed.upstream if refreshed else None,
+                "remote_name": refreshed.remote_name if refreshed else None,
+                "ahead_count": refreshed.ahead_count if refreshed else 0,
+                "behind_count": refreshed.behind_count if refreshed else 0,
             },
         )
