@@ -49,7 +49,7 @@ class CLIModeRoutingTests(unittest.TestCase):
             patch("ite.main.load_config", return_value=self._config()),
             patch("ite.ui.gui.run_gui", return_value=None) as mock_run_gui,
         ):
-            result = self.runner.invoke(main, ["--gui"])
+            result = self.runner.invoke(main, ["--desktop"])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         mock_run_gui.assert_called_once()
@@ -60,7 +60,7 @@ class CLIModeRoutingTests(unittest.TestCase):
             patch("ite.main.load_config", return_value=self._config()),
             patch("ite.ui.reup.run_reup", return_value=None) as mock_run_reup,
         ):
-            result = self.runner.invoke(main, ["--reup"])
+            result = self.runner.invoke(main, [])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         mock_run_reup.assert_called_once()
@@ -72,7 +72,7 @@ class CLIModeRoutingTests(unittest.TestCase):
             patch("ite.ui.gui.run_gui", return_value=None) as mock_run_gui,
             patch("ite.ui.reup.run_reup", return_value=None) as mock_run_reup,
         ):
-            result = self.runner.invoke(main, ["--gui", "--reup"])
+            result = self.runner.invoke(main, ["--desktop", "--legacy"])
 
         self.assertEqual(result.exit_code, 0, msg=result.output)
         mock_run_gui.assert_called_once()

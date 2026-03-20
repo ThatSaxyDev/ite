@@ -109,6 +109,9 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertIn("step one", loaded["pending_plan_text"])
         self.assertTrue(loaded["show_planning_todos"])
         self.assertIn("todos_state", loaded)
+        self.assertIn("name_source", loaded)
+        self.assertIn("name_locked", loaded)
+        self.assertIn("name_last_generated_turn", loaded)
 
     def test_change_history_state_round_trips_in_snapshot(self) -> None:
         snapshot = SessionSnapshot(

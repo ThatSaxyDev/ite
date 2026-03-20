@@ -86,26 +86,14 @@ class SessionControllerMixin:
         session = self.agent.session
         try:
             if session.name is None:
-                session.name = await self._generate_session_name(session)
+                session.set_auto_name(await self._generate_session_name(session))
+            elif session.should_refresh_auto_name():
+                refreshed = await self._generate_session_name(session)
+                if refreshed and refreshed.strip() and refreshed.strip() != session.name:
+                    session.set_auto_name(refreshed)
 
             snapshot = SessionSnapshot(
-                session_id=session.session_id,
-                name=session.name,
-                workspace_path=str(self.config.cwd.resolve()),
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                turn_count=session.turn_count,
-                messages=session.context_manager.get_messages(),
-                total_usage=session.context_manager.total_usage,
-                plan_mode_enabled=session.plan_mode_enabled,
-                plan_phase=session.plan_phase,
-                plan_questions_asked=session.plan_questions_asked,
-                plan_target_questions=session.plan_target_questions,
-                pending_plan_text=session.pending_plan_text,
-                active_plan_text=session.active_plan_text,
-                todos_state=session.export_todos_state(),
-                show_planning_todos=session.show_planning_todos,
-                change_history_state=session.export_change_history_state(),
+                **session.snapshot_kwargs(workspace_path=str(self.config.cwd.resolve()))
             )
             await asyncio.to_thread(SessionManager().save_session, snapshot)
             self._set_current_session_title(session.name)
@@ -118,14 +106,11 @@ class SessionControllerMixin:
     async def _generate_session_name(self, session: Session) -> str:
         first_user = ""
         try:
-            messages = session.context_manager.get_messages()
-            first_assistant = ""
-            for msg in messages:
-                if msg.get("role") == "user" and not first_user:
-                    first_user = msg.get("content", "")[:200]
-                elif msg.get("role") == "assistant" and first_user and not first_assistant:
-                    first_assistant = msg.get("content", "")[:200]
-                    break
+            context = session.name_generation_context()
+            first_user = context.get("first_user", "")
+            first_assistant = context.get("first_assistant", "")
+            latest_user = context.get("latest_user", "")
+            focus_hint = context.get("focus_hint", "")
 
             if not first_user:
                 return "New thread"
@@ -135,9 +120,12 @@ class SessionControllerMixin:
                     "role": "user",
                     "content": (
                         "Generate a concise 3-6 word title for this conversation. "
+                        "Prefer the current active work focus over the initial exploratory question if they differ. "
                         "Reply with ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n"
-                        f"User: {first_user}\n"
-                        + (f"Assistant: {first_assistant}" if first_assistant else "")
+                        f"Initial user: {first_user}\n"
+                        + (f"Initial assistant: {first_assistant}\n" if first_assistant else "")
+                        + (f"Latest user: {latest_user}\n" if latest_user else "")
+                        + (f"Active focus: {focus_hint}" if focus_hint else "")
                     ),
                 }
             ]

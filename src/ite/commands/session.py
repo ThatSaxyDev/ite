@@ -17,25 +17,7 @@ from rich import box
 
 def _current_session_snapshot(ctx: CommandContext) -> SessionSnapshot:
     session = ctx.agent.session
-    return SessionSnapshot(
-        session_id=session.session_id,
-        name=session.name,
-        workspace_path=str(ctx.config.cwd.resolve()),
-        created_at=session.created_at,
-        updated_at=session.updated_at,
-        turn_count=session.turn_count,
-        messages=session.context_manager.get_messages(),
-        total_usage=session.context_manager.total_usage,
-        plan_mode_enabled=session.plan_mode_enabled,
-        plan_phase=session.plan_phase,
-        plan_questions_asked=session.plan_questions_asked,
-        plan_target_questions=session.plan_target_questions,
-        pending_plan_text=session.pending_plan_text,
-        active_plan_text=session.active_plan_text,
-        todos_state=session.export_todos_state(),
-        show_planning_todos=session.show_planning_todos,
-        change_history_state=session.export_change_history_state(),
-    )
+    return SessionSnapshot(**session.snapshot_kwargs(workspace_path=str(ctx.config.cwd.resolve())))
 
 
 def _tool_kind_for_name(ctx: CommandContext, tool_name: str) -> str | None:
@@ -342,6 +324,9 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     session = Session(config=ctx.config)
     session.set_session_id(snapshot.session_id)
     session.name = snapshot.name
+    session.name_source = snapshot.name_source
+    session.name_locked = snapshot.name_locked
+    session.name_last_generated_turn = snapshot.name_last_generated_turn
     session.created_at = snapshot.created_at
     session.updated_at = snapshot.updated_at
     session.turn_count = snapshot.turn_count
@@ -398,8 +383,7 @@ async def cmd_rename(ctx: CommandContext, args: list[str]) -> None:
     if len(new_name) > 60:
         new_name = new_name[:60].rstrip()
 
-    ctx.agent.session.name = new_name
-    ctx.agent.session.updated_at = datetime.now()
+    ctx.agent.session.set_manual_name(new_name)
 
     session_manager = SessionManager()
     session_manager.save_session(_current_session_snapshot(ctx))

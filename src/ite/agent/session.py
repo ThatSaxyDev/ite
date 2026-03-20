@@ -42,6 +42,9 @@ class Session:
         self.loop_detector = LoopDetector()
         self.hook_system = HookSystem(self.config)
         self.name: str | None = None
+        self.name_source: str | None = None
+        self.name_locked: bool = False
+        self.name_last_generated_turn: int = 0
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
         self.plan_mode_enabled: bool = False
@@ -100,6 +103,80 @@ class Session:
         self.updated_at = datetime.now()
 
         return self._turn_count
+
+    def set_auto_name(self, name: str) -> None:
+        normalized = (name or "").strip()
+        if not normalized or self.name_locked:
+            return
+        self.name = normalized
+        self.name_source = "auto"
+        self.name_last_generated_turn = self.turn_count
+        self.updated_at = datetime.now()
+
+    def set_manual_name(self, name: str) -> None:
+        normalized = (name or "").strip()
+        if not normalized:
+            return
+        self.name = normalized
+        self.name_source = "manual"
+        self.name_locked = True
+        self.updated_at = datetime.now()
+
+    def should_refresh_auto_name(self) -> bool:
+        return (
+            bool(self.name)
+            and self.name_source == "auto"
+            and not self.name_locked
+            and self.turn_count >= 3
+            and self.name_last_generated_turn < 3
+        )
+
+    def name_generation_context(self) -> dict[str, str]:
+        first_user = ""
+        first_assistant = ""
+        latest_user = ""
+        if self.context_manager:
+            for msg in self.context_manager.get_messages():
+                if msg.get("role") == "user":
+                    content = str(msg.get("content", "") or "").strip()
+                    if content and not first_user:
+                        first_user = content[:200]
+                    if content:
+                        latest_user = content[:200]
+                elif msg.get("role") == "assistant" and first_user and not first_assistant:
+                    content = str(msg.get("content", "") or "").strip()
+                    if content:
+                        first_assistant = content[:200]
+        return {
+            "first_user": first_user,
+            "first_assistant": first_assistant,
+            "latest_user": latest_user,
+            "focus_hint": self._derive_current_focus()[:200],
+        }
+
+    def snapshot_kwargs(self, *, workspace_path: str) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "name": self.name,
+            "name_source": self.name_source,
+            "name_locked": self.name_locked,
+            "name_last_generated_turn": self.name_last_generated_turn,
+            "workspace_path": workspace_path,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "turn_count": self.turn_count,
+            "messages": self.context_manager.get_messages(),
+            "total_usage": self.context_manager.total_usage,
+            "plan_mode_enabled": self.plan_mode_enabled,
+            "plan_phase": self.plan_phase,
+            "plan_questions_asked": self.plan_questions_asked,
+            "plan_target_questions": self.plan_target_questions,
+            "pending_plan_text": self.pending_plan_text,
+            "active_plan_text": self.active_plan_text,
+            "todos_state": self.export_todos_state(),
+            "show_planning_todos": self.show_planning_todos,
+            "change_history_state": self.export_change_history_state(),
+        }
 
     def record_lifecycle_episode(self, summary: str, *, source: str) -> None:
         self.memory_manager.append_episode(

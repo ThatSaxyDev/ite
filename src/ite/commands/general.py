@@ -25,23 +25,7 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
         if session.turn_count > 0:
             session_manager = SessionManager()
             snapshot = SessionSnapshot(
-                session_id=session.session_id,
-                name=session.name,
-                workspace_path=str(ctx.config.cwd.resolve()),
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                turn_count=session.turn_count,
-                messages=session.context_manager.get_messages(),
-                total_usage=session.context_manager.total_usage,
-                plan_mode_enabled=session.plan_mode_enabled,
-                plan_phase=session.plan_phase,
-                plan_questions_asked=session.plan_questions_asked,
-                plan_target_questions=session.plan_target_questions,
-                pending_plan_text=session.pending_plan_text,
-                active_plan_text=session.active_plan_text,
-                todos_state=session.export_todos_state(),
-                show_planning_todos=session.show_planning_todos,
-                change_history_state=session.export_change_history_state(),
+                **session.snapshot_kwargs(workspace_path=str(ctx.config.cwd.resolve()))
             )
             session_manager.save_session(snapshot)
             session.record_lifecycle_episode(
@@ -130,23 +114,7 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
     if previous.turn_count > 0:
         session_manager = SessionManager()
         snapshot = SessionSnapshot(
-            session_id=previous.session_id,
-            name=previous.name,
-            workspace_path=str(ctx.config.cwd.resolve()),
-            created_at=previous.created_at,
-            updated_at=previous.updated_at,
-            turn_count=previous.turn_count,
-            messages=previous.context_manager.get_messages(),
-            total_usage=previous.context_manager.total_usage,
-            plan_mode_enabled=previous.plan_mode_enabled,
-            plan_phase=previous.plan_phase,
-            plan_questions_asked=previous.plan_questions_asked,
-            plan_target_questions=previous.plan_target_questions,
-            pending_plan_text=previous.pending_plan_text,
-            active_plan_text=previous.active_plan_text,
-            todos_state=previous.export_todos_state(),
-            show_planning_todos=previous.show_planning_todos,
-            change_history_state=previous.export_change_history_state(),
+            **previous.snapshot_kwargs(workspace_path=str(ctx.config.cwd.resolve()))
         )
         session_manager.save_session(snapshot)
         previous.record_lifecycle_episode(

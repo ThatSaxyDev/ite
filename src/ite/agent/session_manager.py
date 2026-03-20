@@ -114,6 +114,9 @@ class SessionSnapshot:
     messages: list[dict[str, Any]]
     total_usage: TokenUsage
     name: str | None = None
+    name_source: str | None = None
+    name_locked: bool = False
+    name_last_generated_turn: int = 0
     workspace_path: str | None = None
     plan_mode_enabled: bool = False
     plan_phase: str = "idle"
@@ -129,6 +132,9 @@ class SessionSnapshot:
         return {
             "session_id": self.session_id,
             "name": self.name,
+            "name_source": self.name_source,
+            "name_locked": self.name_locked,
+            "name_last_generated_turn": self.name_last_generated_turn,
             "workspace_path": self.workspace_path,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -151,6 +157,9 @@ class SessionSnapshot:
         return cls(
             session_id=data["session_id"],
             name=data.get("name"),
+            name_source=data.get("name_source"),
+            name_locked=bool(data.get("name_locked", False)),
+            name_last_generated_turn=int(data.get("name_last_generated_turn", 0)),
             workspace_path=data.get("workspace_path"),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
