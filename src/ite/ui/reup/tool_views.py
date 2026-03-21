@@ -208,8 +208,8 @@ def render_numbered_unified_diff(diff_text: str) -> Text:
     new_lineno = 0
     gutter_style = "#7d8591"
     context_style = "#edf1f7"
-    add_style = "#4edea3"
-    del_style = "#ffb95f"
+    add_style = "#8fb7a1"
+    del_style = "#d8ab74"
     hunk_style = "#b7c8e1"
 
     def append_line(
@@ -522,7 +522,9 @@ def render_text_payload(text: str, *, success: bool, language: str = "text") -> 
                 theme="monokai",
                 word_wrap=True,
             )
-    return Syntax(text, language, theme="monokai", word_wrap=True)
+    if language != "text":
+        return Syntax(text, language, theme="monokai", word_wrap=True)
+    return Text(text, style="#dfe4ea")
 
 
 _SHELL_STDERR_MARKER_RE = re.compile(r"(?:^|\n)\s*--- STDERR ---\s*\n", re.MULTILINE)
@@ -556,7 +558,7 @@ def shell_session_state(metadata: dict[str, Any] | None) -> str:
 def shell_session_status_label(metadata: dict[str, Any] | None, *, running_suffix: str = "") -> tuple[str, str]:
     state = shell_session_state(metadata)
     if state == "command_running":
-        return "command running" + running_suffix, "#7ad69f"
+        return "command running" + running_suffix, "#b7c8e1"
     if state == "idle":
         return "idle", "#8c97ab"
     if state == "stopped":
@@ -596,14 +598,12 @@ def render_shell_running_card(
     command = str(arguments.get("command", "")).strip()
     shell_cwd = arguments.get("cwd") if isinstance(arguments.get("cwd"), str) else None
     header = Text()
-    header.append(f"{shell_spinner_frame(spinner_index)} ", style="bold #4edea3")
+    header.append(f"{shell_spinner_frame(spinner_index)} ", style="bold #b7c8e1")
     header.append("Running in shell", style="bold #edf1f7")
     header.append("  live", style="#8c93a1")
     return Group(
         header,
-        Text(""),
         Text(describe_tool_activity("shell", arguments, stage="start"), style="#8c93a1"),
-        Text(""),
         render_shell_command_line(command, cwd=cwd, shell_cwd=shell_cwd),
     )
 
@@ -642,7 +642,7 @@ def render_shell_result_payload(
             summary.append("  •  ", style="#667084")
         summary.append("timed out", style="#f5b54f")
     if summary.plain:
-        blocks.extend([summary, Text("")])
+        blocks.append(summary)
 
     if not has_new_output and session_id:
         if isinstance(running, bool) and not running:
@@ -652,17 +652,12 @@ def render_shell_result_payload(
         return blocks
 
     if stdout_text:
-        blocks.append(Text("stdout", style="bold #7ad69f"))
+        blocks.append(Text("stdout", style="bold #b7c8e1"))
         blocks.append(render_text_payload(stdout_text, success=True))
-        blocks.append(Text(""))
     if stderr_text:
-        blocks.append(Text("stderr", style="bold #f5b54f"))
+        blocks.append(Text("stderr", style="bold #d8ab74"))
         blocks.append(render_text_payload(stderr_text, success=False))
-        blocks.append(Text(""))
 
     if not stdout_text and not stderr_text:
         blocks.append(Text("No output", style="#8c97ab"))
-    elif blocks and isinstance(blocks[-1], Text) and blocks[-1].plain == "":
-        blocks.pop()
-
     return blocks

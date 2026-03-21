@@ -625,6 +625,7 @@ class ReupApp(App):
             return
         try:
             tabs = self.query_one("#session-tabs", Horizontal)
+            tabs_scroll = self.query_one("#session-tabs-scroll", HorizontalScroll)
         except Exception:
             return
         await tabs.remove_children()
@@ -632,6 +633,7 @@ class ReupApp(App):
             return
         active_session_id = self._session_id(self.agent.session if self.agent else None)
         tabs.display = len(self._open_session_order) > 1
+        tabs_scroll.display = tabs.display
         if not tabs.display:
             return
         for session_id in self._open_session_order:
@@ -3146,9 +3148,7 @@ class ReupApp(App):
             if role == "system":
                 continue
             if role == "user":
-                await self.add_assistant_card(
-                    "You", RichMarkdown(str(content)), css_class="user"
-                )
+                await self.add_user_message(str(content))
                 continue
             if role == "assistant":
                 if content:
@@ -4309,11 +4309,16 @@ class ReupApp(App):
         return text
 
     async def add_user_message(self, message: str) -> None:
-        await self.add_assistant_card(
-            "You",
+        conversation = self.query_one("#conversation", VerticalScroll)
+        bubble = Static(
             self._render_user_message(message),
-            css_class="user",
+            classes="chat-user-bubble",
         )
+        row = Container(bubble, classes="chat-user-row")
+        await conversation.mount(row)
+        self._message_count += 1
+        self._refresh_empty_state()
+        await self._pin_activity_indicator_to_end()
 
     async def add_assistant_message(self, message: str) -> None:
         await self.add_assistant_card(
@@ -4431,8 +4436,8 @@ class ReupApp(App):
         if state == "stopped":
             return "⏹", "bold #8c93a1"
         if state == "exited":
-            return "✅", "bold #4edea3"
-        return "✅", "bold #4edea3"
+            return "▫️", "bold #dfe4ea"
+        return "▫️", "bold #dfe4ea"
 
     @staticmethod
     def _tool_completion_icon_and_style(
@@ -4473,9 +4478,9 @@ class ReupApp(App):
             "git_push": "🚀",
             "todos": "☑️",
             "memory": "🧠",
-            "shell": "✅",
+            "shell": "▫️",
         }
-        return icon_by_tool.get(name, "✅"), "bold #a9ebbe"
+        return icon_by_tool.get(name, "✅"), "bold #edf1f7"
 
     @staticmethod
     def _normalize_tool_start_arguments(

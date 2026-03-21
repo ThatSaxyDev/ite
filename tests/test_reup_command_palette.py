@@ -159,7 +159,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 {"status": "exited", "running": False},
                 success=True,
             )[0],
-            "✅",
+            "▫️",
         )
         self.assertEqual(
             ReupApp._shell_card_icon_and_style(
