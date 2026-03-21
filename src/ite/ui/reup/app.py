@@ -568,6 +568,15 @@ class ReupApp(App):
             return self._open_session_order[index - 1]
         return remaining[0]
 
+    def _drop_open_session(self, session_id: str) -> Agent | None:
+        self._open_sessions.pop(session_id, None)
+        self._open_session_workspaces.pop(session_id, None)
+        self._open_session_order = [
+            sid for sid in self._open_session_order if sid != session_id
+        ]
+        self._session_run_states.pop(session_id, None)
+        return self._session_agents.pop(session_id, None)
+
     def _session_tab_label(self, session_id: str) -> str:
         session = self._open_sessions.get(session_id)
         title = self._session_title(session)
@@ -3025,6 +3034,8 @@ class ReupApp(App):
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
             return
+        current_session = self.agent.session
+        current_session_id = self._active_session_id()
         if snapshot.session_id in self._open_sessions:
             workspace = (
                 Path(snapshot.workspace_path).resolve()
@@ -3063,6 +3074,14 @@ class ReupApp(App):
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.restore_change_history_state(snapshot.change_history_state)
+        dropped_agent: Agent | None = None
+        if (
+            current_session_id
+            and current_session_id != snapshot.session_id
+            and getattr(current_session, "turn_count", 0) == 0
+            and not self._run_state(current_session_id).is_turn_running
+        ):
+            dropped_agent = self._drop_open_session(current_session_id)
         self._remember_open_session(
             resumed,
             workspace=Path(snapshot.workspace_path).resolve()
@@ -3074,6 +3093,11 @@ class ReupApp(App):
         self.refresh_header()
         await self._hydrate_chat_from_snapshot(snapshot.messages)
         await self._remove_cards_by_title({"Session Loaded"})
+        if dropped_agent is not None:
+            try:
+                await dropped_agent.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     async def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -3618,6 +3642,11 @@ class ReupApp(App):
 
         try:
             await run_state.active_turn_task
+            run_state.active_turn_task = None
+            run_state.is_turn_running = False
+            self.refresh_header()
+            if self._active_session_id() == session_id:
+                self._set_loading_state("idle", busy=False)
             if self._active_session_id() == session_id:
                 await self.auto_save()
             else:
@@ -3631,6 +3660,10 @@ class ReupApp(App):
         except asyncio.CancelledError:
             if self._active_session_id() == session_id:
                 self.post_notice("Interrupted", "Stopped current run.")
+                run_state.active_turn_task = None
+                run_state.is_turn_running = False
+                self.refresh_header()
+                self._set_loading_state("idle", busy=False)
                 await self.auto_save()
         finally:
             run_state.active_turn_task = None
@@ -4866,7 +4899,7 @@ class ReupApp(App):
             async for event in session.client.chat_completion(
                 naming_messages,
                 tools=None,
-                stream=True,
+                stream=False,
             ):
                 if event.text_delta and event.text_delta.content:
                     title += event.text_delta.content

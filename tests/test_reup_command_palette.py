@@ -260,6 +260,52 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_run_agent_message_marks_turn_complete_before_auto_save(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=SimpleNamespace(session_id="s1"))
+
+        async def auto_save_check() -> None:
+            self.assertFalse(app._is_turn_running)
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "add_user_message", new=AsyncMock()),
+                patch.object(app, "_agent_turn", new=AsyncMock()),
+                patch.object(app, "auto_save", new=AsyncMock(side_effect=auto_save_check)) as auto_save,
+                patch.object(app, "_progress_state_label", return_value="thinking"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()),
+                patch.object(app, "_restore_queued_payload_after_unsuccessful_turn"),
+            ):
+                await app.run_agent_message("hello")
+                auto_save.assert_awaited_once()
+
+        asyncio.run(scenario())
+
+    def test_generate_session_name_uses_non_streaming_completion(self) -> None:
+        app = self._app()
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            self.assertFalse(stream)
+            self.assertIsNone(tools)
+            yield SimpleNamespace(text_delta=SimpleNamespace(content="Portfolio JSON Overview"))
+
+        session = SimpleNamespace(
+            client=SimpleNamespace(chat_completion=fake_chat_completion),
+            name_generation_context=lambda: {
+                "first_user": "Explain this portfolio project",
+                "first_assistant": "",
+                "latest_user": "Explain this portfolio project",
+                "focus_hint": "portfolio structure",
+            },
+        )
+
+        title = asyncio.run(app.generate_session_name(session))
+
+        self.assertEqual(title, "Portfolio JSON Overview")
+
     def test_remember_open_session_tracks_order_and_workspace(self) -> None:
         app = self._app()
         first = SimpleNamespace(session_id="s1", name="One", turn_count=1)
@@ -358,6 +404,63 @@ class ReupCommandPaletteTests(unittest.TestCase):
         asyncio.run(scenario())
         current.client.close.assert_not_awaited()
         current.mcp_manager.shutdown.assert_not_awaited()
+
+    def test_resume_snapshot_replaces_empty_active_thread_tab(self) -> None:
+        app = self._app()
+        conversation = AsyncMock()
+        current = SimpleNamespace(
+            session_id="current",
+            turn_count=0,
+            client=SimpleNamespace(close=AsyncMock()),
+            mcp_manager=SimpleNamespace(shutdown=AsyncMock()),
+        )
+        current_agent = SimpleNamespace(
+            session=current,
+            __aexit__=AsyncMock(),
+        )
+        resumed = SimpleNamespace(
+            session_id="saved",
+            name="Saved",
+            turn_count=2,
+            context_manager=SimpleNamespace(
+                set_messages=lambda messages: None,
+                total_usage=TokenUsage(),
+            ),
+            restore_todos_state=lambda state: None,
+            restore_change_history_state=lambda state: None,
+        )
+        resumed_agent = SimpleNamespace(__aenter__=AsyncMock(), __aexit__=AsyncMock())
+        app.agent = current_agent
+        app._remember_open_session(current, workspace=self.cwd, agent=current_agent)
+        snapshot = SessionSnapshot(
+            session_id="saved",
+            name="Saved",
+            workspace_path=str((self.cwd / "saved").resolve()),
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            turn_count=2,
+            messages=[],
+            total_usage=TokenUsage(),
+        )
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "_build_session_agent", return_value=resumed_agent),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_hydrate_chat_from_snapshot", new=AsyncMock()),
+                patch.object(app, "_remove_cards_by_title", new=AsyncMock()),
+                patch.object(app, "query_one", return_value=conversation),
+                patch("ite.ui.reup.app.Session", return_value=resumed),
+            ):
+                await app._resume_snapshot(snapshot)
+
+        asyncio.run(scenario())
+
+        self.assertEqual(app._open_session_order, ["saved"])
+        self.assertNotIn("current", app._open_sessions)
+        self.assertIs(app.agent, resumed_agent)
+        current_agent.__aexit__.assert_awaited_once()
 
 
 if __name__ == "__main__":

@@ -132,7 +132,7 @@ class SessionControllerMixin:
 
             title = ""
             async for event in session.client.chat_completion(
-                naming_messages, tools=None, stream=True
+                naming_messages, tools=None, stream=False
             ):
                 if event.text_delta and event.text_delta.content:
                     title += event.text_delta.content
