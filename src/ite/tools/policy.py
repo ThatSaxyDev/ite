@@ -64,6 +64,47 @@ class ToolSelectionPolicy:
                     redirect_to="grep",
                 )
 
+        if tool_name == "read_file":
+            path = str(
+                params.get("path")
+                or params.get("file")
+                or params.get("file_path")
+                or params.get("filepath")
+                or params.get("target")
+                or ""
+            ).strip().lower()
+            offset = params.get("offset")
+            limit = params.get("limit")
+            if path.endswith(".json") and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured JSON inspection should use `read_json` instead of `read_file` "
+                        "unless exact file text or line-based reading is required."
+                    ),
+                    redirect_to="read_json",
+                )
+
+        if tool_name == "edit":
+            path = str(
+                params.get("path")
+                or params.get("file")
+                or params.get("file_path")
+                or params.get("filepath")
+                or params.get("target")
+                or ""
+            ).strip().lower()
+            old_string = str(params.get("old_string") or params.get("old") or "").strip()
+            if path.endswith(".json") and old_string:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured JSON updates should use `edit_json` instead of `edit` "
+                        "unless exact raw text replacement is required."
+                    ),
+                    redirect_to="edit_json",
+                )
+
         return PolicyDecision(allowed=True)
 
     def _looks_like_simple_lookup(self, goal: str) -> bool:

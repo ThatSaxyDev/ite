@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 
+def is_policy_redirect(metadata: dict[str, Any] | None) -> bool:
+    metadata = metadata or {}
+    return bool(metadata.get("policy_blocked") and metadata.get("redirect_to"))
+
+
 def activity_title(
     name: str,
     *,
@@ -13,7 +18,10 @@ def activity_title(
     metadata = metadata or {}
     running = stage == "start"
     done = bool(success)
-    recoverable = bool(metadata.get("recoverable"))
+    redirect = is_policy_redirect(metadata)
+    recoverable = bool(metadata.get("recoverable")) or redirect
+    if redirect and not running and not done:
+        return "Switching tools"
     if name == "read_file":
         return "Reading file" if running else ("Completed reading" if done else ("Read needs retry" if recoverable else "Read failed"))
     if name == "write_file":
@@ -40,6 +48,16 @@ def activity_title(
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else ("Memory retry needed" if recoverable else "Memory update failed"))
+    if name == "read_json":
+        return "Reading JSON" if running else ("JSON loaded" if done else "JSON read failed")
+    if name == "edit_json":
+        return "Updating JSON" if running else ("JSON updated" if done else "JSON edit failed")
+    if name == "run_tests":
+        return "Running tests" if running else ("Test results ready" if done else "Tests failed")
+    if name == "run_linter":
+        return "Running linter" if running else ("Lint results ready" if done else "Lint failed")
+    if name == "run_typecheck":
+        return "Running typecheck" if running else ("Typecheck results ready" if done else "Typecheck failed")
     if name == "git_status":
         return "Checking git status" if running else ("Git status updated" if done else "Git status failed")
     if name == "git_diff":
@@ -67,6 +85,12 @@ def describe_tool_activity(
 ) -> str:
     args = args or {}
     metadata = metadata or {}
+    redirect = is_policy_redirect(metadata)
+    redirect_to = str(metadata.get("redirect_to") or "").strip()
+    if redirect and stage != "start" and not success:
+        if redirect_to:
+            return f"`{redirect_to}` fits this step better, so continuing there."
+        return f"This step is being continued with a more suitable tool."
 
     if name == "read_file":
         path = _path(args, metadata)
@@ -307,6 +331,46 @@ def describe_tool_activity(
             return "Captured a planning answer."
         return "Planning question failed."
 
+    if name == "read_json":
+        path = _path(args, metadata)
+        json_path = str(args.get("json_path") or metadata.get("json_path") or "").strip()
+        target = f"{path} :: {json_path}" if json_path else path
+        if stage == "start":
+            return f"Reading JSON from {target}."
+        if success:
+            return f"Loaded JSON from {target}."
+        return f"Failed to read JSON from {target}."
+
+    if name == "edit_json":
+        path = _path(args, metadata)
+        operation = str(args.get("operation") or metadata.get("operation") or "set").strip()
+        json_path = str(args.get("json_path") or metadata.get("json_path") or "").strip()
+        target = f"{path} :: {json_path}" if json_path else path
+        if stage == "start":
+            return f"Applying JSON `{operation}` at {target}."
+        if success:
+            return f"Applied JSON `{operation}` at {target}."
+        return f"Failed JSON `{operation}` at {target}."
+
+    if name in {"run_tests", "run_linter", "run_typecheck"}:
+        command = str(args.get("command") or metadata.get("command") or "").strip()
+        label = {
+            "run_tests": "tests",
+            "run_linter": "linter",
+            "run_typecheck": "typecheck",
+        }[name]
+        if command:
+            if stage == "start":
+                return f"Running {label}: `{_trim(command, 100)}`."
+            if success:
+                return f"Finished {label}: `{_trim(command, 100)}`."
+            return f"{label.capitalize()} failed: `{_trim(command, 100)}`."
+        if stage == "start":
+            return f"Running {label}."
+        if success:
+            return f"Finished {label}."
+        return f"{label.capitalize()} failed."
+
     if name == "git_status":
         branch = str(metadata.get("branch") or "").strip()
         if stage == "start":
@@ -411,6 +475,16 @@ def progress_label(
         label = "Updating planning checklist" if scope == "planning" else "Updating checklist"
     elif name == "memory":
         label = "Updating memory"
+    elif name == "read_json":
+        label = "Reading JSON"
+    elif name == "edit_json":
+        label = "Updating JSON"
+    elif name == "run_tests":
+        label = "Running tests"
+    elif name == "run_linter":
+        label = "Running linter"
+    elif name == "run_typecheck":
+        label = "Running typecheck"
     elif name == "git_status":
         label = "Checking git status"
     elif name == "git_diff":

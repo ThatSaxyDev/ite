@@ -41,6 +41,21 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("`rg` is available in the shell", prompt)
         self.assertIn("prefer `rg` / `rg --files` only when the environment says `rg` is available in the shell", prompt)
 
+    def test_system_prompt_blocks_automatic_install_after_verification_failure(self) -> None:
+        config = Config(cwd=self.cwd, api_key="test")
+        prompt = get_system_prompt(config)
+
+        self.assertIn("do not automatically install it with `shell`", prompt)
+        self.assertIn("ask whether they want you to install it", prompt)
+
+    def test_system_prompt_prefers_json_tools_for_structured_json_tasks(self) -> None:
+        config = Config(cwd=self.cwd, api_key="test")
+        prompt = get_system_prompt(config)
+
+        self.assertIn("Prefer `read_json` when the user asks to inspect `package.json`", prompt)
+        self.assertIn("Prefer `edit_json` when the user asks to update JSON keys", prompt)
+        self.assertIn("Use `read_file` instead of `read_json` only when exact file text", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

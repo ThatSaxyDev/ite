@@ -53,6 +53,85 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "grep")
 
+    async def test_read_file_json_is_redirected_to_read_json(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": "package.json"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "read_json")
+
+    async def test_read_file_json_with_line_window_is_still_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": "package.json", "offset": 1, "limit": 5},
+                cwd,
+                hook_system,
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+
+    async def test_edit_json_file_is_redirected_to_edit_json(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "package.json").write_text('{"name":"demo"}\n', encoding="utf-8")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "edit",
+                {
+                    "path": "package.json",
+                    "old_string": '"name":"demo"',
+                    "new_string": '"name":"demo-app"',
+                },
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "edit_json")
+
+    async def test_edit_json_create_style_call_is_still_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "edit",
+                {
+                    "path": "package.json",
+                    "old_string": "",
+                    "new_string": '{"name":"demo"}\n',
+                },
+                cwd,
+                hook_system,
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+
     def test_read_only_subagent_allowed_in_plan_mode(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

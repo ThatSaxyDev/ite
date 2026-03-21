@@ -94,6 +94,11 @@ def truncate_for_tool(name: str, text: str) -> tuple[str, bool]:
         "web_search": 12,
         "todos": 8,
         "memory": 8,
+        "read_json": 14,
+        "edit_json": 14,
+        "run_tests": 18,
+        "run_linter": 18,
+        "run_typecheck": 18,
     }
     max_chars_by_tool = {
         "read_file": 1500,
@@ -107,6 +112,11 @@ def truncate_for_tool(name: str, text: str) -> tuple[str, bool]:
         "web_search": 1400,
         "todos": 900,
         "memory": 800,
+        "read_json": 1800,
+        "edit_json": 1800,
+        "run_tests": 2200,
+        "run_linter": 2200,
+        "run_typecheck": 2200,
     }
 
     max_lines = max_lines_by_tool.get(name, 16)

@@ -641,6 +641,20 @@ class ReupApp(App):
         if version is not None and version != self._activity_version:
             return
         self._activity_widget.update(content)
+        await self._pin_activity_indicator_to_end()
+
+    async def _pin_activity_indicator_to_end(self) -> None:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        if self._activity_widget is None:
+            conversation.scroll_end(animate=False)
+            return
+        children = list(conversation.children)
+        if children and children[-1] is not self._activity_widget:
+            try:
+                await self._activity_widget.remove()
+                await conversation.mount(self._activity_widget)
+            except Exception:
+                pass
         conversation.scroll_end(animate=False)
 
     async def _hide_activity_indicator(self, version: int | None = None) -> None:
@@ -3936,7 +3950,7 @@ class ReupApp(App):
         await conversation.mount(action_card)
         self._message_count += 1
         self._refresh_empty_state()
-        conversation.scroll_end(animate=False)
+        await self._pin_activity_indicator_to_end()
         return bool(await self._plan_ready_future)
 
     def _resolve_plan_ready_choice(self, approved: bool) -> None:
@@ -4022,7 +4036,7 @@ class ReupApp(App):
         await conversation.mount(card)
         self._message_count += 1
         self._refresh_empty_state()
-        conversation.scroll_end(animate=False)
+        await self._pin_activity_indicator_to_end()
 
         if self._plan_question_option_buttons:
             self._plan_question_option_buttons[0].focus()
@@ -4130,13 +4144,13 @@ class ReupApp(App):
             self._message_count += 1
             self._refresh_empty_state()
         self._streaming_widget.update(RichMarkdown(self._streaming_buffer))
-        conversation.scroll_end(animate=False)
+        await self._pin_activity_indicator_to_end()
 
     async def finalize_streaming_message(self) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         if self._streaming_widget is not None:
             self._streaming_widget.update(RichMarkdown(self._streaming_buffer))
-            conversation.scroll_end(animate=False)
+            await self._pin_activity_indicator_to_end()
         self._streaming_widget = None
         self._streaming_buffer = ""
 
@@ -4258,7 +4272,7 @@ class ReupApp(App):
         await conversation.mount(card)
         self._message_count += 1
         self._refresh_empty_state()
-        conversation.scroll_end(animate=False)
+        await self._pin_activity_indicator_to_end()
 
     async def _remove_cards_by_title(self, titles: set[str]) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -4317,7 +4331,7 @@ class ReupApp(App):
         await conversation.mount(card)
         self._message_count += 1
         self._refresh_empty_state()
-        conversation.scroll_end(animate=False)
+        await self._pin_activity_indicator_to_end()
 
     async def update_tool_call(
         self,
@@ -4338,10 +4352,11 @@ class ReupApp(App):
         if card is None:
             return
 
-        status = "done" if success else "failed"
         md = metadata if isinstance(metadata, dict) else {}
-        recoverable = bool(md.get("recoverable"))
-        icon = "✅" if success else ("↺" if recoverable else "❌")
+        policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
+        status = "done" if success else ("redirected" if policy_redirect else "failed")
+        recoverable = bool(md.get("recoverable")) or policy_redirect
+        icon = "✅" if success else ("↪" if policy_redirect else ("↺" if recoverable else "❌"))
         args = self._tool_args_by_call_id.get(call_id, {})
         narrative = describe_tool_activity(
             name,
@@ -4351,8 +4366,8 @@ class ReupApp(App):
             success=success,
         )
 
-        border_style = "#2f9e63" if success else ("#a06b15" if recoverable else "#b23a3a")
-        title_style = "bold #a9ebbe" if success else ("bold #ffd27a" if recoverable else "bold #ffb0b0")
+        border_style = "#2f9e63" if success else ("#4d79c7" if policy_redirect else ("#a06b15" if recoverable else "#b23a3a"))
+        title_style = "bold #a9ebbe" if success else ("bold #a9c7ff" if policy_redirect else ("bold #ffd27a" if recoverable else "bold #ffb0b0"))
         title_text = activity_title(name, stage="complete", success=success, metadata=md)
         self._run_state().running_shell_call_ids.discard(call_id)
 
@@ -4362,6 +4377,12 @@ class ReupApp(App):
         payload = payload or ""
         local_truncated = False
         primary_path = md.get("path") if isinstance(md.get("path"), str) else None
+        redirect_to = str(md.get("redirect_to") or "").strip()
+
+        if policy_redirect:
+            if redirect_to:
+                blocks.append(Text(f"Continuing with `{redirect_to}`.", style="#d9dee8"))
+            payload = ""
 
         if name == "read_file" and success:
             extracted = extract_read_file_code(payload) if primary_path else None
@@ -4392,7 +4413,7 @@ class ReupApp(App):
                 output_display, was_truncated = truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
                 blocks.append(render_text_payload(output_display, success=True))
-        elif name in {"write_file", "edit"} and success and diff:
+        elif name in {"write_file", "edit", "edit_json"} and success and diff:
             if primary_path:
                 blocks.append(
                     Text(
@@ -4413,6 +4434,45 @@ class ReupApp(App):
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_numbered_unified_diff(diff_display))
+        elif name in {"run_tests", "run_linter", "run_typecheck"}:
+            command = md.get("command") or args.get("command")
+            if isinstance(command, str) and command.strip():
+                blocks.append(
+                    render_shell_command_line(
+                        command.strip(),
+                        cwd=self.config.cwd,
+                        shell_cwd=md.get("cwd")
+                        if isinstance(md.get("cwd"), str)
+                        else None,
+                    )
+                )
+            duration_ms = md.get("duration_ms")
+            if isinstance(duration_ms, int):
+                blocks.append(
+                    Text(
+                        f"Completed in {duration_ms} ms",
+                        style="#8c97ab",
+                    )
+                )
+            output_display, was_truncated = truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            blocks.extend(
+                render_shell_result_payload(
+                    payload=output_display,
+                    metadata=md,
+                    exit_code=exit_code,
+                )
+            )
+        elif name == "read_json" and success:
+            if primary_path:
+                json_path = str(md.get("json_path", "")).strip()
+                target = display_path(primary_path, cwd=self.config.cwd)
+                if json_path:
+                    target = f"{target} :: {json_path}"
+                blocks.append(Text(target, style="#8c97ab"))
+            output_display, was_truncated = truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            blocks.append(render_text_payload(output_display, success=True, language="json"))
         elif name == "shell":
             command = args.get("command")
             if isinstance(command, str) and command.strip():
@@ -4578,7 +4638,7 @@ class ReupApp(App):
         else:
             card.add_class("error")
 
-        conversation.scroll_end(animate=False)
+        await self._pin_activity_indicator_to_end()
 
     async def confirmation_callback(self, confirmation) -> bool:
         body = confirmation.description

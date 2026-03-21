@@ -746,14 +746,16 @@ class TUI:
             return
 
         border_style = f"tool.{tool_kind}" if tool_kind else "tool"
-        recoverable = bool(isinstance(metadata, dict) and metadata.get("recoverable"))
-        status_icon = "✅" if success else ("↺" if recoverable else "❌")
+        md = metadata if isinstance(metadata, dict) else {}
+        policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
+        recoverable = bool(md.get("recoverable")) or policy_redirect
+        status_icon = "✅" if success else ("↪" if policy_redirect else ("↺" if recoverable else "❌"))
         status_style = "success" if success else ("warning" if recoverable else "error")
         title_text = activity_title(
             name,
             stage="complete",
             success=success,
-            metadata=metadata if isinstance(metadata, dict) else {},
+            metadata=md,
         )
 
         title = Text.assemble(
@@ -767,7 +769,7 @@ class TUI:
         narrative = describe_tool_activity(
             name,
             args,
-            metadata if isinstance(metadata, dict) else {},
+            md,
             stage="complete",
             success=success,
         )
@@ -1239,15 +1241,21 @@ class TUI:
 
         else:
             blocks.append(Text(narrative, style="muted"))
-            if error and not success:
+            if policy_redirect:
+                redirect_to = str(md.get("redirect_to") or "").strip()
+                if redirect_to:
+                    blocks.append(Text(f"Continuing with `{redirect_to}`.", style="muted"))
+            elif error and not success:
                 blocks.append(Text(error, style="error"))
 
-            output_display, was_truncated = self._truncate_for_tool(
-                name,
-                output,
-                preserve_lines=True,
-            )
-            local_truncated = local_truncated or was_truncated
+            output_display = ""
+            if not policy_redirect:
+                output_display, was_truncated = self._truncate_for_tool(
+                    name,
+                    output,
+                    preserve_lines=True,
+                )
+                local_truncated = local_truncated or was_truncated
 
             if output_display.strip():
                 if success:
@@ -1256,7 +1264,7 @@ class TUI:
                     blocks.append(
                         Syntax(output_display, "text", theme="monokai", word_wrap=True)
                     )
-            else:
+            elif not policy_redirect:
                 blocks.append(Text("No output", style="muted"))
 
         if local_truncated:

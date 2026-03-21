@@ -18,6 +18,11 @@ from ite.tools.builtin.git_tools import GitLogTool
 from ite.tools.builtin.git_tools import GitPushTool
 from ite.tools.builtin.git_tools import GitRemoteTool
 from ite.tools.builtin.git_tools import GitStatusTool
+from ite.tools.builtin.json_tools import EditJsonTool
+from ite.tools.builtin.json_tools import ReadJsonTool
+from ite.tools.builtin.verification_tools import RunLinterTool
+from ite.tools.builtin.verification_tools import RunTestsTool
+from ite.tools.builtin.verification_tools import RunTypecheckTool
 
 __all__ = [
     "ReadFileTool",
@@ -40,6 +45,11 @@ __all__ = [
     "GitCommitTool",
     "GitPushTool",
     "GitRemoteTool",
+    "ReadJsonTool",
+    "EditJsonTool",
+    "RunTestsTool",
+    "RunLinterTool",
+    "RunTypecheckTool",
 ]
 
 
@@ -65,4 +75,9 @@ def get_all_builtin_tools() -> list[type]:
         GitCommitTool,
         GitPushTool,
         GitRemoteTool,
+        ReadJsonTool,
+        EditJsonTool,
+        RunTestsTool,
+        RunLinterTool,
+        RunTypecheckTool,
     ]

@@ -1129,8 +1129,10 @@ class MessageBuilderMixin:
         if index is None or index >= len(self.messages_column.controls):
             return
 
-        state_text = "done" if success else "failed"
-        state_color = SUCCESS if success else DANGER
+        md = metadata if isinstance(metadata, dict) else {}
+        policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
+        state_text = "done" if success else ("redirected" if policy_redirect else "failed")
+        state_color = SUCCESS if success else (WARNING if policy_redirect else DANGER)
         payload = (output or error or "No output").strip() or "No output"
         args = {}
         if hasattr(self, "_tool_args_by_call_id"):
@@ -1138,7 +1140,7 @@ class MessageBuilderMixin:
         narrative = describe_tool_activity(
             name,
             args,
-            metadata if isinstance(metadata, dict) else {},
+            md,
             stage="complete",
             success=success,
         )
@@ -1227,10 +1229,17 @@ class MessageBuilderMixin:
                 line_limit=500,
                 markdown=False,
             )
-        md = metadata if isinstance(metadata, dict) else {}
-        recoverable = bool(md.get("recoverable"))
+        recoverable = bool(md.get("recoverable")) or policy_redirect
         title_text = activity_title(name, stage="complete", success=success, metadata=md)
         summary_row = self._build_meta_summary(name, metadata if isinstance(metadata, dict) else None, exit_code)
+        if policy_redirect:
+            payload = "No output"
+            payload_block = self._build_scrollable_text_block(
+                f"Continuing with `{md.get('redirect_to')}`.",
+                max_height=100,
+                line_limit=4,
+                markdown=False,
+            )
 
         if name == "shell":
             content_items = [
@@ -1245,7 +1254,7 @@ class MessageBuilderMixin:
                         ),
                         ft.Container(expand=True),
                         self._build_status_chip(
-                            "done" if success else ("retry" if recoverable else "failed"),
+                            "done" if success else ("redirected" if policy_redirect else ("retry" if recoverable else "failed")),
                             state_color,
                             SUCCESS_SOFT if success else (WARNING_SOFT if recoverable else DANGER_SOFT),
                             ft.Colors.with_opacity(
@@ -1278,9 +1287,10 @@ class MessageBuilderMixin:
                         self._build_status_chip(
                             state_text,
                             state_color,
-                            SUCCESS_SOFT if success else DANGER_SOFT,
+                            SUCCESS_SOFT if success else (WARNING_SOFT if recoverable else DANGER_SOFT),
                             ft.Colors.with_opacity(
-                                0.1, ft.Colors.GREEN_300 if success else ft.Colors.RED_300
+                                0.1,
+                                ft.Colors.GREEN_300 if success else (ft.Colors.AMBER_300 if recoverable else ft.Colors.RED_300),
                             ),
                         ),
                     ]
