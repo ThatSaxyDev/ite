@@ -3160,7 +3160,11 @@ class ReupApp(App):
                     try:
                         parsed_args = json.loads(raw_args) if raw_args else {}
                     except Exception:
-                        parsed_args = {"raw": raw_args}
+                        parsed_args = {"raw_arguments": raw_args}
+                    parsed_args = self._normalize_tool_start_arguments(
+                        tool_name,
+                        parsed_args if isinstance(parsed_args, dict) else {},
+                    )
                     tool_call_names[call_id] = tool_name
                     await self.add_tool_call_start(
                         call_id=call_id,
@@ -3176,17 +3180,25 @@ class ReupApp(App):
                 tool_ui = message.get("tool_ui") if isinstance(message.get("tool_ui"), dict) else {}
                 tool_name = str(tool_ui.get("name") or tool_name or "tool")
                 success = bool(tool_ui.get("success")) if "success" in tool_ui else not output.lstrip().startswith("Error:")
+                rendered_output = str(tool_ui.get("output") if "output" in tool_ui else output)
+                rendered_error = (
+                    str(tool_ui.get("error"))
+                    if tool_ui.get("error") is not None
+                    else (None if success else output)
+                )
+                if (
+                    not success
+                    and isinstance(rendered_error, str)
+                    and self._should_suppress_malformed_tool_card(tool_name, rendered_error)
+                ):
+                    continue
                 await self.update_tool_call(
                     call_id=call_id,
                     name=tool_name,
                     tool_kind=self.get_tool_kind(tool_name),
                     success=success,
-                    output=str(tool_ui.get("output") if "output" in tool_ui else output),
-                    error=(
-                        str(tool_ui.get("error"))
-                        if tool_ui.get("error") is not None
-                        else (None if success else output)
-                    ),
+                    output=rendered_output,
+                    error=rendered_error,
                     metadata=tool_ui.get("metadata") if isinstance(tool_ui.get("metadata"), dict) else {},
                     diff=str(tool_ui.get("diff")) if tool_ui.get("diff") is not None else None,
                     truncated=bool(tool_ui.get("truncated", False)),
@@ -3871,6 +3883,20 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
+            error_text = str(event.data.get("error") or "")
+            if (
+                not event.data.get("success", False)
+                and self._should_suppress_malformed_tool_card(tool_name, error_text)
+            ):
+                self._set_loading_state(
+                    self._progress_state_label(
+                        tool_name=tool_name,
+                        metadata=event.data.get("metadata"),
+                        phase="post_tool",
+                    ),
+                    busy=True,
+                )
+                return
             if tool_name == "todos":
                 if self._is_internal_todo_event(event.data.get("call_id")):
                     self._set_loading_state(
@@ -4386,6 +4412,71 @@ class ReupApp(App):
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
 
+    @staticmethod
+    def _normalize_tool_start_arguments(
+        tool_name: str,
+        arguments: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if not isinstance(arguments, dict):
+            return {}
+        normalized = dict(arguments)
+        raw = normalized.get("raw_arguments", normalized.get("raw"))
+        if not isinstance(raw, str) or not raw.strip():
+            return normalized
+
+        raw_text = raw.strip()
+        path_matches = re.findall(r'"path"\s*:\s*"([^"]+)"', raw_text)
+        command_matches = re.findall(r'"command"\s*:\s*"([^"]+)"', raw_text)
+        session_matches = re.findall(r'"session_id"\s*:\s*"([^"]+)"', raw_text)
+
+        if tool_name == "read_file" and path_matches:
+            summary = path_matches[0]
+            if len(path_matches) > 1:
+                summary = f"{summary} (+{len(path_matches) - 1} more)"
+            return {"path": summary}
+        if tool_name in {"shell", "shell_start"} and command_matches:
+            return {"command": command_matches[0]}
+        if tool_name in {"shell_poll", "shell_send", "shell_stop"} and session_matches:
+            normalized_hint: dict[str, Any] = {"session_id": session_matches[0]}
+            if tool_name == "shell_send" and command_matches:
+                normalized_hint["input"] = command_matches[0]
+            return normalized_hint
+
+        if "raw" in normalized:
+            normalized["raw"] = "<unparsed arguments>"
+        if "raw_arguments" in normalized:
+            normalized["raw_arguments"] = "<unparsed arguments>"
+        return normalized
+
+    @staticmethod
+    def _should_suppress_malformed_tool_card(
+        tool_name: str | None,
+        validation_error: str,
+    ) -> bool:
+        if tool_name not in {"shell", "read_file", "grep", "edit", "apply_patch", "memory"}:
+            return False
+        normalized = validation_error.strip()
+        if normalized.startswith("Error: "):
+            normalized = normalized.removeprefix("Error: ").strip()
+        if not normalized.startswith("Invalid parameters: "):
+            return False
+        detail = normalized.removeprefix("Invalid parameters: ").strip()
+        detail = detail.split("\n\nOutput:", 1)[0].strip()
+        detail = detail.split("\nOutput:", 1)[0].strip()
+        required_errors = {
+            "shell": {"Parameter 'command': Field required"},
+            "read_file": {"Parameter 'path': Field required"},
+            "grep": {"Parameter 'pattern': Field required"},
+            "edit": {
+                "Parameter 'path': Field required",
+                "Parameter 'new_string': Field required",
+                "Parameter 'path': Field required; Parameter 'new_string': Field required",
+            },
+            "apply_patch": {"Parameter 'patch': Field required"},
+            "memory": {"Parameter 'action': Field required"},
+        }
+        return detail in required_errors.get(tool_name, set())
+
     def _render_shell_session_card(
         self,
         *,
@@ -4405,7 +4496,7 @@ class ReupApp(App):
             running_suffix = self._shell_status_suffix()
 
         blocks: list[Any] = []
-        command = arguments.get("command") or md.get("command")
+        command = md.get("last_input") or arguments.get("input") or arguments.get("command") or md.get("command")
         if isinstance(command, str) and command.strip():
             blocks.append(
                 render_shell_command_line(
@@ -4414,7 +4505,8 @@ class ReupApp(App):
                     shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
                 )
             )
-        output_display, _ = truncate_for_tool(name, payload)
+        display_payload = payload if (name in {"shell_poll", "shell_stop"} or not success) else ""
+        output_display, _ = truncate_for_tool(name, display_payload)
         blocks.extend(
             render_shell_result_payload(
                 payload=output_display,
@@ -4446,6 +4538,7 @@ class ReupApp(App):
         arguments: dict[str, Any],
     ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
+        arguments = self._normalize_tool_start_arguments(name, arguments)
         self._tool_args_by_call_id[call_id] = arguments
         shell_session_id = self._shell_session_id_for_tool(name=name, arguments=arguments)
         existing_shell_card = (
@@ -4453,13 +4546,14 @@ class ReupApp(App):
             if shell_session_id
             else None
         )
+        existing_card = self._tool_widgets.get(call_id)
 
-        card = existing_shell_card or Static(classes="block tool running")
+        card = existing_shell_card or existing_card or Static(classes="block tool running")
         border_style = "#2a6edb"
         title_text = activity_title(name, stage="start")
         narrative = describe_tool_activity(name, arguments, stage="start")
 
-        blocks: list[Any] = [Text(narrative, style="#8c97ab")]
+        blocks: list[Any] = []
         if name == "todos":
             blocks.append(Text(todo_start_hint(arguments), style="#d5d9e2"))
         elif arguments:
@@ -4484,7 +4578,7 @@ class ReupApp(App):
             card.update(Group(header, *blocks))
         self._tool_widgets[call_id] = card
 
-        if existing_shell_card is not None:
+        if existing_shell_card is not None or existing_card is not None:
             await self._move_card_to_bottom(card)
         else:
             await conversation.mount(card)
@@ -4540,11 +4634,60 @@ class ReupApp(App):
             if isinstance(started_session_id, str) and started_session_id.strip():
                 shell_session_id = started_session_id.strip()
                 self._shell_session_cards[shell_session_id] = card
-
-        blocks: list[Any] = [Text(narrative, style="#8c97ab")]
-
         payload = output if success else (error or output)
         payload = payload or ""
+        if self._is_session_shell_tool(name):
+            shell_md = dict(md)
+            if name == "shell_send":
+                input_text = args.get("input")
+                if isinstance(input_text, str) and input_text.strip():
+                    shell_md["last_input"] = input_text.strip()
+            elif shell_session_id and shell_session_id in self._shell_session_card_state:
+                prior_md = self._shell_session_card_state[shell_session_id].metadata
+                if (
+                    "last_input" not in shell_md
+                    and isinstance(prior_md.get("last_input"), str)
+                    and prior_md.get("last_input")
+                ):
+                    shell_md["last_input"] = prior_md["last_input"]
+
+            card.update(
+                self._render_shell_session_card(
+                    name=name,
+                    arguments=args,
+                    metadata=shell_md,
+                    payload=payload,
+                    success=success,
+                    exit_code=exit_code,
+                )
+            )
+            card.remove_class("running")
+            if success:
+                card.add_class("success")
+            else:
+                card.add_class("error")
+
+            if shell_session_id:
+                if not success or name == "shell_stop" or shell_md.get("running") is False:
+                    self._shell_session_cards.pop(shell_session_id, None)
+                    self._shell_session_card_state.pop(shell_session_id, None)
+                else:
+                    self._shell_session_cards[shell_session_id] = card
+                    self._shell_session_card_state[shell_session_id] = ShellSessionCardState(
+                        card=card,
+                        name=name,
+                        arguments=args,
+                        metadata=shell_md,
+                        payload=payload,
+                        success=success,
+                        exit_code=exit_code,
+                    )
+                    await self._move_card_to_bottom(card)
+
+            await self._pin_activity_indicator_to_end()
+            return
+
+        blocks: list[Any] = []
         local_truncated = False
         primary_path = md.get("path") if isinstance(md.get("path"), str) else None
         redirect_to = str(md.get("redirect_to") or "").strip()
@@ -4555,16 +4698,12 @@ class ReupApp(App):
             payload = ""
 
         if name == "read_file" and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
             extracted = extract_read_file_code(payload) if primary_path else None
             if primary_path and extracted is not None:
                 start_line, code = extracted
                 code_display, was_truncated = truncate_for_tool(name, code)
                 local_truncated = local_truncated or was_truncated
-                blocks.append(
-                    Text(
-                        display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
-                    )
-                )
                 language = guess_language(primary_path)
                 if language == "markdown":
                     blocks.append(RichMarkdown(code_display))
@@ -4591,20 +4730,39 @@ class ReupApp(App):
                         style="#8c97ab",
                     )
                 )
+            summary_parts: list[str] = []
+            if name == "write_file":
+                if md.get("is_new_file") is True:
+                    summary_parts.append("created")
+                else:
+                    summary_parts.append("updated")
+                lines_added = md.get("lines_added")
+                if isinstance(lines_added, int):
+                    summary_parts.append(
+                        f"{lines_added} line{'s' if lines_added != 1 else ''}"
+                    )
+            elif name == "edit":
+                replace_count = md.get("replace_count")
+                line_diff = md.get("line_diff")
+                if isinstance(replace_count, int):
+                    summary_parts.append(
+                        f"{replace_count} replacement{'s' if replace_count != 1 else ''}"
+                    )
+                if isinstance(line_diff, int) and line_diff != 0:
+                    sign = "+" if line_diff > 0 else ""
+                    summary_parts.append(
+                        f"{sign}{line_diff} line{'s' if abs(line_diff) != 1 else ''}"
+                    )
             hunk_ranges = summarize_diff_hunk_ranges(diff)
             if hunk_ranges:
-                blocks.append(
-                    Text(
-                        "Lines: " + "  |  ".join(hunk_ranges[:3]),
-                        style="#8c97ab",
-                    )
-                )
-            if payload.strip():
-                blocks.append(Text(payload.strip(), style="#d9dee8"))
+                summary_parts.append("  |  ".join(hunk_ranges[:2]))
+            if summary_parts:
+                blocks.append(Text("  •  ".join(summary_parts), style="#8c97ab"))
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_numbered_unified_diff(diff_display))
         elif name in {"run_tests", "run_linter", "run_typecheck"}:
+            blocks.append(Text(narrative, style="#8c97ab"))
             command = md.get("command") or args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(
@@ -4640,10 +4798,13 @@ class ReupApp(App):
                 if json_path:
                     target = f"{target} :: {json_path}"
                 blocks.append(Text(target, style="#8c97ab"))
+            else:
+                blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=True, language="json"))
         elif name in {"shell", "shell_poll", "shell_stop"}:
+            blocks.append(Text(narrative, style="#8c97ab"))
             command = args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(
@@ -4665,6 +4826,7 @@ class ReupApp(App):
                 )
             )
         elif name == "web_search" and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
             query = md.get("query") or args.get("query")
             results_count = md.get("results")
             provider = md.get("provider")
@@ -4683,6 +4845,7 @@ class ReupApp(App):
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=success))
         elif name == "web_fetch" and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
             summary_parts: list[str] = []
             url = md.get("url") or args.get("url")
             status_code = md.get("status_code")
@@ -4699,6 +4862,7 @@ class ReupApp(App):
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=success))
         elif name in {"list_dir", "glob", "grep"}:
+            blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if name == "list_dir":
@@ -4708,6 +4872,7 @@ class ReupApp(App):
             else:
                 blocks.append(render_text_payload(output_display, success=success))
         elif name == "git_diff":
+            blocks.append(Text(narrative, style="#8c97ab"))
             selection = md.get("selection")
             files = md.get("files")
             diff_count = md.get("diff_count")
@@ -4751,6 +4916,7 @@ class ReupApp(App):
             else:
                 blocks.append(Text("No diff output", style="#8c97ab"))
         elif name == "git_log" and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
             count = md.get("count")
             ref = md.get("ref")
             summary_parts: list[str] = []
@@ -4764,6 +4930,7 @@ class ReupApp(App):
                 blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
             blocks.append(render_git_log_output(md))
         elif name == "todos" and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
             todo_blocks, was_truncated = render_todo_payload(
                 output=payload,
                 metadata=md,
@@ -4771,6 +4938,7 @@ class ReupApp(App):
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
         else:
+            blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if diff:

@@ -172,6 +172,7 @@ class ShellSessionRecord:
     last_activity_at: float = field(default_factory=time.time)
     exit_code: int | None = None
     stopped_by_tool: bool = False
+    pending_input: bool = False
     last_stream: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     reader_tasks: list[asyncio.Task[None]] = field(default_factory=list)
@@ -193,6 +194,7 @@ class ShellSessionRecord:
             else:
                 self.stderr_bytes += len(text.encode("utf-8", errors="replace"))
             self.last_activity_at = time.time()
+            self.pending_input = False
 
             overflow = len(self.buffer) - _SHELL_SESSION_BUFFER_LIMIT
             if overflow > 0:
@@ -278,6 +280,7 @@ class ShellSessionManager:
             record.exit_code = record.process.returncode
             return record
         record.last_activity_at = time.time()
+        record.pending_input = True
         return record
 
     async def stop(self, session_id: str) -> ShellSessionRecord | None:
@@ -323,9 +326,27 @@ class ShellSessionManager:
             raise
         record.exit_code = exit_code
         record.last_activity_at = time.time()
+        record.pending_input = False
 
 
 _SHELL_SESSION_MANAGER = ShellSessionManager()
+
+
+def _shell_session_status(
+    *,
+    record: ShellSessionRecord,
+    mode: str,
+    has_new_output: bool = False,
+) -> str:
+    if record.stopped_by_tool:
+        return "stopped"
+    if record.process.returncode is not None:
+        return "exited"
+    if mode == "command":
+        return "command_running"
+    if record.pending_input or has_new_output:
+        return "command_running"
+    return "idle"
 
 
 def _terminate_process(process: asyncio.subprocess.Process) -> asyncio.Future[Any] | asyncio.Task[Any] | Any:
@@ -775,6 +796,7 @@ class ShellStartTool(_ShellCommonTool):
                 "command": params.command,
                 "cursor": 0,
                 "running": True,
+                "status": "command_running" if mode == "command" else "idle",
             },
         )
 
@@ -814,7 +836,12 @@ class ShellPollTool(_ShellCommonTool):
         )
         record.last_polled_cursor = next_cursor
         running = record.process.returncode is None
-        status = "running" if running else "exited"
+        mode = "command" if record.command else "shell"
+        status = _shell_session_status(
+            record=record,
+            mode=mode,
+            has_new_output=bool(output),
+        )
         message = output or f"No new output. Session `{params.session_id}` is {status}."
         return ToolResult.success_result(
             message,
@@ -824,6 +851,7 @@ class ShellPollTool(_ShellCommonTool):
                 "next_cursor": next_cursor,
                 "running": running,
                 "status": status,
+                "mode": mode,
                 "exit_code": record.exit_code,
                 "cwd": str(record.cwd),
                 "command": record.command,
@@ -876,6 +904,8 @@ class ShellSendTool(_ShellCommonTool):
             metadata={
                 "session_id": params.session_id,
                 "running": True,
+                "status": "command_running",
+                "mode": "command" if record.command else "shell",
                 "append_newline": params.append_newline,
                 "input_bytes": len(params.input.encode('utf-8')),
             },
@@ -914,11 +944,14 @@ class ShellStopTool(_ShellCommonTool):
             metadata={
                 "session_id": params.session_id,
                 "running": False,
+                "status": "stopped",
+                "mode": "command" if record.command else "shell",
                 "exit_code": record.exit_code,
                 "next_cursor": next_cursor,
                 "history_truncated": history_truncated,
                 "cwd": str(record.cwd),
                 "command": record.command,
                 "has_new_output": bool(output),
+                "stopped_by_tool": True,
             },
         )

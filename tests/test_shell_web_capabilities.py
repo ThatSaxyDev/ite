@@ -254,6 +254,7 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(start_result.success, msg=start_result.error)
             session_id = start_result.metadata["session_id"]
+            self.assertEqual(start_result.metadata.get("status"), "idle")
 
             send_result = await send_tool.execute(
                 ToolInvocation(
@@ -262,6 +263,7 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
             self.assertTrue(send_result.success, msg=send_result.error)
+            self.assertEqual(send_result.metadata.get("status"), "command_running")
 
             seen_output = ""
             cursor = 0
@@ -303,6 +305,7 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertTrue(start_result.success, msg=start_result.error)
             session_id = start_result.metadata["session_id"]
+            self.assertEqual(start_result.metadata.get("status"), "command_running")
 
             cursor = 0
             combined = ""
@@ -335,6 +338,7 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(final_poll.success, msg=final_poll.error)
             self.assertFalse(final_poll.metadata.get("has_new_output"))
             self.assertFalse(final_poll.metadata.get("running"))
+            self.assertEqual(final_poll.metadata.get("status"), "exited")
 
     async def test_shell_stop_returns_missing_session_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -395,6 +399,7 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
                 ToolInvocation(params={"session_id": session_id}, cwd=cwd)
             )
             self.assertTrue(stop_result.success, msg=stop_result.error)
+            self.assertEqual(stop_result.metadata.get("status"), "stopped")
 
     async def test_shell_stop_only_returns_unread_output(self) -> None:
         with tempfile.TemporaryDirectory() as td:

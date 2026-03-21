@@ -392,6 +392,8 @@ def render_args_table(tool_name: str, args: dict[str, Any], *, cwd: Path) -> Tab
     table.add_column(style="#d5d9e2", overflow="fold")
 
     for key, value in ordered_args(tool_name, args):
+        if key in {"raw", "raw_arguments"}:
+            key = "arguments"
         if key in {"path", "cwd"} and isinstance(value, str):
             value = display_path(value, cwd=cwd)
         elif isinstance(value, str) and key in {"content", "old_string", "new_string"}:
@@ -523,14 +525,45 @@ def render_text_payload(text: str, *, success: bool, language: str = "text") -> 
     return Syntax(text, language, theme="monokai", word_wrap=True)
 
 
+_SHELL_STDERR_MARKER_RE = re.compile(r"(?:^|\n)\s*--- STDERR ---\s*\n", re.MULTILINE)
+
+
 def split_shell_payload(payload: str) -> tuple[str, str]:
-    marker = "\n\n--- STDERR ---\n"
-    if marker in payload:
-        stdout, stderr = payload.split(marker, 1)
-        return stdout.strip(), stderr.strip()
-    if payload.startswith("--- STDERR ---\n"):
-        return "", payload.replace("--- STDERR ---\n", "", 1).strip()
-    return payload.strip(), ""
+    if not payload.strip():
+        return "", ""
+    parts = _SHELL_STDERR_MARKER_RE.split(payload)
+    if len(parts) == 1:
+        return payload.strip(), ""
+    stdout = parts[0].strip()
+    stderr = "\n".join(part.strip() for part in parts[1:] if part.strip())
+    return stdout, stderr
+
+
+def shell_session_state(metadata: dict[str, Any] | None) -> str:
+    md = metadata if isinstance(metadata, dict) else {}
+    status = str(md.get("status") or "").strip().lower()
+    if status:
+        return status
+    if md.get("running") is False:
+        return "exited"
+    if md.get("running") is True:
+        if bool(md.get("has_new_output")):
+            return "command_running"
+        return "idle"
+    return "unknown"
+
+
+def shell_session_status_label(metadata: dict[str, Any] | None, *, running_suffix: str = "") -> tuple[str, str]:
+    state = shell_session_state(metadata)
+    if state == "command_running":
+        return "command running" + running_suffix, "#7ad69f"
+    if state == "idle":
+        return "idle", "#8c97ab"
+    if state == "stopped":
+        return "stopped", "#8c97ab"
+    if state == "exited":
+        return "exited", "#8c97ab"
+    return state.replace("_", " "), "#8c97ab"
 
 
 def shell_spinner_frame(index: int) -> str:
@@ -586,22 +619,20 @@ def render_shell_result_payload(
     session_id = str(md.get("session_id") or "").strip()
     has_new_output = bool(md.get("has_new_output"))
     running = md.get("running")
-    status = str(md.get("status") or "").strip()
     stdout_text, stderr_text = split_shell_payload(payload)
     blocks: list[Any] = []
 
     summary = Text()
     if session_id:
         summary.append(session_id, style="#8c97ab")
-    if isinstance(running, bool):
+    if isinstance(running, bool) or md.get("status"):
         if summary.plain:
             summary.append("  •  ", style="#667084")
-        if running:
-            summary.append("running" + running_suffix, style="#7ad69f")
-        elif status:
-            summary.append(status, style="#8c97ab")
-        else:
-            summary.append("exited", style="#8c97ab")
+        status_label, status_style = shell_session_status_label(
+            md,
+            running_suffix=running_suffix,
+        )
+        summary.append(status_label, style=status_style)
     if exit_code is not None:
         if summary.plain:
             summary.append("  •  ", style="#667084")

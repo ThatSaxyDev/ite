@@ -6,10 +6,12 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, PropertyMock, patch
 from types import SimpleNamespace
 
+from ite.agent.events import AgentEvent, AgentEventType
 from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
+from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
 from textual.widgets import Static
 
 
@@ -108,6 +110,65 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
         )
 
+    def test_shell_payload_split_strips_stderr_markers(self) -> None:
+        stdout, stderr = split_shell_payload(
+            "\n--- STDERR ---\nwarning one\n\n--- STDERR ---\nwarning two\n"
+        )
+
+        self.assertEqual(stdout, "")
+        self.assertEqual(stderr, "warning one\nwarning two")
+
+    def test_shell_session_state_uses_backend_status_when_present(self) -> None:
+        self.assertEqual(
+            shell_session_state({"status": "command_running", "running": True}),
+            "command_running",
+        )
+        self.assertEqual(
+            shell_session_state({"running": True, "has_new_output": False}),
+            "idle",
+        )
+        self.assertEqual(
+            shell_session_state({"running": False}),
+            "exited",
+        )
+
+    def test_malformed_tool_card_suppression_matches_agent_rules(self) -> None:
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
+                "read_file",
+                "Invalid parameters: Parameter 'path': Field required",
+            )
+        )
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
+                "read_file",
+                "Error: Invalid parameters: Parameter 'path': Field required",
+            )
+        )
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
+                "read_file",
+                "Error: Invalid parameters: Parameter 'path': Field required\n\nOutput:\nRetry this tool with all required arguments.",
+            )
+        )
+        self.assertFalse(
+            ReupApp._should_suppress_malformed_tool_card(
+                "read_file",
+                "Invalid parameters: Parameter 'offset': Input should be greater than 0",
+            )
+        )
+
+    def test_normalize_tool_start_arguments_summarizes_truncated_read_paths(self) -> None:
+        self.assertEqual(
+            ReupApp._normalize_tool_start_arguments(
+                "read_file",
+                {
+                    "raw_arguments": '{"path":"poems/river.md"}{"path":"poems/silence.md"}{"path":"poems/wanderer.md"}'
+                },
+            ),
+            {"path": "poems/river.md (+2 more)"},
+        )
+
     def test_reset_session_local_ui_state_clears_shell_session_cards(self) -> None:
         app = self._app()
         app._shell_session_cards["sh_123"] = Static()
@@ -120,6 +181,200 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(app._shell_session_cards, {})
         self.assertEqual(app._tool_widgets, {})
         self.assertEqual(app._tool_args_by_call_id, {})
+
+    def test_hydrate_snapshot_skips_legacy_malformed_tool_cards(self) -> None:
+        app = self._app()
+
+        class DummyConversation:
+            async def remove_children(self) -> None:
+                return None
+
+        async def scenario() -> None:
+            messages = [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "function": {"name": "read_file", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "Invalid parameters: Parameter 'path': Field required",
+                    "tool_ui": {
+                        "name": "read_file",
+                        "success": False,
+                        "error": "Invalid parameters: Parameter 'path': Field required",
+                    },
+                },
+            ]
+            with (
+                patch.object(app, "query_one", return_value=DummyConversation()),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_reset_session_local_ui_state"),
+                patch.object(app, "add_assistant_card", new=AsyncMock()),
+                patch.object(app, "add_tool_call_start", new=AsyncMock()) as add_start,
+                patch.object(app, "update_tool_call", new=AsyncMock()) as update_call,
+            ):
+                await app._hydrate_chat_from_snapshot(messages)
+                add_start.assert_awaited_once()
+                update_call.assert_not_awaited()
+
+        asyncio.run(scenario())
+
+    def test_add_tool_call_start_reuses_existing_card_for_same_call_id(self) -> None:
+        app = self._app()
+
+        class DummyConversation:
+            def __init__(self) -> None:
+                self.children: list[object] = []
+
+            async def mount(self, child: object) -> None:
+                self.children.append(child)
+
+        async def scenario() -> None:
+            conversation = DummyConversation()
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_pin_activity_indicator_to_end", new=AsyncMock()),
+                patch.object(app, "_move_card_to_bottom", new=AsyncMock()) as move_bottom,
+            ):
+                await app.add_tool_call_start(
+                    call_id="call_1",
+                    name="read_file",
+                    tool_kind="read",
+                    arguments={"path": "poems/river.md"},
+                )
+                first_card = app._tool_widgets["call_1"]
+                await app.add_tool_call_start(
+                    call_id="call_1",
+                    name="read_file",
+                    tool_kind="read",
+                    arguments={
+                        "raw_arguments": '{"path":"poems/river.md"}{"path":"poems/silence.md"}'
+                    },
+                )
+
+                self.assertIs(app._tool_widgets["call_1"], first_card)
+                self.assertEqual(len(conversation.children), 1)
+                move_bottom.assert_awaited_once()
+
+        asyncio.run(scenario())
+
+    def test_live_malformed_required_arg_completion_is_not_rendered(self) -> None:
+        app = self._app()
+        app._session_run_states["s1"] = app._run_state("s1")
+        app._run_state("s1").active_turn_id = 1
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                session_id="s1",
+                plan_mode_enabled=False,
+                plan_phase="executing",
+            )
+        )
+
+        async def scenario() -> None:
+            event = AgentEvent(
+                type=AgentEventType.TOOL_CALL_COMPLETE,
+                data={
+                    "call_id": "call_1",
+                    "name": "read_file",
+                    "success": False,
+                    "output": "Error: Invalid parameters: Parameter 'path': Field required\n\nOutput:\nRetry this tool with all required arguments.",
+                    "error": "Error: Invalid parameters: Parameter 'path': Field required",
+                    "metadata": {"recoverable": True, "suppressed": True},
+                    "diff": None,
+                    "truncated": False,
+                    "exit_code": None,
+                },
+            )
+            with (
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "update_tool_call", new=AsyncMock()) as update_call,
+                patch.object(app, "_active_session_id", return_value="s1"),
+            ):
+                await app.handle_agent_event(event, "s1", 1)
+                update_call.assert_not_awaited()
+
+        asyncio.run(scenario())
+
+    def test_shell_session_cards_track_multiple_active_sessions(self) -> None:
+        app = self._app()
+
+        class DummyConversation:
+            def __init__(self) -> None:
+                self.children: list[object] = []
+
+            async def mount(self, child: object) -> None:
+                self.children.append(child)
+
+        async def scenario() -> None:
+            conversation = DummyConversation()
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_pin_activity_indicator_to_end", new=AsyncMock()),
+                patch.object(app, "_move_card_to_bottom", new=AsyncMock()),
+            ):
+                await app.add_tool_call_start(
+                    call_id="call_1",
+                    name="shell_start",
+                    tool_kind="shell",
+                    arguments={},
+                )
+                await app.update_tool_call(
+                    call_id="call_1",
+                    name="shell_start",
+                    tool_kind="shell",
+                    success=True,
+                    output="Started interactive shell session `sh_one`.",
+                    error=None,
+                    metadata={
+                        "session_id": "sh_one",
+                        "running": True,
+                        "status": "idle",
+                        "mode": "shell",
+                    },
+                    diff=None,
+                    truncated=False,
+                    exit_code=None,
+                )
+                await app.add_tool_call_start(
+                    call_id="call_2",
+                    name="shell_start",
+                    tool_kind="shell",
+                    arguments={},
+                )
+                await app.update_tool_call(
+                    call_id="call_2",
+                    name="shell_start",
+                    tool_kind="shell",
+                    success=True,
+                    output="Started interactive shell session `sh_two`.",
+                    error=None,
+                    metadata={
+                        "session_id": "sh_two",
+                        "running": True,
+                        "status": "idle",
+                        "mode": "shell",
+                    },
+                    diff=None,
+                    truncated=False,
+                    exit_code=None,
+                )
+
+            self.assertEqual(set(app._shell_session_cards), {"sh_one", "sh_two"})
+            self.assertNotEqual(
+                app._shell_session_cards["sh_one"],
+                app._shell_session_cards["sh_two"],
+            )
+
+        asyncio.run(scenario())
 
     def test_plan_ready_enter_is_not_implicit_approval(self) -> None:
         app = self._app()
