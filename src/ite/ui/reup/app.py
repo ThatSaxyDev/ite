@@ -246,6 +246,17 @@ class SessionRunState:
     running_shell_call_ids: set[str] = field(default_factory=set)
 
 
+@dataclass
+class ShellSessionCardState:
+    card: Static
+    name: str
+    arguments: dict[str, Any]
+    metadata: dict[str, Any]
+    payload: str
+    success: bool
+    exit_code: int | None
+
+
 class ReupApp(App):
     CSS_PATH = "reup.tcss"
     TITLE = "iTE"
@@ -277,6 +288,8 @@ class ReupApp(App):
         self._streaming_buffer: str = ""
         self._tool_widgets: dict[str, Static] = {}
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
+        self._shell_session_cards: dict[str, Static] = {}
+        self._shell_session_card_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
         self._composer_history: list[str] = []
@@ -2205,6 +2218,22 @@ class ReupApp(App):
                         spinner_index=self._top_spinner_index,
                     )
                 )
+        for session_id, state in list(self._shell_session_card_state.items()):
+            if state.metadata.get("running") is not True:
+                continue
+            if self._shell_session_cards.get(session_id) is not state.card:
+                continue
+            state.card.update(
+                self._render_shell_session_card(
+                    name=state.name,
+                    arguments=state.arguments,
+                    metadata=state.metadata,
+                    payload=state.payload,
+                    success=state.success,
+                    exit_code=state.exit_code,
+                    animate_running=True,
+                )
+            )
 
     def _progress_state_label(
         self,
@@ -2306,6 +2335,8 @@ class ReupApp(App):
     def _reset_session_local_ui_state(self) -> None:
         self._tool_widgets.clear()
         self._tool_args_by_call_id.clear()
+        self._shell_session_cards.clear()
+        self._shell_session_card_state.clear()
         self._streaming_widget = None
         self._streaming_buffer = ""
         self._activity_widget = None
@@ -4206,7 +4237,11 @@ class ReupApp(App):
         running_widgets = [
             card for card in self._tool_widgets.values() if card.has_class("running")
         ]
+        persistent_shell_cards = set(self._shell_session_cards.values())
         for card in running_widgets:
+            if card in persistent_shell_cards:
+                card.remove_class("running")
+                continue
             try:
                 await card.remove()
             except Exception:
@@ -4326,6 +4361,82 @@ class ReupApp(App):
                 self._message_count = max(0, self._message_count - 1)
         self._refresh_empty_state()
 
+    @staticmethod
+    def _is_session_shell_tool(name: str) -> bool:
+        return name in {"shell_start", "shell_send", "shell_poll", "shell_stop"}
+
+    def _shell_session_id_for_tool(
+        self,
+        *,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
+        args = arguments or {}
+        md = metadata or {}
+        if name not in {"shell_send", "shell_poll", "shell_stop"}:
+            return None
+        value = args.get("session_id") or md.get("session_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
+
+    def _shell_status_suffix(self) -> str:
+        return self._activity_suffix_frames[
+            self._activity_suffix_index % len(self._activity_suffix_frames)
+        ]
+
+    def _render_shell_session_card(
+        self,
+        *,
+        name: str,
+        arguments: dict[str, Any],
+        metadata: dict[str, Any],
+        payload: str,
+        success: bool,
+        exit_code: int | None,
+        animate_running: bool = False,
+    ) -> Group:
+        md = metadata if isinstance(metadata, dict) else {}
+        icon = "✅" if success else "❌"
+        title_style = "bold #a9ebbe" if success else "bold #ffb0b0"
+        running_suffix = ""
+        if animate_running and md.get("running") is True:
+            running_suffix = self._shell_status_suffix()
+
+        blocks: list[Any] = []
+        command = arguments.get("command") or md.get("command")
+        if isinstance(command, str) and command.strip():
+            blocks.append(
+                render_shell_command_line(
+                    command.strip(),
+                    cwd=self.config.cwd,
+                    shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
+                )
+            )
+        output_display, _ = truncate_for_tool(name, payload)
+        blocks.extend(
+            render_shell_result_payload(
+                payload=output_display,
+                metadata=md,
+                exit_code=exit_code,
+                running_suffix=running_suffix,
+            )
+        )
+
+        header = Text()
+        header.append(f"{icon} ", style=title_style)
+        header.append("Shell", style=title_style)
+        return Group(header, *blocks)
+
+    async def _move_card_to_bottom(self, card: Static) -> None:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        try:
+            await card.remove()
+        except Exception:
+            pass
+        await conversation.mount(card)
+
     async def add_tool_call_start(
         self,
         *,
@@ -4336,8 +4447,14 @@ class ReupApp(App):
     ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         self._tool_args_by_call_id[call_id] = arguments
+        shell_session_id = self._shell_session_id_for_tool(name=name, arguments=arguments)
+        existing_shell_card = (
+            self._shell_session_cards.get(shell_session_id)
+            if shell_session_id
+            else None
+        )
 
-        card = Static(classes="block tool running")
+        card = existing_shell_card or Static(classes="block tool running")
         border_style = "#2a6edb"
         title_text = activity_title(name, stage="start")
         narrative = describe_tool_activity(name, arguments, stage="start")
@@ -4367,8 +4484,11 @@ class ReupApp(App):
             card.update(Group(header, *blocks))
         self._tool_widgets[call_id] = card
 
-        await conversation.mount(card)
-        self._message_count += 1
+        if existing_shell_card is not None:
+            await self._move_card_to_bottom(card)
+        else:
+            await conversation.mount(card)
+            self._message_count += 1
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
 
@@ -4409,6 +4529,17 @@ class ReupApp(App):
         title_style = "bold #a9ebbe" if success else ("bold #a9c7ff" if policy_redirect else ("bold #ffd27a" if recoverable else "bold #ffb0b0"))
         title_text = activity_title(name, stage="complete", success=success, metadata=md)
         self._run_state().running_shell_call_ids.discard(call_id)
+        shell_session_id = self._shell_session_id_for_tool(
+            name=name,
+            arguments=args,
+            metadata=md,
+        )
+
+        if name == "shell_start" and success:
+            started_session_id = md.get("session_id")
+            if isinstance(started_session_id, str) and started_session_id.strip():
+                shell_session_id = started_session_id.strip()
+                self._shell_session_cards[shell_session_id] = card
 
         blocks: list[Any] = [Text(narrative, style="#8c97ab")]
 
@@ -4676,6 +4807,23 @@ class ReupApp(App):
             card.add_class("success")
         else:
             card.add_class("error")
+
+        if shell_session_id and self._is_session_shell_tool(name):
+            if not success or name == "shell_stop" or md.get("running") is False:
+                self._shell_session_cards.pop(shell_session_id, None)
+                self._shell_session_card_state.pop(shell_session_id, None)
+            else:
+                self._shell_session_cards[shell_session_id] = card
+                self._shell_session_card_state[shell_session_id] = ShellSessionCardState(
+                    card=card,
+                    name=name,
+                    arguments=args,
+                    metadata=md,
+                    payload=payload,
+                    success=success,
+                    exit_code=exit_code,
+                )
+                await self._move_card_to_bottom(card)
 
         await self._pin_activity_indicator_to_end()
 

@@ -361,6 +361,15 @@ def _resolve_cwd(requested_cwd: str | None, invocation_cwd: Path) -> Path:
 
 
 def _check_blocked_command(command: str, *, safety: CommandSafety) -> ToolResult | None:
+    if safety == CommandSafety.DANGEROUS:
+        return ToolResult.error_result(
+            f"Command blocked for safety reasons: '{command}'",
+            metadata={
+                "blocked": True,
+                "safety_classification": safety.value,
+                "command": command,
+            },
+        )
     normalized = command.lower().strip()
     for blocked in BLOCKED_COMMANDS:
         if blocked in normalized:

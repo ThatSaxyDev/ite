@@ -580,6 +580,7 @@ def render_shell_result_payload(
     payload: str,
     metadata: dict[str, Any] | None,
     exit_code: int | None,
+    running_suffix: str = "",
 ) -> list[Any]:
     md = metadata if isinstance(metadata, dict) else {}
     session_id = str(md.get("session_id") or "").strip()
@@ -591,15 +592,12 @@ def render_shell_result_payload(
 
     summary = Text()
     if session_id:
-        summary.append(f"session {session_id}", style="#8c97ab")
-    safety = md.get("safety_classification")
-    if isinstance(safety, str) and safety.strip():
-        summary.append(f"{safety} command", style="#8c97ab")
+        summary.append(session_id, style="#8c97ab")
     if isinstance(running, bool):
         if summary.plain:
             summary.append("  •  ", style="#667084")
         if running:
-            summary.append("running", style="#7ad69f")
+            summary.append("running" + running_suffix, style="#7ad69f")
         elif status:
             summary.append(status, style="#8c97ab")
         else:
@@ -617,7 +615,7 @@ def render_shell_result_payload(
 
     if not has_new_output and session_id:
         if isinstance(running, bool) and not running:
-            blocks.append(Text("No new output. This session has already finished.", style="#8c97ab"))
+            blocks.append(Text("No new output.", style="#8c97ab"))
         else:
             blocks.append(Text("No new output yet.", style="#8c97ab"))
         return blocks

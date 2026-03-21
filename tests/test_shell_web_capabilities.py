@@ -103,6 +103,25 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(decision, ApprovalDecision.REJECTED)
 
+    async def test_shell_approval_classification_process_kill_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            manager = ApprovalManager(ApprovalPolicy.ON_REQUEST, cwd)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+            command = "pkill -9 -u $(whoami)"
+
+            decision = await manager.check_approval(
+                ApprovalContext(
+                    tool_name="shell",
+                    params={"command": command},
+                    is_mutating=tool.is_mutating({"command": command}),
+                    affected_paths=[],
+                    command=command,
+                )
+            )
+
+            self.assertEqual(decision, ApprovalDecision.REJECTED)
+
     async def test_shell_approval_classification_auto_policy_allows_ambiguous(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -189,6 +208,19 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(result.success)
             self.assertIn("outside the project sandbox", result.error or "")
+
+    async def test_shell_execute_blocks_dangerous_process_kill_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+
+            result = await tool.execute(
+                ToolInvocation(params={"command": "pkill -9 -u $(whoami)"}, cwd=cwd)
+            )
+
+            self.assertFalse(result.success)
+            self.assertIn("Command blocked for safety reasons", result.error or "")
+            self.assertEqual(result.metadata.get("safety_classification"), "dangerous")
 
     async def test_registry_returns_legible_shell_approval_rejection(self) -> None:
         with tempfile.TemporaryDirectory() as td:

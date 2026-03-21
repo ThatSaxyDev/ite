@@ -10,6 +10,7 @@ from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
+from textual.widgets import Static
 
 
 class ReupCommandPaletteTests(unittest.TestCase):
@@ -86,6 +87,39 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._last_rendered_plan_text = app._normalize_plan_text("Plan body")
         self.assertFalse(app._should_render_plan_text("Plan body"))
         self.assertFalse(app._should_render_plan_text("  Plan body  "))
+
+    def test_shell_session_helpers_identify_session_tools(self) -> None:
+        app = self._app()
+
+        self.assertTrue(app._is_session_shell_tool("shell_start"))
+        self.assertTrue(app._is_session_shell_tool("shell_poll"))
+        self.assertFalse(app._is_session_shell_tool("shell"))
+        self.assertEqual(
+            app._shell_session_id_for_tool(
+                name="shell_send",
+                arguments={"session_id": "sh_123"},
+            ),
+            "sh_123",
+        )
+        self.assertIsNone(
+            app._shell_session_id_for_tool(
+                name="shell_start",
+                metadata={"session_id": "sh_123"},
+            )
+        )
+
+    def test_reset_session_local_ui_state_clears_shell_session_cards(self) -> None:
+        app = self._app()
+        app._shell_session_cards["sh_123"] = Static()
+        app._tool_widgets["call_1"] = Static()
+        app._tool_args_by_call_id["call_1"] = {"session_id": "sh_123"}
+
+        with patch.object(ReupApp, "is_mounted", new_callable=PropertyMock, return_value=False):
+            app._reset_session_local_ui_state()
+
+        self.assertEqual(app._shell_session_cards, {})
+        self.assertEqual(app._tool_widgets, {})
+        self.assertEqual(app._tool_args_by_call_id, {})
 
     def test_plan_ready_enter_is_not_implicit_approval(self) -> None:
         app = self._app()

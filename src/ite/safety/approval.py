@@ -47,6 +47,8 @@ DANGEROUS_PATTERNS = [
     r"halt",
     r"poweroff",
     r"init\s+[06]",
+    # Process termination
+    r"(^|[\s;&|])(kill|pkill|killall)(\s|$)",
     # Permission changes on root
     r"chmod\s+(-R\s+)?777\s+[/~]",
     r"chown\s+-R\s+.*\s+[/~]",
