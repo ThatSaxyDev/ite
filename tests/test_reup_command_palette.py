@@ -132,6 +132,117 @@ class ReupCommandPaletteTests(unittest.TestCase):
             "exited",
         )
 
+    def test_shell_card_icon_tracks_shell_state(self) -> None:
+        self.assertEqual(
+            ReupApp._shell_card_icon_and_style(
+                {"status": "command_running", "running": True},
+                success=True,
+            )[0],
+            "⌛",
+        )
+        self.assertEqual(
+            ReupApp._shell_card_icon_and_style(
+                {"status": "idle", "running": True},
+                success=True,
+            )[0],
+            "💤",
+        )
+        self.assertEqual(
+            ReupApp._shell_card_icon_and_style(
+                {"status": "stopped", "running": False},
+                success=True,
+            )[0],
+            "⏹",
+        )
+        self.assertEqual(
+            ReupApp._shell_card_icon_and_style(
+                {"status": "exited", "running": False},
+                success=True,
+            )[0],
+            "✅",
+        )
+        self.assertEqual(
+            ReupApp._shell_card_icon_and_style(
+                {"status": "exited", "running": False},
+                success=False,
+            )[0],
+            "❌",
+        )
+
+    def test_tool_completion_icon_tracks_tool_category_and_outcome(self) -> None:
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "read_file",
+                success=True,
+                policy_redirect=False,
+                recoverable=False,
+            )[0],
+            "📖",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "write_file",
+                success=True,
+                policy_redirect=False,
+                recoverable=False,
+            )[0],
+            "💾",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "web_search",
+                success=True,
+                policy_redirect=False,
+                recoverable=False,
+            )[0],
+            "🌐",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "run_tests",
+                success=True,
+                policy_redirect=False,
+                recoverable=False,
+            )[0],
+            "🧪",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "git_commit",
+                success=True,
+                policy_redirect=False,
+                recoverable=False,
+            )[0],
+            "📦",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "read_file",
+                success=False,
+                policy_redirect=True,
+                recoverable=True,
+            )[0],
+            "↪",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "read_file",
+                success=False,
+                policy_redirect=False,
+                recoverable=True,
+            )[0],
+            "↺",
+        )
+        self.assertEqual(
+            ReupApp._tool_completion_icon_and_style(
+                "read_file",
+                success=False,
+                policy_redirect=False,
+                recoverable=False,
+            )[0],
+            "❌",
+        )
+
     def test_malformed_tool_card_suppression_matches_agent_rules(self) -> None:
         self.assertTrue(
             ReupApp._should_suppress_malformed_tool_card(

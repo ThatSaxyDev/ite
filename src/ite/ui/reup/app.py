@@ -115,6 +115,7 @@ from .tool_views import (
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
+    shell_session_state,
     render_text_payload,
     render_todo_payload,
     summarize_diff_hunk_ranges,
@@ -4413,6 +4414,68 @@ class ReupApp(App):
         ]
 
     @staticmethod
+    def _shell_card_icon_and_style(
+        metadata: dict[str, Any] | None,
+        *,
+        success: bool,
+    ) -> tuple[str, str]:
+        if not success:
+            return "❌", "bold #ffb0b0"
+        state = shell_session_state(metadata)
+        if state == "command_running":
+            return "⌛", "bold #9bc7ff"
+        if state == "idle":
+            return "💤", "bold #8c97ab"
+        if state == "stopped":
+            return "⏹", "bold #8c97ab"
+        if state == "exited":
+            return "✅", "bold #a9ebbe"
+        return "✅", "bold #a9ebbe"
+
+    @staticmethod
+    def _tool_completion_icon_and_style(
+        name: str,
+        *,
+        success: bool,
+        policy_redirect: bool,
+        recoverable: bool,
+    ) -> tuple[str, str]:
+        if policy_redirect:
+            return "↪", "bold #a9c7ff"
+        if recoverable and not success:
+            return "↺", "bold #ffd27a"
+        if not success:
+            return "❌", "bold #ffb0b0"
+
+        icon_by_tool = {
+            "read_file": "📖",
+            "read_json": "🧾",
+            "write_file": "💾",
+            "edit": "✏️",
+            "edit_json": "🛠️",
+            "apply_patch": "🩹",
+            "list_dir": "📁",
+            "glob": "🗂️",
+            "grep": "🔎",
+            "web_search": "🌐",
+            "web_fetch": "📄",
+            "run_tests": "🧪",
+            "run_linter": "🧹",
+            "run_typecheck": "🔤",
+            "git_status": "🌿",
+            "git_diff": "🧬",
+            "git_log": "🕘",
+            "git_branch": "🌱",
+            "git_remote": "🔗",
+            "git_commit": "📦",
+            "git_push": "🚀",
+            "todos": "☑️",
+            "memory": "🧠",
+            "shell": "✅",
+        }
+        return icon_by_tool.get(name, "✅"), "bold #a9ebbe"
+
+    @staticmethod
     def _normalize_tool_start_arguments(
         tool_name: str,
         arguments: dict[str, Any] | None,
@@ -4489,8 +4552,7 @@ class ReupApp(App):
         animate_running: bool = False,
     ) -> Group:
         md = metadata if isinstance(metadata, dict) else {}
-        icon = "✅" if success else "❌"
-        title_style = "bold #a9ebbe" if success else "bold #ffb0b0"
+        icon, title_style = self._shell_card_icon_and_style(md, success=success)
         running_suffix = ""
         if animate_running and md.get("running") is True:
             running_suffix = self._shell_status_suffix()
@@ -4609,7 +4671,6 @@ class ReupApp(App):
         policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
         status = "done" if success else ("redirected" if policy_redirect else "failed")
         recoverable = bool(md.get("recoverable")) or policy_redirect
-        icon = "✅" if success else ("↪" if policy_redirect else ("↺" if recoverable else "❌"))
         args = self._tool_args_by_call_id.get(call_id, {})
         narrative = describe_tool_activity(
             name,
@@ -4620,7 +4681,12 @@ class ReupApp(App):
         )
 
         border_style = "#2f9e63" if success else ("#4d79c7" if policy_redirect else ("#a06b15" if recoverable else "#b23a3a"))
-        title_style = "bold #a9ebbe" if success else ("bold #a9c7ff" if policy_redirect else ("bold #ffd27a" if recoverable else "bold #ffb0b0"))
+        icon, title_style = self._tool_completion_icon_and_style(
+            name,
+            success=success,
+            policy_redirect=policy_redirect,
+            recoverable=recoverable,
+        )
         title_text = activity_title(name, stage="complete", success=success, metadata=md)
         self._run_state().running_shell_call_ids.discard(call_id)
         shell_session_id = self._shell_session_id_for_tool(
