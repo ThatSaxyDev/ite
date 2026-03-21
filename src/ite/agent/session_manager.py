@@ -77,6 +77,7 @@ def _compact_messages_for_snapshot(messages: list[dict[str, Any]]) -> list[dict[
                 SNAPSHOT_MAX_OLD_TOOL_RESULT_CHARS,
                 "\n...[older tool output trimmed in saved session]",
             )
+            entry.pop("tool_ui", None)
 
         if (
             role == "assistant"

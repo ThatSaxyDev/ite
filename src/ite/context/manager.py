@@ -17,10 +17,11 @@ class MessageItem:
     content: str
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    tool_ui: dict[str, Any] | None = None
     token_count: int | None = None
     pruned_at: datetime | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_tool_ui: bool = False) -> dict[str, Any]:
         result: dict[str, Any] = {"role": self.role}
 
         if self.tool_call_id:
@@ -34,6 +35,9 @@ class MessageItem:
             result["content"] = self.content or ""
         elif self.content or self.tool_calls:
             result["content"] = self.content or ""
+
+        if include_tool_ui and self.tool_ui and self.role == "tool":
+            result["tool_ui"] = self.tool_ui
 
         return result
 
@@ -106,6 +110,9 @@ class ContextManager:
                     content=msg.get("content", ""),
                     tool_call_id=msg.get("tool_call_id"),
                     tool_calls=msg.get("tool_calls", []),
+                    tool_ui=msg.get("tool_ui")
+                    if isinstance(msg.get("tool_ui"), dict)
+                    else None,
                     token_count=count_tokens(msg.get("content", ""), self._model_name),
                 )
             )
@@ -202,11 +209,18 @@ class ContextManager:
 
         self._messages.append(item)
 
-    def add_tool_result(self, tool_call_id: str, content: str) -> None:
+    def add_tool_result(
+        self,
+        tool_call_id: str,
+        content: str,
+        *,
+        tool_ui: dict[str, Any] | None = None,
+    ) -> None:
         item = MessageItem(
             role="tool",
             content=content,
             tool_call_id=tool_call_id,
+            tool_ui=tool_ui,
             token_count=count_tokens(
                 content,
                 self._model_name,
@@ -240,6 +254,14 @@ class ContextManager:
         for item in self._messages:
             messages.append(item.to_dict())
 
+        return messages
+
+    def get_snapshot_messages(self) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        for item in self._messages:
+            if item.role == "system":
+                continue
+            messages.append(item.to_dict(include_tool_ui=True))
         return messages
 
     def _latest_user_message_text(self) -> str | None:

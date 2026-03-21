@@ -187,7 +187,17 @@ class SessionManagerCorruptionTests(unittest.TestCase):
                 }
             )
             messages.append(
-                {"role": "tool", "tool_call_id": call_id, "content": f"tool output {i}"}
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": f"tool output {i}",
+                    "tool_ui": {
+                        "name": "shell",
+                        "success": True,
+                        "output": f"tool output {i}",
+                        "metadata": {"path": f"/tmp/{call_id}.txt"},
+                    },
+                }
             )
 
         snapshot = SessionSnapshot(
@@ -210,7 +220,9 @@ class SessionManagerCorruptionTests(unittest.TestCase):
 
         self.assertLess(len(old_assistant["tool_calls"][0]["function"]["arguments"]), 500)
         self.assertIn("trimmed in saved session", old_tool["content"])
+        self.assertNotIn("tool_ui", old_tool)
         self.assertEqual(recent_tool["content"], "tool output 13")
+        self.assertEqual(recent_tool["tool_ui"]["name"], "shell")
 
 
 if __name__ == "__main__":

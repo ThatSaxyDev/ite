@@ -978,7 +978,7 @@ class Agent:
                     yield AgentEvent.text_complete(controlled_response_text)
                 session.loop_detector.record_action("response", text=controlled_response_text)
 
-            tool_call_results: list[ToolResultMessage] = []
+            tool_call_results: list[tuple[str, ToolResultMessage, ToolResult]] = []
             skipped_plan_validation_errors: list[str] = []
 
             for tool_call in tool_calls:
@@ -1018,14 +1018,18 @@ class Agent:
                         },
                     )
                     tool_call_results.append(
-                        ToolResultMessage(
-                            tool_call_id=tool_call.call_id,
-                            content=(
-                                "Error: Invalid parameters: "
-                                + "; ".join(validation_errors)
-                                + "\n\nOutput:\nRetry this tool with all required arguments."
+                        (
+                            tool_call.name or "tool",
+                            ToolResultMessage(
+                                tool_call_id=tool_call.call_id,
+                                content=(
+                                    "Error: Invalid parameters: "
+                                    + "; ".join(validation_errors)
+                                    + "\n\nOutput:\nRetry this tool with all required arguments."
+                                ),
+                                is_error=True,
                             ),
-                            is_error=True,
+                            suppressed_result,
                         )
                     )
                     yield AgentEvent.tool_call_complete(
@@ -1103,17 +1107,31 @@ class Agent:
                 )
 
                 tool_call_results.append(
-                    ToolResultMessage(
-                        tool_call_id=tool_call.call_id,
-                        content=result.to_model_output(),
-                        is_error=not result.success,
+                    (
+                        tool_call.name or "tool",
+                        ToolResultMessage(
+                            tool_call_id=tool_call.call_id,
+                            content=result.to_model_output(),
+                            is_error=not result.success,
+                        ),
+                        result,
                     )
                 )
 
-            for tool_result in tool_call_results:
+            for tool_name, tool_result, result in tool_call_results:
                 session.context_manager.add_tool_result(
                     tool_result.tool_call_id,
                     tool_result.content,
+                    tool_ui={
+                        "name": tool_name,
+                        "success": result.success,
+                        "output": result.output,
+                        "error": result.error,
+                        "metadata": result.metadata,
+                        "diff": result.diff.to_diff() if result.diff else None,
+                        "truncated": result.truncated,
+                        "exit_code": result.exit_code,
+                    },
                 )
 
             if skipped_plan_validation_errors:

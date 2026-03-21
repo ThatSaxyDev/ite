@@ -166,6 +166,50 @@ class MemoryManagerTests(unittest.TestCase):
             )
         )
 
+    def test_context_manager_snapshot_messages_preserve_tool_ui_only_for_snapshot(self) -> None:
+        workspace = self.base_path / "ws-tool-ui"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: None,
+        )
+        context_manager.add_assistant_message(
+            "",
+            tool_calls=[
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "read_json", "arguments": "{\"path\":\"package.json\"}"},
+                }
+            ],
+        )
+        context_manager.add_tool_result(
+            "call-1",
+            '{"name":"demo"}',
+            tool_ui={
+                "name": "read_json",
+                "success": True,
+                "output": '{"name":"demo"}',
+                "metadata": {"path": "/tmp/package.json", "json_path": ""},
+                "diff": None,
+                "truncated": False,
+                "exit_code": None,
+            },
+        )
+
+        model_messages = context_manager.get_messages()
+        snapshot_messages = context_manager.get_snapshot_messages()
+
+        self.assertNotIn("tool_ui", model_messages[-1])
+        self.assertIn("tool_ui", snapshot_messages[-1])
+        restored = ContextManager(config=config, tools=[], memory_provider=lambda _text: None)
+        restored.set_messages(snapshot_messages)
+        restored_snapshot = restored.get_snapshot_messages()
+        self.assertEqual(restored_snapshot[-1]["tool_ui"]["name"], "read_json")
+
     def test_newer_preference_controls_override_older_ones(self) -> None:
         workspace = self.base_path / "ws-controls"
         workspace.mkdir()

@@ -3118,18 +3118,24 @@ class ReupApp(App):
                 call_id = str(message.get("tool_call_id", "") or "")
                 tool_name = tool_call_names.get(call_id, "tool")
                 output = content if isinstance(content, str) else str(content)
-                success = not output.lstrip().startswith("Error:")
+                tool_ui = message.get("tool_ui") if isinstance(message.get("tool_ui"), dict) else {}
+                tool_name = str(tool_ui.get("name") or tool_name or "tool")
+                success = bool(tool_ui.get("success")) if "success" in tool_ui else not output.lstrip().startswith("Error:")
                 await self.update_tool_call(
                     call_id=call_id,
                     name=tool_name,
                     tool_kind=self.get_tool_kind(tool_name),
                     success=success,
-                    output=output,
-                    error=None if success else output,
-                    metadata={},
-                    diff=None,
-                    truncated=False,
-                    exit_code=None,
+                    output=str(tool_ui.get("output") if "output" in tool_ui else output),
+                    error=(
+                        str(tool_ui.get("error"))
+                        if tool_ui.get("error") is not None
+                        else (None if success else output)
+                    ),
+                    metadata=tool_ui.get("metadata") if isinstance(tool_ui.get("metadata"), dict) else {},
+                    diff=str(tool_ui.get("diff")) if tool_ui.get("diff") is not None else None,
+                    truncated=bool(tool_ui.get("truncated", False)),
+                    exit_code=int(tool_ui["exit_code"]) if isinstance(tool_ui.get("exit_code"), int) else None,
                 )
         self._refresh_empty_state()
 

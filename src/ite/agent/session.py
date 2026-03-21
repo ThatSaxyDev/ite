@@ -256,7 +256,7 @@ class Session:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "turn_count": self.turn_count,
-            "messages": self.context_manager.get_messages(),
+            "messages": self.context_manager.get_snapshot_messages(),
             "total_usage": self.context_manager.total_usage,
             "plan_mode_enabled": self.plan_mode_enabled,
             "plan_phase": self.plan_phase,

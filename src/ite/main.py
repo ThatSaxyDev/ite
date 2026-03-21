@@ -828,7 +828,7 @@ class CLI:
                 created_at=session.created_at,
                 updated_at=session.updated_at,
                 turn_count=session.turn_count,
-                messages=session.context_manager.get_messages(),
+                messages=session.context_manager.get_snapshot_messages(),
                 total_usage=session.context_manager.total_usage,
                 plan_mode_enabled=session.plan_mode_enabled,
                 plan_phase=session.plan_phase,
