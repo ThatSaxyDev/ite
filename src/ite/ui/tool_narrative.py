@@ -58,6 +58,10 @@ def activity_title(
         return "Searching web" if running else ("Web search finished" if done else "Web search failed")
     if name == "web_fetch":
         return "Fetching page" if running else ("Fetched page" if done else "Fetch failed")
+    if name == "http_request":
+        return "Sending HTTP request" if running else ("HTTP response ready" if done else "HTTP request failed")
+    if name == "list_archive":
+        return "Inspecting archive" if running else ("Archive contents ready" if done else "Archive inspection failed")
     if name == "todos":
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
@@ -348,6 +352,29 @@ def describe_tool_activity(
             return "Fetched page."
         return "Fetch failed."
 
+    if name == "http_request":
+        method = str(args.get("method") or metadata.get("method") or "GET").strip().upper()
+        url = str(args.get("url") or metadata.get("url") or "").strip()
+        if url:
+            if stage == "start":
+                return f"Sending {method} request to {_trim(url, 90)}."
+            if success:
+                return f"Completed {method} request to {_trim(url, 90)}."
+            return f"{method} request failed for {_trim(url, 90)}."
+        if stage == "start":
+            return "Sending HTTP request."
+        if success:
+            return "Completed HTTP request."
+        return "HTTP request failed."
+
+    if name == "list_archive":
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Inspecting archive {path}."
+        if success:
+            return f"Loaded archive contents for {path}."
+        return f"Failed to inspect archive {path}."
+
     if name == "todos":
         action = str(args.get("action", "")).strip() or str(metadata.get("action", "")).strip() or "update"
         scope = str(args.get("scope", "")).strip() or str(metadata.get("scope", "")).strip() or "execution"
@@ -625,6 +652,10 @@ def progress_label(
         label = "Researching web"
     elif name == "web_fetch":
         label = "Reading source"
+    elif name == "http_request":
+        label = "Sending HTTP request"
+    elif name == "list_archive":
+        label = "Inspecting archive"
     elif name == "todos":
         scope = str(args.get("scope", "")).strip() or str(md.get("scope", "")).strip()
         label = "Updating planning checklist" if scope == "planning" else "Updating checklist"

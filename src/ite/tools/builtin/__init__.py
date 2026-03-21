@@ -1,6 +1,8 @@
 from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.archive_tools import ListArchiveTool
 from ite.tools.builtin.plan_question import PlanQuestionTool
 from ite.tools.builtin.todo import TodosTool
+from ite.tools.builtin.http_tools import HttpRequestTool
 from ite.tools.builtin.web_fetch import WebFetchTool
 from ite.tools.builtin.web_search import WebSearchTool
 from ite.tools.builtin.glob import GlobTool
@@ -51,6 +53,8 @@ __all__ = [
     "ReadYamlTool",
     "WriteYamlTool",
     "ListDirTool",
+    "HttpRequestTool",
+    "ListArchiveTool",
     "GrepTool",
     "GlobTool",
     "WebSearchTool",
@@ -91,6 +95,8 @@ def get_all_builtin_tools() -> list[type]:
         ReadYamlTool,
         WriteYamlTool,
         ListDirTool,
+        HttpRequestTool,
+        ListArchiveTool,
         GrepTool,
         GlobTool,
         WebSearchTool,

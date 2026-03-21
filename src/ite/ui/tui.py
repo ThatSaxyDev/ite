@@ -248,6 +248,8 @@ class TUI:
             "write_yaml": ["path", "key_path", "operation", "value", "create_missing"],
             "read_env": ["path", "key"],
             "write_env": ["path", "key", "operation", "value"],
+            "http_request": ["method", "url", "params", "headers", "json_body", "body", "timeout"],
+            "list_archive": ["path", "limit"],
             "shell": ["command", "timeout", "cwd"],
             "list_dir": ["path", "include_hidden"],
             "grep": ["path", "case_insensitive", "pattern"],
@@ -483,6 +485,8 @@ class TUI:
             "write_yaml": 18,
             "read_env": 16,
             "write_env": 16,
+            "http_request": 18,
+            "list_archive": 16,
         }
         max_chars_by_tool = {
             "read_file": 2600,
@@ -502,6 +506,8 @@ class TUI:
             "write_yaml": 2200,
             "read_env": 1800,
             "write_env": 1800,
+            "http_request": 2200,
+            "list_archive": 1800,
         }
 
         max_lines = max_lines_by_tool.get(name, 16)
@@ -917,6 +923,50 @@ class TUI:
             elif name == "read_yaml":
                 language = "yaml"
             blocks.append(Syntax(output_display, language, theme="monokai", word_wrap=True))
+
+        elif name == "http_request" and success:
+            blocks.append(Text(narrative, style="muted"))
+            summary = []
+            method = md.get("method") or args.get("method")
+            url = md.get("url") or args.get("url")
+            if isinstance(method, str):
+                summary.append(method.upper())
+            if isinstance(md.get("status_code"), int):
+                summary.append(str(md["status_code"]))
+            if isinstance(md.get("content_type"), str) and md.get("content_type"):
+                summary.append(str(md["content_type"]))
+            if isinstance(url, str):
+                summary.append(url)
+            if summary:
+                blocks.append(self._summary_line(*summary))
+
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
+            blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+
+        elif name == "list_archive" and success:
+            blocks.append(Text(narrative, style="muted"))
+            summary = []
+            if isinstance(primary_path, str):
+                summary.append(str(display_path_relative_to_cwd(primary_path, self.cwd)))
+            if isinstance(md.get("archive_format"), str):
+                summary.append(str(md["archive_format"]))
+            if isinstance(md.get("entry_count"), int):
+                summary.append(f"{md['entry_count']} entries")
+            if summary:
+                blocks.append(self._summary_line(*summary))
+
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
+            blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
 
         elif name == "shell" and success:
             blocks.append(Text(narrative, style="muted"))

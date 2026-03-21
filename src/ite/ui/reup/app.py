@@ -4492,6 +4492,8 @@ class ReupApp(App):
             "write_env": "🛠️",
             "apply_patch": "🩹",
             "list_dir": "📁",
+            "http_request": "🌐",
+            "list_archive": "🗜️",
             "glob": "🗂️",
             "grep": "🔎",
             "web_search": "🌐",
@@ -4877,19 +4879,25 @@ class ReupApp(App):
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_numbered_unified_diff(diff_display))
-        elif name in {"run_tests", "run_linter", "run_typecheck"}:
+        elif name in {"run_tests", "run_linter", "run_typecheck", "http_request"}:
             blocks.append(Text(narrative, style="#8c97ab"))
-            command = md.get("command") or args.get("command")
-            if isinstance(command, str) and command.strip():
-                blocks.append(
-                    render_shell_command_line(
-                        command.strip(),
-                        cwd=self.config.cwd,
-                        shell_cwd=md.get("cwd")
-                        if isinstance(md.get("cwd"), str)
-                        else None,
+            if name == "http_request":
+                method = str(md.get("method") or args.get("method") or "GET").strip().upper()
+                url = str(md.get("url") or args.get("url") or "").strip()
+                if url:
+                    blocks.append(Text(f"{method} {url}", style="#8c97ab"))
+            else:
+                command = md.get("command") or args.get("command")
+                if isinstance(command, str) and command.strip():
+                    blocks.append(
+                        render_shell_command_line(
+                            command.strip(),
+                            cwd=self.config.cwd,
+                            shell_cwd=md.get("cwd")
+                            if isinstance(md.get("cwd"), str)
+                            else None,
+                        )
                     )
-                )
             duration_ms = md.get("duration_ms")
             if isinstance(duration_ms, int):
                 blocks.append(
@@ -4900,13 +4908,36 @@ class ReupApp(App):
                 )
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.extend(
-                render_shell_result_payload(
-                    payload=output_display,
-                    metadata=md,
-                    exit_code=exit_code,
+            if name == "http_request":
+                blocks.append(
+                    Text(
+                        "  •  ".join(
+                            part
+                            for part in [
+                                str(md.get("status_code")) if md.get("status_code") is not None else "",
+                                str(md.get("content_type") or "").strip(),
+                            ]
+                            if part
+                        ),
+                        style="#8c97ab",
+                    )
                 )
-            )
+                blocks.append(render_text_payload(output_display, success=success))
+            else:
+                blocks.extend(
+                    render_shell_result_payload(
+                        payload=output_display,
+                        metadata=md,
+                        exit_code=exit_code,
+                    )
+                )
+        elif name == "list_archive" and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
+            if primary_path:
+                blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
+            output_display, was_truncated = truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            blocks.append(render_text_payload(output_display, success=True))
         elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
             if primary_path:
                 target = display_path(primary_path, cwd=self.config.cwd)

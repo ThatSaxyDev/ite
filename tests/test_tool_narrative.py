@@ -114,6 +114,34 @@ class ToolNarrativeTests(unittest.TestCase):
             "Applied env `set` at .env :: DEBUG.",
         )
 
+    def test_http_and_archive_tools_have_specific_narratives_and_titles(self) -> None:
+        self.assertEqual(
+            activity_title("http_request", stage="complete", success=True),
+            "HTTP response ready",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "http_request",
+                {"method": "POST", "url": "https://example.com/api"},
+                stage="complete",
+                success=True,
+            ),
+            "Completed POST request to https://example.com/api.",
+        )
+        self.assertEqual(
+            activity_title("list_archive", stage="complete", success=True),
+            "Archive contents ready",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "list_archive",
+                {"path": "builds/release.zip"},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded archive contents for builds/release.zip.",
+        )
+
     def test_shell_session_tools_have_specific_narratives_and_titles(self) -> None:
         self.assertEqual(
             activity_title("shell_start", stage="complete", success=True),
