@@ -182,26 +182,42 @@ def render_turn_action_palette(turn_action_options: list[SlashCommandOption], co
 def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | None = None) -> str:
     current = now or datetime.now()
     hour = current.hour
+    is_weekend = current.weekday() >= 5
     if 5 <= hour < 12:
         opener_variants = [
             "Good morning",
-            "Fresh start",
             "Morning focus",
-            "Let's get momentum",
+            "Fresh start",
+            "Clear head, clear work",
+            "Early momentum",
+            "A calm start",
         ]
     elif 12 <= hour < 17:
         opener_variants = [
             "Good afternoon",
-            "Afternoon check-in",
-            "Back to shipping",
-            "Let's make progress",
+            "Afternoon focus",
+            "Back in rhythm",
+            "Steady progress",
+            "A good point to pick things up",
+            "Time to move the work forward",
+        ]
+    elif 17 <= hour < 22:
+        opener_variants = [
+            "Good evening",
+            "Evening session",
+            "A quieter stretch for focused work",
+            "Settle in and make progress",
+            "A good hour for deliberate work",
+            "The day is still usable",
         ]
     else:
         opener_variants = [
-            "Good evening",
-            "Evening build session",
-            "Quiet hours, solid output",
-            "Let's close the day strong",
+            "Late hours, clear focus",
+            "A quiet window",
+            "Night shift, steady hands",
+            "The workspace is ready",
+            "A calm stretch to think clearly",
+            "Still time for one more pass",
         ]
 
     if thread_count > 0:
@@ -210,17 +226,43 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
             "Pick up your last thread.",
             "Your workspace is ready.",
             "Resume the next step.",
+            "Carry the work a little further.",
+            "Step back into the thread.",
         ]
     else:
         followup_variants = [
             "What should we build next?",
-            "Start a thread and let's map it out.",
+            "Start a thread and we can map it out.",
             "Drop in a goal to begin.",
             "Tell me what you want to ship.",
+            "Name the task and we can get moving.",
+            "Point at the problem and we can start.",
+        ]
+
+    if is_weekend:
+        opener_variants = [
+            "Weekend session",
+            "A quieter window",
+            "Unhurried progress",
+            "A calm session",
+        ] + opener_variants[:3]
+
+    if thread_count == 0 and hour >= 22:
+        followup_variants = [
+            "Start with one clear task.",
+            "Name the work and we can begin.",
+            "Drop in the goal and keep it simple.",
+            "Point at the next task.",
         ]
 
     workspace_key = str(cwd.resolve())
-    seed = sum(ord(ch) for ch in f"{workspace_key}:{current.date().isoformat()}:{thread_count}")
+    seed = sum(
+        ord(ch)
+        for ch in (
+            f"{workspace_key}:{current.date().isoformat()}:"
+            f"{current.hour}:{thread_count}:{int(is_weekend)}"
+        )
+    )
     opener = opener_variants[seed % len(opener_variants)]
     followup = followup_variants[(seed // 3) % len(followup_variants)]
     return f"{opener}. {followup}"
