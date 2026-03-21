@@ -60,6 +60,61 @@ class ToolNarrativeTests(unittest.TestCase):
             "Finished tests: `python3 -m unittest discover -s tests`.",
         )
 
+    def test_shell_session_tools_have_specific_narratives_and_titles(self) -> None:
+        self.assertEqual(
+            activity_title("shell_start", stage="complete", success=True),
+            "Shell session started",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "shell_start",
+                {"command": "npm run dev", "cwd": "/repo/app"},
+                stage="complete",
+                success=True,
+            ),
+            "Started shell session for `npm run dev` in /repo/app.",
+        )
+        self.assertEqual(
+            activity_title("shell_send", stage="complete", success=True),
+            "Shell input sent",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "shell_send",
+                {"session_id": "sh_123", "input": "pwd"},
+                stage="complete",
+                success=True,
+            ),
+            "Sent `pwd` to shell session `sh_123`.",
+        )
+        self.assertEqual(
+            activity_title("shell_poll", stage="complete", success=True),
+            "Shell session updated",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "shell_poll",
+                {"session_id": "sh_123"},
+                {"status": "running"},
+                stage="complete",
+                success=True,
+            ),
+            "Updated shell session `sh_123` (running).",
+        )
+        self.assertEqual(
+            activity_title("shell_stop", stage="complete", success=True),
+            "Shell session stopped",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "shell_stop",
+                {"session_id": "sh_123"},
+                stage="complete",
+                success=True,
+            ),
+            "Stopped shell session `sh_123`.",
+        )
+
     def test_policy_redirect_uses_neutral_title_and_narrative(self) -> None:
         metadata = {"policy_blocked": True, "redirect_to": "read_json"}
         self.assertEqual(

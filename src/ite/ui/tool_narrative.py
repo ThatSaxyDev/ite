@@ -38,6 +38,14 @@ def activity_title(
         return "Finding files" if running else ("Found matching files" if done else "File search failed")
     if name == "shell":
         return "Running command" if running else ("Command finished" if done else ("Command needs retry" if recoverable else "Command failed"))
+    if name == "shell_start":
+        return "Starting shell session" if running else ("Shell session started" if done else "Shell session start failed")
+    if name == "shell_poll":
+        return "Checking shell session" if running else ("Shell session updated" if done else "Shell session check failed")
+    if name == "shell_send":
+        return "Sending shell input" if running else ("Shell input sent" if done else "Shell input failed")
+    if name == "shell_stop":
+        return "Stopping shell session" if running else ("Shell session stopped" if done else "Shell session stop failed")
     if name.startswith("subagent_"):
         return "Asking specialist" if running else ("Specialist finished" if done else "Specialist failed")
     if name == "web_search":
@@ -163,6 +171,70 @@ def describe_tool_activity(
         if success:
             return "Finished command."
         return "Command failed."
+
+    if name == "shell_start":
+        command = str(args.get("command", "")).strip()
+        shell_cwd = str(args.get("cwd") or metadata.get("cwd") or "").strip()
+        target = f" in {shell_cwd}" if shell_cwd else ""
+        if command:
+            if stage == "start":
+                return f"Starting shell session for `{_trim(command, 100)}`{target}."
+            if success:
+                return f"Started shell session for `{_trim(command, 100)}`{target}."
+            return f"Failed to start shell session for `{_trim(command, 100)}`{target}."
+        if stage == "start":
+            return f"Starting interactive shell session{target}."
+        if success:
+            return f"Started interactive shell session{target}."
+        return f"Failed to start interactive shell session{target}."
+
+    if name == "shell_poll":
+        session_id = str(args.get("session_id") or metadata.get("session_id") or "").strip()
+        status = str(metadata.get("status") or "").strip()
+        if stage == "start":
+            return f"Checking shell session `{session_id}`." if session_id else "Checking shell session."
+        if success:
+            if session_id and status:
+                return f"Updated shell session `{session_id}` ({status})."
+            if session_id:
+                return f"Updated shell session `{session_id}`."
+            return "Updated shell session."
+        return f"Failed to check shell session `{session_id}`." if session_id else "Failed to check shell session."
+
+    if name == "shell_send":
+        session_id = str(args.get("session_id") or metadata.get("session_id") or "").strip()
+        shell_input = str(args.get("input") or "").strip()
+        if shell_input:
+            if stage == "start":
+                return (
+                    f"Sending `{_trim(shell_input, 80)}` to shell session `{session_id}`."
+                    if session_id
+                    else f"Sending `{_trim(shell_input, 80)}` to shell session."
+                )
+            if success:
+                return (
+                    f"Sent `{_trim(shell_input, 80)}` to shell session `{session_id}`."
+                    if session_id
+                    else f"Sent `{_trim(shell_input, 80)}` to shell session."
+                )
+            return (
+                f"Failed to send `{_trim(shell_input, 80)}` to shell session `{session_id}`."
+                if session_id
+                else f"Failed to send `{_trim(shell_input, 80)}` to shell session."
+            )
+        if stage == "start":
+            return f"Sending input to shell session `{session_id}`." if session_id else "Sending input to shell session."
+        if success:
+            return f"Sent input to shell session `{session_id}`." if session_id else "Sent input to shell session."
+        return f"Failed to send input to shell session `{session_id}`." if session_id else "Failed to send input to shell session."
+
+    if name == "shell_stop":
+        session_id = str(args.get("session_id") or metadata.get("session_id") or "").strip()
+        if stage == "start":
+            return f"Stopping shell session `{session_id}`." if session_id else "Stopping shell session."
+        if success:
+            return f"Stopped shell session `{session_id}`." if session_id else "Stopped shell session."
+        return f"Failed to stop shell session `{session_id}`." if session_id else "Failed to stop shell session."
 
     if name == "grep":
         pattern = str(args.get("pattern", "")).strip()
@@ -466,6 +538,14 @@ def progress_label(
         label = "Reading file" if path != "the workspace" else "Reading workspace files"
     elif name == "shell":
         label = "Running command"
+    elif name == "shell_start":
+        label = "Starting shell session"
+    elif name == "shell_poll":
+        label = "Checking shell session"
+    elif name == "shell_send":
+        label = "Sending shell input"
+    elif name == "shell_stop":
+        label = "Stopping shell session"
     elif name == "web_search":
         label = "Researching web"
     elif name == "web_fetch":

@@ -9,6 +9,10 @@ from ite.tools.builtin.list_dir import ListDirTool
 from ite.tools.builtin.edit_file import EditTool
 from ite.tools.builtin.write_file import WriteFileTool
 from ite.tools.builtin.read_file import ReadFileTool
+from ite.tools.builtin.shell import ShellPollTool
+from ite.tools.builtin.shell import ShellSendTool
+from ite.tools.builtin.shell import ShellStartTool
+from ite.tools.builtin.shell import ShellStopTool
 from ite.tools.builtin.shell import ShellTool
 from ite.tools.builtin.apply_patch import ApplyPatchTool
 from ite.tools.builtin.git_tools import GitBranchTool
@@ -29,6 +33,10 @@ __all__ = [
     "WriteFileTool",
     "EditTool",
     "ShellTool",
+    "ShellStartTool",
+    "ShellPollTool",
+    "ShellSendTool",
+    "ShellStopTool",
     "ApplyPatchTool",
     "ListDirTool",
     "GrepTool",
@@ -59,6 +67,10 @@ def get_all_builtin_tools() -> list[type]:
         WriteFileTool,
         EditTool,
         ShellTool,
+        ShellStartTool,
+        ShellPollTool,
+        ShellSendTool,
+        ShellStopTool,
         ApplyPatchTool,
         ListDirTool,
         GrepTool,

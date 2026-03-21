@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 import tempfile
 import os
@@ -8,13 +9,21 @@ from ite.config.config import ApprovalPolicy, Config
 from ite.hooks.hook_system import HookSystem
 from ite.safety.approval import ApprovalContext, ApprovalDecision, ApprovalManager
 from ite.tools.base import ToolInvocation
+from ite.tools.builtin.shell import ShellPollTool
+from ite.tools.builtin.shell import ShellSendTool
+from ite.tools.builtin.shell import ShellStartTool
+from ite.tools.builtin.shell import ShellStopTool
 from ite.tools.builtin.shell import ShellTool
+from ite.tools.builtin.shell import _SHELL_SESSION_MANAGER
 from ite.tools.builtin.web_fetch import WebFetchTool
 from ite.tools.builtin.web_search import WebSearchTool
 from ite.tools.registry import create_default_registry
 
 
 class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self) -> None:
+        await _SHELL_SESSION_MANAGER.shutdown()
+
     async def test_safe_shell_command_metadata_is_read_only(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -200,6 +209,102 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result.success)
             self.assertIn("Shell command blocked by safety policy", result.error or "")
             self.assertEqual(result.metadata.get("approval_decision"), "rejected")
+
+    async def test_shell_session_supports_send_and_poll(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            start_tool = ShellStartTool(Config(cwd=cwd, api_key="test"))
+            send_tool = ShellSendTool(Config(cwd=cwd, api_key="test"))
+            poll_tool = ShellPollTool(Config(cwd=cwd, api_key="test"))
+            stop_tool = ShellStopTool(Config(cwd=cwd, api_key="test"))
+
+            start_result = await start_tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertTrue(start_result.success, msg=start_result.error)
+            session_id = start_result.metadata["session_id"]
+
+            send_result = await send_tool.execute(
+                ToolInvocation(
+                    params={"session_id": session_id, "input": "pwd"},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(send_result.success, msg=send_result.error)
+
+            seen_output = ""
+            cursor = 0
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                poll_result = await poll_tool.execute(
+                    ToolInvocation(
+                        params={"session_id": session_id, "cursor": cursor},
+                        cwd=cwd,
+                    )
+                )
+                self.assertTrue(poll_result.success, msg=poll_result.error)
+                seen_output += poll_result.output
+                cursor = poll_result.metadata["next_cursor"]
+                if str(cwd) in seen_output:
+                    break
+
+            self.assertIn(str(cwd), seen_output)
+
+            stop_result = await stop_tool.execute(
+                ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+            )
+            self.assertTrue(stop_result.success, msg=stop_result.error)
+            self.assertFalse(stop_result.metadata.get("running", True))
+
+    async def test_shell_session_tracks_command_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            start_tool = ShellStartTool(Config(cwd=cwd, api_key="test"))
+            poll_tool = ShellPollTool(Config(cwd=cwd, api_key="test"))
+
+            start_result = await start_tool.execute(
+                ToolInvocation(
+                    params={
+                        "command": "python3 -c \"import time; print('ready', flush=True); time.sleep(0.1); print('done', flush=True)\""
+                    },
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(start_result.success, msg=start_result.error)
+            session_id = start_result.metadata["session_id"]
+
+            cursor = 0
+            combined = ""
+            exit_code = None
+            for _ in range(30):
+                await asyncio.sleep(0.05)
+                poll_result = await poll_tool.execute(
+                    ToolInvocation(
+                        params={"session_id": session_id, "cursor": cursor},
+                        cwd=cwd,
+                    )
+                )
+                self.assertTrue(poll_result.success, msg=poll_result.error)
+                combined += poll_result.output
+                cursor = poll_result.metadata["next_cursor"]
+                exit_code = poll_result.metadata.get("exit_code")
+                if poll_result.metadata.get("running") is False:
+                    break
+
+            self.assertIn("ready", combined)
+            self.assertIn("done", combined)
+            self.assertEqual(exit_code, 0)
+
+    async def test_shell_stop_returns_missing_session_error(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            stop_tool = ShellStopTool(Config(cwd=cwd, api_key="test"))
+
+            result = await stop_tool.execute(
+                ToolInvocation(params={"session_id": "sh_missing"}, cwd=cwd)
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("missing_session"))
 
 
 class WebToolTests(unittest.IsolatedAsyncioTestCase):
