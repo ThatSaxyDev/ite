@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Group
+from rich.cells import cell_len
 from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
 from rich.text import Text
@@ -4308,12 +4309,35 @@ class ReupApp(App):
             text.append(message[cursor:], style="#e8edf5")
         return text
 
+    def _user_bubble_width(self, message: str, max_width: int = 92) -> int:
+        refs = extract_inline_attachment_refs(message)
+        if refs:
+            parts: list[str] = []
+            cursor = 0
+            for ref in refs:
+                if ref.start > cursor:
+                    parts.append(message[cursor:ref.start])
+                parts.append(Path(ref.value).name or ref.value)
+                if ref.trailing:
+                    parts.append(ref.trailing)
+                cursor = ref.end
+            if cursor < len(message):
+                parts.append(message[cursor:])
+            display_text = "".join(parts)
+        else:
+            display_text = message
+
+        lines = [line.strip() for line in display_text.splitlines()] or [display_text.strip()]
+        content_width = max(cell_len(line) for line in lines if line) if any(lines) else 0
+        return max(12, min(max_width, content_width + 2))
+
     async def add_user_message(self, message: str) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         bubble = Static(
             self._render_user_message(message),
             classes="chat-user-bubble",
         )
+        bubble.styles.width = self._user_bubble_width(message)
         row = Container(bubble, classes="chat-user-row")
         await conversation.mount(row)
         self._message_count += 1
