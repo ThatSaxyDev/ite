@@ -4579,7 +4579,8 @@ class ReupApp(App):
         )
 
         header = Text()
-        header.append(f"{icon} ", style=title_style)
+        header.append(icon, style=title_style)
+        header.append("  ")
         header.append("Shell", style=title_style)
         return Group(header, *blocks)
 
@@ -5022,7 +5023,8 @@ class ReupApp(App):
             blocks.append(Text("... [truncated]", style="#f5b54f"))
 
         header = Text()
-        header.append(f"{icon} ", style=title_style)
+        header.append(icon, style=title_style)
+        header.append("  ")
         if name == "shell":
             header.append(
                 "Command finished" if success else "Command failed",

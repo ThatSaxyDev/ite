@@ -411,8 +411,7 @@ Screen {
 
 .block.user {
     border: none;
-    border-right: solid #6fb4ff;
-    background: #10192a 72%;
+    background: #141922;
     padding: 0 1;
     margin-top: 1;
     margin-left: 26;
@@ -449,20 +448,19 @@ Screen {
 }
 
 .block.system {
-    border: solid #3a424f;
+    border: none;
     background: #141922;
 }
 
 .block.system.error,
 .block.error {
-    border: solid #7f1d1d;
-    background: #2a1515;
+    border: none;
+    background: #141922;
 }
 
 .block.attachment {
     border: none;
-    border-left: solid #4a89d8;
-    background: #111827 44%;
+    background: #141922;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 1;
@@ -481,8 +479,7 @@ Screen {
 
 .block.note {
     border: none;
-    border-left: solid #4b5568;
-    background: #11161f 42%;
+    background: #141922;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 1;
@@ -501,8 +498,7 @@ Screen {
 
 .block.change {
     border: none;
-    border-left: solid #5b7caa;
-    background: #101725 58%;
+    background: #141922;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 1;
@@ -521,8 +517,7 @@ Screen {
 
 .block.aside {
     border: none;
-    border-left: solid #4ecdc4;
-    background: #0f1b20 54%;
+    background: #141922;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 1;
@@ -573,8 +568,7 @@ Screen {
 
 .block.plan {
     border: none;
-    border-left: solid #7c6bd7;
-    background: #13172a 46%;
+    background: #141922;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
@@ -593,8 +587,7 @@ Screen {
 
 .block.workboard {
     border: none;
-    border-left: solid #7c6bd7;
-    background: #13172a 46%;
+    background: #141922;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
@@ -833,8 +826,7 @@ Screen {
 
 .block.tool.running {
     border: none;
-    border-left: solid #2a6edb;
-    background: #10182a 60%;
+    background: #141922;
     padding: 1 1;
     margin-top: 1;
     margin-bottom: 1;
@@ -842,8 +834,7 @@ Screen {
 
 .block.success {
     border: none;
-    border-left: solid #2f9e63;
-    background: #0f1d1a 52%;
+    background: #141922;
     padding: 1 1;
     margin-top: 1;
     margin-bottom: 1;
@@ -851,8 +842,7 @@ Screen {
 
 .block.tool.error {
     border: none;
-    border-left: solid #b23a3a;
-    background: #241516 58%;
+    background: #141922;
     padding: 1 1;
     margin-top: 1;
     margin-bottom: 1;
