@@ -41,7 +41,13 @@ def activity_title(
     if name == "shell_start":
         return "Starting shell session" if running else ("Shell session started" if done else "Shell session start failed")
     if name == "shell_poll":
-        return "Checking shell session" if running else ("Shell session updated" if done else "Shell session check failed")
+        if running:
+            return "Checking shell session"
+        if done:
+            if metadata.get("running") is False and not metadata.get("has_new_output"):
+                return "Shell session finished"
+            return "Shell session updated"
+        return "Shell session check failed"
     if name == "shell_send":
         return "Sending shell input" if running else ("Shell input sent" if done else "Shell input failed")
     if name == "shell_stop":
@@ -191,9 +197,22 @@ def describe_tool_activity(
     if name == "shell_poll":
         session_id = str(args.get("session_id") or metadata.get("session_id") or "").strip()
         status = str(metadata.get("status") or "").strip()
+        has_new_output = metadata.get("has_new_output")
         if stage == "start":
             return f"Checking shell session `{session_id}`." if session_id else "Checking shell session."
         if success:
+            if has_new_output is False and status == "exited":
+                return (
+                    f"No new output from shell session `{session_id}`. It has already finished."
+                    if session_id
+                    else "No new output. The shell session has already finished."
+                )
+            if has_new_output is False:
+                return (
+                    f"No new output from shell session `{session_id}` yet."
+                    if session_id
+                    else "No new output from the shell session yet."
+                )
             if session_id and status:
                 return f"Updated shell session `{session_id}` ({status})."
             if session_id:

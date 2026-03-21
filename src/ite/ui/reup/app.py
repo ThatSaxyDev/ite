@@ -4512,7 +4512,7 @@ class ReupApp(App):
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=True, language="json"))
-        elif name == "shell":
+        elif name in {"shell", "shell_poll", "shell_stop"}:
             command = args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(

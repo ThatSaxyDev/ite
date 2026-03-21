@@ -165,12 +165,14 @@ class ShellSessionRecord:
     created_at: float = field(default_factory=time.time)
     base_cursor: int = 0
     next_cursor: int = 0
+    last_polled_cursor: int = 0
     buffer: str = ""
     stdout_bytes: int = 0
     stderr_bytes: int = 0
     last_activity_at: float = field(default_factory=time.time)
     exit_code: int | None = None
     stopped_by_tool: bool = False
+    last_stream: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     reader_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     waiter_task: asyncio.Task[None] | None = None
@@ -181,7 +183,7 @@ class ShellSessionRecord:
 
         async with self.lock:
             payload = text
-            if stream == "stderr":
+            if stream == "stderr" and self.last_stream != "stderr":
                 payload = f"\n--- STDERR ---\n{text}"
 
             self.buffer += payload
@@ -196,6 +198,7 @@ class ShellSessionRecord:
             if overflow > 0:
                 self.buffer = self.buffer[overflow:]
                 self.base_cursor += overflow
+            self.last_stream = stream
 
     async def snapshot(self, *, cursor: int, max_bytes: int) -> tuple[str, int, bool]:
         async with self.lock:
@@ -405,10 +408,10 @@ class ShellPollParams(BaseModel):
         description="The shell session id returned by shell_start.",
         validation_alias=AliasChoices("session_id", "id"),
     )
-    cursor: int = Field(
-        0,
+    cursor: int | None = Field(
+        None,
         ge=0,
-        description="Read output since this cursor position. Use 0 on the first poll.",
+        description="Optional cursor position to resume from. If omitted, continue from the last poll for this session.",
     )
     max_bytes: int = Field(
         32 * 1024,
@@ -793,10 +796,14 @@ class ShellPollTool(_ShellCommonTool):
                 metadata={"session_id": params.session_id, "missing_session": True},
             )
 
+        requested_cursor = (
+            params.cursor if params.cursor is not None else record.last_polled_cursor
+        )
         output, next_cursor, history_truncated = await record.snapshot(
-            cursor=params.cursor,
+            cursor=requested_cursor,
             max_bytes=params.max_bytes,
         )
+        record.last_polled_cursor = next_cursor
         running = record.process.returncode is None
         status = "running" if running else "exited"
         message = output or f"No new output. Session `{params.session_id}` is {status}."
@@ -804,7 +811,7 @@ class ShellPollTool(_ShellCommonTool):
             message,
             metadata={
                 "session_id": params.session_id,
-                "cursor": params.cursor,
+                "cursor": requested_cursor,
                 "next_cursor": next_cursor,
                 "running": running,
                 "status": status,
@@ -814,6 +821,8 @@ class ShellPollTool(_ShellCommonTool):
                 "stdout_bytes": record.stdout_bytes,
                 "stderr_bytes": record.stderr_bytes,
                 "history_truncated": history_truncated,
+                "has_new_output": bool(output),
+                "cursor_mode": "explicit" if params.cursor is not None else "implicit",
             },
         )
 
@@ -887,9 +896,10 @@ class ShellStopTool(_ShellCommonTool):
                 metadata={"session_id": params.session_id, "missing_session": True},
             )
         output, next_cursor, history_truncated = await record.snapshot(
-            cursor=record.base_cursor,
+            cursor=record.last_polled_cursor,
             max_bytes=_SHELL_SESSION_BUFFER_LIMIT,
         )
+        record.last_polled_cursor = next_cursor
         return ToolResult.success_result(
             output or f"Stopped shell session `{params.session_id}`.",
             metadata={
@@ -900,5 +910,6 @@ class ShellStopTool(_ShellCommonTool):
                 "history_truncated": history_truncated,
                 "cwd": str(record.cwd),
                 "command": record.command,
+                "has_new_output": bool(output),
             },
         )

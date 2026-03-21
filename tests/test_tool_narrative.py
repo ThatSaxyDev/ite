@@ -102,6 +102,25 @@ class ToolNarrativeTests(unittest.TestCase):
             "Updated shell session `sh_123` (running).",
         )
         self.assertEqual(
+            activity_title(
+                "shell_poll",
+                stage="complete",
+                success=True,
+                metadata={"running": False, "has_new_output": False},
+            ),
+            "Shell session finished",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "shell_poll",
+                {"session_id": "sh_123"},
+                {"status": "exited", "has_new_output": False},
+                stage="complete",
+                success=True,
+            ),
+            "No new output from shell session `sh_123`. It has already finished.",
+        )
+        self.assertEqual(
             activity_title("shell_stop", stage="complete", success=True),
             "Shell session stopped",
         )

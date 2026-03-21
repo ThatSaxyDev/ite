@@ -20,6 +20,10 @@ def ordered_args(tool_name: str, args: dict[str, Any]) -> list[tuple[str, Any]]:
         "write_file": ["path", "create_directories", "content"],
         "edit": ["path", "replace_all", "old_string", "new_string"],
         "shell": ["command", "timeout", "cwd"],
+        "shell_start": ["command", "cwd"],
+        "shell_poll": ["session_id", "cursor", "max_bytes"],
+        "shell_send": ["session_id", "input", "append_newline"],
+        "shell_stop": ["session_id"],
         "list_dir": ["path", "include_hidden"],
         "grep": ["path", "case_insensitive", "pattern"],
         "glob": ["path", "pattern"],
@@ -90,6 +94,10 @@ def truncate_for_tool(name: str, text: str) -> tuple[str, bool]:
         "glob": 7,
         "grep": 14,
         "shell": 12,
+        "shell_start": 8,
+        "shell_poll": 8,
+        "shell_send": 8,
+        "shell_stop": 8,
         "web_fetch": 14,
         "web_search": 12,
         "todos": 8,
@@ -108,6 +116,10 @@ def truncate_for_tool(name: str, text: str) -> tuple[str, bool]:
         "glob": 600,
         "grep": 1700,
         "shell": 1400,
+        "shell_start": 1000,
+        "shell_poll": 1000,
+        "shell_send": 1000,
+        "shell_stop": 1000,
         "web_fetch": 1800,
         "web_search": 1400,
         "todos": 900,
@@ -570,13 +582,28 @@ def render_shell_result_payload(
     exit_code: int | None,
 ) -> list[Any]:
     md = metadata if isinstance(metadata, dict) else {}
+    session_id = str(md.get("session_id") or "").strip()
+    has_new_output = bool(md.get("has_new_output"))
+    running = md.get("running")
+    status = str(md.get("status") or "").strip()
     stdout_text, stderr_text = split_shell_payload(payload)
     blocks: list[Any] = []
 
     summary = Text()
+    if session_id:
+        summary.append(f"session {session_id}", style="#8c97ab")
     safety = md.get("safety_classification")
     if isinstance(safety, str) and safety.strip():
         summary.append(f"{safety} command", style="#8c97ab")
+    if isinstance(running, bool):
+        if summary.plain:
+            summary.append("  •  ", style="#667084")
+        if running:
+            summary.append("running", style="#7ad69f")
+        elif status:
+            summary.append(status, style="#8c97ab")
+        else:
+            summary.append("exited", style="#8c97ab")
     if exit_code is not None:
         if summary.plain:
             summary.append("  •  ", style="#667084")
@@ -587,6 +614,13 @@ def render_shell_result_payload(
         summary.append("timed out", style="#f5b54f")
     if summary.plain:
         blocks.extend([summary, Text("")])
+
+    if not has_new_output and session_id:
+        if isinstance(running, bool) and not running:
+            blocks.append(Text("No new output. This session has already finished.", style="#8c97ab"))
+        else:
+            blocks.append(Text("No new output yet.", style="#8c97ab"))
+        return blocks
 
     if stdout_text:
         blocks.append(Text("stdout", style="bold #7ad69f"))

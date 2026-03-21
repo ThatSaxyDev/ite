@@ -294,6 +294,16 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("done", combined)
             self.assertEqual(exit_code, 0)
 
+            final_poll = await poll_tool.execute(
+                ToolInvocation(
+                    params={"session_id": session_id, "cursor": cursor},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(final_poll.success, msg=final_poll.error)
+            self.assertFalse(final_poll.metadata.get("has_new_output"))
+            self.assertFalse(final_poll.metadata.get("running"))
+
     async def test_shell_stop_returns_missing_session_error(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -305,6 +315,111 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertFalse(result.success)
             self.assertTrue(result.metadata.get("missing_session"))
+
+    async def test_shell_poll_without_cursor_returns_incremental_output(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            start_tool = ShellStartTool(Config(cwd=cwd, api_key="test"))
+            send_tool = ShellSendTool(Config(cwd=cwd, api_key="test"))
+            poll_tool = ShellPollTool(Config(cwd=cwd, api_key="test"))
+            stop_tool = ShellStopTool(Config(cwd=cwd, api_key="test"))
+
+            start_result = await start_tool.execute(ToolInvocation(params={}, cwd=cwd))
+            self.assertTrue(start_result.success, msg=start_result.error)
+            session_id = start_result.metadata["session_id"]
+
+            send_result = await send_tool.execute(
+                ToolInvocation(
+                    params={"session_id": session_id, "input": "printf 'hello\\n'"},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(send_result.success, msg=send_result.error)
+
+            first_poll = None
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                candidate = await poll_tool.execute(
+                    ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+                )
+                self.assertTrue(candidate.success, msg=candidate.error)
+                if "hello" in candidate.output:
+                    first_poll = candidate
+                    break
+
+            self.assertIsNotNone(first_poll)
+            assert first_poll is not None
+            self.assertEqual(first_poll.metadata.get("cursor_mode"), "implicit")
+            self.assertTrue(first_poll.metadata.get("has_new_output"))
+
+            second_poll = await poll_tool.execute(
+                ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+            )
+            self.assertTrue(second_poll.success, msg=second_poll.error)
+            self.assertFalse(second_poll.metadata.get("has_new_output"))
+            self.assertNotIn("hello", second_poll.output)
+
+            stop_result = await stop_tool.execute(
+                ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+            )
+            self.assertTrue(stop_result.success, msg=stop_result.error)
+
+    async def test_shell_stop_only_returns_unread_output(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            start_tool = ShellStartTool(Config(cwd=cwd, api_key="test"))
+            send_tool = ShellSendTool(Config(cwd=cwd, api_key="test"))
+            poll_tool = ShellPollTool(Config(cwd=cwd, api_key="test"))
+            stop_tool = ShellStopTool(Config(cwd=cwd, api_key="test"))
+
+            start_result = await start_tool.execute(ToolInvocation(params={}, cwd=cwd))
+            self.assertTrue(start_result.success, msg=start_result.error)
+            session_id = start_result.metadata["session_id"]
+
+            first_send = await send_tool.execute(
+                ToolInvocation(
+                    params={"session_id": session_id, "input": "printf 'first\\n'"},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(first_send.success, msg=first_send.error)
+
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                poll_result = await poll_tool.execute(
+                    ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+                )
+                self.assertTrue(poll_result.success, msg=poll_result.error)
+                if "first" in poll_result.output:
+                    break
+            else:
+                self.fail("first command output was not observed")
+
+            second_send = await send_tool.execute(
+                ToolInvocation(
+                    params={"session_id": session_id, "input": "printf 'second\\n'"},
+                    cwd=cwd,
+                )
+            )
+            self.assertTrue(second_send.success, msg=second_send.error)
+
+            for _ in range(20):
+                await asyncio.sleep(0.05)
+                preview = await poll_tool.execute(
+                    ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+                )
+                self.assertTrue(preview.success, msg=preview.error)
+                if "second" in preview.output:
+                    stop_result = await stop_tool.execute(
+                        ToolInvocation(params={"session_id": session_id}, cwd=cwd)
+                    )
+                    self.assertTrue(stop_result.success, msg=stop_result.error)
+                    self.assertFalse(stop_result.metadata.get("has_new_output"))
+                    self.assertNotIn("first", stop_result.output)
+                    self.assertNotIn("second", stop_result.output)
+                    return
+
+            self.fail("second command output was not observed")
 
 
 class WebToolTests(unittest.IsolatedAsyncioTestCase):
