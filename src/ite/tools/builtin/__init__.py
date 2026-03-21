@@ -15,6 +15,12 @@ from ite.tools.builtin.shell import ShellStartTool
 from ite.tools.builtin.shell import ShellStopTool
 from ite.tools.builtin.shell import ShellTool
 from ite.tools.builtin.apply_patch import ApplyPatchTool
+from ite.tools.builtin.config_tools import ReadEnvTool
+from ite.tools.builtin.config_tools import ReadTomlTool
+from ite.tools.builtin.config_tools import ReadYamlTool
+from ite.tools.builtin.config_tools import WriteEnvTool
+from ite.tools.builtin.config_tools import WriteTomlTool
+from ite.tools.builtin.config_tools import WriteYamlTool
 from ite.tools.builtin.git_tools import GitBranchTool
 from ite.tools.builtin.git_tools import GitCommitTool
 from ite.tools.builtin.git_tools import GitDiffTool
@@ -38,6 +44,12 @@ __all__ = [
     "ShellSendTool",
     "ShellStopTool",
     "ApplyPatchTool",
+    "ReadTomlTool",
+    "WriteTomlTool",
+    "ReadEnvTool",
+    "WriteEnvTool",
+    "ReadYamlTool",
+    "WriteYamlTool",
     "ListDirTool",
     "GrepTool",
     "GlobTool",
@@ -72,6 +84,12 @@ def get_all_builtin_tools() -> list[type]:
         ShellSendTool,
         ShellStopTool,
         ApplyPatchTool,
+        ReadTomlTool,
+        WriteTomlTool,
+        ReadEnvTool,
+        WriteEnvTool,
+        ReadYamlTool,
+        WriteYamlTool,
         ListDirTool,
         GrepTool,
         GlobTool,

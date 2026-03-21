@@ -84,6 +84,33 @@ class ToolSelectionPolicy:
                     ),
                     redirect_to="read_json",
                 )
+            if path.endswith(".toml") and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured TOML inspection should use `read_toml` instead of `read_file` "
+                        "unless exact file text or line-based reading is required."
+                    ),
+                    redirect_to="read_toml",
+                )
+            if path.endswith((".yaml", ".yml")) and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured YAML inspection should use `read_yaml` instead of `read_file` "
+                        "unless exact file text or line-based reading is required."
+                    ),
+                    redirect_to="read_yaml",
+                )
+            if path.endswith(".env") and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured environment inspection should use `read_env` instead of `read_file` "
+                        "unless exact file text or line-based reading is required."
+                    ),
+                    redirect_to="read_env",
+                )
 
         if tool_name == "edit":
             path = str(
@@ -103,6 +130,33 @@ class ToolSelectionPolicy:
                         "unless exact raw text replacement is required."
                     ),
                     redirect_to="edit_json",
+                )
+            if path.endswith(".toml") and old_string:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured TOML updates should use `write_toml` instead of `edit` "
+                        "unless exact raw text replacement is required."
+                    ),
+                    redirect_to="write_toml",
+                )
+            if path.endswith((".yaml", ".yml")) and old_string:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured YAML updates should use `write_yaml` instead of `edit` "
+                        "unless exact raw text replacement is required."
+                    ),
+                    redirect_to="write_yaml",
+                )
+            if path.endswith(".env") and old_string:
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Structured environment updates should use `write_env` instead of `edit` "
+                        "unless exact raw text replacement is required."
+                    ),
+                    redirect_to="write_env",
                 )
 
         return PolicyDecision(allowed=True)

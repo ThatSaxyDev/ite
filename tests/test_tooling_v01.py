@@ -72,6 +72,44 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "read_json")
 
+    async def test_read_file_toml_is_redirected_to_read_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": "pyproject.toml"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "read_toml")
+
+    async def test_read_file_env_is_redirected_to_read_env(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / ".env").write_text("DEBUG=true\n", encoding="utf-8")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": ".env"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "read_env")
+
     async def test_read_file_json_with_line_window_is_still_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -111,6 +149,29 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result.success)
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "edit_json")
+
+    async def test_edit_toml_file_is_redirected_to_write_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "pyproject.toml").write_text('[project]\nname = "demo"\n', encoding="utf-8")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "edit",
+                {
+                    "path": "pyproject.toml",
+                    "old_string": 'name = "demo"',
+                    "new_string": 'name = "demo-app"',
+                },
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "write_toml")
 
     async def test_edit_json_create_style_call_is_still_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as td:

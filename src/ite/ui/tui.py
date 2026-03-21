@@ -242,6 +242,12 @@ class TUI:
             "read_file": ["path", "offset", "limit"],
             "write_file": ["path", "create_directories", "content"],
             "edit": ["path", "replace_all", "old_string", "new_string"],
+            "read_toml": ["path", "key_path"],
+            "write_toml": ["path", "key_path", "operation", "value", "create_missing"],
+            "read_yaml": ["path", "key_path"],
+            "write_yaml": ["path", "key_path", "operation", "value", "create_missing"],
+            "read_env": ["path", "key"],
+            "write_env": ["path", "key", "operation", "value"],
             "shell": ["command", "timeout", "cwd"],
             "list_dir": ["path", "include_hidden"],
             "grep": ["path", "case_insensitive", "pattern"],
@@ -471,6 +477,12 @@ class TUI:
             "web_search": 18,
             "todos": 14,
             "memory": 12,
+            "read_toml": 18,
+            "write_toml": 18,
+            "read_yaml": 18,
+            "write_yaml": 18,
+            "read_env": 16,
+            "write_env": 16,
         }
         max_chars_by_tool = {
             "read_file": 2600,
@@ -484,6 +496,12 @@ class TUI:
             "web_search": 2200,
             "todos": 1600,
             "memory": 1200,
+            "read_toml": 2200,
+            "write_toml": 2200,
+            "read_yaml": 2200,
+            "write_yaml": 2200,
+            "read_env": 1800,
+            "write_env": 1800,
         }
 
         max_lines = max_lines_by_tool.get(name, 16)
@@ -835,7 +853,7 @@ class TUI:
                     )
                 )
 
-        elif name in {"write_file", "edit"} and success and diff:
+        elif name in {"write_file", "edit", "write_toml", "write_yaml", "write_env"} and success and diff:
             blocks.append(Text(narrative, style="muted"))
             output_line = output.strip() if output.strip() else "Completed"
             blocks.append(Text(output_line, style="muted"))
@@ -850,6 +868,16 @@ class TUI:
                 if isinstance(metadata.get("line_diff"), int):
                     sign = "+" if metadata["line_diff"] > 0 else ""
                     parts.append(f"{sign}{metadata['line_diff']} line delta")
+                if name == "write_env":
+                    key = metadata.get("key")
+                    if isinstance(key, str) and key:
+                        parts.append(key)
+                elif name in {"write_toml", "write_yaml"}:
+                    key_path = metadata.get("key_path")
+                    if isinstance(key_path, str) and key_path:
+                        parts.append(key_path)
+                if isinstance(metadata.get("operation"), str) and metadata.get("operation"):
+                    parts.append(str(metadata["operation"]))
             if parts:
                 blocks.append(self._summary_line(*parts))
             diff_text = diff
@@ -860,6 +888,35 @@ class TUI:
             )
             local_truncated = local_truncated or was_truncated
             blocks.append(Syntax(diff_display, "diff", theme="monokai", word_wrap=True))
+
+        elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
+            blocks.append(Text(narrative, style="muted"))
+            target_parts = []
+            if primary_path:
+                target_parts.append(str(display_path_relative_to_cwd(primary_path, self.cwd)))
+            if name == "read_json":
+                scoped = md.get("json_path")
+            elif name in {"read_toml", "read_yaml"}:
+                scoped = md.get("key_path")
+            else:
+                scoped = md.get("key")
+            if isinstance(scoped, str) and scoped.strip():
+                target_parts.append(scoped.strip())
+            if target_parts:
+                blocks.append(self._summary_line(*target_parts))
+
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
+            language = "json"
+            if name == "read_toml":
+                language = "toml"
+            elif name == "read_yaml":
+                language = "yaml"
+            blocks.append(Syntax(output_display, language, theme="monokai", word_wrap=True))
 
         elif name == "shell" and success:
             blocks.append(Text(narrative, style="muted"))

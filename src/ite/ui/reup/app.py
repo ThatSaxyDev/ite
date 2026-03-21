@@ -4481,9 +4481,15 @@ class ReupApp(App):
         icon_by_tool = {
             "read_file": "📖",
             "read_json": "🧾",
+            "read_toml": "📘",
+            "read_yaml": "📗",
+            "read_env": "🔐",
             "write_file": "💾",
             "edit": "✏️",
             "edit_json": "🛠️",
+            "write_toml": "🛠️",
+            "write_yaml": "🛠️",
+            "write_env": "🛠️",
             "apply_patch": "🩹",
             "list_dir": "📁",
             "glob": "🗂️",
@@ -4820,7 +4826,7 @@ class ReupApp(App):
                 output_display, was_truncated = truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
                 blocks.append(render_text_payload(output_display, success=True))
-        elif name in {"write_file", "edit", "edit_json"} and success and diff:
+        elif name in {"write_file", "edit", "edit_json", "write_toml", "write_yaml", "write_env"} and success and diff:
             if primary_path:
                 blocks.append(
                     Text(
@@ -4851,6 +4857,18 @@ class ReupApp(App):
                     summary_parts.append(
                         f"{sign}{line_diff} line{'s' if abs(line_diff) != 1 else ''}"
                     )
+            else:
+                operation = str(md.get("operation") or "").strip()
+                if operation:
+                    summary_parts.append(operation)
+                if name == "write_env":
+                    key = str(md.get("key") or "").strip()
+                    if key:
+                        summary_parts.append(key)
+                else:
+                    key_path = str(md.get("key_path") or "").strip()
+                    if key_path:
+                        summary_parts.append(key_path)
             hunk_ranges = summarize_diff_hunk_ranges(diff)
             if hunk_ranges:
                 summary_parts.append("  |  ".join(hunk_ranges[:2]))
@@ -4889,18 +4907,28 @@ class ReupApp(App):
                     exit_code=exit_code,
                 )
             )
-        elif name == "read_json" and success:
+        elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
             if primary_path:
-                json_path = str(md.get("json_path", "")).strip()
                 target = display_path(primary_path, cwd=self.config.cwd)
-                if json_path:
-                    target = f"{target} :: {json_path}"
+                if name == "read_json":
+                    structured_path = str(md.get("json_path", "")).strip()
+                elif name in {"read_toml", "read_yaml"}:
+                    structured_path = str(md.get("key_path", "")).strip()
+                else:
+                    structured_path = str(md.get("key", "")).strip()
+                if structured_path:
+                    target = f"{target} :: {structured_path}"
                 blocks.append(Text(target, style="#8c97ab"))
             else:
                 blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(render_text_payload(output_display, success=True, language="json"))
+            language = "json"
+            if name == "read_toml":
+                language = "toml"
+            elif name == "read_yaml":
+                language = "yaml"
+            blocks.append(render_text_payload(output_display, success=True, language=language))
         elif name in {"shell", "shell_poll", "shell_stop"}:
             blocks.append(Text(narrative, style="#8c97ab"))
             command = args.get("command")

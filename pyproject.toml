@@ -28,6 +28,7 @@ dependencies = [
     "tiktoken",
     "html2text",
     "beautifulsoup4",
+    "PyYAML",
     "ddgs",
     "tomli",
     "platformdirs",

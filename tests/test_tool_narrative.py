@@ -60,6 +60,60 @@ class ToolNarrativeTests(unittest.TestCase):
             "Finished tests: `python3 -m unittest discover -s tests`.",
         )
 
+    def test_structured_config_tools_have_specific_narratives_and_titles(self) -> None:
+        self.assertEqual(
+            activity_title("read_toml", stage="complete", success=True),
+            "TOML loaded",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "read_toml",
+                {"path": "pyproject.toml", "key_path": "project.version"},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded TOML from pyproject.toml :: project.version.",
+        )
+        self.assertEqual(
+            activity_title("write_yaml", stage="complete", success=True),
+            "YAML updated",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "write_yaml",
+                {"path": "docker-compose.yml", "key_path": "services.api.image", "operation": "set"},
+                stage="complete",
+                success=True,
+            ),
+            "Applied YAML `set` at docker-compose.yml :: services.api.image.",
+        )
+        self.assertEqual(
+            activity_title("read_env", stage="complete", success=True),
+            "Env loaded",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "read_env",
+                {"path": ".env", "key": "API_KEY"},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded env values from .env :: API_KEY.",
+        )
+        self.assertEqual(
+            activity_title("write_env", stage="complete", success=True),
+            "Env updated",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "write_env",
+                {"path": ".env", "key": "DEBUG", "operation": "set"},
+                stage="complete",
+                success=True,
+            ),
+            "Applied env `set` at .env :: DEBUG.",
+        )
+
     def test_shell_session_tools_have_specific_narratives_and_titles(self) -> None:
         self.assertEqual(
             activity_title("shell_start", stage="complete", success=True),

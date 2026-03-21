@@ -66,6 +66,18 @@ def activity_title(
         return "Reading JSON" if running else ("JSON loaded" if done else "JSON read failed")
     if name == "edit_json":
         return "Updating JSON" if running else ("JSON updated" if done else "JSON edit failed")
+    if name == "read_toml":
+        return "Reading TOML" if running else ("TOML loaded" if done else "TOML read failed")
+    if name == "write_toml":
+        return "Updating TOML" if running else ("TOML updated" if done else "TOML update failed")
+    if name == "read_yaml":
+        return "Reading YAML" if running else ("YAML loaded" if done else "YAML read failed")
+    if name == "write_yaml":
+        return "Updating YAML" if running else ("YAML updated" if done else "YAML update failed")
+    if name == "read_env":
+        return "Reading env file" if running else ("Env loaded" if done else "Env read failed")
+    if name == "write_env":
+        return "Updating env file" if running else ("Env updated" if done else "Env update failed")
     if name == "run_tests":
         return "Running tests" if running else ("Test results ready" if done else "Tests failed")
     if name == "run_linter":
@@ -443,6 +455,50 @@ def describe_tool_activity(
             return f"Applied JSON `{operation}` at {target}."
         return f"Failed JSON `{operation}` at {target}."
 
+    if name in {"read_toml", "read_yaml"}:
+        path = _path(args, metadata)
+        key_path = str(args.get("key_path") or metadata.get("key_path") or "").strip()
+        target = f"{path} :: {key_path}" if key_path else path
+        kind = "TOML" if name == "read_toml" else "YAML"
+        if stage == "start":
+            return f"Reading {kind} from {target}."
+        if success:
+            return f"Loaded {kind} from {target}."
+        return f"Failed to read {kind} from {target}."
+
+    if name in {"write_toml", "write_yaml"}:
+        path = _path(args, metadata)
+        operation = str(args.get("operation") or metadata.get("operation") or "set").strip()
+        key_path = str(args.get("key_path") or metadata.get("key_path") or "").strip()
+        target = f"{path} :: {key_path}" if key_path else path
+        kind = "TOML" if name == "write_toml" else "YAML"
+        if stage == "start":
+            return f"Applying {kind} `{operation}` at {target}."
+        if success:
+            return f"Applied {kind} `{operation}` at {target}."
+        return f"Failed {kind} `{operation}` at {target}."
+
+    if name == "read_env":
+        path = _path(args, metadata)
+        key = str(args.get("key") or metadata.get("key") or "").strip()
+        target = f"{path} :: {key}" if key else path
+        if stage == "start":
+            return f"Reading env values from {target}."
+        if success:
+            return f"Loaded env values from {target}."
+        return f"Failed to read env values from {target}."
+
+    if name == "write_env":
+        path = _path(args, metadata)
+        key = str(args.get("key") or metadata.get("key") or "").strip()
+        operation = str(args.get("operation") or metadata.get("operation") or "set").strip()
+        target = f"{path} :: {key}" if key else path
+        if stage == "start":
+            return f"Applying env `{operation}` at {target}."
+        if success:
+            return f"Applied env `{operation}` at {target}."
+        return f"Failed env `{operation}` at {target}."
+
     if name in {"run_tests", "run_linter", "run_typecheck"}:
         command = str(args.get("command") or metadata.get("command") or "").strip()
         label = {
@@ -578,6 +634,18 @@ def progress_label(
         label = "Reading JSON"
     elif name == "edit_json":
         label = "Updating JSON"
+    elif name == "read_toml":
+        label = "Reading TOML"
+    elif name == "write_toml":
+        label = "Updating TOML"
+    elif name == "read_yaml":
+        label = "Reading YAML"
+    elif name == "write_yaml":
+        label = "Updating YAML"
+    elif name == "read_env":
+        label = "Reading env file"
+    elif name == "write_env":
+        label = "Updating env file"
     elif name == "run_tests":
         label = "Running tests"
     elif name == "run_linter":

@@ -54,7 +54,10 @@ class SystemPromptTests(unittest.TestCase):
 
         self.assertIn("Prefer `read_json` when the user asks to inspect `package.json`", prompt)
         self.assertIn("Prefer `edit_json` when the user asks to update JSON keys", prompt)
-        self.assertIn("Use `read_file` instead of `read_json` only when exact file text", prompt)
+        self.assertIn("Prefer `read_toml` / `write_toml` for `pyproject.toml`", prompt)
+        self.assertIn("Prefer `read_yaml` / `write_yaml` for CI workflows", prompt)
+        self.assertIn("Prefer `read_env` / `write_env` for environment variable files", prompt)
+        self.assertIn("Use `read_file` instead of the structured readers only when exact file text", prompt)
 
 
 if __name__ == "__main__":
