@@ -8,6 +8,11 @@ import shutil
 from ite.agent.change_history import ChangeSet
 from ite.tools.base import FileDiff
 
+_BINARY_BASELINE = "[Binary file contents omitted]\n"
+_BINARY_ADDED = "[Binary file added]\n"
+_BINARY_STAGED = "[Binary file staged in index]\n"
+_BINARY_WORKTREE = "[Binary file modified in working tree]\n"
+
 
 @dataclass
 class GitWorkingTreeChangeSet:
@@ -101,6 +106,16 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         ["git", "-C", str(cwd), *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+
+
+def _run_git_bytes(cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True,
         check=False,
     )
 
@@ -117,8 +132,29 @@ def _head_has_path(cwd: Path, path: str) -> bool:
     return result.returncode == 0
 
 
-def _head_content(cwd: Path, path: str) -> str:
-    return _git_output(cwd, "show", f"HEAD:{path}")
+def _looks_binary(data: bytes) -> bool:
+    if not data:
+        return False
+    if b"\x00" in data:
+        return True
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return True
+    return False
+
+
+def _git_blob_content(cwd: Path, pathspec: str, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
+    result = _run_git_bytes(cwd, "show", pathspec)
+    if result.returncode != 0:
+        return ""
+    if _looks_binary(result.stdout):
+        return binary_placeholder
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def _head_content(cwd: Path, path: str, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
+    return _git_blob_content(cwd, f"HEAD:{path}", binary_placeholder=binary_placeholder)
 
 
 def _index_has_path(cwd: Path, path: str) -> bool:
@@ -126,8 +162,8 @@ def _index_has_path(cwd: Path, path: str) -> bool:
     return result.returncode == 0
 
 
-def _index_content(cwd: Path, path: str) -> str:
-    return _git_output(cwd, "show", f":{path}")
+def _index_content(cwd: Path, path: str, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
+    return _git_blob_content(cwd, f":{path}", binary_placeholder=binary_placeholder)
 
 
 def _parse_status_entries(cwd: Path) -> list[tuple[str, str]]:
@@ -167,8 +203,11 @@ def _remove_path(path: Path) -> None:
         path.unlink()
 
 
-def _read_worktree_content(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace")
+def _read_worktree_content(path: Path, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
+    data = path.read_bytes()
+    if _looks_binary(data):
+        return binary_placeholder
+    return data.decode("utf-8", errors="replace")
 
 
 def _message_for(result: subprocess.CompletedProcess[str]) -> str:
@@ -409,7 +448,7 @@ def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff |
         return FileDiff(
             path=abs_path,
             old_content="",
-            new_content=_read_worktree_content(abs_path),
+            new_content=_read_worktree_content(abs_path, binary_placeholder=_BINARY_ADDED),
             is_new_file=True,
             is_deletion=False,
         )
@@ -427,7 +466,7 @@ def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff |
     return FileDiff(
         path=abs_path,
         old_content=old_content,
-        new_content=_read_worktree_content(abs_path),
+        new_content=_read_worktree_content(abs_path, binary_placeholder=_BINARY_WORKTREE),
         is_new_file=not in_head,
         is_deletion=False,
     )
@@ -453,7 +492,7 @@ def _build_staged_diff(cwd: Path, rel_path: str, abs_path: Path, status_x: str) 
             is_deletion=True,
         )
 
-    new_content = _index_content(cwd, rel_path)
+    new_content = _index_content(cwd, rel_path, binary_placeholder=_BINARY_STAGED)
     return FileDiff(
         path=abs_path,
         old_content=old_content,
@@ -474,7 +513,7 @@ def _build_unstaged_diff(cwd: Path, rel_path: str, abs_path: Path, status_y: str
         return FileDiff(
             path=abs_path,
             old_content="",
-            new_content=_read_worktree_content(abs_path),
+            new_content=_read_worktree_content(abs_path, binary_placeholder=_BINARY_ADDED),
             is_new_file=True,
             is_deletion=False,
         )
@@ -494,7 +533,7 @@ def _build_unstaged_diff(cwd: Path, rel_path: str, abs_path: Path, status_y: str
     return FileDiff(
         path=abs_path,
         old_content=old_content,
-        new_content=_read_worktree_content(abs_path),
+        new_content=_read_worktree_content(abs_path, binary_placeholder=_BINARY_WORKTREE),
         is_new_file=not in_index,
         is_deletion=False,
     )

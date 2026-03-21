@@ -25,7 +25,7 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
         disabled: bool = False,
     ) -> None:
         super().__init__(
-            Text("Files", style="bold #d9e6fb"),
+            Text("Files", style="bold #edf1f7"),
             data=ChangeTreeNodeData(kind="root"),
             name=name,
             id=id,
@@ -49,7 +49,7 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
             if not rel_paths:
                 continue
             group_node = self.root.add(
-                Text(label, style="bold #9caecb"),
+                Text(label, style="bold #b7c8e1"),
                 data=ChangeTreeNodeData(kind="group"),
                 expand=True,
             )
@@ -64,14 +64,14 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
                     existing = directories.get(prefix)
                     if existing is None:
                         existing = parent.add(
-                            Text(part, style="#9caecb"),
+                            Text(part, style="#8c93a1"),
                             data=ChangeTreeNodeData(kind="dir"),
                             expand=True,
                         )
                         directories[prefix] = existing
                     parent = existing
                 file_node = parent.add_leaf(
-                    Text(path.name, style="bold #e7eefb"),
+                    Text(path.name, style="bold #edf1f7"),
                     data=ChangeTreeNodeData(kind="file", rel_path=rel_path),
                 )
                 if first_file_node is None:

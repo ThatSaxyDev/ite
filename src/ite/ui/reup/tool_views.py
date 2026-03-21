@@ -206,11 +206,11 @@ def render_numbered_unified_diff(diff_text: str) -> Text:
     rendered = Text(no_wrap=True)
     old_lineno = 0
     new_lineno = 0
-    gutter_style = "#7f8ea3"
-    context_style = "#e7edf7"
-    add_style = "#a7f36b"
-    del_style = "#ff9bb7"
-    hunk_style = "#b6b09c"
+    gutter_style = "#7d8591"
+    context_style = "#edf1f7"
+    add_style = "#4edea3"
+    del_style = "#ffb95f"
+    hunk_style = "#b7c8e1"
 
     def append_line(
         old_label: str,
@@ -388,8 +388,8 @@ def render_todo_payload(
 
 def render_args_table(tool_name: str, args: dict[str, Any], *, cwd: Path) -> Table:
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#7d8aa5", justify="right", no_wrap=True)
-    table.add_column(style="#d5d9e2", overflow="fold")
+    table.add_column(style="#8c93a1", justify="right", no_wrap=True)
+    table.add_column(style="#dfe4ea", overflow="fold")
 
     for key, value in ordered_args(tool_name, args):
         if key in {"raw", "raw_arguments"}:
@@ -432,11 +432,11 @@ def render_list_dir_output(output: str) -> Text:
             result.append("\n")
             continue
         if line.endswith("/"):
-            result.append("📁 ", style="#9bc7ff")
-            result.append(line, style="#dce6ff")
+            result.append("📁 ", style="#b7c8e1")
+            result.append(line, style="#edf1f7")
         else:
-            result.append("📄 ", style="#9da9bd")
-            result.append(line, style="#d5d9e2")
+            result.append("📄 ", style="#8c93a1")
+            result.append(line, style="#dfe4ea")
         result.append("\n")
     return result
 
@@ -463,17 +463,17 @@ def render_grep_output(output: str, *, cwd: Path) -> Any:
         return Syntax(output, "text", theme="monokai", word_wrap=True)
 
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#8c97ab", justify="right", no_wrap=True)
-    table.add_column(style="#d5d9e2")
+    table.add_column(style="#8c93a1", justify="right", no_wrap=True)
+    table.add_column(style="#dfe4ea")
 
     for file_path, lines in groups:
-        table.add_row("", Text(display_path(file_path, cwd=cwd), style="bold #9bc7ff"))
+        table.add_row("", Text(display_path(file_path, cwd=cwd), style="bold #b7c8e1"))
         for line in lines:
             match = re.match(r"^\s*(\d+):(.*)$", line)
             if match:
-                table.add_row(match.group(1), Text(match.group(2).lstrip(), style="#d5d9e2"))
+                table.add_row(match.group(1), Text(match.group(2).lstrip(), style="#dfe4ea"))
             else:
-                table.add_row("", Text(line, style="#d5d9e2"))
+                table.add_row("", Text(line, style="#dfe4ea"))
         table.add_row("", Text(""))
 
     return table
@@ -483,13 +483,13 @@ def render_git_log_output(metadata: dict[str, Any] | None) -> Any:
     md = metadata if isinstance(metadata, dict) else {}
     commits = md.get("commits")
     if not isinstance(commits, list) or not commits:
-        return Text("No commits found.", style="#8c97ab")
+        return Text("No commits found.", style="#8c93a1")
 
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#7cc7ff", no_wrap=True)
-    table.add_column(style="#8c97ab", no_wrap=True)
-    table.add_column(style="#b9c3d6")
-    table.add_column(style="#dfe8f8")
+    table.add_column(style="#b7c8e1", no_wrap=True)
+    table.add_column(style="#8c93a1", no_wrap=True)
+    table.add_column(style="#c6c6cd")
+    table.add_column(style="#edf1f7")
 
     for commit in commits:
         if not isinstance(commit, dict):
@@ -505,7 +505,7 @@ def render_git_log_output(metadata: dict[str, Any] | None) -> Any:
 
 def render_text_payload(text: str, *, success: bool, language: str = "text") -> Any:
     if not text.strip():
-        return Text("No output", style="#8c97ab")
+        return Text("No output", style="#8c93a1")
     if "\x1b" in text:
         return Text.from_ansi(text)
     if success and looks_like_markdown(text):
@@ -582,7 +582,7 @@ def render_shell_command_line(command: str, *, cwd: Path, shell_cwd: str | None 
     if isinstance(shell_cwd, str) and shell_cwd.strip():
         table.add_row(
             Text(""),
-            Text(f"in {display_path(shell_cwd.strip(), cwd=cwd)}", style="#8c97ab"),
+            Text(f"in {display_path(shell_cwd.strip(), cwd=cwd)}", style="#8c93a1"),
         )
     return table
 
@@ -596,13 +596,13 @@ def render_shell_running_card(
     command = str(arguments.get("command", "")).strip()
     shell_cwd = arguments.get("cwd") if isinstance(arguments.get("cwd"), str) else None
     header = Text()
-    header.append(f"{shell_spinner_frame(spinner_index)} ", style="bold #9bc7ff")
-    header.append("Running in shell", style="bold #9bc7ff")
-    header.append("  live", style="#8c97ab")
+    header.append(f"{shell_spinner_frame(spinner_index)} ", style="bold #4edea3")
+    header.append("Running in shell", style="bold #edf1f7")
+    header.append("  live", style="#8c93a1")
     return Group(
         header,
         Text(""),
-        Text(describe_tool_activity("shell", arguments, stage="start"), style="#8c97ab"),
+        Text(describe_tool_activity("shell", arguments, stage="start"), style="#8c93a1"),
         Text(""),
         render_shell_command_line(command, cwd=cwd, shell_cwd=shell_cwd),
     )

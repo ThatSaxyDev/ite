@@ -1,26 +1,55 @@
 Screen {
     layout: vertical;
-    background: #0f1115;
+    background: #131315;
 }
 
 #shell {
     height: 1fr;
     layout: vertical;
+    background: #131315;
 }
 
 #topbar {
     height: 4;
     padding: 1 2 0 2;
-    background: #111318;
-    border-bottom: solid #252a33;
+    background: #1c1b1d;
+    align-vertical: middle;
+}
+
+#brand-mark {
+    width: auto;
+    min-width: 8;
+    height: 3;
+    margin-right: 2;
+    padding: 0 2;
+    background: #4edea3;
+    color: #07140f;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#header-copy {
+    width: 1fr;
+    height: 3;
+    layout: vertical;
+}
+
+#brand-kicker {
+    width: 1fr;
+    color: #7d8591;
+    text-style: bold;
+}
+
+#header-actions {
+    width: auto;
+    height: 3;
     align-vertical: middle;
 }
 
 #session-tabs-scroll {
-    height: 3;
+    height: 4;
     width: 1fr;
-    background: #111318;
-    border-bottom: solid #252a33;
+    background: #18181b;
     overflow-x: auto;
     overflow-y: hidden;
 }
@@ -28,68 +57,69 @@ Screen {
 #session-tabs {
     height: auto;
     width: auto;
-    padding: 0 3 0 3;
+    padding: 1 3 0 3;
     background: transparent;
 }
 
 .session-tab {
     width: auto;
     min-width: 12;
-    height: 1;
-    min-height: 1;
+    height: 2;
+    min-height: 2;
     margin-right: 1;
-    padding: 0 1;
-    background: #171b22;
-    color: #b6c0ce;
+    padding: 0 2;
+    background: #232327;
+    color: #c6cbd4;
     border: none;
+    content-align: center middle;
 }
 
 .session-tab:hover,
 .session-tab:focus {
-    background: #171b22;
-    color: #b6c0ce;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
     text-style: none;
 }
 
 .session-tab-live {
-    background: #3a2410;
-    color: #ffd08a;
+    background: #2f2419;
+    color: #ffcf92;
     text-style: bold;
 }
 
 .session-tab-live:hover,
 .session-tab-live:focus {
-    background: #3a2410;
-    color: #ffd08a;
+    background: #3a2b1c;
+    color: #ffe3b8;
     border: none;
     text-style: bold;
 }
 
 .session-tab-live.-primary {
-    background: #a85a12;
-    color: #fff4df;
+    background: #1f3a2f;
+    color: #eefcf6;
     text-style: bold;
 }
 
 .session-tab-live.-primary:hover,
 .session-tab-live.-primary:focus {
-    background: #a85a12;
-    color: #fff4df;
+    background: #254437;
+    color: #f5fffb;
     border: none;
     text-style: bold;
 }
 
 .session-tab.-primary {
-    background: #1f4f92;
-    color: #eef5ff;
+    background: #25313d;
+    color: #eef3f8;
     text-style: bold;
 }
 
 .session-tab.-primary:hover,
 .session-tab.-primary:focus {
-    background: #1f4f92;
-    color: #eef5ff;
+    background: #2d3a46;
+    color: #f7f9fc;
     border: none;
     text-style: bold;
 }
@@ -99,7 +129,7 @@ Screen {
     max-width: 60;
     margin-right: 2;
     text-style: bold;
-    color: #f5f5f5;
+    color: #f2f5f8;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -142,16 +172,20 @@ Screen {
 
 #chat-panel {
     height: 1fr;
+    background: #131315;
 }
 
 #chat-body {
     height: 1fr;
     layout: horizontal;
+    background: #131315;
+    padding: 1 2 0 2;
 }
 
 #conversation-shell {
     width: 1fr;
     height: 1fr;
+    background: #131315;
 }
 
 #change-review-panel {
@@ -159,9 +193,8 @@ Screen {
     min-width: 84;
     max-width: 136;
     height: 1fr;
-    border-right: solid #253544;
-    background: #0f1622;
-    padding: 1 1 0 1;
+    background: #1c1b1d;
+    padding: 1 2 0 2;
     display: none;
 }
 
@@ -173,52 +206,52 @@ Screen {
 
 #change-review-title {
     width: 1fr;
-    color: #b8d8ff;
+    color: #b7c8e1;
     text-style: bold;
 }
 
 #change-review-close {
     width: auto;
     min-width: 0;
-    height: 1;
-    min-height: 1;
+    height: 3;
+    min-height: 3;
     padding: 0 1;
-    background: transparent;
-    color: #9caecb;
+    background: #2a2a2c;
+    color: #c6c6cd;
     border: none;
 }
 
 .change-review-action {
     width: auto;
     min-width: 0;
-    height: 1;
-    min-height: 1;
+    height: 3;
+    min-height: 3;
     margin-right: 1;
-    padding: 0 1;
+    padding: 0 2;
     content-align: center middle;
     text-style: bold;
 }
 
 #change-review-stage-all,
 #change-review-stage-file {
-    color: #8fbfff;
-    background: #16263e;
+    color: #07140f;
+    background: #4edea3;
 }
 
 #change-review-unstage-file {
-    color: #c9d5e8;
-    background: #151c28;
+    color: #e3e7ee;
+    background: #2a2a2c;
 }
 
 #change-review-discard-all,
 #change-review-discard-file {
-    color: #ffcf89;
-    background: #33210b;
+    color: #1a1207;
+    background: #ffb95f;
 }
 
 .change-review-action.-disabled {
-    color: #5f6d82;
-    background: #141922;
+    color: #626875;
+    background: #202125;
 }
 
 #change-review-body {
@@ -230,9 +263,8 @@ Screen {
     width: 26;
     min-width: 20;
     height: 1fr;
-    border-right: solid #233044;
     padding: 0 0 1 0;
-    background: transparent;
+    background: #18181b;
 }
 
 #change-review-tree:focus {
@@ -242,7 +274,7 @@ Screen {
 #change-review-preview {
     width: 1fr;
     height: 1fr;
-    padding: 0 0 1 1;
+    padding: 0 0 1 2;
     background: transparent;
     overflow: auto auto;
 }
@@ -254,12 +286,14 @@ Screen {
 }
 
 #change-review-preview-actions {
-    height: 1;
+    height: auto;
+    min-height: 3;
     margin-bottom: 1;
+    align-vertical: middle;
 }
 
 .change-review-path {
-    color: #d9e6fb;
+    color: #edf1f7;
     text-style: bold;
     margin-bottom: 0;
     width: auto;
@@ -274,13 +308,13 @@ Screen {
 }
 
 .change-review-empty {
-    color: #7f8ea3;
+    color: #8c93a1;
     padding: 1 0;
 }
 
 #conversation {
     height: 1fr;
-    padding: 1 4 0 4;
+    padding: 2 5 1 5;
 }
 
 #empty-state {
@@ -292,15 +326,11 @@ Screen {
     layers: overlay;
     dock: top;
     background: transparent;
-    padding-bottom: 3;
     text-style: bold;
     text-align: center;
-    text-wrap: nowrap;
+    text-wrap: wrap;
     overflow: hidden;
-    padding-left: 2;
-    padding-right: 2;
-    padding-top: 1;
-    padding-bottom: 4;
+    padding: 0 8 0 8;
 }
 
 #composer {
@@ -315,19 +345,22 @@ Screen {
     width: 1fr;
     height: auto;
     layout: vertical;
-    border: round #2f3b52;
-    background: #121826 88%;
+    border: round #303236;
+    background: #1f2226 82%;
     padding: 0 1 0 1;
     margin: 0 1 0 1;
+}
+
+#prompt-kicker {
+    display: none;
 }
 
 #aside-panel {
     width: 44;
     min-width: 36;
     height: 1fr;
-    border-left: solid #253544;
-    background: #10161d;
-    padding: 1 1 0 1;
+    background: #191c1f;
+    padding: 1 2 0 2;
     display: none;
 }
 
@@ -338,7 +371,7 @@ Screen {
 }
 
 #aside-panel-title {
-    color: #93f2e8;
+    color: #4edea3;
     text-style: bold;
 }
 
@@ -367,35 +400,34 @@ Screen {
     margin-right: 0;
     margin-bottom: 1;
     padding: 0 1;
-    border-right: solid #6fb4ff;
-    background: #10192a 72%;
-    color: #d7e8ff;
+    background: #232327 88%;
+    color: #edf1f7;
     text-align: right;
     content-align: right middle;
 }
 
 .aside-assistant-body {
-    color: #dfe8ea;
+    color: #dfe4ea;
     padding: 0;
     margin-bottom: 1;
     height: auto;
 }
 
 .aside-thinking {
-    color: #8fdad4;
+    color: #7fd4b0;
     text-style: italic;
     padding: 0;
     margin-bottom: 1;
 }
 
 .aside-error {
-    color: #f29a9a;
+    color: #f1a4a4;
     padding: 0;
     margin-bottom: 1;
 }
 
 .block {
-    margin: 0 0 1 0;
+    margin: 0 0 2 0;
     padding: 0;
     border: none;
     background: transparent;
@@ -404,22 +436,22 @@ Screen {
 }
 
 .block .card-title {
-    color: #9caecb;
+    color: #8c93a1;
     text-style: bold;
-    margin-bottom: 0;
+    margin-bottom: 1;
 }
 
 .block.user {
-    border: none;
-    background: #141922;
-    padding: 0 1;
-    margin-top: 1;
-    margin-left: 26;
-    margin-right: 1;
+    border: round #303236;
+    background: #1c1b1d 92%;
+    padding: 1 2;
+    margin-top: 2;
+    margin-left: 30;
+    margin-right: 2;
 }
 
 .block.user .card-title {
-    color: #d7e8ff;
+    color: #b7c8e1;
     text-style: bold;
     text-align: right;
     margin-bottom: 0;
@@ -428,14 +460,14 @@ Screen {
 
 .block.user .card-body {
     margin-top: 0;
-    padding: 1 0 1 1;
+    padding: 0 0 0 1;
 }
 
 .block.assistant {
     border: none;
     background: transparent;
     padding: 0;
-    margin: 0 0 2 0;
+    margin: 0 6 2 0;
 }
 
 .block.assistant .card-title {
@@ -444,30 +476,30 @@ Screen {
 
 .block.assistant .card-body {
     margin-top: 0;
-    padding: 0 1 0 1;
+    padding: 0 2 0 0;
 }
 
 .block.system {
-    border: none;
-    background: #141922;
+    border: round #303236;
+    background: #1d1f23 82%;
 }
 
 .block.system.error,
 .block.error {
-    border: none;
-    background: #141922;
+    border: round #5a4633;
+    background: #261f1a 88%;
 }
 
 .block.attachment {
-    border: none;
-    background: #141922;
+    border: round #303236;
+    background: #1d1f23 84%;
     padding: 1 2;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.attachment .card-title {
-    color: #9fc5ff;
+    color: #b7c8e1;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -478,15 +510,15 @@ Screen {
 }
 
 .block.note {
-    border: none;
-    background: #141922;
+    border: round #303236;
+    background: #1d1f23 84%;
     padding: 1 2;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.note .card-title {
-    color: #9da9bb;
+    color: #c6c6cd;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -497,15 +529,15 @@ Screen {
 }
 
 .block.change {
-    border: none;
-    background: #141922;
+    border: round #303236;
+    background: #1d1f23 84%;
     padding: 1 2;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.change .card-title {
-    color: #d9e6fb;
+    color: #edf1f7;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -516,15 +548,15 @@ Screen {
 }
 
 .block.aside {
-    border: none;
-    background: #141922;
+    border: round #32443d;
+    background: #1b201e 84%;
     padding: 1 2;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.aside .card-title {
-    color: #89efe6;
+    color: #4edea3;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -540,19 +572,19 @@ Screen {
 }
 
 .aside-meta {
-    color: #7bb7b2;
+    color: #7cc9ad;
     text-style: bold;
     margin-bottom: 1;
 }
 
 .aside-question {
-    color: #d7f5f0;
+    color: #e4faf1;
     text-style: italic;
     margin-bottom: 1;
 }
 
 .aside-answer {
-    color: #dfe8ea;
+    color: #dfe4ea;
 }
 
 .activity-indicator {
@@ -561,21 +593,21 @@ Screen {
     background: transparent;
     border: none;
     margin-top: 1;
-    margin-bottom: 1;
-    padding: 0 1;
+    margin-bottom: 2;
+    padding: 0 2;
     text-style: bold;
 }
 
 .block.plan {
-    border: none;
-    background: #141922;
+    border: round #353942;
+    background: #1d1f23 84%;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.plan .card-title {
-    color: #c9a6ff;
+    color: #b7c8e1;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -586,15 +618,15 @@ Screen {
 }
 
 .block.workboard {
-    border: none;
-    background: #141922;
+    border: round #303236;
+    background: #1d1f23 86%;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.workboard .card-title {
-    color: #c9a6ff;
+    color: #b7c8e1;
     text-style: bold;
     margin-bottom: 1;
 }
@@ -617,62 +649,62 @@ Screen {
 .workboard-section {
     layout: vertical;
     height: auto;
-    border: round #394053;
-    background: #0f1420 55%;
+    border: round #303236;
+    background: #16181c 68%;
     padding: 1 1 1 1;
     margin-bottom: 1;
 }
 
 .workboard-section.compact {
-    background: #101622 45%;
+    background: #17191d 58%;
 }
 
 .workboard-section.summary {
-    border: round #4f5f80;
-    background: #101826 62%;
+    border: round #3b4047;
+    background: #171b21 76%;
 }
 
 .workboard-section.execution {
-    border: round #2f7d57;
-    background: #0f1a17 58%;
+    border: round #2d4940;
+    background: #151c19 74%;
 }
 
 .workboard-section.planning {
-    border: round #3476a8;
-    background: #0f1720 58%;
+    border: round #37424c;
+    background: #171b21 74%;
 }
 
 .workboard-section.plan {
-    border: round #7563cf;
-    background: #151729 64%;
+    border: round #3b4047;
+    background: #171b21 78%;
     margin-top: 1;
 }
 
 .workboard-section.muted {
-    border: round #394053;
-    background: #11161f 42%;
+    border: round #303236;
+    background: #17191d 58%;
 }
 
 .workboard-section-title {
-    color: #d7deea;
+    color: #dfe4ea;
     text-style: bold;
     margin-bottom: 1;
 }
 
 .workboard-section.summary .workboard-section-title {
-    color: #b8d8ff;
+    color: #b7c8e1;
 }
 
 .workboard-section.execution .workboard-section-title {
-    color: #91e0b5;
+    color: #4edea3;
 }
 
 .workboard-section.planning .workboard-section-title {
-    color: #8fcdf5;
+    color: #c6c6cd;
 }
 
 .workboard-section.plan .workboard-section-title {
-    color: #d7b8ff;
+    color: #b7c8e1;
 }
 
 .workboard-section Markdown {
@@ -682,12 +714,12 @@ Screen {
 }
 
 .workboard-section.plan MarkdownFence {
-    background: #121830;
-    border: round #3a4368;
+    background: #0e0e10;
+    border: round #303236;
 }
 
 .workboard-empty {
-    color: #98a3b6;
+    color: #8c93a1;
 }
 
 .plan-body Markdown {
@@ -697,8 +729,8 @@ Screen {
 }
 
 .plan-body MarkdownFence {
-    background: #121830;
-    border: round #3a4368;
+    background: #0e0e10;
+    border: round #303236;
 }
 
 .block.plan.plan-ready {
@@ -711,7 +743,7 @@ Screen {
 }
 
 .plan-ready-body {
-    color: #dbe3f2;
+    color: #dfe4ea;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -726,7 +758,7 @@ Screen {
 }
 
 .plan-question-prompt {
-    color: #dbe3f2;
+    color: #dfe4ea;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -742,24 +774,24 @@ Screen {
 .plan-question-option {
     margin-bottom: 1;
     border: none;
-    background: #2b3243;
-    color: #e2e7f2;
+    background: #2a2a2c;
+    color: #edf1f7;
     text-style: bold;
 }
 
 .plan-question-option:hover {
-    background: #364058;
+    background: #313337;
 }
 
 .plan-question-option.-primary,
 .plan-question-option.selected {
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
 }
 
 .plan-question-option.-primary:hover,
 .plan-question-option.selected:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 .plan-question-custom-row {
@@ -776,18 +808,18 @@ Screen {
 
 #pq-custom-submit {
     border: none;
-    background: #2b3243;
-    color: #e2e7f2;
+    background: #2a2a2c;
+    color: #edf1f7;
     text-style: bold;
 }
 
 #pq-custom-submit:hover {
-    background: #364058;
+    background: #313337;
 }
 
 .plan-question-status {
     margin-top: 1;
-    color: #c8d7f8;
+    color: #c6c6cd;
     text-style: bold;
 }
 
@@ -806,46 +838,46 @@ Screen {
 }
 
 #plan-ready-keep {
-    background: #2b3243;
-    color: #e2e7f2;
+    background: #2a2a2c;
+    color: #edf1f7;
     margin-right: 1;
 }
 
 #plan-ready-keep:hover {
-    background: #364058;
+    background: #313337;
 }
 
 #plan-ready-implement {
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
 }
 
 #plan-ready-implement:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 .block.tool.running {
-    border: none;
-    background: #141922;
+    border: round #33433d;
+    background: #1c2022 86%;
     padding: 1 1;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.success {
-    border: none;
-    background: #141922;
+    border: round #2f4a3e;
+    background: #17201c 90%;
     padding: 1 1;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.tool.error {
-    border: none;
-    background: #141922;
+    border: round #5a4633;
+    background: #261f1a 90%;
     padding: 1 1;
     margin-top: 1;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 .block.assistant {
@@ -870,15 +902,15 @@ Screen {
 }
 
 .assistant-body MarkdownFence {
-    background: #111a26;
-    border: round #2b3a4f;
+    background: #0e0e10;
+    border: round #303236;
 }
 
 .modal {
     width: 72;
     height: auto;
-    border: round #334155;
-    background: #111827;
+    border: round #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
 }
 
@@ -892,7 +924,7 @@ BranchPickerModal,
 AttachPickerModal,
 SetupModal {
     align: center middle;
-    background: #06080f 58%;
+    background: #050607 62%;
 }
 
 ConfirmModal .confirm-modal {
@@ -900,8 +932,8 @@ ConfirmModal .confirm-modal {
     height: 12;
     min-height: 12;
     max-height: 16;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -909,7 +941,7 @@ ConfirmModal .confirm-modal {
 ConfirmModal .confirm-body {
     height: 1fr;
     margin-bottom: 1;
-    color: #d5d7e2;
+    color: #dfe4ea;
 }
 
 ConfirmModal .confirm-actions {
@@ -926,26 +958,26 @@ ConfirmModal #yes {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
     border: none;
 }
 
 ConfirmModal #yes:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 ConfirmModal #no {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #2b3243;
-    color: #e2e7f2;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
 }
 
 ConfirmModal #no:hover {
-    background: #364058;
+    background: #313337;
 }
 
 CommitModal .commit-modal {
@@ -953,8 +985,8 @@ CommitModal .commit-modal {
     height: 20;
     min-height: 20;
     max-height: 20;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -973,12 +1005,12 @@ CommitModal .commit-toggle-row {
 CommitModal .commit-label {
     width: 18;
     min-width: 18;
-    color: #c6d2e3;
+    color: #c6c6cd;
     text-style: bold;
 }
 
 CommitModal .commit-branch {
-    color: #dfe8f8;
+    color: #edf1f7;
     text-style: bold;
 }
 
@@ -1020,15 +1052,15 @@ CommitModal #commit-ai-fill {
     min-height: 3;
     margin-left: 0;
     border: none;
-    background: #262b3d;
-    color: #c9a6ff;
+    background: #27323b;
+    color: #b7c8e1;
     text-style: bold;
     content-align: center middle;
 }
 
 CommitModal #commit-ai-fill:hover {
-    background: #31374d;
-    color: #dcc0ff;
+    background: #313d48;
+    color: #d7e3f2;
 }
 
 CommitModal .commit-actions {
@@ -1044,39 +1076,39 @@ CommitModal #commit-confirm {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b28af3;
-    color: #12111a;
+    background: #b7c8e1;
+    color: #111821;
     border: none;
 }
 
 CommitModal #commit-confirm:hover {
-    background: #c59df8;
+    background: #cad6ea;
 }
 
 CommitModal #commit-push {
     width: 18;
     min-width: 18;
     text-style: bold;
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
     border: none;
 }
 
 CommitModal #commit-push:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 CommitModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #262b3d;
-    color: #e4e6ef;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
 }
 
 CommitModal #cancel:hover {
-    background: #31374d;
+    background: #313337;
 }
 
 PushReviewModal .push-review-modal {
@@ -1084,8 +1116,8 @@ PushReviewModal .push-review-modal {
     height: auto;
     min-height: 12;
     max-height: 16;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1104,19 +1136,19 @@ PushReviewModal .push-review-row {
 PushReviewModal .push-review-label {
     width: 14;
     min-width: 14;
-    color: #c6d2e3;
+    color: #c6c6cd;
     text-style: bold;
 }
 
 PushReviewModal .push-review-value {
-    color: #dfe8f8;
+    color: #edf1f7;
     text-style: bold;
 }
 
 PushReviewModal .push-review-warning {
     margin-top: 1;
     margin-bottom: 0;
-    color: #f2b38f;
+    color: #ffb95f;
 }
 
 RemoteSetupModal .push-review-row {
@@ -1127,19 +1159,19 @@ RemoteSetupModal .push-review-row {
 RemoteSetupModal .push-review-label {
     width: 14;
     min-width: 14;
-    color: #c6d2e3;
+    color: #c6c6cd;
     text-style: bold;
 }
 
 RemoteSetupModal .push-review-value {
-    color: #dfe8f8;
+    color: #edf1f7;
     text-style: bold;
 }
 
 RemoteSetupModal .push-review-warning {
     margin-top: 1;
     margin-bottom: 0;
-    color: #f2b38f;
+    color: #ffb95f;
 }
 
 PushReviewModal .push-review-actions {
@@ -1155,26 +1187,26 @@ PushReviewModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #262b3d;
-    color: #e4e6ef;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
 }
 
 PushReviewModal #cancel:hover {
-    background: #31374d;
+    background: #313337;
 }
 
 PushReviewModal #confirm {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
     border: none;
 }
 
 PushReviewModal #confirm:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 RemoteSetupModal .remote-setup-modal {
@@ -1182,8 +1214,8 @@ RemoteSetupModal .remote-setup-modal {
     height: 22;
     min-height: 22;
     max-height: 22;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1204,7 +1236,7 @@ RemoteSetupModal #remote-url {
 }
 
 RemoteSetupModal .remote-setup-help {
-    color: #a9b7c9;
+    color: #9aa2af;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -1222,26 +1254,26 @@ RemoteSetupModal #cancel {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #262b3d;
-    color: #e4e6ef;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
 }
 
 RemoteSetupModal #cancel:hover {
-    background: #31374d;
+    background: #313337;
 }
 
 RemoteSetupModal #confirm {
     width: 18;
     min-width: 18;
     text-style: bold;
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
     border: none;
 }
 
 RemoteSetupModal #confirm:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 PlanQuestionModal .plan-modal {
@@ -1249,19 +1281,19 @@ PlanQuestionModal .plan-modal {
     height: auto;
     min-height: 12;
     max-height: 30;
-    border: round #3f4c67;
-    background: #141b2a 96%;
+    border: round #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
 }
 
 PlanQuestionModal .modal-title {
     text-style: bold;
-    color: #c9a6ff;
+    color: #b7c8e1;
     margin-bottom: 1;
 }
 
 PlanQuestionModal .modal-body {
-    color: #dbe3f2;
+    color: #dfe4ea;
     margin-bottom: 1;
 }
 
@@ -1272,22 +1304,22 @@ PlanQuestionModal .modal-options {
 PlanQuestionModal .modal-options Button {
     margin-bottom: 1;
     border: none;
-    background: #2b3243;
-    color: #e2e7f2;
+    background: #2a2a2c;
+    color: #edf1f7;
     text-style: bold;
 }
 
 PlanQuestionModal .modal-options Button:hover {
-    background: #364058;
+    background: #313337;
 }
 
 PlanQuestionModal .modal-options Button.-primary {
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
 }
 
 PlanQuestionModal .modal-options Button.-primary:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 PlanQuestionModal #custom-input {
@@ -1297,13 +1329,13 @@ PlanQuestionModal #custom-input {
 
 PlanQuestionModal #custom-submit {
     border: none;
-    background: #2b3243;
-    color: #e2e7f2;
+    background: #2a2a2c;
+    color: #edf1f7;
     text-style: bold;
 }
 
 PlanQuestionModal #custom-submit:hover {
-    background: #364058;
+    background: #313337;
 }
 
 SessionResumeModal .modal {
@@ -1311,8 +1343,8 @@ SessionResumeModal .modal {
     height: 32;
     max-height: 86%;
     min-height: 24;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1322,8 +1354,8 @@ BranchPickerModal .modal {
     height: 32;
     max-height: 86%;
     min-height: 24;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1333,8 +1365,8 @@ AttachPickerModal .modal {
     height: 32;
     max-height: 86%;
     min-height: 24;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1343,8 +1375,8 @@ SetupModal .modal {
     width: 86;
     height: auto;
     min-height: 18;
-    border: heavy #4f4a70;
-    background: #1a2031 96%;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
     padding: 1 2;
 }
 
@@ -1356,8 +1388,8 @@ AttachPickerModal .modal-list {
     max-height: 1fr;
     margin-top: 1;
     margin-bottom: 0;
-    border: solid #3b3f58;
-    background: #1c2234;
+    border: solid #303236;
+    background: #151618;
     padding: 0;
     overflow-y: auto;
 }
@@ -1369,7 +1401,7 @@ RemoteSetupModal .modal-title,
 SetupModal .modal-title {
     text-align: center;
     text-style: bold;
-    color: #c9a6ff;
+    color: #b7c8e1;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -1379,14 +1411,14 @@ BranchPickerModal .modal-body,
 AttachPickerModal .modal-body,
 RemoteSetupModal .modal-body,
 SetupModal .modal-body {
-    color: #d5d7e2;
+    color: #dfe4ea;
     margin-bottom: 1;
 }
 
 SessionResumeModal .resume-warning {
-    border: round #b38a54;
-    background: #2b2833;
-    color: #f2ce9a;
+    border: round #5a4633;
+    background: #261f1a;
+    color: #ffd8a8;
     padding: 0 1;
     margin-bottom: 1;
 }
@@ -1409,14 +1441,14 @@ SessionResumeModal #resume {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b28af3;
-    color: #12111a;
+    background: #b7c8e1;
+    color: #111821;
     border: none;
 }
 
 SessionResumeModal #resume:hover {
-    background: #c59df8;
-    color: #0f0e16;
+    background: #cad6ea;
+    color: #111821;
 }
 
 SessionResumeModal #cancel,
@@ -1427,8 +1459,8 @@ SetupModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #262b3d;
-    color: #e4e6ef;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
 }
 
@@ -1437,21 +1469,21 @@ BranchPickerModal #cancel:hover,
 AttachPickerModal #cancel:hover,
 RemoteSetupModal #cancel:hover,
 SetupModal #cancel:hover {
-    background: #31374d;
+    background: #313337;
 }
 
 SetupModal #continue {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b28af3;
-    color: #12111a;
+    background: #4edea3;
+    color: #07140f;
     border: none;
 }
 
 SetupModal #continue:hover {
-    background: #c59df8;
-    color: #0f0e16;
+    background: #6ae7b5;
+    color: #07140f;
 }
 
 SetupModal Input {
@@ -1479,13 +1511,13 @@ SetupModal #setup-api-key {
     height: 3;
     min-height: 3;
     border: none;
-    background: #262b3d;
-    color: #e4e6ef;
+    background: #2a2a2c;
+    color: #edf1f7;
     text-style: bold;
 }
 
 .setup-eye:hover {
-    background: #31374d;
+    background: #313337;
 }
 
 .setup-error {
@@ -1504,27 +1536,27 @@ BranchPickerModal #switch {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b28af3;
-    color: #12111a;
+    background: #b7c8e1;
+    color: #111821;
     border: none;
 }
 
 BranchPickerModal #switch:hover {
-    background: #c59df8;
-    color: #0f0e16;
+    background: #cad6ea;
+    color: #111821;
 }
 
 BranchPickerModal #create {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #5dcf84;
-    color: #0f1a12;
+    background: #4edea3;
+    color: #07140f;
     border: none;
 }
 
 BranchPickerModal #create:hover {
-    background: #75de99;
+    background: #6ae7b5;
 }
 
 BranchPickerModal #branch-name {
@@ -1536,27 +1568,27 @@ AttachPickerModal #attach-queue {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b28af3;
-    color: #12111a;
+    background: #b7c8e1;
+    color: #111821;
     border: none;
 }
 
 AttachPickerModal #attach-queue:hover {
-    background: #c59df8;
-    color: #0f0e16;
+    background: #cad6ea;
+    color: #111821;
 }
 
 AttachPickerModal #attach-clear {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #262b3d;
-    color: #e4e6ef;
+    background: #2a2a2c;
+    color: #edf1f7;
     border: none;
 }
 
 AttachPickerModal #attach-clear:hover {
-    background: #31374d;
+    background: #313337;
 }
 
 #attach-status {
@@ -1566,12 +1598,12 @@ AttachPickerModal #attach-clear:hover {
 
 .modal-title {
     text-style: bold;
-    color: #f5f5f5;
+    color: #f2f5f8;
     margin-bottom: 1;
 }
 
 .modal-body {
-    color: #d1d5db;
+    color: #dfe4ea;
     margin-bottom: 1;
 }
 
@@ -1583,7 +1615,7 @@ AttachPickerModal #attach-clear:hover {
     height: 16;
     margin-top: 1;
     margin-bottom: 1;
-    border: solid #334155;
+    border: solid #303236;
     padding: 1;
 }
 
@@ -1598,7 +1630,7 @@ AttachPickerModal #attach-clear:hover {
     min-height: 2;
     border: none;
     background: transparent;
-    color: #e5e7eb;
+    color: #edf1f7;
     padding: 1 1 0 1;
 }
 
@@ -1617,9 +1649,9 @@ AttachPickerModal #attach-clear:hover {
     width: 1fr;
     margin: 0 2 0 2;
     padding: 0 1 0 1;
-    border: round #315b8a;
-    background: #0e1726 96%;
-    color: #dbe4f2;
+    border: round #303236;
+    background: #24282c 94%;
+    color: #edf1f7;
     pointer: pointer;
 }
 
@@ -1628,11 +1660,16 @@ AttachPickerModal #attach-clear:hover {
     min-height: 1;
     width: 1fr;
     margin: 0 2 0 2;
-    color: #d1d5db;
+    color: #c6c6cd;
     text-style: bold;
     text-wrap: nowrap;
     text-overflow: ellipsis;
     pointer: pointer;
+}
+
+Footer {
+    background: #18181b;
+    color: #8c93a1;
 }
 
 Markdown {
@@ -1641,17 +1678,17 @@ Markdown {
 }
 
 MarkdownFence {
-    background: #141a24;
-    border: round #2f3a4c;
+    background: #0e0e10;
+    border: round #303236;
     padding: 0 1;
 }
 
 MarkdownTable {
-    border: solid #2f3a4c;
+    border: solid #303236;
 }
 
 MarkdownBlockQuote {
-    border-left: solid #3f5473;
-    background: #151b26;
+    border-left: solid #303236;
+    background: #1c1b1d;
     padding: 0 1;
 }

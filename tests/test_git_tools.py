@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from ite.config.config import Config
+from ite.git.working_tree import working_tree_change_set
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.git_tools import (
     GitBranchTool,
@@ -112,6 +113,36 @@ class GitToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(staged_only.metadata.get("selection"), "staged")
             self.assertEqual(staged_only.metadata["files"][0]["path"], "staged.py")
             self.assertEqual(staged_only.metadata["files"][0]["stage_label"], "staged")
+
+    async def test_git_tools_handle_modified_binary_files(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            _init_repo(cwd)
+
+            binary_path = cwd / "state.bin"
+            binary_path.write_bytes(b"\x00\x00\x00\x01Bud1\x80original")
+            _run_git(cwd, "add", "-A", "--", "state.bin")
+            _run_git(cwd, "commit", "-m", "add binary")
+
+            binary_path.write_bytes(b"\x00\x00\x00\x01Bud1\x80updated")
+
+            change_set = working_tree_change_set(cwd)
+            self.assertIsNotNone(change_set)
+            if change_set is None:
+                self.fail("Expected a working tree change set for the modified binary file.")
+            self.assertEqual(change_set.changes[0].path.name, "state.bin")
+            self.assertIn("Binary file", change_set.changes[0].new_content)
+
+            status_tool = GitStatusTool(Config(cwd=cwd, api_key="test"))
+            status = await status_tool.execute(ToolInvocation(params={}, cwd=cwd))
+            self.assertTrue(status.success, msg=status.error)
+            self.assertIn("state.bin", status.metadata.get("unstaged_files", []))
+
+            diff_tool = GitDiffTool(Config(cwd=cwd, api_key="test"))
+            diff = await diff_tool.execute(ToolInvocation(params={"path": "state.bin"}, cwd=cwd))
+            self.assertTrue(diff.success, msg=diff.error)
+            self.assertIn("state.bin", diff.output)
+            self.assertIn("Binary file", diff.output)
 
     async def test_git_status_exposes_publish_intent_without_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as td:

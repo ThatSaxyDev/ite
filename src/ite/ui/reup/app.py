@@ -83,7 +83,7 @@ from .change_views import build_change_card_body, change_entry_label
 from .composer_views import (
     SlashCommandOption,
     build_command_palette_options,
-    build_empty_state_title,
+    build_empty_state_renderable,
     build_turn_action_options,
     build_turn_payload,
     composer_meta_text,
@@ -179,7 +179,7 @@ class ReupTUIAdapter:
         commands: list[str] | None = None,
         version: str = "0.0.15",
     ) -> None:
-        msg = f"ITE Reup ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
+        msg = f"iTE ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
         if commands:
             msg += "\nCommands: " + ", ".join(commands)
         self._app.post_system("Welcome", msg)
@@ -300,12 +300,24 @@ class ReupApp(App):
         self._suppress_history_reset_once: bool = False
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
-        self._top_spinner_frames: tuple[str, ...] = ("|", "/", "-", "\\")
+        self._top_spinner_frames: tuple[str, ...] = (
+            "⠋",
+            "⠙",
+            "⠹",
+            "⠸",
+            "⠼",
+            "⠴",
+            "⠦",
+            "⠧",
+            "⠇",
+            "⠏",
+        )
         self._activity_suffix_frames: tuple[str, ...] = ("", ".", "..", "...")
         self._activity_suffix_index: int = 0
         self._top_state_text: str = ""
         self._activity_widget: Static | None = None
         self._activity_version: int = 0
+        self._empty_state_cached_thread_count: int = 0
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -701,10 +713,10 @@ class ReupApp(App):
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
         content = Text()
-        content.append(frame, style="bold #b8d8ff")
+        content.append(frame, style="bold #4edea3")
         content.append(" ")
-        content.append(label, style="bold #eef4ff")
-        content.append(suffix, style="bold #b8d8ff")
+        content.append(label, style="bold #f2f5f8")
+        content.append(suffix, style="bold #b7c8e1")
         return content
 
     def _composer_meta_text(self) -> Text:
@@ -1179,9 +1191,9 @@ class ReupApp(App):
             self.post_attachment_note(f"Queued {added} {noun} for the next message.")
         return True
 
-    def _build_empty_state_title(self) -> str:
+    def _empty_state_thread_count(self) -> int:
         try:
-            thread_count = len(
+            return len(
                 [
                     s
                     for s in SessionManager().list_sessions(
@@ -1192,32 +1204,22 @@ class ReupApp(App):
                 ]
             )
         except Exception:
-            thread_count = 0
-        return build_empty_state_title(
-            cwd=Path(self.config.cwd), thread_count=thread_count
-        )
+            return 0
 
     def _refresh_empty_state(self) -> None:
         empty = self.query_one("#empty-state", Static)
         if self._message_count > 0 or self._is_turn_running:
             empty.display = False
             return
-        # Reuse exact legacy TUI logo rows for stable terminal glyph alignment.
-        logo_lines = [
-            "  ██╗ ██████╗ ███████╗",
-            "  ╚═╝ ╚═██╔═╝ ██╔═══╝",
-            "  ██╗   ██║   ████╗  ",
-            "  ██║   ██║   ██╔═╝  ",
-            "  ██║   ██║   ███████╗",
-            "  ╚═╝   ╚═╝   ╚══════╝",
-        ]
-        art = "\n".join(logo_lines)
-        greeting = self._build_empty_state_title()
-        content = Text()
-        content.append(art + "\n\n", style="bold #8d94a0")
-        content.append(greeting, style="bold #e3e7ef")
-        empty.update(content)
+        self._empty_state_cached_thread_count = self._empty_state_thread_count()
+        empty.update(self._empty_state_renderable())
         empty.display = True
+
+    def _empty_state_renderable(self) -> Any:
+        return build_empty_state_renderable(
+            cwd=Path(self.config.cwd),
+            thread_count=self._empty_state_cached_thread_count,
+        )
 
     def _set_loading_state(self, state: str, busy: bool) -> None:
         self._top_state_text = state
@@ -1429,7 +1431,7 @@ class ReupApp(App):
         ):
             additions = len([line for line in diff.new_content.splitlines() if line])
             if additions and getattr(diff, "is_new_file", False):
-                label.append(f"  +{additions}", style="bold #79d8a4")
+                label.append(f"  +{additions}", style="bold #4edea3")
         return label
 
     def _change_review_relpath(self, diff: Any) -> str:
@@ -1480,11 +1482,11 @@ class ReupApp(App):
         rendered = Text(no_wrap=True)
         old_lineno = 0
         new_lineno = 0
-        gutter_style = "#7f8ea3"
-        context_style = "#e7edf7"
-        add_style = "#a7f36b"
-        del_style = "#ff9bb7"
-        hunk_style = "#b6b09c"
+        gutter_style = "#7d8591"
+        context_style = "#edf1f7"
+        add_style = "#4edea3"
+        del_style = "#ffb95f"
+        hunk_style = "#b7c8e1"
 
         def append_line(
             old_label: str,
@@ -1580,7 +1582,7 @@ class ReupApp(App):
         except Exception:
             rel = str(diff.path)
         action, color = change_entry_label(diff, mode=self._change_review_mode)
-        header.append(rel, style="bold #d9e6fb")
+        header.append(rel, style="bold #edf1f7")
         header.append("  ")
         header.append(action, style=f"bold {color}")
         if self._change_review_source == "git":
@@ -1589,7 +1591,7 @@ class ReupApp(App):
             )
             if callable(stage_label_for):
                 header.append("  ")
-                header.append(stage_label_for(diff.path), style="bold #9caecb")
+                header.append(stage_label_for(diff.path), style="bold #8c93a1")
         body = Static(
             self._change_review_numbered_diff_renderable(diff),
             classes="change-review-diff",
@@ -4423,14 +4425,14 @@ class ReupApp(App):
             return "❌", "bold #ffb0b0"
         state = shell_session_state(metadata)
         if state == "command_running":
-            return "⌛", "bold #9bc7ff"
+            return "⌛", "bold #b7c8e1"
         if state == "idle":
-            return "💤", "bold #8c97ab"
+            return "💤", "bold #8c93a1"
         if state == "stopped":
-            return "⏹", "bold #8c97ab"
+            return "⏹", "bold #8c93a1"
         if state == "exited":
-            return "✅", "bold #a9ebbe"
-        return "✅", "bold #a9ebbe"
+            return "✅", "bold #4edea3"
+        return "✅", "bold #4edea3"
 
     @staticmethod
     def _tool_completion_icon_and_style(
@@ -4618,11 +4620,11 @@ class ReupApp(App):
 
         blocks: list[Any] = []
         if name == "todos":
-            blocks.append(Text(todo_start_hint(arguments), style="#d5d9e2"))
+            blocks.append(Text(todo_start_hint(arguments), style="#dfe4ea"))
         elif arguments:
             blocks.append(render_args_table(name, arguments, cwd=self.config.cwd))
         else:
-            blocks.append(Text("(no args)", style="#8c97ab"))
+            blocks.append(Text("(no args)", style="#8c93a1"))
 
         if name == "shell":
             self._run_state().running_shell_call_ids.add(call_id)
@@ -4635,9 +4637,9 @@ class ReupApp(App):
             )
         else:
             header = Text()
-            header.append("⌛ ", style="bold #9bc7ff")
-            header.append(title_text, style="bold #9bc7ff")
-            header.append("  running", style="#8c97ab")
+            header.append("⌛ ", style="bold #b7c8e1")
+            header.append(title_text, style="bold #edf1f7")
+            header.append("  running", style="#8c93a1")
             card.update(Group(header, *blocks))
         self._tool_widgets[call_id] = card
 

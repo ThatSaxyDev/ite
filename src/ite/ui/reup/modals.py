@@ -346,9 +346,9 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         if self._include_unstaged:
             text.append("YES", style="bold #79d8a4")
             text.append("  ")
-            text.append("no", style="#7f8ea3")
+            text.append("no", style="#8c93a1")
         else:
-            text.append("yes", style="#7f8ea3")
+            text.append("yes", style="#8c93a1")
             text.append("  ")
             text.append("NO", style="bold #f29b9b")
         return text
@@ -360,15 +360,15 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
 
         joined = " ".join(paths).lower()
         if "reup" in joined and "commit" in joined:
-            return "feat(reup): refine commit modal flow"
+            return "feat(ui): refine commit modal flow"
         if "reup" in joined and any(token in joined for token in {"modal", "modals", "tcss"}):
-            return "style(reup): polish modal layout and spacing"
+            return "style(ui): polish modal layout and spacing"
         if "working_tree" in joined and "reup" in joined:
-            return "feat(reup): improve working tree review actions"
+            return "feat(ui): improve working tree review actions"
         if "working_tree" in joined or "changes" in joined:
             return "feat(git): improve working tree change review"
         if "app.py" in joined and "modals.py" in joined:
-            return "refactor(reup): tighten modal interactions"
+            return "refactor(ui): tighten modal interactions"
 
         if len(paths) == 1:
             stem = Path(paths[0]).stem
@@ -768,7 +768,7 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
     def _refresh_status(self) -> None:
         status = self.query_one("#attach-status", Static)
         count = len(self._selected_paths)
-        tone = "#5dcf84" if count <= MAX_ATTACHMENTS else "#e35d6a"
+        tone = "#4edea3" if count <= MAX_ATTACHMENTS else "#ffb95f"
         status.update(Text(f"Selected: {count}/{MAX_ATTACHMENTS}", style=f"bold {tone}"))
 
     def _toggle_current_row(self) -> None:
@@ -821,7 +821,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal setup-modal"):
-            yield Label("Setup ITE", classes="modal-title setup-title")
+            yield Label("Setup iTE", classes="modal-title setup-title")
             yield Static(
                 "Connect your provider credentials to start using iTE.",
                 classes="modal-body setup-body",

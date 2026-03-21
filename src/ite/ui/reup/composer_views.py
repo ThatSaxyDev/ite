@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from rich.align import Align
+from rich.console import Group
 from rich.cells import cell_len
 from rich.text import Text
 
@@ -15,7 +17,6 @@ class SlashCommandOption:
     description: str
     insert_text: str | None = None
     attachment_path: str | None = None
-
 
 def composer_meta_text(
     *,
@@ -138,8 +139,8 @@ def render_command_palette(
     start = filtered_options.index(window[0])
     for idx, option in enumerate(window, start=start):
         selected = idx == command_palette_index
-        line_style = "bold #f8fafc on #315b8a" if selected else "#dbe4f2"
-        desc_style = "bold #e5eefc on #315b8a" if selected else "#7f8ea3"
+        line_style = "bold #07120d on #4edea3" if selected else "bold #edf1f7"
+        desc_style = "bold #07120d on #4edea3" if selected else "#8c93a1"
         text.append(option.name.ljust(14), style=line_style)
         text.append("  ", style=line_style)
         text.append(option.description, style=desc_style)
@@ -168,8 +169,8 @@ def render_turn_action_palette(turn_action_options: list[SlashCommandOption], co
         return text
     for idx, option in enumerate(turn_action_options):
         selected = idx == command_palette_index
-        line_style = "bold #f8fafc on #315b8a" if selected else "#dbe4f2"
-        desc_style = "bold #e5eefc on #315b8a" if selected else "#7f8ea3"
+        line_style = "bold #07120d on #4edea3" if selected else "bold #edf1f7"
+        desc_style = "bold #07120d on #4edea3" if selected else "#8c93a1"
         text.append(option.name.ljust(12), style=line_style)
         text.append("  ", style=line_style)
         text.append(option.description, style=desc_style)
@@ -223,6 +224,46 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
     opener = opener_variants[seed % len(opener_variants)]
     followup = followup_variants[(seed // 3) % len(followup_variants)]
     return f"{opener}. {followup}"
+
+
+def build_empty_state_welcome(title: str) -> Text:
+    welcome = Text(justify="center")
+    welcome.append(title, style="bold #f7fafc")
+    return welcome
+
+
+def build_empty_state_ascii() -> Text:
+    lines = [
+        "  ██╗ ██████╗ ███████╗",
+        "  ╚═╝ ╚═██╔═╝ ██╔═══╝",
+        "  ██╗   ██║   ████╗  ",
+        "  ██║   ██║   ██╔═╝  ",
+        "  ██║   ██║   ███████╗",
+        "  ╚═╝   ╚═╝   ╚══════╝",
+    ]
+    art = Text(justify="center")
+    for index, line in enumerate(lines):
+        art.append(line, style="bold #8d94a0")
+        if index < len(lines) - 1:
+            art.append("\n")
+    return art
+
+
+def build_empty_state_renderable(
+    *,
+    cwd: Path,
+    thread_count: int,
+    now: datetime | None = None,
+) -> Any:
+    title = build_empty_state_title(cwd=cwd, thread_count=thread_count, now=now)
+    return Align.center(
+        Group(
+            build_empty_state_ascii(),
+            Text(""),
+            build_empty_state_welcome(title),
+        ),
+        vertical="middle",
+    )
 
 
 def build_turn_payload(

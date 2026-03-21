@@ -1,105 +1,205 @@
-# Design System Strategy: Terminal Revamp
+# Design System Strategy: iTE Terminal UI
 
-## 1. Overview & Creative North Star
-**Creative North Star: The Monolith Console**
+## 1. North Star
+**Creative North Star: The iTE Command Console**
 
-Traditional terminal environments are often fragmented—white text on a flat black void. This design system reimagines the developer workspace as a singular, high-fidelity "Monolith." We are moving away from the "grid of boxes" to an editorial-grade interface that uses deep tonal layering and sophisticated typography to prioritize information. 
+`iTE` should feel like a premium command room inside the terminal, not a stack of generic dark panels. The UI needs editorial hierarchy, deliberate asymmetry, and deep tonal layering so the workspace reads as one coherent instrument.
 
-By leveraging intentional asymmetry and high-contrast typography scales, we create a signature experience that feels less like a basic tool and more like a premium command center. The visual language is defined by the tension between the raw efficiency of code (Monospace) and the authoritative elegance of modern UI (Space Grotesk).
+This is a terminal product, so the system must be written for terminal reality:
 
----
+- We do **not** rely on true blur, gradients, arbitrary fonts, or pixel-perfect web affordances.
+- We create depth with **surface shifts, bold typographic contrast, spacing, and restrained accent color**.
+- We avoid the usual "blue box on dark gray box" dashboard look.
 
-## 2. Colors
-The palette is built on a foundation of deep charcoals and slates, using vibrant, high-saturation accents to pierce the dark theme.
-
-### Tonal Foundations
-- **Background:** `#131315` (The infinite void)
-- **Surface (Neutral):** Using `surface_container` tiers to define depth.
-- **Accents:** 
-  - **Primary (Success/Action):** `#4edea3` (Emerald)
-  - **Secondary (Info):** `#b7c8e1` (Slate Blue)
-  - **Tertiary (Warning):** `#ffb95f` (Amber)
-
-### The "No-Line" Rule
-Standard 1px borders are strictly prohibited for sectioning. Visual boundaries must be achieved through:
-1. **Background Shifting:** A `surface_container_low` sidebar sitting directly against a `surface` background.
-2. **Tonal Transitions:** Defining logic blocks by shifting from `surface_container` to `surface_container_high`.
-
-### Glass & Gradient Implementation
-To avoid a flat "template" look, floating command palettes and overlays should utilize a **Glassmorphic** approach:
-- Use `surface_variant` at 60% opacity with a `20px` backdrop-blur.
-- Apply a subtle linear gradient to main CTAs (e.g., transitioning from `primary` to `on_primary_container`) to add "visual soul" and dimension.
+The result should feel quiet, expensive, and sharply legible while a user is reading diffs, following tool activity, or composing the next turn.
 
 ---
 
-## 3. Typography
-We employ a dual-font strategy to separate content (code) from container (UI).
+## 2. Palette
 
-- **The Editorial UI (Space Grotesk):** Used for Headlines and Display styles. Its geometric, slightly quirky character provides an "avant-garde" tech feel.
-- **The Functional Interface (Inter):** Used for labels, titles, and body text. High legibility, neutral tone.
-- **The Data Layer (Monospace):** (Referencing the developer's request) High-quality mono fonts are used for all terminal output and code snippets.
+### Core Surfaces
+- **Canvas:** `#131315`
+- **Surface Low:** `#1c1b1d`
+- **Surface Mid:** `#232327`
+- **Surface High:** `#2a2a2c`
+- **Code Well / Deep Recess:** `#0e0e10`
 
-### Scale Highlights
-- **Display-LG:** `3.5rem` / Space Grotesk. For high-level workspace status.
-- **Headline-SM:** `1.5rem` / Space Grotesk. For primary section headers.
-- **Label-MD:** `0.75rem` / Inter. For metadata and status tags.
+### Accents
+- **Primary / Success / Go:** `#4edea3`
+- **Secondary / Informational:** `#b7c8e1`
+- **Warning / Risk / Destructive:** `#ffb95f`
 
----
+### Text
+- **Primary text:** `#f2f5f8`
+- **Secondary text:** `#c6c6cd`
+- **Muted text:** `#8c93a1`
 
-## 4. Elevation & Depth
-In this design system, depth is a function of light and layering, not structural lines.
+### Ghost Border
+- **Fallback edge:** `#45464d` at very low opacity
 
-### The Layering Principle
-Hierarchy is achieved by "stacking" container tiers.
-- **Base Layer:** `surface` (#131315)
-- **Primary Layout Blocks:** `surface_container_low` (#1C1B1D)
-- **Interactive Cards/Elements:** `surface_container_high` (#2A2A2C)
+### The Terminal "No-Line" Rule
+The default separation pattern is **not** a bright 1px divider. In `iTE`, hierarchy should come from:
 
-### Ambient Shadows
-When an element must float (e.g., a command palette), use an **Ambient Shadow**:
-- **Blur:** 32px to 64px.
-- **Opacity:** 6% of the `on_surface` color.
-- **Offset:** Vertical only (4px - 8px) to mimic a top-down light source.
+1. Surface shifts between canvas and container tiers.
+2. Changes in padding density.
+3. Accent color reserved for state and intent.
 
-### The "Ghost Border" Fallback
-If a border is required for extreme accessibility cases, use the **Ghost Border**:
-- Color: `outline_variant` (#45464D)
-- Opacity: **Max 15%**. It should be felt, not seen.
+Ghost borders are allowed only for:
 
----
-
-## 5. Components
-
-### Primary Buttons
-- **Style:** High-saturation `primary` (#4EDE3A) background with `on_primary` (#003824) text.
-- **Shape:** `DEFAULT` (0.5rem/8px) roundedness.
-- **Interaction:** On hover, shift to `primary_fixed` for a "glow" effect.
-
-### Code Blocks & Terminal Output
-- **Background:** `surface_container_lowest` (#0E0E10).
-- **Padding:** `spacing[5]` (1.1rem) to give code room to breathe.
-- **Success State:** Left-hand accent bar using `primary` (#4EDE3A) at 4px width.
-
-### Command Palette (Floating)
-- **Background:** Glassmorphic `surface_container_highest` with backdrop-blur.
-- **Shadow:** Large ambient shadow.
-- **Search Input:** Ghost border (10% opacity) with `title-md` typography.
-
-### Chips & Tags
-- **Success:** `primary_container` background with `on_primary_container` text.
-- **Warning:** `tertiary_container` background with `on_tertiary_container` text.
-- **Shape:** `full` (pill-shaped) for distinct contrast against square terminal blocks.
+- floating composer surfaces
+- command palettes
+- modals
+- code wells when readability needs a frame
 
 ---
 
-## 6. Do's and Don'ts
+## 3. Typography and Hierarchy
 
-### Do:
-- **Use Intentional Asymmetry:** Align terminal output to a different grid than the UI controls to create visual interest.
-- **Embrace White Space:** Use the `spacing[8]` (1.75rem) and `spacing[10]` (2.25rem) tokens to separate major logic blocks instead of dividers.
-- **Layer Surfaces:** Always place lighter containers on darker backgrounds to signify "lift."
+The terminal gives us one real type family: monospace. That means hierarchy must come from:
 
-### Don't:
-- **Don't use 100% white text:** Always use `on_surface_variant` (#C6C6CD) for secondary text to reduce eye strain in dark mode.
-- **Don't use 1px Solid Borders:** Never use a high-contrast line to separate the sidebar from the main terminal. Use a background color shift.
-- **Don't settle for flat colors:** Use the `surface_tint` to apply a 2% color overlay to surfaces to keep the dark theme from feeling "dead" or muddy.
+- bold versus regular weight
+- all-caps editorial kickers
+- wide spacing between logic groups
+- restrained line length
+- contrasting open versus boxed content
+
+### Hierarchy Rules
+- **Kickers:** short all-caps labels like `AI TERMINAL`, `COMPOSE`, `WORKSPACE`
+- **Primary title:** current thread title
+- **Metadata rails:** muted, compact, right-aligned or inline
+- **Terminal content:** never over-decorated; clarity wins
+
+---
+
+## 4. Layout Mapping for iTE
+
+### Topbar
+The topbar is the identity anchor.
+
+- A compact `iTE` mark sits at the far left.
+- A small kicker and the current thread title create the editorial stack.
+- Workspace, model, plan state, thread count, and git branch live in a right-aligned metadata rail.
+- `/changes` and `/aside` are compact action pills, not loud buttons.
+
+### Session Strip
+Session tabs live beneath the topbar as pill-shaped tokens.
+
+- Inactive tabs sit on `surface_mid`.
+- Active tabs use a cooler raised tone.
+- Live tabs use a warmer or greener active tone depending on state.
+
+### Conversation Well
+The conversation area stays mostly open on the canvas.
+
+- Assistant output should feel integrated into the canvas, not trapped in heavy cards.
+- User messages should be offset and boxed on a darker surface to create asymmetry.
+- System, plan, workboard, and tool messages can use contained cards when needed.
+
+### Composer Dock
+The composer is the floating control surface.
+
+- It should feel slightly elevated from the base canvas.
+- It includes a small `COMPOSE` kicker, the prompt area, the inline status rail, and the slash palette.
+- The slash palette is the glassiest element in the shell.
+
+### Side Panels
+The change review and aside panels are tonal slabs.
+
+- They should read as neighboring surfaces, not panels split off by bright borders.
+- Use spacing and background shift to show separation.
+
+### Footer
+The footer remains functional and low-contrast. It should support the interface, not compete with it.
+
+---
+
+## 5. Component Rules
+
+### Session Tabs
+- Pill-shaped
+- No harsh outlines
+- Stronger fill on active
+- Distinct live-state fill for running work
+
+### User Cards
+- Darker surface than the canvas
+- Offset to the right
+- Compact and intentional
+
+### Assistant Messages
+- Mostly open
+- Minimal framing
+- Code fences and block quotes may use recessed wells
+
+### Emoji Use
+- High-signal emoji iconography is allowed.
+- Keep emoji where it improves scanability fast: attachments, shell status, success/failure, tests, git actions.
+- Don’t remove useful emoji just to make the UI feel more austere.
+
+### Tool Cards
+- Tinted by state:
+  - running: neutral elevated surface
+  - success: green-tinted surface
+  - recoverable/warning: amber-tinted surface
+  - failure: warm, darker warning surface
+
+### Command Palette
+- Elevated surface with ghost border
+- Selected row uses the primary accent
+- Descriptions stay muted
+
+### Change Review
+- File tree on a darker inset surface
+- Preview on the base canvas
+- Stage and commit actions use success/info tones
+- Discard actions use warning tone
+
+### Modals
+- Centered elevated surfaces
+- No loud purple defaults
+- Primary confirm actions use emerald
+- Secondary progression actions can use slate
+
+---
+
+## 6. Motion and Live State
+
+Motion in terminal is sparse by necessity, so it must mean something.
+
+- Spinners should be subtle and elegant.
+- Running states should "glow" through color and placement, not noise.
+- Live shell sessions should feel active without becoming visually loud.
+
+---
+
+## 7. Do / Don't
+
+### Do
+- Use asymmetry between user bubbles and assistant output.
+- Use spacing to separate major blocks instead of divider lines.
+- Keep assistant content breathable.
+- Reserve accent color for state transitions and calls to action.
+- Let the composer feel like a dedicated control surface.
+
+### Don't
+- Don’t reintroduce bright default blue or purple accents as the main theme.
+- Don’t turn the whole interface into boxed cards.
+- Don’t use high-contrast lines to split the shell into regions.
+- Don’t make metadata compete with the primary thread title.
+- Don’t flatten every state into the same neutral gray.
+
+---
+
+## 8. Implementation Notes
+
+This system maps directly onto the current Textual implementation for `iTE`:
+
+- `src/ite/ui/reup/reup.tcss`
+- `src/ite/ui/reup/app.py`
+- `src/ite/ui/reup/composer_views.py`
+- `src/ite/ui/reup/change_views.py`
+- `src/ite/ui/reup/change_tree.py`
+- `src/ite/ui/reup/tool_views.py`
+- `src/ite/ui/reup/modals.py`
+
+`src/ite/ui/reup/` is the implementation path, not the product name.
