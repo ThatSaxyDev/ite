@@ -186,38 +186,37 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
     if 5 <= hour < 12:
         opener_variants = [
             "Good morning",
-            "Morning focus",
-            "Fresh start",
-            "Clear head, clear work",
-            "Early momentum",
-            "A calm start",
+            "Morning session",
+            "Ready when you are",
+            "Workspace ready",
+            "Back at it",
+            "Start the day here",
         ]
     elif 12 <= hour < 17:
         opener_variants = [
             "Good afternoon",
-            "Afternoon focus",
-            "Back in rhythm",
-            "Steady progress",
-            "A good point to pick things up",
-            "Time to move the work forward",
+            "Afternoon session",
+            "Workspace ready",
+            "Back at it",
+            "Ready to continue",
+            "Set to work",
         ]
     elif 17 <= hour < 22:
         opener_variants = [
             "Good evening",
             "Evening session",
-            "A quieter stretch for focused work",
-            "Settle in and make progress",
-            "A good hour for deliberate work",
-            "The day is still usable",
+            "Workspace ready",
+            "Ready to continue",
+            "Set to work",
+            "Back at it",
         ]
     else:
         opener_variants = [
-            "Late hours, clear focus",
-            "A quiet window",
-            "Night shift, steady hands",
+            "Late session",
             "The workspace is ready",
-            "A calm stretch to think clearly",
-            "Still time for one more pass",
+            "Ready to continue",
+            "Back at it",
+            "Set to work",
         ]
 
     if thread_count > 0:
@@ -225,9 +224,13 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
             "Continue where you left off.",
             "Pick up your last thread.",
             "Your workspace is ready.",
-            "Resume the next step.",
-            "Carry the work a little further.",
-            "Step back into the thread.",
+            "Continue the current thread.",
+            "Resume your work.",
+            "Open the next task.",
+            "Return to the last task.",
+            "Pick up the current task.",
+            "Step back into the workspace.",
+            "Continue with the next item.",
         ]
     else:
         followup_variants = [
@@ -235,24 +238,24 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
             "Start a thread and we can map it out.",
             "Drop in a goal to begin.",
             "Tell me what you want to ship.",
-            "Name the task and we can get moving.",
-            "Point at the problem and we can start.",
+            "Describe the task to begin.",
+            "Start with a clear goal.",
         ]
 
     if is_weekend:
         opener_variants = [
             "Weekend session",
-            "A quieter window",
-            "Unhurried progress",
-            "A calm session",
+            "Workspace ready",
+            "Ready to continue",
+            "Set to work",
         ] + opener_variants[:3]
 
     if thread_count == 0 and hour >= 22:
         followup_variants = [
             "Start with one clear task.",
-            "Name the work and we can begin.",
-            "Drop in the goal and keep it simple.",
-            "Point at the next task.",
+            "Describe the work to begin.",
+            "Open a thread with the task.",
+            "Begin with the next priority.",
         ]
 
     workspace_key = str(cwd.resolve())
@@ -265,6 +268,14 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
     )
     opener = opener_variants[seed % len(opener_variants)]
     followup = followup_variants[(seed // 3) % len(followup_variants)]
+    if opener.rstrip(".") in followup:
+        followup = followup_variants[(seed // 5 + 1) % len(followup_variants)]
+    if opener == "Ready to continue" and followup in {
+        "Continue the current thread.",
+        "Continue where you left off.",
+        "Resume your work.",
+    }:
+        followup = followup_variants[(seed // 7 + 2) % len(followup_variants)]
     return f"{opener}. {followup}"
 
 
