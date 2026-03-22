@@ -480,7 +480,12 @@ def create_default_registry(config: Config) -> ToolRegistry:
     for tool_class in get_all_builtin_tools():
         registry.register(tool_class(config))
 
-    refresh_subagent_tools(registry, config, log_errors=False)
+    refresh_subagent_tools(
+        registry,
+        config,
+        log_errors=False,
+        include_user_subagents=False,
+    )
 
     return registry
 
@@ -490,6 +495,7 @@ def refresh_subagent_tools(
     config: Config,
     *,
     log_errors: bool = True,
+    include_user_subagents: bool = True,
 ) -> None:
     existing = [
         name
@@ -531,29 +537,30 @@ def refresh_subagent_tools(
             )
         )
 
-    # Discover and register user-defined subagents (override defaults by name)
-    user_subagents = discover_subagents(config.cwd)
-    for definition in user_subagents:
-        try:
-            effective_allowed_tools = _validate_subagent_definition(
-                definition, available_tools
+    if include_user_subagents:
+        # Discover and register user-defined subagents (override defaults by name)
+        user_subagents = discover_subagents(config.cwd)
+        for definition in user_subagents:
+            try:
+                effective_allowed_tools = _validate_subagent_definition(
+                    definition, available_tools
+                )
+            except ValueError as e:
+                if log_errors:
+                    logger.warning("Skipping subagent '%s': %s", definition.name, e)
+                continue
+            allows_mutation = any(
+                available_tools[name].get_metadata({}).mutating
+                for name in effective_allowed_tools
             )
-        except ValueError as e:
-            if log_errors:
-                logger.warning("Skipping subagent '%s': %s", definition.name, e)
-            continue
-        allows_mutation = any(
-            available_tools[name].get_metadata({}).mutating
-            for name in effective_allowed_tools
-        )
-        registry.register(
-            SubagentTool(
-                config,
-                definition,
-                allowed_tools=effective_allowed_tools,
-                allows_mutation=allows_mutation,
+            registry.register(
+                SubagentTool(
+                    config,
+                    definition,
+                    allowed_tools=effective_allowed_tools,
+                    allows_mutation=allows_mutation,
+                )
             )
-        )
 
 
 def _validate_subagent_definition(

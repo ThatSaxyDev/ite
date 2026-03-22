@@ -52,6 +52,14 @@ def activity_title(
         return "Sending shell input" if running else ("Shell input sent" if done else "Shell input failed")
     if name == "shell_stop":
         return "Stopping shell session" if running else ("Shell session stopped" if done else "Shell session stop failed")
+    if name == "spawn_subagent":
+        return "Spawning specialist" if running else ("Specialist started" if done else "Specialist spawn failed")
+    if name == "wait_subagent":
+        return "Waiting on specialists" if running else ("Specialist wait finished" if done else "Specialist wait failed")
+    if name == "list_subagents":
+        return "Checking specialists" if running else ("Specialist status ready" if done else "Specialist status failed")
+    if name == "cancel_subagent":
+        return "Cancelling specialists" if running else ("Specialist cancel complete" if done else "Specialist cancel failed")
     if name.startswith("subagent_"):
         return "Asking specialist" if running else ("Specialist finished" if done else "Specialist failed")
     if name == "web_search":
@@ -274,6 +282,56 @@ def describe_tool_activity(
         if success:
             return f"Stopped shell session `{session_id}`." if session_id else "Stopped shell session."
         return f"Failed to stop shell session `{session_id}`." if session_id else "Failed to stop shell session."
+
+    if name == "spawn_subagent":
+        subagent = str(args.get("subagent", "")).strip()
+        goal = str(args.get("goal", "")).strip()
+        if stage == "start":
+            if subagent and goal:
+                return f"Starting specialist `{subagent}` for: {_trim(goal, 110)}."
+            if subagent:
+                return f"Starting specialist `{subagent}`."
+            return "Starting specialist."
+        if success:
+            runs = metadata.get("run") if isinstance(metadata.get("run"), dict) else {}
+            run_id = str(runs.get("run_id") or "").strip()
+            suffix = f" (`{run_id}`)" if run_id else ""
+            if subagent:
+                return f"Started specialist `{subagent}`{suffix}."
+            return f"Started specialist{suffix}."
+        if subagent:
+            return f"Failed to start specialist `{subagent}`."
+        return "Failed to start specialist."
+
+    if name == "wait_subagent":
+        if stage == "start":
+            return "Waiting for specialist runs to finish."
+        if success:
+            completed = metadata.get("completed_run_ids")
+            pending = metadata.get("pending_run_ids")
+            completed_count = len(completed) if isinstance(completed, list) else 0
+            pending_count = len(pending) if isinstance(pending, list) else 0
+            return f"Wait finished: {completed_count} completed, {pending_count} still pending."
+        return "Failed while waiting for specialist runs."
+
+    if name == "list_subagents":
+        if stage == "start":
+            return "Checking specialist runs."
+        if success:
+            count = metadata.get("count")
+            if isinstance(count, int):
+                return f"Listed {count} specialist run{'s' if count != 1 else ''}."
+            return "Listed specialist runs."
+        return "Failed to list specialist runs."
+
+    if name == "cancel_subagent":
+        if stage == "start":
+            return "Cancelling specialist runs."
+        if success:
+            cancelled = metadata.get("cancelled_run_ids")
+            count = len(cancelled) if isinstance(cancelled, list) else 0
+            return f"Cancelled {count} specialist run{'s' if count != 1 else ''}."
+        return "Failed to cancel specialist runs."
 
     if name == "grep":
         pattern = str(args.get("pattern", "")).strip()
@@ -675,6 +733,14 @@ def progress_label(
         label = "Sending shell input"
     elif name == "shell_stop":
         label = "Stopping shell session"
+    elif name == "spawn_subagent":
+        label = "Starting specialist"
+    elif name == "wait_subagent":
+        label = "Waiting on specialists"
+    elif name == "list_subagents":
+        label = "Checking specialists"
+    elif name == "cancel_subagent":
+        label = "Cancelling specialists"
     elif name == "web_search":
         label = "Researching web"
     elif name == "web_fetch":

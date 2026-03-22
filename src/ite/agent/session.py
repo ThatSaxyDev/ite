@@ -14,8 +14,13 @@ from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
 from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
 from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
+from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
+from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
+from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
+from ite.agent.subagent_runtime import SubagentRuntime
 from dataclasses import dataclass, field
 
 
@@ -46,6 +51,12 @@ class Session:
         self.context_manager: ContextManager | None = None
         self.memory_manager = MemoryManager(self.config.cwd, session_id=self.session_id)
         self._sync_memory_tool_session()
+        self.subagent_runtime = SubagentRuntime(
+            config=self.config,
+            session_id=self.session_id,
+            tool_registry=self.tool_registry,
+        )
+        self._sync_subagent_runtime_tools()
         self.discovery_manager = ToolDiscoveryManager(
             self.config,
             self.tool_registry,
@@ -141,6 +152,8 @@ class Session:
         self.session_id = session_id
         self.memory_manager.set_session_id(session_id)
         self._sync_memory_tool_session()
+        self.subagent_runtime.session_id = session_id
+        self._sync_subagent_runtime_tools()
 
     def is_degraded(self) -> bool:
         return self.runtime_status.degraded
@@ -190,6 +203,25 @@ class Session:
         tool = self.tool_registry.get("memory")
         if isinstance(tool, MemoryTool):
             tool.set_session_id(self.session_id)
+
+    def _sync_subagent_runtime_tools(self) -> None:
+        for name in (
+            "spawn_subagent",
+            "wait_subagent",
+            "list_subagents",
+            "cancel_subagent",
+        ):
+            tool = self.tool_registry.get(name)
+            if isinstance(
+                tool,
+                (
+                    SpawnSubagentTool,
+                    WaitSubagentTool,
+                    ListSubagentsTool,
+                    CancelSubagentTool,
+                ),
+            ):
+                tool.set_runtime(self.subagent_runtime)
 
     def increment_turn(self) -> int:
         self._turn_count += 1

@@ -1276,6 +1276,8 @@ class Agent:
         exc_val,
         exc_tb,
     ) -> None:
+        if self.session and getattr(self.session, "subagent_runtime", None) is not None:
+            await self.session.subagent_runtime.shutdown()
         if self.session and self.session.client and self.session.mcp_manager:
             await self.session.client.close()
             await self.session.mcp_manager.shutdown()

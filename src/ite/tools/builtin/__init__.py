@@ -37,6 +37,10 @@ from ite.tools.builtin.json_tools import ReadJsonTool
 from ite.tools.builtin.verification_tools import RunLinterTool
 from ite.tools.builtin.verification_tools import RunTestsTool
 from ite.tools.builtin.verification_tools import RunTypecheckTool
+from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
+from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
+from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
+from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 
 __all__ = [
     "ReadFileTool",
@@ -78,6 +82,10 @@ __all__ = [
     "RunTestsTool",
     "RunLinterTool",
     "RunTypecheckTool",
+    "SpawnSubagentTool",
+    "WaitSubagentTool",
+    "ListSubagentsTool",
+    "CancelSubagentTool",
 ]
 
 
@@ -122,4 +130,8 @@ def get_all_builtin_tools() -> list[type]:
         RunTestsTool,
         RunLinterTool,
         RunTypecheckTool,
+        SpawnSubagentTool,
+        WaitSubagentTool,
+        ListSubagentsTool,
+        CancelSubagentTool,
     ]
