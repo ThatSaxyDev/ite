@@ -463,6 +463,178 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(remaining), 2)
         self.assertEqual(remaining, run_ids[-2:])
 
+    async def test_circuit_breaker_blocks_repeated_failures(self) -> None:
+        tool = self.registry.get("subagent_codebase_investigator")
+        assert tool is not None
+
+        async def failing_execute_with_progress(
+            invocation: ToolInvocation,
+            progress_callback=None,
+        ) -> ToolResult:
+            payload = {
+                "status": "error",
+                "subagent": "codebase_investigator",
+                "termination": "timeout",
+                "tools_used": [],
+                "summary": "timed out",
+                "findings": [],
+                "actions": [],
+            }
+            trace = {
+                "child_session_id": "child_1",
+                "duration_ms": 1,
+                "child_turn_count": 1,
+                "termination": "timeout",
+            }
+            return ToolResult.error_result(
+                output=json.dumps(payload),
+                error="Sub-agent 'codebase_investigator' timed out",
+                metadata={"subagent_result": payload, "subagent_trace": trace},
+            )
+
+        tool._execute_with_progress = failing_execute_with_progress  # type: ignore[method-assign]
+        spawn = self.registry.get("spawn_subagent")
+        wait = self.registry.get("wait_subagent")
+        assert spawn is not None and wait is not None
+
+        original_threshold = self.runtime.CIRCUIT_FAILURE_THRESHOLD
+        original_window = self.runtime.CIRCUIT_WINDOW_SECONDS
+        original_open = self.runtime.CIRCUIT_OPEN_SECONDS
+        self.runtime.CIRCUIT_FAILURE_THRESHOLD = 2
+        self.runtime.CIRCUIT_WINDOW_SECONDS = 600
+        self.runtime.CIRCUIT_OPEN_SECONDS = 300
+        self.addCleanup(setattr, self.runtime, "CIRCUIT_FAILURE_THRESHOLD", original_threshold)
+        self.addCleanup(setattr, self.runtime, "CIRCUIT_WINDOW_SECONDS", original_window)
+        self.addCleanup(setattr, self.runtime, "CIRCUIT_OPEN_SECONDS", original_open)
+
+        for index in range(2):
+            spawned = await spawn.execute(
+                ToolInvocation(
+                    params={"subagent": "codebase_investigator", "goal": f"inspect failure {index}"},
+                    cwd=self.cwd,
+                )
+            )
+            self.assertTrue(spawned.success, msg=spawned.error)
+            run_id = spawned.metadata["run"]["run_id"]
+            waited = await wait.execute(
+                ToolInvocation(
+                    params={"run_ids": [run_id], "timeout_seconds": 1, "return_when": "all_completed"},
+                    cwd=self.cwd,
+                )
+            )
+            self.assertTrue(waited.success, msg=waited.error)
+
+        blocked = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "inspect after breaker"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertFalse(blocked.success)
+        self.assertTrue(blocked.metadata["circuit_open"])
+        self.assertEqual(blocked.metadata["failure_count"], 2)
+        self.assertIn("temporarily paused", blocked.error or "")
+
+    async def test_circuit_breaker_recovers_after_window(self) -> None:
+        tool = self.registry.get("subagent_codebase_investigator")
+        assert tool is not None
+
+        state = {"mode": "fail"}
+
+        async def toggled_execute_with_progress(
+            invocation: ToolInvocation,
+            progress_callback=None,
+        ) -> ToolResult:
+            if state["mode"] == "fail":
+                payload = {
+                    "status": "error",
+                    "subagent": "codebase_investigator",
+                    "termination": "timeout",
+                    "tools_used": [],
+                    "summary": "timed out",
+                    "findings": [],
+                    "actions": [],
+                }
+                trace = {
+                    "child_session_id": "child_1",
+                    "duration_ms": 1,
+                    "child_turn_count": 1,
+                    "termination": "timeout",
+                }
+                return ToolResult.error_result(
+                    output=json.dumps(payload),
+                    error="Sub-agent 'codebase_investigator' timed out",
+                    metadata={"subagent_result": payload, "subagent_trace": trace},
+                )
+            payload = {
+                "status": "ok",
+                "subagent": "codebase_investigator",
+                "termination": "goal",
+                "tools_used": [],
+                "summary": "recovered",
+                "findings": [],
+                "actions": [],
+            }
+            trace = {
+                "child_session_id": "child_2",
+                "duration_ms": 1,
+                "child_turn_count": 1,
+                "termination": "goal",
+            }
+            return ToolResult.success_result(
+                json.dumps(payload),
+                metadata={"subagent_result": payload, "subagent_trace": trace},
+            )
+
+        tool._execute_with_progress = toggled_execute_with_progress  # type: ignore[method-assign]
+        spawn = self.registry.get("spawn_subagent")
+        wait = self.registry.get("wait_subagent")
+        assert spawn is not None and wait is not None
+
+        original_threshold = self.runtime.CIRCUIT_FAILURE_THRESHOLD
+        original_window = self.runtime.CIRCUIT_WINDOW_SECONDS
+        original_open = self.runtime.CIRCUIT_OPEN_SECONDS
+        self.runtime.CIRCUIT_FAILURE_THRESHOLD = 1
+        self.runtime.CIRCUIT_WINDOW_SECONDS = 600
+        self.runtime.CIRCUIT_OPEN_SECONDS = 1
+        self.addCleanup(setattr, self.runtime, "CIRCUIT_FAILURE_THRESHOLD", original_threshold)
+        self.addCleanup(setattr, self.runtime, "CIRCUIT_WINDOW_SECONDS", original_window)
+        self.addCleanup(setattr, self.runtime, "CIRCUIT_OPEN_SECONDS", original_open)
+
+        spawned = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "trip breaker"},
+                cwd=self.cwd,
+            )
+        )
+        run_id = spawned.metadata["run"]["run_id"]
+        waited = await wait.execute(
+            ToolInvocation(
+                params={"run_ids": [run_id], "timeout_seconds": 1, "return_when": "all_completed"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertTrue(waited.success, msg=waited.error)
+
+        blocked = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "still blocked"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertFalse(blocked.success)
+        self.assertTrue(blocked.metadata["circuit_open"])
+
+        await asyncio.sleep(1.05)
+        state["mode"] = "success"
+        recovered = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "after cooldown"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertTrue(recovered.success, msg=recovered.error)
+
 
 if __name__ == "__main__":
     unittest.main()

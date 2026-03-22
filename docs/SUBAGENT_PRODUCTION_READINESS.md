@@ -59,6 +59,7 @@ User request
 - Batch fan-out now has a hard guardrail: `spawn_subagents` rejects batches over `8`.
 - Finished runtime tasks are pruned from `_tasks`.
 - Terminal run retention now prevents `_runs` from growing without bound by keeping only the most recent finished runs.
+- Repeated specialist failures/timeouts now trip a runtime circuit breaker and temporarily block new spawns for that specialist.
 
 ---
 
@@ -101,24 +102,21 @@ User request
 1. **Crash-safe orphan cleanup is still missing**
    - If the host process dies abruptly, background subagent tasks are not recovered or explicitly finalized.
 
-2. **No circuit breaker for repeatedly failing specialists**
-   - A pathological prompt or specialist could keep failing expensively without being temporarily suppressed.
-
-3. **No provider/resource budgeting**
+2. **No provider/resource budgeting**
    - There is still no token/cost-aware throttling beyond the batch-size cap.
 
 ### Medium
 
-4. **Retries are continuation-by-prompt, not true child-session resume**
+3. **Retries are continuation-by-prompt, not true child-session resume**
    - This is good enough for many failures, but it is not durable session checkpoint/resume.
 
-5. **No explicit crash recovery state**
+4. **No explicit crash recovery state**
    - Retained run metadata is in-memory only for the active session.
 
-6. **Limited operator controls in UI**
+5. **Limited operator controls in UI**
    - There is no dedicated dashboard, progress bar, or click-to-cancel interface yet.
 
-7. **No circuit-breaker telemetry**
+6. **No circuit-breaker telemetry**
    - Specialist failure rates, timeout rates, and retry rates are not aggregated or persisted.
 
 ### Low

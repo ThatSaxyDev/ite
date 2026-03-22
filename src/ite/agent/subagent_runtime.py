@@ -20,6 +20,17 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class CircuitOpenError(RuntimeError):
+    def __init__(self, *, subagent: str, reopen_at: datetime, failure_count: int) -> None:
+        self.subagent = subagent
+        self.reopen_at = reopen_at
+        self.failure_count = failure_count
+        super().__init__(
+            f"Subagent '{subagent}' is temporarily paused after repeated failures. "
+            f"Retry after {reopen_at.isoformat()}."
+        )
+
+
 @dataclass
 class SubagentRun:
     run_id: str
@@ -50,6 +61,9 @@ class SubagentRun:
 
 class SubagentRuntime:
     MAX_TERMINAL_RUNS = 50
+    CIRCUIT_FAILURE_THRESHOLD = 3
+    CIRCUIT_WINDOW_SECONDS = 600
+    CIRCUIT_OPEN_SECONDS = 300
 
     def __init__(self, *, config: Config, session_id: str, tool_registry) -> None:
         self.config = config
@@ -58,12 +72,55 @@ class SubagentRuntime:
         self._runs: dict[str, SubagentRun] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._counter = 0
+        self._failure_history: dict[str, list[datetime]] = {}
+        self._circuit_open_until: dict[str, datetime] = {}
 
     def _drop_finished_task(self, run_id: str) -> None:
         task = self._tasks.get(run_id)
         if task is None or not task.done():
             return
         self._tasks.pop(run_id, None)
+
+    def _prune_failure_history(self, subagent: str, *, now: datetime | None = None) -> list[datetime]:
+        current = now or _utcnow()
+        cutoff = current.timestamp() - self.CIRCUIT_WINDOW_SECONDS
+        kept = [
+            ts for ts in self._failure_history.get(subagent, [])
+            if ts.timestamp() >= cutoff
+        ]
+        if kept:
+            self._failure_history[subagent] = kept
+        else:
+            self._failure_history.pop(subagent, None)
+        return kept
+
+    def _is_circuit_open(self, subagent: str) -> tuple[bool, datetime | None, int]:
+        now = _utcnow()
+        failures = self._prune_failure_history(subagent, now=now)
+        reopen_at = self._circuit_open_until.get(subagent)
+        if reopen_at is None:
+            return False, None, len(failures)
+        if reopen_at <= now:
+            self._circuit_open_until.pop(subagent, None)
+            return False, None, len(failures)
+        return True, reopen_at, len(failures)
+
+    def _record_terminal_outcome(self, *, subagent: str, status: str) -> None:
+        now = _utcnow()
+        if status == "completed":
+            self._failure_history.pop(subagent, None)
+            self._circuit_open_until.pop(subagent, None)
+            return
+        if status not in {"failed", "timeout"}:
+            return
+        failures = self._prune_failure_history(subagent, now=now)
+        failures.append(now)
+        self._failure_history[subagent] = failures
+        if len(failures) >= self.CIRCUIT_FAILURE_THRESHOLD:
+            self._circuit_open_until[subagent] = datetime.fromtimestamp(
+                now.timestamp() + self.CIRCUIT_OPEN_SECONDS,
+                tz=timezone.utc,
+            )
 
     def _prune_terminal_runs(self) -> None:
         terminal_statuses = {"completed", "failed", "timeout", "cancelled"}
@@ -142,6 +199,14 @@ class SubagentRuntime:
             if self._goal_key(existing.goal) != goal_key:
                 continue
             return existing, True
+
+        circuit_open, reopen_at, failure_count = self._is_circuit_open(subagent)
+        if circuit_open and reopen_at is not None:
+            raise CircuitOpenError(
+                subagent=subagent,
+                reopen_at=reopen_at,
+                failure_count=failure_count,
+            )
 
         run_id = self._next_run_id()
         now = _utcnow().isoformat()
@@ -239,6 +304,7 @@ class SubagentRuntime:
                     int((finished_at - started_at).total_seconds() * 1000),
                 )
                 self._set_activity(run, run.error)
+                self._record_terminal_outcome(subagent=run.subagent, status=run.status)
             finally:
                 self._prune_terminal_runs()
 
@@ -304,6 +370,7 @@ class SubagentRuntime:
             run.status = "timeout"
         else:
             run.status = "failed"
+        self._record_terminal_outcome(subagent=run.subagent, status=run.status)
         self._prune_terminal_runs()
 
     async def wait(

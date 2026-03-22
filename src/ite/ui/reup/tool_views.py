@@ -719,6 +719,15 @@ def render_subagent_runtime_payload(
                 style="#8c97ab",
             )
         )
+    if md.get("circuit_open") is True:
+        reopen_at = str(md.get("circuit_reopen_at") or "").strip()
+        failure_count = md.get("failure_count")
+        parts = ["Specialist circuit breaker is open."]
+        if isinstance(failure_count, int) and failure_count > 0:
+            parts.append(f"{failure_count} recent failures/timeouts.")
+        if reopen_at:
+            parts.append(f"Retry after {reopen_at}.")
+        blocks.append(Text(" ".join(parts), style="#d8ab74"))
 
     runs = md.get("runs")
     if not isinstance(runs, list) or not runs:

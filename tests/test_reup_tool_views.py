@@ -167,6 +167,23 @@ class ReupToolViewsTests(unittest.TestCase):
         self.assertIn("Failure", joined)
         self.assertIn("Unknown subagent 'registry'", joined)
 
+    def test_render_subagent_runtime_payload_shows_circuit_breaker_notice(self) -> None:
+        blocks = render_subagent_runtime_payload(
+            metadata={
+                "circuit_open": True,
+                "circuit_reopen_at": "2026-03-22T12:00:00+00:00",
+                "failure_count": 3,
+            },
+            error="Subagent 'codebase_investigator' is temporarily paused after repeated failures.",
+            success=False,
+        )
+
+        text_blocks = [block.plain for block in blocks if isinstance(block, Text)]
+        joined = "\n".join(text_blocks)
+        self.assertIn("Specialist circuit breaker is open.", joined)
+        self.assertIn("3 recent failures/timeouts.", joined)
+        self.assertIn("Retry after 2026-03-22T12:00:00+00:00.", joined)
+
     def test_render_subagent_runtime_payload_collapses_completed_wait_rows(self) -> None:
         blocks = render_subagent_runtime_payload(
             metadata={

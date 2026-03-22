@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
+from ite.agent.subagent_runtime import CircuitOpenError
 from ite.agent.subagent_runtime import SubagentRuntime
 from ite.tools.base import Tool
 from ite.tools.base import ToolInvocation
@@ -126,6 +127,17 @@ class SpawnSubagentTool(_SubagentRuntimeTool):
                 goal=params.goal,
                 parent_tool_call_id=invocation.call_id,
             )
+        except CircuitOpenError as exc:
+            return ToolResult.error_result(
+                error=str(exc),
+                metadata={
+                    "requested_subagent": params.subagent,
+                    "selected_subagent": selected_subagent,
+                    "circuit_open": True,
+                    "circuit_reopen_at": exc.reopen_at.isoformat(),
+                    "failure_count": exc.failure_count,
+                },
+            )
         except ValueError as exc:
             available = self._available_subagents(runtime)
             return ToolResult.error_result(
@@ -184,6 +196,20 @@ class SpawnSubagentsTool(SpawnSubagentTool):
                     subagent=selected_subagent,
                     goal=request.goal,
                     parent_tool_call_id=invocation.call_id,
+                )
+            except CircuitOpenError as exc:
+                return ToolResult.error_result(
+                    error=str(exc),
+                    metadata={
+                        "circuit_open": True,
+                        "circuit_reopen_at": exc.reopen_at.isoformat(),
+                        "failure_count": exc.failure_count,
+                        "failed_request": {
+                            "subagent": request.subagent,
+                            "goal": request.goal,
+                        },
+                        "runs": runs,
+                    },
                 )
             except ValueError as exc:
                 available = self._available_subagents(runtime)
