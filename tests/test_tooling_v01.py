@@ -12,6 +12,7 @@ from ite.tools.policy import ToolSelectionPolicy
 from ite.tools.registry import ToolRegistry
 from ite.tools.registry import _validate_subagent_definition
 from ite.tools.registry import create_default_registry
+from ite.tools.registry import refresh_subagent_tools
 from ite.tools.subagent import SubagentDefinition
 from ite.tools.subagent import SubagentTool
 
@@ -306,7 +307,165 @@ class DiscoveryAndSubagentValidationTests(unittest.TestCase):
             allowed_tools=["readfile"],
         )
         with self.assertRaises(ValueError):
-            _validate_subagent_definition(definition, {"read_file", "grep"})
+            _validate_subagent_definition(definition, {})
+
+    def test_subagent_definition_rejects_subagent_ineligible_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            registry = ToolRegistry(config)
+            apply_patch = ApplyPatchTool(config)
+            registry.register(apply_patch)
+
+            definition = SubagentDefinition(
+                name="bad",
+                description="bad",
+                goal_prompt="bad",
+                allowed_tools=["apply_patch"],
+            )
+            with self.assertRaises(ValueError):
+                _validate_subagent_definition(
+                    definition, {"apply_patch": apply_patch}
+                )
+
+    def test_refresh_subagents_allows_discovered_custom_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            tool_dir = cwd / ".ite" / "tools"
+            subagent_dir = cwd / ".ite" / "subagents"
+            tool_dir.mkdir(parents=True, exist_ok=True)
+            subagent_dir.mkdir(parents=True, exist_ok=True)
+
+            (tool_dir / "custom_tool.py").write_text(
+                """
+from pydantic import BaseModel
+
+from ite.tools.base import Tool, ToolResult, ToolInvocation
+
+
+class Params(BaseModel):
+    value: str
+
+
+class CustomTool(Tool):
+    name = "custom_tool"
+    description = "Custom tool"
+    schema = Params
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        return ToolResult.success_result(invocation.params["value"])
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            (subagent_dir / "custom_helper.toml").write_text(
+                """
+name = "custom_helper"
+description = "Uses the discovered custom tool"
+allowed_tools = ["custom_tool"]
+
+goal_prompt = \"\"\"
+Use the custom tool.
+\"\"\"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            self.assertIsNone(registry.get("subagent_custom_helper"))
+
+            ToolDiscoveryManager(config, registry).discover_all()
+            refresh_subagent_tools(registry, config)
+
+            tool = registry.get("subagent_custom_helper")
+            self.assertIsNotNone(tool)
+            self.assertIsInstance(tool, SubagentTool)
+            assert isinstance(tool, SubagentTool)
+            self.assertEqual(tool.allowed_tools, ["custom_tool"])
+
+    def test_refresh_subagents_excludes_recursive_tools_from_open_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            subagent_dir = cwd / ".ite" / "subagents"
+            subagent_dir.mkdir(parents=True, exist_ok=True)
+
+            (subagent_dir / "wide_open.toml").write_text(
+                """
+name = "wide_open"
+description = "No explicit allowlist"
+
+goal_prompt = \"\"\"
+Investigate broadly.
+\"\"\"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            refresh_subagent_tools(registry, config)
+
+            tool = registry.get("subagent_wide_open")
+            self.assertIsNotNone(tool)
+            self.assertIsInstance(tool, SubagentTool)
+            assert isinstance(tool, SubagentTool)
+            self.assertIsNotNone(tool.allowed_tools)
+            self.assertIn("grep", tool.allowed_tools or [])
+            self.assertNotIn("apply_patch", tool.allowed_tools or [])
+            self.assertNotIn("subagent_code_reviewer", tool.allowed_tools or [])
+
+    def test_refresh_subagents_uses_tool_metadata_for_mutation_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            subagent_dir = cwd / ".ite" / "subagents"
+            subagent_dir.mkdir(parents=True, exist_ok=True)
+
+            (subagent_dir / "json_editor.toml").write_text(
+                """
+name = "json_editor"
+description = "Edits JSON files"
+allowed_tools = ["edit_json"]
+
+goal_prompt = \"\"\"
+Edit JSON files safely.
+\"\"\"
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            refresh_subagent_tools(registry, config)
+
+            tool = registry.get("subagent_json_editor")
+            self.assertIsNotNone(tool)
+            self.assertIsInstance(tool, SubagentTool)
+            assert isinstance(tool, SubagentTool)
+            self.assertTrue(tool.is_mutating({"goal": "edit package metadata"}))
+            self.assertFalse(
+                tool.get_metadata({"goal": "edit package metadata"}).allowed_in_plan_mode
+            )
+
+    def test_refresh_subagents_skips_incompatible_defaults_for_restricted_registry(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(
+                cwd=cwd,
+                api_key="test",
+                allowed_tools=["read_file", "grep", "glob", "list_dir"],
+            )
+
+            registry = create_default_registry(config)
+
+            self.assertIsNotNone(registry.get("subagent_codebase_investigator"))
+            self.assertIsNotNone(registry.get("subagent_code_reviewer"))
+            self.assertIsNotNone(registry.get("subagent_tooling_guardian"))
+            self.assertIsNone(registry.get("subagent_verification_reviewer"))
 
 
 class ApplyPatchToolTests(unittest.IsolatedAsyncioTestCase):
@@ -448,6 +607,50 @@ class ApplyPatchToolTests(unittest.IsolatedAsyncioTestCase):
 
 
 class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
+    async def test_subagent_parses_structured_json_response_and_emits_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            definition = SubagentDefinition(
+                name="json_test",
+                description="json",
+                goal_prompt="json",
+                allowed_tools=["read_file"],
+            )
+            tool = SubagentTool(config, definition)
+
+            async def structured_run(*, prompt, subagent_config, tool_calls):
+                tool_calls.extend(["read_file", "grep"])
+                return (
+                    "goal",
+                    '{"summary":"Investigated the workspace","findings":["A","B"],"actions":["Do X"]}',
+                    None,
+                    "child-session-1",
+                    3,
+                )
+
+            tool._run_subagent_agent = structured_run  # type: ignore[method-assign]
+            result = await tool.execute(
+                ToolInvocation(
+                    params={"goal": "investigate"},
+                    cwd=cwd,
+                    call_id="call_123",
+                    session_id="parent_session_1",
+                )
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            payload = result.metadata.get("subagent_result", {})
+            self.assertEqual(payload.get("summary"), "Investigated the workspace")
+            self.assertEqual(payload.get("findings"), ["A", "B"])
+            self.assertEqual(payload.get("actions"), ["Do X"])
+            trace = result.metadata.get("subagent_trace", {})
+            self.assertEqual(trace.get("parent_tool_call_id"), "call_123")
+            self.assertEqual(trace.get("parent_session_id"), "parent_session_1")
+            self.assertEqual(trace.get("child_session_id"), "child-session-1")
+            self.assertEqual(trace.get("child_turn_count"), 3)
+            self.assertEqual(trace.get("termination"), "goal")
+
     async def test_subagent_timeout_is_enforced(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -463,7 +666,7 @@ class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
 
             async def slow_run(*, prompt, subagent_config, tool_calls):
                 await asyncio.sleep(0.1)
-                return "goal", "ok", None
+                return "goal", "ok", None, "child-session-timeout", 1
 
             tool._run_subagent_agent = slow_run  # type: ignore[method-assign]
             result = await tool.execute(

@@ -111,6 +111,8 @@ class ToolRegistry:
         hook_system: HookSystem,
         approval_manager: ApprovalManager | None = None,
         *,
+        tool_call_id: str | None = None,
+        session_id: str | None = None,
         plan_mode_enabled: bool = False,
         plan_phase: str = "idle",
         todo_execution_handoff_active: bool = False,
@@ -219,6 +221,8 @@ class ToolRegistry:
         invocation = ToolInvocation(
             params=params,
             cwd=cwd,
+            call_id=tool_call_id,
+            session_id=session_id,
         )
 
         if name == "plan_question":
@@ -476,31 +480,94 @@ def create_default_registry(config: Config) -> ToolRegistry:
     for tool_class in get_all_builtin_tools():
         registry.register(tool_class(config))
 
-    available_tool_names = set(registry._tools.keys())
+    refresh_subagent_tools(registry, config, log_errors=False)
+
+    return registry
+
+
+def refresh_subagent_tools(
+    registry: ToolRegistry,
+    config: Config,
+    *,
+    log_errors: bool = True,
+) -> None:
+    existing = [
+        name
+        for name in list(registry._tools.keys())
+        if name.startswith("subagent_")
+    ]
+    for name in existing:
+        registry.unregister(name)
+
+    available_tools = {
+        tool.name: tool
+        for tool in registry.get_tools()
+        if not tool.name.startswith("subagent_")
+    }
 
     for subagent_definition in get_default_subagent_definitions():
-        _validate_subagent_definition(subagent_definition, available_tool_names)
-        registry.register(SubagentTool(config, subagent_definition))
+        try:
+            effective_allowed_tools = _validate_subagent_definition(
+                subagent_definition, available_tools
+            )
+        except ValueError as e:
+            if log_errors:
+                logger.warning(
+                    "Skipping default subagent '%s': %s",
+                    subagent_definition.name,
+                    e,
+                )
+            continue
+        allows_mutation = any(
+            available_tools[name].get_metadata({}).mutating
+            for name in effective_allowed_tools
+        )
+        registry.register(
+            SubagentTool(
+                config,
+                subagent_definition,
+                allowed_tools=effective_allowed_tools,
+                allows_mutation=allows_mutation,
+            )
+        )
 
     # Discover and register user-defined subagents (override defaults by name)
     user_subagents = discover_subagents(config.cwd)
     for definition in user_subagents:
         try:
-            _validate_subagent_definition(definition, available_tool_names)
+            effective_allowed_tools = _validate_subagent_definition(
+                definition, available_tools
+            )
         except ValueError as e:
-            logger.warning("Skipping subagent '%s': %s", definition.name, e)
+            if log_errors:
+                logger.warning("Skipping subagent '%s': %s", definition.name, e)
             continue
-        registry.register(SubagentTool(config, definition))
-
-    return registry
+        allows_mutation = any(
+            available_tools[name].get_metadata({}).mutating
+            for name in effective_allowed_tools
+        )
+        registry.register(
+            SubagentTool(
+                config,
+                definition,
+                allowed_tools=effective_allowed_tools,
+                allows_mutation=allows_mutation,
+            )
+        )
 
 
 def _validate_subagent_definition(
     definition: SubagentDefinition,
-    available_tool_names: set[str],
-) -> None:
+    available_tools: dict[str, Tool],
+) -> list[str]:
+    available_tool_names = set(available_tools.keys())
+
     if not definition.allowed_tools:
-        return
+        return sorted(
+            name
+            for name, tool in available_tools.items()
+            if tool.get_metadata({}).supports_subagent_use
+        )
 
     invalid = sorted(t for t in definition.allowed_tools if t not in available_tool_names)
     if invalid:
@@ -510,3 +577,16 @@ def _validate_subagent_definition(
             + ". Valid options: "
             + ", ".join(sorted(available_tool_names))
         )
+
+    unsupported = sorted(
+        t
+        for t in definition.allowed_tools
+        if not available_tools[t].get_metadata({}).supports_subagent_use
+    )
+    if unsupported:
+        raise ValueError(
+            "subagent-ineligible tools in allowed_tools: "
+            + ", ".join(unsupported)
+        )
+
+    return list(definition.allowed_tools)

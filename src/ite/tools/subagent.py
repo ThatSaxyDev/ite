@@ -1,6 +1,9 @@
 import asyncio
 import json
+import uuid
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from pydantic import BaseModel
@@ -52,9 +55,13 @@ class SubagentTool(Tool):
         self,
         config: Config,
         definition: SubagentDefinition,
+        allowed_tools: list[str] | None = None,
+        allows_mutation: bool | None = None,
     ):
         super().__init__(config)
         self.definition = definition
+        self.allowed_tools = list(allowed_tools) if allowed_tools is not None else None
+        self.allows_mutation = allows_mutation
 
     @property
     def name(self) -> str:
@@ -89,13 +96,17 @@ class SubagentTool(Tool):
         )
 
     def is_mutating(self, params: dict[str, Any]) -> bool:
-        # Treat subagents as non-mutating in plan mode when their tool allowlist
-        # is strictly read-only. If allowlist is missing or includes mutating tools,
-        # keep conservative behavior and mark as mutating.
-        allowed = self.definition.allowed_tools
+        # Treat subagents as non-mutating in plan mode only when their effective
+        # allowlist is fully read-only.
+        if self.allows_mutation is not None:
+            return self.allows_mutation
+
+        allowed = self.allowed_tools if self.allowed_tools is not None else self.definition.allowed_tools
         if not allowed:
             return True
 
+        # Fallback for direct construction in tests or callers that do not pass
+        # registry-derived metadata. The registry path is authoritative.
         mutating_tools = {
             "write_file",
             "edit",
@@ -115,15 +126,19 @@ class SubagentTool(Tool):
         prompt: str,
         subagent_config: Config,
         tool_calls: list[str],
-    ) -> tuple[str, str | None, str | None]:
+    ) -> tuple[str, str | None, str | None, str | None, int]:
         from ite.agent.events import AgentEventType
         from ite.agent.agent import Agent
 
         final_response: str | None = None
         error: str | None = None
         terminate_response = "goal"
+        child_session_id: str | None = None
+        child_turn_count = 0
 
         async with Agent(subagent_config) as agent:
+            if agent.session is not None:
+                child_session_id = agent.session.session_id
             async for event in agent.run(prompt):
                 if event.type == AgentEventType.TOOL_CALL_START:
                     tool_calls.append(event.data.get("name"))
@@ -137,8 +152,39 @@ class SubagentTool(Tool):
                     error = event.data.get("error", "Unknown error")
                     final_response = f"Sub-agent failed: {error}"
                     break
+            if agent.session is not None:
+                child_turn_count = agent.session.turn_count
 
-        return terminate_response, final_response, error
+        return terminate_response, final_response, error, child_session_id, child_turn_count
+
+    def _normalize_response_payload(self, response_text: str) -> tuple[str, list[str], list[str]]:
+        text = (response_text or "").strip()
+        if not text:
+            return "No response", [], []
+
+        try:
+            parsed = json.loads(text)
+        except Exception:
+            parsed = None
+
+        if isinstance(parsed, dict):
+            summary = str(parsed.get("summary") or parsed.get("answer") or text).strip() or "No response"
+            raw_findings = parsed.get("findings") or []
+            raw_actions = parsed.get("actions") or parsed.get("next_steps") or []
+            findings = [str(item).strip() for item in raw_findings if str(item).strip()]
+            actions = [str(item).strip() for item in raw_actions if str(item).strip()]
+            return summary, findings, actions
+
+        findings: list[str] = []
+        actions: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            lower = stripped.lower()
+            if lower.startswith(("finding:", "- finding:", "* finding:")):
+                findings.append(stripped.split(":", 1)[-1].strip())
+            if lower.startswith(("action:", "- action:", "* action:", "next:", "- next:")):
+                actions.append(stripped.split(":", 1)[-1].strip())
+        return text, findings, actions
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = SubagentParams(**invocation.params)
@@ -149,7 +195,9 @@ class SubagentTool(Tool):
 
         config_dict["max_turns"] = self.definition.max_turns
 
-        if self.definition.allowed_tools:
+        if self.allowed_tools is not None:
+            config_dict["allowed_tools"] = self.allowed_tools
+        elif self.definition.allowed_tools:
             config_dict["allowed_tools"] = self.definition.allowed_tools
 
         subagent_config = Config(**config_dict)
@@ -172,9 +220,13 @@ class SubagentTool(Tool):
         final_response: str | None = None
         error: str | None = None
         terminate_response = "goal"
+        started_at = datetime.now(timezone.utc)
+        run_id = f"sa_{uuid.uuid4().hex[:12]}"
+        child_session_id: str | None = None
+        child_turn_count = 0
 
         try:
-            terminate_response, final_response, error = await asyncio.wait_for(
+            terminate_response, final_response, error, child_session_id, child_turn_count = await asyncio.wait_for(
                 self._run_subagent_agent(
                     prompt=prompt,
                     subagent_config=subagent_config,
@@ -190,29 +242,43 @@ class SubagentTool(Tool):
             error = str(e)
             final_response = f"Sub-agent failed: {e}"
 
-        findings: list[str] = []
-        actions: list[str] = []
         response_text = final_response or ""
-        for line in response_text.splitlines():
-            stripped = line.strip()
-            lower = stripped.lower()
-            if lower.startswith(("finding:", "- finding:", "* finding:")):
-                findings.append(stripped.split(":", 1)[-1].strip())
-            if lower.startswith(("action:", "- action:", "* action:", "next:", "- next:")):
-                actions.append(stripped.split(":", 1)[-1].strip())
+        summary, findings, actions = self._normalize_response_payload(response_text)
+        finished_at = datetime.now(timezone.utc)
+        duration_ms = max(
+            0,
+            int((finished_at - started_at).total_seconds() * 1000),
+        )
+        trace_payload = {
+            "run_id": run_id,
+            "subagent": self.definition.name,
+            "parent_tool_call_id": invocation.call_id,
+            "parent_session_id": invocation.session_id,
+            "child_session_id": child_session_id,
+            "started_at": started_at.isoformat(),
+            "finished_at": finished_at.isoformat(),
+            "duration_ms": duration_ms,
+            "child_turn_count": child_turn_count,
+            "tool_count": len(tool_calls),
+            "status": "ok" if not error and terminate_response != "timeout" else "error",
+            "termination": terminate_response,
+        }
 
         result_payload = {
-            "status": "ok" if not error and terminate_response != "timeout" else "error",
+            "status": trace_payload["status"],
             "subagent": self.definition.name,
             "termination": terminate_response,
             "tools_used": tool_calls,
-            "summary": response_text or "No response",
+            "summary": summary,
             "findings": findings,
             "actions": actions,
         }
 
         output = json.dumps(result_payload, indent=2)
-        metadata = {"subagent_result": result_payload}
+        metadata = {
+            "subagent_result": result_payload,
+            "subagent_trace": trace_payload,
+        }
 
         if error:
             return ToolResult.error_result(

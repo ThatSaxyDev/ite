@@ -1071,6 +1071,8 @@ class Agent:
                     self.config.cwd,
                     session.hook_system,
                     session.approval_manager,
+                    tool_call_id=tool_call.call_id,
+                    session_id=session.session_id,
                     plan_mode_enabled=session.plan_mode_enabled,
                     plan_phase=session.plan_phase,
                     todo_execution_handoff_active=session.todo_execution_handoff_active,

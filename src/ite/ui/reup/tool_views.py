@@ -557,6 +557,102 @@ def render_text_payload(text: str, *, success: bool, language: str = "text") -> 
     return Text(text, style="#dfe4ea")
 
 
+def render_subagent_payload(
+    *,
+    output: str,
+    metadata: dict[str, Any] | None,
+    success: bool,
+    error: str | None,
+) -> tuple[list[Any], bool]:
+    md = metadata if isinstance(metadata, dict) else {}
+    result = md.get("subagent_result")
+    trace = md.get("subagent_trace")
+    payload: dict[str, Any] = {}
+    if isinstance(result, dict):
+        payload = result
+    elif output.strip():
+        try:
+            parsed = json.loads(output)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, dict):
+            payload = parsed
+
+    summary = str(payload.get("summary") or "").strip()
+    termination = str(payload.get("termination") or "").strip()
+    findings = payload.get("findings") if isinstance(payload.get("findings"), list) else []
+    actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+    tools_used = payload.get("tools_used") if isinstance(payload.get("tools_used"), list) else []
+
+    blocks: list[Any] = []
+    was_truncated = False
+
+    trace_parts: list[str] = []
+    if isinstance(trace, dict):
+        child_session_id = str(trace.get("child_session_id") or "").strip()
+        if child_session_id:
+            trace_parts.append(child_session_id)
+        duration_ms = trace.get("duration_ms")
+        if isinstance(duration_ms, int):
+            trace_parts.append(f"{duration_ms} ms")
+        child_turn_count = trace.get("child_turn_count")
+        if isinstance(child_turn_count, int):
+            trace_parts.append(f"{child_turn_count} turns")
+    if termination:
+        trace_parts.append(f"termination={termination}")
+    if isinstance(tools_used, list):
+        trace_parts.append(f"tools={len(tools_used)}")
+    if trace_parts:
+        blocks.append(Text(" • ".join(trace_parts), style="#8c97ab"))
+
+    if summary:
+        summary_display, truncated = truncate_for_tool("subagent", summary)
+        was_truncated = was_truncated or truncated
+        blocks.append(render_text_payload(summary_display, success=True))
+
+    if findings:
+        blocks.append(Text("Findings", style="bold #7cc7ff"))
+        for item in findings[:4]:
+            text = str(item).strip()
+            if not text:
+                continue
+            blocks.append(Text(f"• {text}", style="#dfe4ea"))
+        if len(findings) > 4:
+            blocks.append(Text(f"... {len(findings) - 4} more findings", style="#8c97ab"))
+
+    if actions:
+        blocks.append(Text("Actions", style="bold #f5b54f"))
+        for item in actions[:4]:
+            text = str(item).strip()
+            if not text:
+                continue
+            blocks.append(Text(f"• {text}", style="#dfe4ea"))
+        if len(actions) > 4:
+            blocks.append(Text(f"... {len(actions) - 4} more actions", style="#8c97ab"))
+
+    failure_text = ""
+    if not success:
+        failure_text = str(error or "").strip()
+        if not failure_text and output.strip():
+            failure_text = output.strip()
+        if failure_text and failure_text != summary:
+            failure_display, truncated = truncate_for_tool("subagent", failure_text)
+            was_truncated = was_truncated or truncated
+            blocks.append(Text("Failure", style="bold #d8ab74"))
+            blocks.append(render_text_payload(failure_display, success=False))
+
+    if not blocks:
+        fallback = output.strip() or str(error or "").strip()
+        if fallback:
+            fallback_display, truncated = truncate_for_tool("subagent", fallback)
+            was_truncated = was_truncated or truncated
+            blocks.append(render_text_payload(fallback_display, success=success))
+        else:
+            blocks.append(Text("No output", style="#8c97ab"))
+
+    return blocks, was_truncated
+
+
 _SHELL_STDERR_MARKER_RE = re.compile(r"(?:^|\n)\s*--- STDERR ---\s*\n", re.MULTILINE)
 
 

@@ -134,26 +134,25 @@ class ToolRegistry:
 
 ### Default Registry Creation
 
-**File:** `src/ite/tools/registry.py:373-395`
+**Files:** `src/ite/tools/registry.py`, `src/ite/agent/session.py`
 
 ```python
 def create_default_registry(config: Config) -> ToolRegistry:
-    registry = ToolRegistry()
+    registry = ToolRegistry(config)
     
     # 1. Register all builtin tools
     for tool_class in get_all_builtin_tools():
         registry.register(tool_class(config))
     
-    # 2. Register default subagents
-    for subagent_definition in get_default_subagent_definitions():
-        registry.register(SubagentTool(config, subagent_definition))
-    
-    # 3. Discover user-defined subagents
-    user_subagents = discover_subagents(config.cwd)
-    for definition in user_subagents:
-        registry.register(SubagentTool(config, definition))
-    
+    # 2. Register subagents against the currently available tool surface
+    refresh_subagent_tools(registry, config, log_errors=False)
+
     return registry
+
+# Later during session initialization:
+# - MCP tools are registered
+# - discovered workspace/global tools are loaded
+# - subagents are refreshed again so allowlists can target those tools too
 ```
 
 ### Tool Invocation Flow
@@ -233,7 +232,7 @@ Subagents are special tools that delegate to other AI agents for complex tasks.
 
 ### User-Defined Subagents
 
-Users can define custom subagents in `.ite/subagents/*.py` - these are discovered automatically.
+Users can define custom subagents in `.ite/subagents/*.toml` - these are discovered automatically.
 
 ---
 

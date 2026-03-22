@@ -7,6 +7,7 @@ from ite.tools.discovery import ToolDiscoveryManager
 from datetime import datetime
 import uuid
 from ite.tools.registry import create_default_registry
+from ite.tools.registry import refresh_subagent_tools
 from ite.context.manager import ContextManager
 from ite.client.llm_client import LLMClient
 from ite.config.config import Config
@@ -121,6 +122,7 @@ class Session:
             )
 
         self.discovery_manager.discover_all()
+        refresh_subagent_tools(self.tool_registry, self.config)
         self.context_manager = ContextManager(
             config=self.config,
             user_memory=user_memory,

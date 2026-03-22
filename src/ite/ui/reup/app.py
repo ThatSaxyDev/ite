@@ -113,6 +113,7 @@ from .tool_views import (
     render_list_dir_output,
     normalize_unified_diff_paths,
     render_numbered_unified_diff,
+    render_subagent_payload,
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
@@ -5148,6 +5149,16 @@ class ReupApp(App):
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
+        elif name.startswith("subagent_"):
+            blocks.append(Text(narrative, style="#8c97ab"))
+            subagent_blocks, was_truncated = render_subagent_payload(
+                output=output,
+                metadata=md,
+                success=success,
+                error=error,
+            )
+            local_truncated = local_truncated or was_truncated
+            blocks.extend(subagent_blocks)
         else:
             blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)

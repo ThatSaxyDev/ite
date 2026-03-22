@@ -101,6 +101,8 @@ class FileDiff:
 class ToolInvocation:
     params: dict[str, Any]
     cwd: Path
+    call_id: str | None = None
+    session_id: str | None = None
 
 
 @dataclass
