@@ -387,9 +387,9 @@ def describe_tool_activity(
         if success and isinstance(pages, list) and pages:
             preview = ", ".join(str(page) for page in pages[:5])
             suffix = ", ..." if len(pages) > 5 else ""
-            return f"Loaded PDF {path} (pages {preview}{suffix})."
+            return f"Processed selected PDF pages ({preview}{suffix})."
         if success:
-            return f"Loaded PDF {path}."
+            return "Processed PDF successfully."
         return f"Failed to read PDF {path}."
 
     if name == "read_image":
@@ -397,9 +397,9 @@ def describe_tool_activity(
         if stage == "start":
             return f"Reading image {path}."
         if success and metadata.get("ocr_requested"):
-            return f"Loaded image {path} with OCR."
+            return "Processed image successfully with OCR."
         if success:
-            return f"Loaded image {path}."
+            return "Processed image successfully."
         return f"Failed to read image {path}."
 
     if name == "todos":

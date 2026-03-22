@@ -107,6 +107,15 @@ def _truncate_text(text: str, limit: int = 60 * 1024) -> tuple[str, bool]:
     return text[:limit] + "\n... [truncated]", True
 
 
+def _compact_preview(text: str, *, limit: int = 320) -> str:
+    normalized = " ".join((text or "").split())
+    if not normalized:
+        return ""
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit].rstrip() + "..."
+
+
 def _json_safe(value: Any, *, max_text: int = 2048) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
         if isinstance(value, str) and len(value) > max_text:
@@ -271,11 +280,13 @@ class ReadImageTool(Tool):
             "ocr_backend": ocr_backend,
             "info": info,
         }
+        ocr_preview = _compact_preview(ocr_text) if params.ocr else ""
         summary = {
             "format": image_format,
             "dimensions": {"width": width, "height": height},
             "mode": mode,
-            "ocr_text": ocr_text if params.ocr else "",
+            "ocr_text_preview": ocr_preview,
+            "ocr_text_length": len(ocr_text) if params.ocr else 0,
         }
         output, truncated = _truncate_text(json.dumps(summary, indent=2, ensure_ascii=False))
         return ToolResult.success_result(output, truncated=truncated, metadata=metadata)

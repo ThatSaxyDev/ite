@@ -253,6 +253,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
         self.assertTrue(
             ReupApp._should_suppress_malformed_tool_card(
+                "read_image",
+                "Invalid parameters: Parameter 'path': Field required",
+            )
+        )
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
+                "read_pdf",
+                "Invalid parameters: Parameter 'path': Field required",
+            )
+        )
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
                 "read_file",
                 "Error: Invalid parameters: Parameter 'path': Field required",
             )
@@ -395,7 +407,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 type=AgentEventType.TOOL_CALL_COMPLETE,
                 data={
                     "call_id": "call_1",
-                    "name": "read_file",
+                    "name": "read_image",
                     "success": False,
                     "output": "Error: Invalid parameters: Parameter 'path': Field required\n\nOutput:\nRetry this tool with all required arguments.",
                     "error": "Error: Invalid parameters: Parameter 'path': Field required",

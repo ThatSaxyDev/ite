@@ -4557,7 +4557,16 @@ class ReupApp(App):
         tool_name: str | None,
         validation_error: str,
     ) -> bool:
-        if tool_name not in {"shell", "read_file", "grep", "edit", "apply_patch", "memory"}:
+        if tool_name not in {
+            "shell",
+            "read_file",
+            "read_pdf",
+            "read_image",
+            "grep",
+            "edit",
+            "apply_patch",
+            "memory",
+        }:
             return False
         normalized = validation_error.strip()
         if normalized.startswith("Error: "):
@@ -4570,6 +4579,8 @@ class ReupApp(App):
         required_errors = {
             "shell": {"Parameter 'command': Field required"},
             "read_file": {"Parameter 'path': Field required"},
+            "read_pdf": {"Parameter 'path': Field required"},
+            "read_image": {"Parameter 'path': Field required"},
             "grep": {"Parameter 'pattern': Field required"},
             "edit": {
                 "Parameter 'path': Field required",
@@ -4941,7 +4952,6 @@ class ReupApp(App):
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=True))
         elif name in {"read_pdf", "read_image"} and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
             if primary_path:
                 blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
             summary_parts: list[str] = []
@@ -4964,10 +4974,6 @@ class ReupApp(App):
                     summary_parts.append("ocr")
             if summary_parts:
                 blocks.append(Text("  •  ".join(summary_parts), style="#8c97ab"))
-            output_display, was_truncated = truncate_for_tool(name, payload)
-            local_truncated = local_truncated or was_truncated
-            language = "json" if name == "read_image" else "text"
-            blocks.append(render_text_payload(output_display, success=True, language=language))
         elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
             if primary_path:
                 target = display_path(primary_path, cwd=self.config.cwd)

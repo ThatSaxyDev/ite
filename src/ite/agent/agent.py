@@ -451,13 +451,24 @@ class Agent:
         tool_name: str | None,
         validation_errors: list[str],
     ) -> bool:
-        if tool_name not in {"shell", "read_file", "grep", "edit", "apply_patch", "memory"}:
+        if tool_name not in {
+            "shell",
+            "read_file",
+            "read_pdf",
+            "read_image",
+            "grep",
+            "edit",
+            "apply_patch",
+            "memory",
+        }:
             return False
         if not validation_errors:
             return False
         required_errors = {
             "shell": {"Parameter 'command': Field required"},
             "read_file": {"Parameter 'path': Field required"},
+            "read_pdf": {"Parameter 'path': Field required"},
+            "read_image": {"Parameter 'path': Field required"},
             "grep": {"Parameter 'pattern': Field required"},
             "edit": {
                 "Parameter 'path': Field required",

@@ -74,6 +74,7 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(result.success, msg=result.error)
             self.assertIn('"width": 1280', result.output)
+            self.assertIn('"ocr_text_length": 0', result.output)
             self.assertEqual(result.metadata.get("width"), 1280)
             self.assertEqual(result.metadata.get("height"), 720)
 
@@ -103,9 +104,39 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
                 result = await tool.execute(ToolInvocation(params={"path": "receipt.png", "ocr": True}, cwd=cwd))
 
             self.assertTrue(result.success, msg=result.error)
-            self.assertIn("Total: 42", result.output)
+            self.assertIn('"ocr_text_preview": "Total: 42"', result.output)
+            self.assertIn('"ocr_text_length": 9', result.output)
             self.assertEqual(result.metadata.get("ocr_requested"), True)
             self.assertEqual(result.metadata.get("ocr_backend"), "tesseract")
+
+    async def test_read_image_compacts_long_ocr_output(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            image_path = cwd / "receipt.png"
+            image_path.write_bytes(b"fake")
+
+            fake_image = Mock()
+            fake_image.size = (800, 600)
+            fake_image.mode = "RGB"
+            fake_image.format = "PNG"
+            fake_image.info = {}
+            fake_image.__enter__ = Mock(return_value=fake_image)
+            fake_image.__exit__ = Mock(return_value=False)
+            image_module = Mock()
+            image_module.open.return_value = fake_image
+            pytesseract = Mock()
+            pytesseract.image_to_string.return_value = "line " * 200
+
+            tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
+            with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
+                "ite.tools.builtin.media_tools._load_pytesseract", return_value=pytesseract
+            ), patch("ite.tools.builtin.media_tools._module_available", return_value=True):
+                result = await tool.execute(ToolInvocation(params={"path": "receipt.png", "ocr": True}, cwd=cwd))
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIn('"ocr_text_preview": "', result.output)
+            self.assertIn('..."', result.output)
+            self.assertNotIn(("line " * 80).strip(), result.output)
 
     async def test_read_image_returns_structured_recovery_hint_when_ocr_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as td:

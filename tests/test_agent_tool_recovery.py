@@ -29,6 +29,20 @@ class AgentToolRecoveryTests(unittest.TestCase):
             )
         )
 
+    def test_suppresses_malformed_empty_media_read_calls(self) -> None:
+        self.assertTrue(
+            self.agent._should_suppress_malformed_tool_call(
+                "read_image",
+                ["Parameter 'path': Field required"],
+            )
+        )
+        self.assertTrue(
+            self.agent._should_suppress_malformed_tool_call(
+                "read_pdf",
+                ["Parameter 'path': Field required"],
+            )
+        )
+
     def test_does_not_suppress_nonrequired_tool_errors(self) -> None:
         self.assertFalse(
             self.agent._should_suppress_malformed_tool_call(

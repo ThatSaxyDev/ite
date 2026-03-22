@@ -155,7 +155,7 @@ class ToolNarrativeTests(unittest.TestCase):
                 stage="complete",
                 success=True,
             ),
-            "Loaded PDF docs/spec.pdf (pages 1, 2).",
+            "Processed selected PDF pages (1, 2).",
         )
         self.assertEqual(
             activity_title("read_image", stage="complete", success=True),
@@ -169,7 +169,7 @@ class ToolNarrativeTests(unittest.TestCase):
                 stage="complete",
                 success=True,
             ),
-            "Loaded image screens/error.png with OCR.",
+            "Processed image successfully with OCR.",
         )
 
     def test_shell_session_tools_have_specific_narratives_and_titles(self) -> None:
