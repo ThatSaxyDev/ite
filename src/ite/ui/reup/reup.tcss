@@ -1361,9 +1361,9 @@ BranchPickerModal .modal {
 
 AttachPickerModal .modal {
     width: 108;
-    height: 32;
+    height: 36;
     max-height: 86%;
-    min-height: 24;
+    min-height: 28;
     border: heavy #303236;
     background: #1c1b1d 96%;
     padding: 1 2;
@@ -1529,6 +1529,64 @@ SessionResumeModal .resume-table,
 BranchPickerModal .resume-table,
 AttachPickerModal .resume-table {
     height: 1fr;
+}
+
+.attach-root-row {
+    height: 3;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+AttachPickerModal #attach-root {
+    width: 1fr;
+    margin-right: 1;
+    margin-left: 1;
+}
+
+AttachPickerModal #attach-home,
+AttachPickerModal #attach-up,
+AttachPickerModal #attach-go {
+    width: 8;
+    min-width: 8;
+    border: none;
+    text-style: bold;
+}
+
+AttachPickerModal #attach-home,
+AttachPickerModal #attach-up {
+    background: #2a2a2c;
+    color: #edf1f7;
+}
+
+AttachPickerModal #attach-home:hover,
+AttachPickerModal #attach-up:hover {
+    background: #313337;
+}
+
+AttachPickerModal #attach-go {
+    background: #b7c8e1;
+    color: #111821;
+}
+
+AttachPickerModal #attach-go:hover {
+    background: #cad6ea;
+}
+
+AttachPickerModal #attachment-tree {
+    height: 1fr;
+    background: #151618;
+    color: #edf1f7;
+    padding: 0 1;
+}
+
+AttachPickerModal #attachment-tree:focus {
+    border: none;
+    background: #17191c;
+}
+
+AttachPickerModal #attach-preview {
+    color: #8c97ab;
+    margin-top: 1;
 }
 
 BranchPickerModal #switch {

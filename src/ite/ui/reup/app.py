@@ -727,9 +727,6 @@ class ReupApp(App):
             self.agent and self.agent.session and self.agent.session.plan_mode_enabled
         )
         branch_label = "no-git"
-        attachment_count = 0
-        if self.agent and self.agent.session:
-            attachment_count = len(self.agent.session.pending_attachment_paths)
         try:
             cwd = Path(self.config.cwd).resolve()
             if is_git_repo(cwd):
@@ -739,7 +736,6 @@ class ReupApp(App):
         text, attach_hitbox, branch_hitbox, plan_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=self.config.model_name,
-            attachment_count=attachment_count,
             plan_enabled=plan_enabled,
             branch_label=branch_label,
         )
@@ -790,7 +786,7 @@ class ReupApp(App):
             rel_path = Path(rel)
             parent = str(rel_path.parent)
             secondary = "workspace root" if parent in {"", "."} else parent
-            display_ref = f"@{rel}"
+            display_ref = self._attachment_ref_for_path(path.resolve())
             options.append(
                 SlashCommandOption(
                     name=display_ref,
@@ -989,9 +985,6 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         text = prompt.text or ""
         insert_text = option.insert_text or option.name
-        attachment_path = (option.attachment_path or "").strip()
-        if attachment_path:
-            self._queue_attachment_paths([attachment_path])
         updated = re.sub(
             r"(?:^|[\s(\[{])@[^\s@]*$",
             lambda match: match.group(0)[:1] + insert_text
@@ -1005,6 +998,37 @@ class ReupApp(App):
         prompt.move_cursor((0, len(prompt.text)))
         self._sync_command_palette(prompt.text)
         self._resize_composer_for_prompt()
+
+    def _attachment_ref_for_path(self, path: Path) -> str:
+        resolved = path.expanduser().resolve()
+        cwd = Path(self.config.cwd).resolve()
+        try:
+            display = str(resolved.relative_to(cwd))
+        except Exception:
+            display = str(resolved)
+        display = display.replace("\\", "/")
+        if any(ch.isspace() for ch in display):
+            return f'@"{display}"'
+        return f"@{display}"
+
+    def _insert_attachment_refs_into_prompt(self, paths: list[str]) -> int:
+        prompt = self.query_one("#prompt", TextArea)
+        existing = prompt.text or ""
+        refs: list[str] = []
+        for raw in paths:
+            ref = self._attachment_ref_for_path(Path(raw))
+            if ref in existing or ref in refs:
+                continue
+            refs.append(ref)
+        if not refs:
+            return 0
+        separator = "\n" if existing.strip() else ""
+        updated = f"{existing.rstrip()}{separator}{' '.join(refs)}".strip()
+        prompt.load_text(updated + " ")
+        prompt.move_cursor((0, len(prompt.text)))
+        self._sync_command_palette(prompt.text)
+        self._resize_composer_for_prompt()
+        return len(refs)
 
     def _apply_command_palette_selection(self) -> bool:
         if self._turn_action_payload is not None:
@@ -1127,34 +1151,19 @@ class ReupApp(App):
 
     async def _open_attach_picker_from_meta(self) -> None:
         await self.ensure_agent()
-        if not self.agent or not self.agent.session:
+        if not self.agent:
             return
         cwd = Path(self.config.cwd).resolve()
-        queued = list(self.agent.session.pending_attachment_paths)
-        files = await asyncio.to_thread(AttachPickerModal._discover_files, cwd)
-        selected = await self._open_modal(AttachPickerModal(cwd, queued, files))
+        selected = await self._open_modal(AttachPickerModal(cwd, []))
         if selected is None:
             return
-        self.agent.session.pending_attachment_paths = list(selected)[:MAX_ATTACHMENTS]
-        self.refresh_header()
-
-    def _queue_attachment_paths(self, paths: list[str]) -> int:
-        if not self.agent or not self.agent.session:
-            return 0
-        queue = self.agent.session.pending_attachment_paths
-        added = 0
-        for raw in paths:
-            path = str(Path(raw).expanduser().resolve())
-            if path in queue:
-                continue
-            if len(queue) >= MAX_ATTACHMENTS:
-                break
-            queue.append(path)
-            added += 1
-        return added
+        added = self._insert_attachment_refs_into_prompt(list(selected)[:MAX_ATTACHMENTS])
+        if added:
+            noun = "reference" if added == 1 else "references"
+            self.post_attachment_note(f"Inserted {added} attachment {noun} into the composer.")
 
     def _consume_dropped_path_text(self, message: str) -> bool:
-        if not self.agent or not self.agent.session:
+        if not self.agent:
             return False
         raw = (message or "").strip()
         if not raw:
@@ -1187,11 +1196,10 @@ class ReupApp(App):
                 return False
             paths.append(str(path))
 
-        added = self._queue_attachment_paths(paths)
-        self.refresh_header()
+        added = self._insert_attachment_refs_into_prompt(paths[:MAX_ATTACHMENTS])
         if added > 0:
-            noun = "file" if added == 1 else "files"
-            self.post_attachment_note(f"Queued {added} {noun} for the next message.")
+            noun = "reference" if added == 1 else "references"
+            self.post_attachment_note(f"Inserted {added} attachment {noun} into the composer.")
         return True
 
     def _empty_state_thread_count(self) -> int:
@@ -2939,9 +2947,7 @@ class ReupApp(App):
         ).strip()
         self._resize_composer_for_prompt()
         if self.agent and self.agent.session:
-            self.agent.session.pending_attachment_paths = list(
-                payload.get("attachments", [])
-            )[:MAX_ATTACHMENTS]
+            self.agent.session.pending_attachment_paths = []
 
     async def _dispatch_payload(self, payload: dict[str, Any]) -> None:
         message = str(payload.get("message", "")).strip()
@@ -2951,9 +2957,7 @@ class ReupApp(App):
         if not message:
             return
         if self.agent and self.agent.session:
-            self.agent.session.pending_attachment_paths = list(
-                payload.get("attachments", [])
-            )[:MAX_ATTACHMENTS]
+            self.agent.session.pending_attachment_paths = []
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:

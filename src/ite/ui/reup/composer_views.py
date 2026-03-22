@@ -22,7 +22,6 @@ def composer_meta_text(
     *,
     cwd: Path,
     model_name: str,
-    attachment_count: int,
     plan_enabled: bool,
     branch_label: str,
 ) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int]]:
@@ -35,10 +34,6 @@ def composer_meta_text(
     attach_start = cell_pos
     text.append("📎", style="bold #d1d5db")
     cell_pos += cell_len("📎")
-    if attachment_count:
-        badge = f" {attachment_count}"
-        text.append(badge, style="bold #5dcf84")
-        cell_pos += cell_len(badge)
     attach_end = cell_pos
     spacer = "     "
     text.append(spacer)

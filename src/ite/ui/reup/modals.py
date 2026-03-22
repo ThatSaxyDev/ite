@@ -11,9 +11,9 @@ from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, Input, Label, Static
+from textual.widgets import Button, DataTable, DirectoryTree, Input, Label, Static
+from textual.widgets.directory_tree import DirEntry
 
-from ite.attachment_refs import discover_attachable_files
 from ite.attachments import MAX_ATTACHMENTS
 from ite.client.llm_client import LLMClient
 from ite.client.response import StreamEventType
@@ -717,32 +717,73 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
     BINDINGS = [
         ("escape", "dismiss", "Dismiss"),
         ("space", "toggle_selected", "Toggle"),
-        ("enter", "toggle_selected", "Toggle"),
+        ("ctrl+u", "go_parent", "Parent"),
+        ("ctrl+h", "go_home", "Home"),
+        ("ctrl+r", "refresh_tree", "Refresh"),
     ]
 
-    def __init__(self, cwd: Path, queued_paths: list[str], files: list[Path]) -> None:
+    class AttachDirectoryTree(DirectoryTree):
+        async def set_root_path(self, path: Path) -> None:
+            resolved = path.expanduser().resolve()
+            self.path = str(resolved)
+            self.reset_node(self.root, str(resolved), DirEntry(self.PATH(resolved)))
+            await self.reload()
+            self.cursor_line = 0
+            self.scroll_to(0, 0, animate=False)
+
+    def __init__(self, cwd: Path, queued_paths: list[str]) -> None:
         super().__init__()
-        self._cwd = cwd
-        self._files = files
+        self._cwd = cwd.resolve()
+        self._root = self._cwd
         self._selected_paths: set[str] = {self._path_key(Path(p)) for p in queued_paths}
+        self._highlighted_path: str = ""
 
     @staticmethod
     def _path_key(path: Path) -> str:
         return str(path.expanduser().absolute())
 
     @staticmethod
-    def _discover_files(cwd: Path) -> list[Path]:
-        return discover_attachable_files(cwd)
+    def _resolve_root_path(raw: str, *, cwd: Path, current_root: Path | None = None) -> Path:
+        candidate = (raw or "").strip()
+        base = current_root.resolve() if current_root is not None else cwd.resolve()
+        if not candidate:
+            return base
+        path = Path(candidate).expanduser()
+        if not path.is_absolute():
+            path = (base / path).resolve()
+        else:
+            path = path.resolve()
+        if not path.exists():
+            raise ValueError(f"Path does not exist: {path}")
+        if not path.is_dir():
+            raise ValueError(f"Not a directory: {path}")
+        return path
+
+    def _selection_summary(self) -> str:
+        count = len(self._selected_paths)
+        if count == 0:
+            return "No files selected."
+        names = [Path(path).name for path in sorted(self._selected_paths)]
+        preview = ", ".join(names[:3])
+        if count > 3:
+            preview += f" (+{count - 3} more)"
+        return preview
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal attach-modal"):
             yield Label("Attach Files", classes="modal-title resume-title")
             yield Static(
-                f"Toggle files for the next message. Max {MAX_ATTACHMENTS} attachments.",
+                f"Browse and queue files for the next message. Max {MAX_ATTACHMENTS} attachments.",
                 classes="modal-body resume-body",
             )
+            with Horizontal(classes="attach-root-row"):
+                yield Button("Home", id="attach-home", variant="default")
+                yield Button("Up", id="attach-up", variant="default")
+                yield Input(value=str(self._cwd), id="attach-root")
+                yield Button("Go", id="attach-go", variant="primary")
             with Container(classes="modal-list resume-list"):
-                yield DataTable(id="attachments", classes="resume-table", cursor_type="row")
+                yield self.AttachDirectoryTree(str(self._cwd), id="attachment-tree")
+            yield Static("", id="attach-preview")
             yield Static("", id="attach-status")
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button("Queue", id="attach-queue", variant="primary")
@@ -750,50 +791,118 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
                 yield Button("Cancel", id="cancel", variant="default")
 
     async def on_mount(self) -> None:
-        table = self.query_one("#attachments", DataTable)
-        table.add_columns("", "File")
-        for path in self._files:
-            path_key = self._path_key(path)
-            marker = Text("[x]" if path_key in self._selected_paths else "[ ]")
-            try:
-                rel = str(path.relative_to(self._cwd))
-            except Exception:
-                rel = str(path)
-            table.add_row(marker, rel)
-        if self._files:
-            table.move_cursor(row=0, column=0)
-        table.focus()
+        tree = self.query_one("#attachment-tree", self.AttachDirectoryTree)
+        await tree.reload()
+        tree.focus()
         self._refresh_status()
+        self._refresh_preview()
 
     def _refresh_status(self) -> None:
         status = self.query_one("#attach-status", Static)
         count = len(self._selected_paths)
         tone = "#4edea3" if count <= MAX_ATTACHMENTS else "#ffb95f"
-        status.update(Text(f"Selected: {count}/{MAX_ATTACHMENTS}", style=f"bold {tone}"))
+        summary = self._selection_summary()
+        status.update(Text(f"Selected: {count}/{MAX_ATTACHMENTS}  •  {summary}", style=f"bold {tone}"))
 
-    def _toggle_current_row(self) -> None:
-        table = self.query_one("#attachments", DataTable)
-        row = table.cursor_row
-        if row < 0 or row >= len(self._files):
+    def _refresh_preview(self) -> None:
+        preview = self.query_one("#attach-preview", Static)
+        if not self._highlighted_path:
+            preview.update(Text("Navigate the tree, press space to select files.", style="#8c97ab"))
             return
-        path_key = self._path_key(self._files[row])
+        path = Path(self._highlighted_path)
+        kind = "directory" if path.is_dir() else "file"
+        selected = self._path_key(path) in self._selected_paths
+        status = "selected" if selected else "not selected"
+        preview.update(Text(f"{path}  •  {kind}  •  {status}", style="#8c97ab"))
+
+    def _current_tree_path(self) -> Path | None:
+        tree = self.query_one("#attachment-tree", self.AttachDirectoryTree)
+        node = tree.cursor_node
+        if node is None or node.data is None:
+            return None
+        entry = node.data
+        try:
+            return Path(entry.path).resolve()
+        except Exception:
+            return None
+
+    def _toggle_current_selection(self) -> None:
+        path = self._current_tree_path()
+        if path is None or not path.is_file():
+            return
+        path_key = self._path_key(path)
         if path_key in self._selected_paths:
             self._selected_paths.remove(path_key)
-            marker = Text("[ ]")
         else:
             if len(self._selected_paths) >= MAX_ATTACHMENTS:
                 return
             self._selected_paths.add(path_key)
-            marker = Text("[x]")
-        table.update_cell_at((row, 0), marker)
         self._refresh_status()
+        self._refresh_preview()
 
     def action_toggle_selected(self) -> None:
-        self._toggle_current_row()
+        self._toggle_current_selection()
 
-    @on(DataTable.RowSelected, "#attachments")
-    def on_row_selected(self, _event: DataTable.RowSelected) -> None:
-        self._toggle_current_row()
+    async def _set_root_path(self, root: Path) -> None:
+        resolved = root.expanduser().resolve()
+        self._root = resolved
+        self.query_one("#attach-root", Input).value = str(resolved)
+        tree = self.query_one("#attachment-tree", self.AttachDirectoryTree)
+        await tree.set_root_path(resolved)
+        self._highlighted_path = str(resolved)
+        self._refresh_preview()
+
+    async def action_go_parent(self) -> None:
+        parent = self._root.parent
+        if parent == self._root:
+            return
+        await self._set_root_path(parent)
+
+    async def action_go_home(self) -> None:
+        await self._set_root_path(Path.home())
+
+    async def action_refresh_tree(self) -> None:
+        tree = self.query_one("#attachment-tree", self.AttachDirectoryTree)
+        await tree.reload()
+
+    @on(DirectoryTree.NodeHighlighted, "#attachment-tree")
+    def on_tree_highlighted(self, event: DirectoryTree.NodeHighlighted) -> None:
+        entry = event.node.data
+        if entry is None:
+            return
+        self._highlighted_path = str(Path(entry.path).resolve())
+        self._refresh_preview()
+
+    @on(DirectoryTree.FileSelected, "#attachment-tree")
+    def on_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        event.stop()
+        self._highlighted_path = str(Path(event.path).resolve())
+        self._toggle_current_selection()
+
+    @on(Button.Pressed, "#attach-home")
+    async def on_home_pressed(self, _event: Button.Pressed) -> None:
+        await self.action_go_home()
+
+    @on(Button.Pressed, "#attach-up")
+    async def on_up_pressed(self, _event: Button.Pressed) -> None:
+        await self.action_go_parent()
+
+    @on(Button.Pressed, "#attach-go")
+    async def on_go_pressed(self, _event: Button.Pressed) -> None:
+        await self._apply_root_input()
+
+    @on(Input.Submitted, "#attach-root")
+    async def on_root_submitted(self, _event: Input.Submitted) -> None:
+        await self._apply_root_input()
+
+    async def _apply_root_input(self) -> None:
+        root_input = self.query_one("#attach-root", Input)
+        try:
+            root = self._resolve_root_path(root_input.value, cwd=self._cwd, current_root=self._root)
+        except ValueError as exc:
+            self.query_one("#attach-preview", Static).update(Text(str(exc), style="#f1998e"))
+            return
+        await self._set_root_path(root)
 
     @on(Button.Pressed, "#attach-queue")
     def on_queue_pressed(self, _event: Button.Pressed) -> None:
@@ -802,10 +911,8 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
     @on(Button.Pressed, "#attach-clear")
     def on_clear_pressed(self, _event: Button.Pressed) -> None:
         self._selected_paths.clear()
-        table = self.query_one("#attachments", DataTable)
-        for row in range(len(self._files)):
-            table.update_cell_at((row, 0), "[ ]")
         self._refresh_status()
+        self._refresh_preview()
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:

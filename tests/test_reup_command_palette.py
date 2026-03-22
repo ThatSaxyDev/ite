@@ -68,6 +68,59 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual([entry.name for entry in filtered[:1]], ["@src/app.py"])
         self.assertEqual(filtered[0].insert_text, "@src/app.py")
 
+    def test_attachment_ref_for_path_quotes_spaces_and_uses_absolute_outside_workspace(self) -> None:
+        app = self._app()
+        inside = self.cwd / "shot one.png"
+        inside.write_text("x", encoding="utf-8")
+
+        with TemporaryDirectory() as other:
+            outside = Path(other) / "report one.pdf"
+            outside.write_text("x", encoding="utf-8")
+
+            self.assertEqual(app._attachment_ref_for_path(inside), '@"shot one.png"')
+            self.assertEqual(
+                app._attachment_ref_for_path(outside),
+                f'@"{outside.resolve()}"',
+            )
+
+    def test_insert_attachment_refs_into_prompt_uses_visible_refs(self) -> None:
+        app = self._app()
+        sample = self.cwd / "Screenshot 2021.png"
+        sample.write_text("x", encoding="utf-8")
+
+        class DummyPrompt:
+            def __init__(self) -> None:
+                self.text = "check this"
+
+            def load_text(self, value: str) -> None:
+                self.text = value
+
+            def move_cursor(self, _cursor) -> None:
+                return None
+
+        prompt = DummyPrompt()
+        with patch.object(app, "query_one", return_value=prompt), patch.object(
+            app, "_sync_command_palette"
+        ), patch.object(app, "_resize_composer_for_prompt"):
+            added = app._insert_attachment_refs_into_prompt([str(sample)])
+
+        self.assertEqual(added, 1)
+        self.assertIn('@"Screenshot 2021.png"', prompt.text)
+
+    def test_consume_dropped_path_text_inserts_refs_instead_of_hidden_queue(self) -> None:
+        app = self._app()
+        sample = self.cwd / "report.pdf"
+        sample.write_text("x", encoding="utf-8")
+        app.agent = SimpleNamespace(session=SimpleNamespace(pending_attachment_paths=[]))
+
+        with patch.object(app, "_insert_attachment_refs_into_prompt", return_value=1) as insert_refs, patch.object(
+            app, "post_attachment_note"
+        ):
+            handled = app._consume_dropped_path_text(str(sample))
+
+        self.assertTrue(handled)
+        insert_refs.assert_called_once_with([str(sample)])
+
     def test_palette_selection_clamps_at_bounds(self) -> None:
         app = self._app()
         app._filtered_command_palette_options = app._filtered_command_palette("/")
