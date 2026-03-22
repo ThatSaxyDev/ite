@@ -1,4 +1,6 @@
 from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.media_tools import ReadImageTool
+from ite.tools.builtin.media_tools import ReadPdfTool
 from ite.tools.builtin.archive_tools import ListArchiveTool
 from ite.tools.builtin.plan_question import PlanQuestionTool
 from ite.tools.builtin.todo import TodosTool
@@ -55,6 +57,8 @@ __all__ = [
     "ListDirTool",
     "HttpRequestTool",
     "ListArchiveTool",
+    "ReadPdfTool",
+    "ReadImageTool",
     "GrepTool",
     "GlobTool",
     "WebSearchTool",
@@ -97,6 +101,8 @@ def get_all_builtin_tools() -> list[type]:
         ListDirTool,
         HttpRequestTool,
         ListArchiveTool,
+        ReadPdfTool,
+        ReadImageTool,
         GrepTool,
         GlobTool,
         WebSearchTool,

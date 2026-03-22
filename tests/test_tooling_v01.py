@@ -110,6 +110,44 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "read_env")
 
+    async def test_read_file_pdf_is_redirected_to_read_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "report.pdf").write_bytes(b"%PDF-1.4")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": "report.pdf"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "read_pdf")
+
+    async def test_read_file_image_is_redirected_to_read_image(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "screen.png").write_bytes(b"fake")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": "screen.png"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "read_image")
+
     async def test_read_file_json_with_line_window_is_still_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

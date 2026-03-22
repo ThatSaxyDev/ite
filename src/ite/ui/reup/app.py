@@ -4494,6 +4494,8 @@ class ReupApp(App):
             "list_dir": "📁",
             "http_request": "🌐",
             "list_archive": "🗜️",
+            "read_pdf": "📄",
+            "read_image": "🖼️",
             "glob": "🗂️",
             "grep": "🔎",
             "web_search": "🌐",
@@ -4938,6 +4940,34 @@ class ReupApp(App):
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=True))
+        elif name in {"read_pdf", "read_image"} and success:
+            blocks.append(Text(narrative, style="#8c97ab"))
+            if primary_path:
+                blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
+            summary_parts: list[str] = []
+            if name == "read_pdf":
+                page_count = md.get("page_count")
+                if isinstance(page_count, int):
+                    summary_parts.append(f"{page_count} pages")
+                quality = str(md.get("text_extraction_quality") or "").strip()
+                if quality:
+                    summary_parts.append(quality)
+            else:
+                width = md.get("width")
+                height = md.get("height")
+                if isinstance(width, int) and isinstance(height, int):
+                    summary_parts.append(f"{width}×{height}")
+                image_format = str(md.get("format") or "").strip()
+                if image_format:
+                    summary_parts.append(image_format)
+                if md.get("ocr_requested"):
+                    summary_parts.append("ocr")
+            if summary_parts:
+                blocks.append(Text("  •  ".join(summary_parts), style="#8c97ab"))
+            output_display, was_truncated = truncate_for_tool(name, payload)
+            local_truncated = local_truncated or was_truncated
+            language = "json" if name == "read_image" else "text"
+            blocks.append(render_text_payload(output_display, success=True, language=language))
         elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
             if primary_path:
                 target = display_path(primary_path, cwd=self.config.cwd)

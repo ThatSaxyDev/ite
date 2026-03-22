@@ -62,6 +62,10 @@ def activity_title(
         return "Sending HTTP request" if running else ("HTTP response ready" if done else "HTTP request failed")
     if name == "list_archive":
         return "Inspecting archive" if running else ("Archive contents ready" if done else "Archive inspection failed")
+    if name == "read_pdf":
+        return "Reading PDF" if running else ("PDF loaded" if done else "PDF read failed")
+    if name == "read_image":
+        return "Reading image" if running else ("Image loaded" if done else "Image read failed")
     if name == "todos":
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
     if name == "memory":
@@ -375,6 +379,29 @@ def describe_tool_activity(
             return f"Loaded archive contents for {path}."
         return f"Failed to inspect archive {path}."
 
+    if name == "read_pdf":
+        path = _path(args, metadata)
+        pages = metadata.get("selected_pages") or args.get("pages")
+        if stage == "start":
+            return f"Reading PDF {path}."
+        if success and isinstance(pages, list) and pages:
+            preview = ", ".join(str(page) for page in pages[:5])
+            suffix = ", ..." if len(pages) > 5 else ""
+            return f"Loaded PDF {path} (pages {preview}{suffix})."
+        if success:
+            return f"Loaded PDF {path}."
+        return f"Failed to read PDF {path}."
+
+    if name == "read_image":
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Reading image {path}."
+        if success and metadata.get("ocr_requested"):
+            return f"Loaded image {path} with OCR."
+        if success:
+            return f"Loaded image {path}."
+        return f"Failed to read image {path}."
+
     if name == "todos":
         action = str(args.get("action", "")).strip() or str(metadata.get("action", "")).strip() or "update"
         scope = str(args.get("scope", "")).strip() or str(metadata.get("scope", "")).strip() or "execution"
@@ -656,6 +683,10 @@ def progress_label(
         label = "Sending HTTP request"
     elif name == "list_archive":
         label = "Inspecting archive"
+    elif name == "read_pdf":
+        label = "Reading PDF"
+    elif name == "read_image":
+        label = "Reading image"
     elif name == "todos":
         scope = str(args.get("scope", "")).strip() or str(md.get("scope", "")).strip()
         label = "Updating planning checklist" if scope == "planning" else "Updating checklist"

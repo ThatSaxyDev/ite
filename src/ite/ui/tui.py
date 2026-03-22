@@ -250,6 +250,8 @@ class TUI:
             "write_env": ["path", "key", "operation", "value"],
             "http_request": ["method", "url", "params", "headers", "json_body", "body", "timeout"],
             "list_archive": ["path", "limit"],
+            "read_pdf": ["path", "pages", "max_pages"],
+            "read_image": ["path", "ocr"],
             "shell": ["command", "timeout", "cwd"],
             "list_dir": ["path", "include_hidden"],
             "grep": ["path", "case_insensitive", "pattern"],
@@ -487,6 +489,8 @@ class TUI:
             "write_env": 16,
             "http_request": 18,
             "list_archive": 16,
+            "read_pdf": 18,
+            "read_image": 16,
         }
         max_chars_by_tool = {
             "read_file": 2600,
@@ -508,6 +512,8 @@ class TUI:
             "write_env": 1800,
             "http_request": 2200,
             "list_archive": 1800,
+            "read_pdf": 2600,
+            "read_image": 1800,
         }
 
         max_lines = max_lines_by_tool.get(name, 16)
@@ -967,6 +973,48 @@ class TUI:
             )
             local_truncated = local_truncated or was_truncated
             blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+
+        elif name == "read_pdf" and success:
+            blocks.append(Text(narrative, style="muted"))
+            summary = []
+            if isinstance(primary_path, str):
+                summary.append(str(display_path_relative_to_cwd(primary_path, self.cwd)))
+            if isinstance(md.get("page_count"), int):
+                summary.append(f"{md['page_count']} pages")
+            if isinstance(md.get("text_extraction_quality"), str) and md.get("text_extraction_quality"):
+                summary.append(str(md["text_extraction_quality"]))
+            if summary:
+                blocks.append(self._summary_line(*summary))
+
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
+            blocks.append(Syntax(output_display, "text", theme="monokai", word_wrap=True))
+
+        elif name == "read_image" and success:
+            blocks.append(Text(narrative, style="muted"))
+            summary = []
+            if isinstance(primary_path, str):
+                summary.append(str(display_path_relative_to_cwd(primary_path, self.cwd)))
+            if isinstance(md.get("width"), int) and isinstance(md.get("height"), int):
+                summary.append(f"{md['width']}x{md['height']}")
+            if isinstance(md.get("format"), str) and md.get("format"):
+                summary.append(str(md["format"]))
+            if md.get("ocr_requested"):
+                summary.append("ocr")
+            if summary:
+                blocks.append(self._summary_line(*summary))
+
+            output_display, was_truncated = self._truncate_for_tool(
+                name,
+                output,
+                preserve_lines=True,
+            )
+            local_truncated = local_truncated or was_truncated
+            blocks.append(Syntax(output_display, "json", theme="monokai", word_wrap=True))
 
         elif name == "shell" and success:
             blocks.append(Text(narrative, style="muted"))

@@ -142,6 +142,36 @@ class ToolNarrativeTests(unittest.TestCase):
             "Loaded archive contents for builds/release.zip.",
         )
 
+    def test_media_tools_have_specific_narratives_and_titles(self) -> None:
+        self.assertEqual(
+            activity_title("read_pdf", stage="complete", success=True),
+            "PDF loaded",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "read_pdf",
+                {"path": "docs/spec.pdf"},
+                {"selected_pages": [1, 2]},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded PDF docs/spec.pdf (pages 1, 2).",
+        )
+        self.assertEqual(
+            activity_title("read_image", stage="complete", success=True),
+            "Image loaded",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "read_image",
+                {"path": "screens/error.png"},
+                {"ocr_requested": True},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded image screens/error.png with OCR.",
+        )
+
     def test_shell_session_tools_have_specific_narratives_and_titles(self) -> None:
         self.assertEqual(
             activity_title("shell_start", stage="complete", success=True),

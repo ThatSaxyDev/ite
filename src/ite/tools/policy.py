@@ -111,6 +111,24 @@ class ToolSelectionPolicy:
                     ),
                     redirect_to="read_env",
                 )
+            if path.endswith(".pdf") and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "PDF inspection should use `read_pdf` instead of `read_file` "
+                        "unless exact raw bytes or line-based text output is required."
+                    ),
+                    redirect_to="read_pdf",
+                )
+            if path.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")) and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Image inspection should use `read_image` instead of `read_file` "
+                        "unless exact raw bytes are required."
+                    ),
+                    redirect_to="read_image",
+                )
 
         if tool_name == "edit":
             path = str(
