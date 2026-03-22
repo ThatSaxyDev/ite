@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-import io
 import json
+import platform
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,28 @@ def _load_pytesseract():
     return pytesseract
 
 
+def _ocr_recovery_hint() -> str:
+    system = platform.system().lower()
+    if system == "darwin":
+        return "OCR requires the `tesseract` binary. Install it with `brew install tesseract`."
+    if system == "linux":
+        return (
+            "OCR requires the `tesseract` binary. Install it with "
+            "`sudo apt install tesseract-ocr` on Debian/Ubuntu or `sudo dnf install tesseract` on Fedora."
+        )
+    if system == "windows":
+        return "OCR requires the `tesseract` binary. Install Tesseract for Windows and add it to PATH."
+    return "OCR requires the `tesseract` binary to be installed and available on PATH."
+
+
+def _ocr_backend_status() -> tuple[bool, str]:
+    if not _module_available("pytesseract"):
+        return False, "none"
+    if shutil.which("tesseract"):
+        return True, "tesseract"
+    return False, "none"
+
+
 def _normalize_page_numbers(total_pages: int, pages: list[int] | None, max_pages: int) -> list[int]:
     if pages:
         selected: list[int] = []
@@ -82,6 +105,23 @@ def _truncate_text(text: str, limit: int = 60 * 1024) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
     return text[:limit] + "\n... [truncated]", True
+
+
+def _json_safe(value: Any, *, max_text: int = 2048) -> Any:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        if isinstance(value, str) and len(value) > max_text:
+            return value[:max_text] + "..."
+        return value
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+        if len(text) > max_text:
+            text = text[:max_text] + "..."
+        return text
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item, max_text=max_text) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item, max_text=max_text) for item in value]
+    return _json_safe(str(value), max_text=max_text)
 
 
 class ReadPdfTool(Tool):
@@ -152,7 +192,7 @@ class ReadPdfTool(Tool):
             "page_count": total_pages,
             "pages": page_entries,
             "selected_pages": selected_pages,
-            "metadata": dict(getattr(reader, "metadata", {}) or {}),
+            "metadata": _json_safe(dict(getattr(reader, "metadata", {}) or {})),
             "text_extraction_quality": "text" if total_chars > 0 else "none",
         }
         return ToolResult.success_result(output or "[No extractable text]", truncated=truncated, metadata=metadata)
@@ -182,9 +222,7 @@ class ReadImageTool(Tool):
                 width, height = image.size
                 mode = image.mode
                 image_format = image.format
-                info = dict(image.info or {})
-                raw = io.BytesIO()
-                image.save(raw, format=image_format or "PNG")
+                info = _json_safe(dict(image.info or {}))
         except Exception as exc:
             return ToolResult.error_result(
                 f"Failed to read image file: {exc}",
@@ -192,8 +230,20 @@ class ReadImageTool(Tool):
             )
 
         ocr_text = ""
-        ocr_available = _module_available("pytesseract")
+        ocr_available, ocr_backend = _ocr_backend_status()
         if params.ocr:
+            if not ocr_available:
+                return ToolResult.error_result(
+                    "OCR is unavailable in this environment.",
+                    metadata={
+                        "path": str(path),
+                        "ocr_requested": True,
+                        "ocr_available": False,
+                        "ocr_backend": ocr_backend,
+                        "recoverable": True,
+                        "recovery_hint": _ocr_recovery_hint(),
+                    },
+                )
             try:
                 pytesseract = _load_pytesseract()
                 with Image.open(path) as image:
@@ -201,7 +251,12 @@ class ReadImageTool(Tool):
             except Exception as exc:
                 return ToolResult.error_result(
                     f"Failed to run OCR: {exc}",
-                    metadata={"path": str(path), "ocr_requested": True, "ocr_available": ocr_available},
+                    metadata={
+                        "path": str(path),
+                        "ocr_requested": True,
+                        "ocr_available": ocr_available,
+                        "ocr_backend": ocr_backend,
+                    },
                 )
 
         metadata = {
@@ -213,6 +268,7 @@ class ReadImageTool(Tool):
             "file_size": path.stat().st_size,
             "ocr_requested": params.ocr,
             "ocr_available": ocr_available,
+            "ocr_backend": ocr_backend,
             "info": info,
         }
         summary = {

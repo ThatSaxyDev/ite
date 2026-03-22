@@ -6,8 +6,6 @@ import base64
 import mimetypes
 import shutil
 import uuid
-import hashlib
-from ite.config.loader import get_data_dir
 
 MAX_ATTACHMENTS = 3
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
@@ -47,7 +45,7 @@ class Attachment:
     size_bytes: int
     source_path: str
     temp_path: str
-    kind: str  # image | text
+    kind: str  # image | text | pdf
 
     def to_dict(self) -> dict:
         return {
@@ -64,8 +62,7 @@ class Attachment:
 class AttachmentManager:
     def __init__(self, workspace: Path):
         self.workspace = workspace.resolve()
-        workspace_key = hashlib.sha256(str(self.workspace).encode("utf-8")).hexdigest()[:12]
-        self.temp_root = get_data_dir() / "tmp_attachments" / workspace_key
+        self.temp_root = self.workspace / ".ite" / "tmp_attachments"
 
     def stage_paths(self, paths: list[str | Path], turn_id: str) -> tuple[list[Attachment], list[str]]:
         errors: list[str] = []
@@ -97,10 +94,7 @@ class AttachmentManager:
             if ext in VIDEO_EXTS:
                 errors.append(f"Video attachments are not supported in v1: {src.name}")
                 continue
-            if ext in PDF_EXTS:
-                errors.append(f"PDF attachments are not supported in v1: {src.name}")
-                continue
-            if ext not in IMAGE_EXTS and ext not in TEXT_EXTS:
+            if ext not in IMAGE_EXTS and ext not in TEXT_EXTS and ext not in PDF_EXTS:
                 errors.append(f"Unsupported attachment type: {src.name}")
                 continue
 
@@ -112,7 +106,12 @@ class AttachmentManager:
                 continue
 
             mime = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
-            kind = "image" if ext in IMAGE_EXTS else "text"
+            if ext in IMAGE_EXTS:
+                kind = "image"
+            elif ext in PDF_EXTS:
+                kind = "pdf"
+            else:
+                kind = "text"
             dest = turn_dir / f"{uuid.uuid4().hex}_{src.name}"
             shutil.copy2(src, dest)
 
@@ -138,17 +137,28 @@ class AttachmentManager:
 
 
 def _manifest_lines(attachments: list[Attachment], workspace: Path) -> list[str]:
+    def display_path(path_text: str) -> str:
+        source = Path(path_text)
+        try:
+            return str(source.resolve().relative_to(workspace.resolve()))
+        except Exception:
+            return path_text
+
+    def is_in_workspace(path_text: str) -> bool:
+        try:
+            Path(path_text).resolve().relative_to(workspace.resolve())
+            return True
+        except Exception:
+            return False
+
     lines = ["Attached files:"]
     for a in attachments:
-        source = Path(a.source_path)
-        try:
-            rel = source.resolve().relative_to(workspace.resolve())
-            rel_text = str(rel)
-        except Exception:
-            rel_text = a.source_path
-        lines.append(
-            f"- {a.original_name} ({a.mime_type}, {a.size_bytes} bytes) -> {rel_text}"
-        )
+        source_text = display_path(a.source_path)
+        temp_text = display_path(a.temp_path)
+        line = f"- {a.original_name} ({a.mime_type}, {a.size_bytes} bytes) -> {source_text}"
+        if not is_in_workspace(a.source_path) and temp_text != source_text:
+            line += f" [attached as {temp_text}]"
+        lines.append(line)
     return lines
 
 

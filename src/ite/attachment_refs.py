@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import re
 
-from ite.attachments import MAX_ATTACHMENTS
+from ite.attachments import IMAGE_EXTS, MAX_ATTACHMENTS, PDF_EXTS, TEXT_EXTS
 
 
 _SKIP_DIRS = {
@@ -25,9 +25,15 @@ _SKIP_DIRS = {
     ".vscode",
 }
 _TRAILING_PUNCTUATION = ",.;:!?)]}"
+_ATTACHMENT_EXTENSIONS = sorted(
+    {ext.lstrip(".") for ext in IMAGE_EXTS | TEXT_EXTS | PDF_EXTS},
+    key=len,
+    reverse=True,
+)
+_ATTACHMENT_EXTENSIONS_RE = "|".join(re.escape(ext) for ext in _ATTACHMENT_EXTENSIONS)
 _INLINE_REF_PATTERN = re.compile(
-    r'(?:(?<=^)|(?<=\s)|(?<=[(\[{]))@(?P<ref>"[^"\n]+"|\'[^\'\n]+\'|[^\s@]+)',
-    re.MULTILINE,
+    rf'(?:(?<=^)|(?<=\s)|(?<=[(\[{{]))@(?P<ref>"[^"\n]+"|\'[^\'\n]+\'|(?:[^\s@][^@\n]*?\.(?:{_ATTACHMENT_EXTENSIONS_RE}))(?![\w.]))',
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -102,10 +108,13 @@ def extract_inline_attachment_refs(message: str) -> list[InlineAttachmentRef]:
 def extract_at_query(text: str) -> str | None:
     if "\n" in (text or ""):
         return None
-    match = re.search(r"(?:^|[\s(\[{])@([^\s@]*)$", text or "")
+    match = re.search(r"(?:^|[\s(\[{])@([^\n@]*)$", text or "")
     if not match:
         return None
-    return match.group(1)
+    query = match.group(1)
+    if re.search(r"\.[A-Za-z0-9]{1,8}\s+\S", query):
+        return None
+    return query
 
 
 def suggest_inline_attachment_paths(

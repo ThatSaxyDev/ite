@@ -26,8 +26,14 @@ class AttachmentRefsTests(unittest.TestCase):
         self.assertEqual([ref.value for ref in refs], ["src/app.py", "README.md"])
         self.assertEqual(refs[1].trailing, "")
 
+    def test_extract_inline_attachment_refs_supports_unquoted_spaces_when_extension_is_present(self) -> None:
+        refs = extract_inline_attachment_refs("check @screenshot 2021.png please")
+
+        self.assertEqual([ref.value for ref in refs], ["screenshot 2021.png"])
+
     def test_extract_at_query_returns_trailing_query_only(self) -> None:
         self.assertEqual(extract_at_query("inspect @sr"), "sr")
+        self.assertEqual(extract_at_query("inspect @screenshot 2021"), "screenshot 2021")
         self.assertEqual(extract_at_query("@"), "")
         self.assertIsNone(extract_at_query("inspect @src/app.py later"))
         self.assertIsNone(extract_at_query("inspect\n@src"))
@@ -50,6 +56,20 @@ class AttachmentRefsTests(unittest.TestCase):
         self.assertEqual(result.message, "inspect src/app.py please")
         self.assertEqual(len(result.added_paths), 1)
         self.assertTrue(result.queued_paths[0].endswith("src/app.py"))
+
+    def test_resolve_inline_attachment_refs_supports_unquoted_spaces(self) -> None:
+        screenshot = self.cwd / "screenshot 2021.png"
+        screenshot.write_bytes(b"fake")
+
+        result = resolve_inline_attachment_refs(
+            "inspect @screenshot 2021.png please",
+            cwd=self.cwd,
+            existing_paths=[],
+        )
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.message, "inspect screenshot 2021.png please")
+        self.assertTrue(result.queued_paths[0].endswith("screenshot 2021.png"))
 
     def test_resolve_inline_attachment_refs_reports_missing_file(self) -> None:
         result = resolve_inline_attachment_refs(

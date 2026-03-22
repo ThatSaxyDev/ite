@@ -34,6 +34,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_extract_at_query_only_when_editing_trailing_token(self) -> None:
         self.assertEqual(ReupApp._extract_at_query("@"), "")
         self.assertEqual(ReupApp._extract_at_query("inspect @sr"), "sr")
+        self.assertEqual(ReupApp._extract_at_query("inspect @screenshot 2021"), "screenshot 2021")
         self.assertIsNone(ReupApp._extract_at_query("inspect @src/app.py now"))
         self.assertIsNone(ReupApp._extract_at_query("inspect\n@src"))
 

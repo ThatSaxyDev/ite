@@ -31,6 +31,7 @@ dependencies = [
     "PyYAML",
     "pypdf",
     "Pillow",
+    "pytesseract",
     "ddgs",
     "tomli",
     "platformdirs",

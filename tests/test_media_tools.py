@@ -105,6 +105,60 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.success, msg=result.error)
             self.assertIn("Total: 42", result.output)
             self.assertEqual(result.metadata.get("ocr_requested"), True)
+            self.assertEqual(result.metadata.get("ocr_backend"), "tesseract")
+
+    async def test_read_image_returns_structured_recovery_hint_when_ocr_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            image_path = cwd / "receipt.png"
+            image_path.write_bytes(b"fake")
+
+            fake_image = Mock()
+            fake_image.size = (800, 600)
+            fake_image.mode = "RGB"
+            fake_image.format = "PNG"
+            fake_image.info = {}
+            fake_image.__enter__ = Mock(return_value=fake_image)
+            fake_image.__exit__ = Mock(return_value=False)
+            image_module = Mock()
+            image_module.open.return_value = fake_image
+
+            tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
+            with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
+                "ite.tools.builtin.media_tools._ocr_backend_status", return_value=(False, "none")
+            ), patch("ite.tools.builtin.media_tools.platform.system", return_value="Darwin"):
+                result = await tool.execute(ToolInvocation(params={"path": "receipt.png", "ocr": True}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("recoverable"))
+            self.assertFalse(result.metadata.get("ocr_available"))
+            self.assertEqual(result.metadata.get("ocr_backend"), "none")
+            self.assertIn("brew install tesseract", result.metadata.get("recovery_hint", ""))
+
+    async def test_read_image_sanitizes_binary_info_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            image_path = cwd / "shot.png"
+            image_path.write_bytes(b"fake")
+
+            fake_image = Mock()
+            fake_image.size = (100, 50)
+            fake_image.mode = "RGBA"
+            fake_image.format = "PNG"
+            fake_image.info = {"icc_profile": b"\x00\x01binary", "dpi": (72, 72)}
+            fake_image.__enter__ = Mock(return_value=fake_image)
+            fake_image.__exit__ = Mock(return_value=False)
+            image_module = Mock()
+            image_module.open.return_value = fake_image
+
+            tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
+            with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
+                "ite.tools.builtin.media_tools._module_available", side_effect=lambda name: name == "PIL"
+            ):
+                result = await tool.execute(ToolInvocation(params={"path": "shot.png"}, cwd=cwd))
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIsInstance(result.metadata["info"]["icc_profile"], str)
 
     async def test_media_tools_are_registered(self) -> None:
         with tempfile.TemporaryDirectory() as td:
