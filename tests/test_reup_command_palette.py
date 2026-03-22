@@ -121,6 +121,30 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertTrue(handled)
         insert_refs.assert_called_once_with([str(sample)])
 
+    def test_attachment_palette_selection_clears_palette(self) -> None:
+        app = self._app()
+
+        class DummyPrompt:
+            def __init__(self) -> None:
+                self.text = "inspect @rep"
+
+            def load_text(self, value: str) -> None:
+                self.text = value
+
+            def move_cursor(self, _cursor) -> None:
+                return None
+
+        prompt = DummyPrompt()
+        with patch.object(app, "query_one", return_value=prompt), patch.object(
+            app, "_clear_command_palette"
+        ) as clear_palette, patch.object(app, "_resize_composer_for_prompt"):
+            app._apply_attachment_palette_selection(
+                SimpleNamespace(insert_text='@"report one.pdf"', name='@"report one.pdf"')
+            )
+
+        self.assertIn('@"report one.pdf"', prompt.text)
+        clear_palette.assert_called_once()
+
     def test_palette_selection_clamps_at_bounds(self) -> None:
         app = self._app()
         app._filtered_command_palette_options = app._filtered_command_palette("/")

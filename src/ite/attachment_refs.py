@@ -112,6 +112,14 @@ def extract_at_query(text: str) -> str | None:
     if not match:
         return None
     query = match.group(1)
+    stripped_query = query.rstrip()
+    if stripped_query != query:
+        if re.search(r"\.[A-Za-z0-9]{1,8}$", stripped_query):
+            return None
+        if re.match(r'^(?:"[^"\n]+"|\'[^\'\n]+\')$', stripped_query):
+            inner = stripped_query[1:-1]
+            if re.search(r"\.[A-Za-z0-9]{1,8}$", inner):
+                return None
     if re.search(r"\.[A-Za-z0-9]{1,8}\s+\S", query):
         return None
     return query

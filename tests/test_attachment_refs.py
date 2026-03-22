@@ -36,6 +36,8 @@ class AttachmentRefsTests(unittest.TestCase):
         self.assertEqual(extract_at_query("inspect @screenshot 2021"), "screenshot 2021")
         self.assertEqual(extract_at_query("@"), "")
         self.assertIsNone(extract_at_query("inspect @src/app.py later"))
+        self.assertIsNone(extract_at_query("inspect @src/app.py "))
+        self.assertIsNone(extract_at_query('inspect @"report one.pdf" '))
         self.assertIsNone(extract_at_query("inspect\n@src"))
 
     def test_suggest_inline_attachment_paths_matches_relative_paths(self) -> None:

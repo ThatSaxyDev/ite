@@ -945,6 +945,20 @@ class ReupApp(App):
         else:
             palette.update("")
 
+    def _clear_command_palette(self) -> None:
+        self._filtered_command_palette_options = []
+        self._command_palette_index = 0
+        self._command_palette_rows = 0
+        self._palette_mode = "command"
+        if not self.is_mounted:
+            return
+        try:
+            palette = self.query_one("#command-palette", Static)
+        except Exception:
+            return
+        palette.display = False
+        palette.update("")
+
     def _move_command_palette_selection(self, delta: int) -> bool:
         if self._turn_action_payload is not None:
             return self._move_turn_action_selection(delta)
@@ -996,7 +1010,7 @@ class ReupApp(App):
             updated = (text + " " + insert_text).strip()
         prompt.load_text(updated + " ")
         prompt.move_cursor((0, len(prompt.text)))
-        self._sync_command_palette(prompt.text)
+        self._clear_command_palette()
         self._resize_composer_for_prompt()
 
     def _attachment_ref_for_path(self, path: Path) -> str:
