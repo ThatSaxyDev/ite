@@ -169,6 +169,15 @@ class SubagentRuntime:
                 if phase == "agent_end":
                     self._set_activity(run, "Specialist finished.")
                     return
+                if phase == "retrying":
+                    attempt = int(update.get("attempt") or 0)
+                    reason = str(update.get("reason") or "retry").strip()
+                    label = f"Retrying specialist after {reason}"
+                    if attempt > 0:
+                        label += f" (attempt {attempt})"
+                    label += "."
+                    self._set_activity(run, label)
+                    return
 
             try:
                 result = await tool._execute_with_progress(  # type: ignore[attr-defined]

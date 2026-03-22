@@ -845,6 +845,131 @@ class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
             payload = result.metadata.get("subagent_result", {})
             self.assertEqual(payload.get("termination"), "timeout")
 
+    async def test_subagent_retries_after_max_turns_with_carried_context(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            definition = SubagentDefinition(
+                name="retry_turns",
+                description="retry",
+                goal_prompt="retry goal",
+                allowed_tools=["read_file"],
+                retry_attempts=1,
+            )
+            tool = SubagentTool(config, definition)
+            prompts: list[str] = []
+            attempts = {"count": 0}
+
+            async def flaky_run(*, prompt, subagent_config, tool_calls, progress_callback=None):
+                prompts.append(prompt)
+                attempts["count"] += 1
+                tool_calls.append("read_file")
+                if attempts["count"] == 1:
+                    return (
+                        "error",
+                        "Finding: inspected registry wiring\nAction: finish runtime audit",
+                        "Maximum turns (10) reached",
+                        "child-session-1",
+                        10,
+                    )
+                return (
+                    "goal",
+                    '{"summary":"Finished audit","findings":["Recovered prior work"],"actions":["Ship it"]}',
+                    None,
+                    "child-session-2",
+                    4,
+                )
+
+            tool._run_subagent_agent = flaky_run  # type: ignore[method-assign]
+            result = await tool.execute(
+                ToolInvocation(
+                    params={"goal": "finish the audit"},
+                    cwd=cwd,
+                    call_id="call_retry_turns",
+                    session_id="parent_session_retry",
+                )
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(attempts["count"], 2)
+            self.assertEqual(len(prompts), 2)
+            self.assertIn("CONTINUATION CONTEXT FROM PRIOR ATTEMPT(S):", prompts[1])
+            self.assertIn("Maximum turns (10) reached", prompts[1])
+            self.assertIn("finish runtime audit", prompts[1])
+            payload = result.metadata.get("subagent_result", {})
+            trace = result.metadata.get("subagent_trace", {})
+            self.assertEqual(payload.get("summary"), "Finished audit")
+            self.assertEqual(payload.get("retries_used"), 1)
+            self.assertEqual(payload.get("attempt_count"), 2)
+            self.assertTrue(payload.get("recovered_after_retry"))
+            self.assertEqual(trace.get("retries_used"), 1)
+            self.assertEqual(trace.get("attempt_count"), 2)
+            self.assertTrue(trace.get("recovered_after_retry"))
+
+    async def test_subagent_retries_after_timeout_with_carried_context(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            definition = SubagentDefinition(
+                name="retry_timeout",
+                description="retry timeout",
+                goal_prompt="retry timeout",
+                allowed_tools=["read_file"],
+                timeout_seconds=0.01,
+                retry_attempts=1,
+            )
+            tool = SubagentTool(config, definition)
+            prompts: list[str] = []
+            attempts = {"count": 0}
+
+            async def flaky_timeout_run(*, prompt, subagent_config, tool_calls, progress_callback=None):
+                prompts.append(prompt)
+                attempts["count"] += 1
+                tool_calls.append("read_file")
+                if attempts["count"] == 1:
+                    if progress_callback is not None:
+                        maybe = progress_callback(
+                            {
+                                "phase": "tool_call_start",
+                                "tool_name": "read_file",
+                                "arguments": {"path": "src/ite/agent/session.py"},
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
+                    await asyncio.sleep(0.1)
+                    return "goal", "slow", None, "child-session-timeout", 1
+                return (
+                    "goal",
+                    '{"summary":"Recovered after timeout","findings":["Used previous path"],"actions":["Done"]}',
+                    None,
+                    "child-session-timeout-2",
+                    2,
+                )
+
+            tool._run_subagent_agent = flaky_timeout_run  # type: ignore[method-assign]
+            result = await tool.execute(
+                ToolInvocation(
+                    params={"goal": "resume after timeout"},
+                    cwd=cwd,
+                    call_id="call_retry_timeout",
+                    session_id="parent_session_retry",
+                )
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(attempts["count"], 2)
+            self.assertEqual(len(prompts), 2)
+            self.assertIn("CONTINUATION CONTEXT FROM PRIOR ATTEMPT(S):", prompts[1])
+            self.assertIn("termination=timeout", prompts[1])
+            self.assertIn("src/ite/agent/session.py", prompts[1])
+            payload = result.metadata.get("subagent_result", {})
+            trace = result.metadata.get("subagent_trace", {})
+            self.assertEqual(payload.get("summary"), "Recovered after timeout")
+            self.assertEqual(payload.get("retries_used"), 1)
+            self.assertEqual(trace.get("retries_used"), 1)
+            self.assertEqual(trace.get("attempt_count"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

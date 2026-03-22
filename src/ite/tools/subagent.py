@@ -34,6 +34,7 @@ class SubagentDefinition:
     allowed_tools: list[str] | None = None
     max_turns: int = 20
     timeout_seconds: float = 600
+    retry_attempts: int = 1
 
     @classmethod
     def from_dict(cls, data: dict) -> "SubagentDefinition":
@@ -50,6 +51,7 @@ class SubagentDefinition:
             allowed_tools=data.get("allowed_tools"),
             max_turns=data.get("max_turns", 20),
             timeout_seconds=data.get("timeout_seconds", 600),
+            retry_attempts=data.get("retry_attempts", 1),
         )
 
 
@@ -232,7 +234,8 @@ class SubagentTool(Tool):
                 elif event.type == AgentEventType.AGENT_ERROR:
                     terminate_response = "error"
                     error = event.data.get("error", "Unknown error")
-                    final_response = f"Sub-agent failed: {error}"
+                    if final_response is None:
+                        final_response = f"Sub-agent failed: {error}"
                     if progress_callback is not None:
                         maybe = progress_callback(
                             {
@@ -277,6 +280,120 @@ class SubagentTool(Tool):
                 actions.append(stripped.split(":", 1)[-1].strip())
         return text, findings, actions
 
+    @staticmethod
+    def _is_retryable_failure(terminate_response: str, error: str | None) -> bool:
+        if terminate_response == "timeout":
+            return True
+        normalized = str(error or "").strip().lower()
+        return "maximum turns" in normalized
+
+    @staticmethod
+    def _truncate_text(value: str | None, *, limit: int) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)].rstrip() + "..."
+
+    def _attempt_context_lines(self, attempt: dict[str, Any]) -> list[str]:
+        lines: list[str] = []
+        termination = str(attempt.get("termination") or "unknown").strip()
+        error = str(attempt.get("error") or "").strip() or "none"
+        lines.append(f"- Attempt {attempt.get('attempt')}: termination={termination} error={error}")
+
+        summary_text = str(attempt.get("summary") or "").strip()
+        if summary_text:
+            lines.append(f"  Partial summary: {self._truncate_text(summary_text, limit=400)}")
+
+        findings = [
+            str(item).strip()
+            for item in (attempt.get("findings") or [])
+            if str(item).strip()
+        ]
+        if findings:
+            lines.append(
+                "  Partial findings: "
+                + "; ".join(self._truncate_text(item, limit=160) for item in findings[:4])
+            )
+
+        actions = [
+            str(item).strip()
+            for item in (attempt.get("actions") or [])
+            if str(item).strip()
+        ]
+        if actions:
+            lines.append(
+                "  Partial next actions: "
+                + "; ".join(self._truncate_text(item, limit=160) for item in actions[:4])
+            )
+
+        partial_output = str(attempt.get("final_response") or "").strip()
+        if partial_output and partial_output != summary_text:
+            lines.append(f"  Partial output: {self._truncate_text(partial_output, limit=700)}")
+
+        activities = attempt.get("activities") or []
+        if isinstance(activities, list) and activities:
+            lines.append(
+                "  Recent activity: "
+                + " -> ".join(
+                    self._truncate_text(str(item).strip(), limit=120)
+                    for item in activities[-8:]
+                    if str(item).strip()
+                )
+            )
+
+        tool_calls = attempt.get("tool_calls") or []
+        if isinstance(tool_calls, list) and tool_calls:
+            lines.append(
+                "  Tools used: " + ", ".join(str(item).strip() for item in tool_calls if str(item).strip())
+            )
+        return lines
+
+    @staticmethod
+    def _tool_call_activity(tool_name: str, arguments: dict[str, Any]) -> str:
+        details: list[str] = []
+        for key in ("path", "pattern", "command", "query", "goal"):
+            value = arguments.get(key)
+            if isinstance(value, str) and value.strip():
+                details.append(f"{key}={value.strip()}")
+        suffix = f" ({', '.join(details[:2])})" if details else ""
+        return f"Using {tool_name}{suffix}."
+
+    def _build_attempt_prompt(
+        self,
+        *,
+        goal: str,
+        prior_attempts: list[dict[str, Any]],
+    ) -> str:
+        prompt = f"""You are a specialized sub-agent with a specific task to complete.
+
+        {self.definition.goal_prompt}
+
+        YOUR TASK:
+        {goal}
+
+        IMPORTANT:
+        - Focus only on completing the specified task
+        - Do not engage in unrelated actions
+        - Once you have completed the task or have the answer, provide your final response
+        - Be concise and direct in your output
+        """
+
+        if not prior_attempts:
+            return prompt
+
+        carryover_lines: list[str] = [
+            "",
+            "CONTINUATION CONTEXT FROM PRIOR ATTEMPT(S):",
+            "- Continue from the work already completed below instead of restarting from scratch.",
+            "- Reuse the inspected areas and activity trail when deciding the next step.",
+            "- Treat prior partial findings and output as working notes that should be finished and refined.",
+            "- Focus first on the unfinished parts that caused the prior attempt to stop.",
+            "- Avoid redoing broad exploration unless it is necessary to finish the task.",
+        ]
+        for attempt in prior_attempts:
+            carryover_lines.extend(self._attempt_context_lines(attempt))
+        return prompt + "\n".join(carryover_lines)
+
     async def _execute_with_progress(
         self,
         invocation: ToolInvocation,
@@ -297,21 +414,7 @@ class SubagentTool(Tool):
 
         subagent_config = Config(**config_dict)
 
-        prompt = f"""You are a specialized sub-agent with a specific task to complete.
-
-        {self.definition.goal_prompt}
-
-        YOUR TASK:
-        {params.goal}
-
-        IMPORTANT:
-        - Focus only on completing the specified task
-        - Do not engage in unrelated actions
-        - Once you have completed the task or have the answer, provide your final response
-        - Be concise and direct in your output
-        """
-
-        tool_calls: list[str] = []
+        all_tool_calls: list[str] = []
         final_response: str | None = None
         error: str | None = None
         terminate_response = "goal"
@@ -320,12 +423,17 @@ class SubagentTool(Tool):
         child_session_id: str | None = None
         child_turn_count = 0
         live_call_id = str(invocation.call_id or "").strip()
+        prior_attempts: list[dict[str, Any]] = []
+        retries_used = 0
+        attempts_run = 0
 
         if live_call_id:
             self._set_live_progress(
                 call_id=live_call_id,
                 message="Starting specialist session.",
             )
+
+        attempt_activities: list[str] = []
 
         async def tracked_progress(update: dict[str, Any]) -> None:
             if live_call_id:
@@ -338,64 +446,135 @@ class SubagentTool(Tool):
                     )
                 elif phase == "tool_call_start":
                     tool_name = str(update.get("tool_name") or "").strip()
+                    arguments = update.get("arguments", {})
                     if tool_name:
+                        message = self._tool_call_activity(
+                            tool_name,
+                            arguments if isinstance(arguments, dict) else {},
+                        )
                         self._set_live_progress(
                             call_id=live_call_id,
-                            message=f"Using {tool_name}.",
+                            message=message,
                         )
+                        attempt_activities.append(message)
                 elif phase == "text_complete":
                     self._set_live_progress(
                         call_id=live_call_id,
                         message="Drafted specialist response.",
                     )
+                    attempt_activities.append("Drafted specialist response.")
                 elif phase == "agent_error":
                     self._set_live_progress(
                         call_id=live_call_id,
                         message=str(update.get("error") or "Specialist failed.").strip(),
                     )
+                    attempt_activities.append(str(update.get("error") or "Specialist failed.").strip())
                 elif phase == "agent_end":
                     self._set_live_progress(
                         call_id=live_call_id,
                         message="Specialist finished.",
                     )
+                    attempt_activities.append("Specialist finished.")
+                elif phase == "retrying":
+                    reason = str(update.get("reason") or "retry").strip()
+                    attempt = int(update.get("attempt") or 0)
+                    label = f"Retrying specialist after {reason}"
+                    if attempt > 0:
+                        label += f" (attempt {attempt})"
+                    label += "."
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message=label,
+                    )
+                    attempt_activities.append(label)
             if progress_callback is not None:
                 maybe = progress_callback(update)
                 if maybe is not None:
                     await maybe
 
-        try:
-            runner_kwargs: dict[str, Any] = {
-                "prompt": prompt,
-                "subagent_config": subagent_config,
-                "tool_calls": tool_calls,
-            }
-            try:
-                parameters = inspect.signature(self._run_subagent_agent).parameters
-            except (TypeError, ValueError):
-                parameters = {}
-            if "progress_callback" in parameters:
-                runner_kwargs["progress_callback"] = tracked_progress
-            terminate_response, final_response, error, child_session_id, child_turn_count = await asyncio.wait_for(
-                self._run_subagent_agent(**runner_kwargs),
-                timeout=self.definition.timeout_seconds,
+        for attempt_index in range(self.definition.retry_attempts + 1):
+            attempts_run = attempt_index + 1
+            tool_calls: list[str] = []
+            attempt_activities = []
+            prompt = self._build_attempt_prompt(
+                goal=params.goal,
+                prior_attempts=prior_attempts,
             )
-        except asyncio.TimeoutError:
-            terminate_response = "timeout"
-            final_response = "Sub-agent timed out"
+            try:
+                runner_kwargs: dict[str, Any] = {
+                    "prompt": prompt,
+                    "subagent_config": subagent_config,
+                    "tool_calls": tool_calls,
+                }
+                try:
+                    parameters = inspect.signature(self._run_subagent_agent).parameters
+                except (TypeError, ValueError):
+                    parameters = {}
+                if "progress_callback" in parameters:
+                    runner_kwargs["progress_callback"] = tracked_progress
+                terminate_response, final_response, error, child_session_id, child_turn_count = await asyncio.wait_for(
+                    self._run_subagent_agent(**runner_kwargs),
+                    timeout=self.definition.timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                terminate_response = "timeout"
+                final_response = "Sub-agent timed out"
+                error = "Sub-agent timed out"
+                if live_call_id:
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message="Specialist timed out.",
+                    )
+                attempt_activities.append("Specialist timed out.")
+            except Exception as e:
+                terminate_response = "error"
+                error = str(e)
+                final_response = f"Sub-agent failed: {e}"
+                if live_call_id:
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message=str(e),
+                    )
+                attempt_activities.append(str(e))
+
+            all_tool_calls.extend(tool_calls)
+            partial_summary, partial_findings, partial_actions = self._normalize_response_payload(final_response or "")
+            should_retry = (
+                attempt_index < self.definition.retry_attempts
+                and self._is_retryable_failure(terminate_response, error)
+            )
+            if not should_retry:
+                break
+            retries_used += 1
+            prior_attempts.append(
+                {
+                    "attempt": attempt_index + 1,
+                    "termination": terminate_response,
+                    "error": error,
+                    "final_response": final_response,
+                    "summary": partial_summary,
+                    "findings": partial_findings,
+                    "actions": partial_actions,
+                    "activities": attempt_activities,
+                    "tool_calls": list(tool_calls),
+                }
+            )
             if live_call_id:
                 self._set_live_progress(
                     call_id=live_call_id,
-                    message="Specialist timed out.",
+                    message=f"Retrying specialist with carried context (attempt {attempt_index + 2}).",
                 )
-        except Exception as e:
-            terminate_response = "error"
-            error = str(e)
-            final_response = f"Sub-agent failed: {e}"
-            if live_call_id:
-                self._set_live_progress(
-                    call_id=live_call_id,
-                    message=str(e),
+            if progress_callback is not None:
+                maybe = progress_callback(
+                    {
+                        "phase": "retrying",
+                        "attempt": attempt_index + 2,
+                        "reason": terminate_response,
+                    }
                 )
+                if maybe is not None:
+                    await maybe
+            error = None
 
         response_text = final_response or ""
         summary, findings, actions = self._normalize_response_payload(response_text)
@@ -414,7 +593,10 @@ class SubagentTool(Tool):
             "finished_at": finished_at.isoformat(),
             "duration_ms": duration_ms,
             "child_turn_count": child_turn_count,
-            "tool_count": len(tool_calls),
+            "tool_count": len(all_tool_calls),
+            "attempt_count": attempts_run,
+            "retries_used": retries_used,
+            "recovered_after_retry": retries_used > 0 and not error and terminate_response != "timeout",
             "status": "ok" if not error and terminate_response != "timeout" else "error",
             "termination": terminate_response,
         }
@@ -423,10 +605,13 @@ class SubagentTool(Tool):
             "status": trace_payload["status"],
             "subagent": self.definition.name,
             "termination": terminate_response,
-            "tools_used": tool_calls,
+            "tools_used": all_tool_calls,
             "summary": summary,
             "findings": findings,
             "actions": actions,
+            "attempt_count": attempts_run,
+            "retries_used": retries_used,
+            "recovered_after_retry": trace_payload["recovered_after_retry"],
         }
 
         output = json.dumps(result_payload, indent=2)
@@ -435,21 +620,21 @@ class SubagentTool(Tool):
             "subagent_trace": trace_payload,
         }
 
-        if error:
-            if live_call_id:
-                self.clear_live_progress(live_call_id)
-            return ToolResult.error_result(
-                output=output,
-                error=f"Sub-agent '{self.definition.name}' failed",
-                metadata=metadata,
-            )
-
         if terminate_response == "timeout":
             if live_call_id:
                 self.clear_live_progress(live_call_id)
             return ToolResult.error_result(
                 output=output,
                 error=f"Sub-agent '{self.definition.name}' timed out",
+                metadata=metadata,
+            )
+
+        if error:
+            if live_call_id:
+                self.clear_live_progress(live_call_id)
+            return ToolResult.error_result(
+                output=output,
+                error=f"Sub-agent '{self.definition.name}' failed",
                 metadata=metadata,
             )
 
@@ -469,6 +654,7 @@ Your job is to explore and understand code to answer questions.
 Use read_file, grep, glob, and list_dir to investigate.
 Do NOT modify any files.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir"],
+    retry_attempts=2,
 )
 
 CODE_REVIEWER = SubagentDefinition(
@@ -482,6 +668,7 @@ Do NOT modify any files.""",
     allowed_tools=["read_file", "grep", "list_dir"],
     max_turns=30,
     timeout_seconds=600,
+    retry_attempts=2,
 )
 
 TOOLING_GUARDIAN = SubagentDefinition(
@@ -494,6 +681,7 @@ Return concrete findings and actions in concise bullets.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir"],
     max_turns=40,
     timeout_seconds=600,
+    retry_attempts=2,
 )
 
 VERIFICATION_REVIEWER = SubagentDefinition(
@@ -506,6 +694,7 @@ Return concise findings and executable next actions.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir", "shell"],
     max_turns=12,
     timeout_seconds=360,
+    retry_attempts=1,
 )
 
 
