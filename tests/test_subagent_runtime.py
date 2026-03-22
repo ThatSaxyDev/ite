@@ -330,6 +330,139 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
             spawned.metadata["runs"][1]["run_id"],
         )
 
+    async def test_spawn_subagents_rejects_oversized_batch(self) -> None:
+        spawn_many = self.registry.get("spawn_subagents")
+        assert spawn_many is not None
+
+        spawned = await spawn_many.execute(
+            ToolInvocation(
+                params={
+                    "requests": [
+                        {"subagent": "codebase_investigator", "goal": f"inspect target {index}"}
+                        for index in range(9)
+                    ]
+                },
+                cwd=self.cwd,
+            )
+        )
+
+        self.assertFalse(spawned.success)
+        self.assertIn("Too many subagents requested", spawned.error or "")
+        self.assertEqual(spawned.metadata["max_batch_size"], 8)
+        self.assertEqual(spawned.metadata["requested_count"], 9)
+
+    async def test_runtime_prunes_finished_tasks(self) -> None:
+        tool = self.registry.get("subagent_codebase_investigator")
+        assert tool is not None
+
+        async def fast_execute_with_progress(
+            invocation: ToolInvocation,
+            progress_callback=None,
+        ) -> ToolResult:
+            payload = {
+                "status": "ok",
+                "subagent": "codebase_investigator",
+                "termination": "goal",
+                "tools_used": [],
+                "summary": "done",
+                "findings": [],
+                "actions": [],
+            }
+            trace = {
+                "child_session_id": "child_1",
+                "duration_ms": 1,
+                "child_turn_count": 1,
+                "termination": "goal",
+            }
+            return ToolResult.success_result(
+                json.dumps(payload),
+                metadata={"subagent_result": payload, "subagent_trace": trace},
+            )
+
+        tool._execute_with_progress = fast_execute_with_progress  # type: ignore[method-assign]
+        spawn = self.registry.get("spawn_subagent")
+        wait = self.registry.get("wait_subagent")
+        assert spawn is not None and wait is not None
+
+        spawned = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "inspect cleanup"},
+                cwd=self.cwd,
+            )
+        )
+        run_id = spawned.metadata["run"]["run_id"]
+        self.assertIn(run_id, self.runtime._tasks)
+
+        waited = await wait.execute(
+            ToolInvocation(
+                params={"run_ids": [run_id], "timeout_seconds": 1, "return_when": "all_completed"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertTrue(waited.success, msg=waited.error)
+        await asyncio.sleep(0)
+        self.assertNotIn(run_id, self.runtime._tasks)
+
+    async def test_runtime_prunes_old_terminal_runs(self) -> None:
+        tool = self.registry.get("subagent_codebase_investigator")
+        assert tool is not None
+
+        async def fast_execute_with_progress(
+            invocation: ToolInvocation,
+            progress_callback=None,
+        ) -> ToolResult:
+            payload = {
+                "status": "ok",
+                "subagent": "codebase_investigator",
+                "termination": "goal",
+                "tools_used": [],
+                "summary": invocation.params["goal"],
+                "findings": [],
+                "actions": [],
+            }
+            trace = {
+                "child_session_id": "child_1",
+                "duration_ms": 1,
+                "child_turn_count": 1,
+                "termination": "goal",
+            }
+            return ToolResult.success_result(
+                json.dumps(payload),
+                metadata={"subagent_result": payload, "subagent_trace": trace},
+            )
+
+        tool._execute_with_progress = fast_execute_with_progress  # type: ignore[method-assign]
+        spawn = self.registry.get("spawn_subagent")
+        wait = self.registry.get("wait_subagent")
+        assert spawn is not None and wait is not None
+
+        original_limit = self.runtime.MAX_TERMINAL_RUNS
+        self.runtime.MAX_TERMINAL_RUNS = 2
+        self.addCleanup(setattr, self.runtime, "MAX_TERMINAL_RUNS", original_limit)
+
+        run_ids: list[str] = []
+        for index in range(4):
+            spawned = await spawn.execute(
+                ToolInvocation(
+                    params={"subagent": "codebase_investigator", "goal": f"inspect run {index}"},
+                    cwd=self.cwd,
+                )
+            )
+            run_ids.append(spawned.metadata["run"]["run_id"])
+
+        waited = await wait.execute(
+            ToolInvocation(
+                params={"run_ids": run_ids, "timeout_seconds": 1, "return_when": "all_completed"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertTrue(waited.success, msg=waited.error)
+        await asyncio.sleep(0)
+
+        remaining = [run.run_id for run in self.runtime.list_runs()]
+        self.assertEqual(len(remaining), 2)
+        self.assertEqual(remaining, run_ids[-2:])
+
 
 if __name__ == "__main__":
     unittest.main()

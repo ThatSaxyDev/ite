@@ -73,6 +73,38 @@ class ReupToolViewsTests(unittest.TestCase):
         self.assertIn("Findings", joined)
         self.assertIn("Failure", joined)
 
+    def test_render_subagent_payload_shows_retry_recovery_metadata(self) -> None:
+        blocks, was_truncated = render_subagent_payload(
+            output='{"summary":"Recovered audit","termination":"goal","tools_used":["grep"],"findings":[],"actions":[]}',
+            metadata={
+                "subagent_result": {
+                    "summary": "Recovered audit",
+                    "termination": "goal",
+                    "tools_used": ["grep"],
+                    "findings": [],
+                    "actions": [],
+                    "recovered_after_retry": True,
+                },
+                "subagent_trace": {
+                    "child_session_id": "child-session-2",
+                    "duration_ms": 220,
+                    "child_turn_count": 8,
+                    "attempt_count": 2,
+                    "retries_used": 1,
+                    "termination": "goal",
+                },
+            },
+            success=True,
+            error=None,
+        )
+
+        self.assertFalse(was_truncated)
+        text_blocks = [block.plain for block in blocks if isinstance(block, Text)]
+        joined = "\n".join(text_blocks)
+        self.assertIn("2 attempts", joined)
+        self.assertIn("1 retries", joined)
+        self.assertIn("Recovered after retry.", joined)
+
     def test_render_subagent_runtime_payload_shows_run_states(self) -> None:
         blocks = render_subagent_runtime_payload(
             metadata={

@@ -600,12 +600,26 @@ def render_subagent_payload(
         child_turn_count = trace.get("child_turn_count")
         if isinstance(child_turn_count, int):
             trace_parts.append(f"{child_turn_count} turns")
+        attempt_count = trace.get("attempt_count")
+        if isinstance(attempt_count, int) and attempt_count > 1:
+            trace_parts.append(f"{attempt_count} attempts")
+        retries_used = trace.get("retries_used")
+        if isinstance(retries_used, int) and retries_used > 0:
+            trace_parts.append(f"{retries_used} retries")
     if termination:
         trace_parts.append(f"termination={termination}")
     if isinstance(tools_used, list):
         trace_parts.append(f"tools={len(tools_used)}")
     if trace_parts:
         blocks.append(Text(" • ".join(trace_parts), style="#8c97ab"))
+
+    recovered_after_retry = False
+    if isinstance(payload.get("recovered_after_retry"), bool):
+        recovered_after_retry = payload.get("recovered_after_retry") is True
+    elif isinstance(trace, dict):
+        recovered_after_retry = trace.get("recovered_after_retry") is True
+    if recovered_after_retry:
+        blocks.append(Text("Recovered after retry.", style="#7cc7ff"))
 
     if summary:
         summary_display, truncated = truncate_for_tool("subagent", summary)

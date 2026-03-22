@@ -49,6 +49,8 @@ class SubagentRun:
 
 
 class SubagentRuntime:
+    MAX_TERMINAL_RUNS = 50
+
     def __init__(self, *, config: Config, session_id: str, tool_registry) -> None:
         self.config = config
         self.session_id = session_id
@@ -56,6 +58,31 @@ class SubagentRuntime:
         self._runs: dict[str, SubagentRun] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._counter = 0
+
+    def _drop_finished_task(self, run_id: str) -> None:
+        task = self._tasks.get(run_id)
+        if task is None or not task.done():
+            return
+        self._tasks.pop(run_id, None)
+
+    def _prune_terminal_runs(self) -> None:
+        terminal_statuses = {"completed", "failed", "timeout", "cancelled"}
+        terminal_runs = [
+            run
+            for run in self._runs.values()
+            if run.status in terminal_statuses
+        ]
+        if len(terminal_runs) <= self.MAX_TERMINAL_RUNS:
+            return
+        terminal_runs.sort(
+            key=lambda run: (
+                run.finished_at or run.created_at,
+                run.run_id,
+            )
+        )
+        overflow = len(terminal_runs) - self.MAX_TERMINAL_RUNS
+        for run in terminal_runs[:overflow]:
+            self._runs.pop(run.run_id, None)
 
     @staticmethod
     def _goal_key(goal: str) -> str:
@@ -212,8 +239,12 @@ class SubagentRuntime:
                     int((finished_at - started_at).total_seconds() * 1000),
                 )
                 self._set_activity(run, run.error)
+            finally:
+                self._prune_terminal_runs()
 
-        self._tasks[run_id] = asyncio.create_task(_runner(), name=run_id)
+        task = asyncio.create_task(_runner(), name=run_id)
+        task.add_done_callback(lambda _task, rid=run_id: self._drop_finished_task(rid))
+        self._tasks[run_id] = task
         return run, False
 
     def _apply_result(
@@ -273,6 +304,7 @@ class SubagentRuntime:
             run.status = "timeout"
         else:
             run.status = "failed"
+        self._prune_terminal_runs()
 
     async def wait(
         self,

@@ -68,6 +68,7 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("launch one distinct `spawn_subagent` per target before calling `wait_subagent`", prompt)
         self.assertIn("do not wait after only one launch if more independent targets remain", prompt)
         self.assertIn("do not switch to overlapping local investigation", prompt)
+        self.assertEqual(prompt.count("- **Sub-Agents:**"), 1)
 
 
 if __name__ == "__main__":

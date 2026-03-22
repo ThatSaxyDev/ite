@@ -153,10 +153,22 @@ class SpawnSubagentsTool(SpawnSubagentTool):
     name = "spawn_subagents"
     description = "Start multiple subagent runs in parallel so the parent can wait on all of them later."
     schema = SpawnSubagentsParams
+    MAX_BATCH_SIZE = 8
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = SpawnSubagentsParams(**invocation.params)
         runtime = self._require_runtime()
+        if len(params.requests) > self.MAX_BATCH_SIZE:
+            return ToolResult.error_result(
+                error=(
+                    f"Too many subagents requested in one batch: {len(params.requests)}. "
+                    f"Maximum allowed is {self.MAX_BATCH_SIZE}."
+                ),
+                metadata={
+                    "max_batch_size": self.MAX_BATCH_SIZE,
+                    "requested_count": len(params.requests),
+                },
+            )
 
         runs: list[dict[str, Any]] = []
         reused_count = 0
