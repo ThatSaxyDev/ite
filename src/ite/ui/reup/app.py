@@ -4799,7 +4799,7 @@ class ReupApp(App):
                     if not isinstance(history, list) or not history:
                         continue
                     recent = []
-                    for entry in history[-2:]:
+                    for entry in history[-3:]:
                         if not isinstance(entry, dict):
                             continue
                         message = str(entry.get("message") or "").strip()
@@ -4812,8 +4812,9 @@ class ReupApp(App):
                     history_lines.append(
                         Text(f"{run.run_id} recent activity", style="bold #d8ab74")
                     )
-                    for line in recent:
-                        history_lines.append(Text(f"• {line}", style="#8c97ab"))
+                    for index, line in enumerate(recent):
+                        style = "#edf1f7" if index == len(recent) - 1 else "#8c97ab"
+                        history_lines.append(Text(f"• {line}", style=style))
                 blocks.extend(history_lines)
             else:
                 blocks.append(Text("No matching specialist runs found.", style="#8c97ab"))

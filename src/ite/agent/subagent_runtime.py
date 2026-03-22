@@ -13,7 +13,6 @@ from ite.config.config import Config
 from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolResult
 from ite.tools.subagent import SubagentTool
-from ite.ui.tool_narrative import describe_tool_activity
 
 
 def _utcnow() -> datetime:
@@ -242,10 +241,9 @@ class SubagentRuntime:
                     if tool_name:
                         self._set_activity(
                             run,
-                            describe_tool_activity(
+                            SubagentTool._tool_call_activity(
                                 tool_name,
                                 arguments if isinstance(arguments, dict) else {},
-                                stage="start",
                             ),
                         )
                     return

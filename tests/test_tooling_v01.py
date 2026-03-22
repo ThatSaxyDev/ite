@@ -962,7 +962,7 @@ class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(prompts), 2)
             self.assertIn("CONTINUATION CONTEXT FROM PRIOR ATTEMPT(S):", prompts[1])
             self.assertIn("termination=timeout", prompts[1])
-            self.assertIn("src/ite/agent/session.py", prompts[1])
+            self.assertIn("Reading session.py.", prompts[1])
             payload = result.metadata.get("subagent_result", {})
             trace = result.metadata.get("subagent_trace", {})
             self.assertEqual(payload.get("summary"), "Recovered after timeout")

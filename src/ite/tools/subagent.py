@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
+from pathlib import Path
 from typing import Any
 from typing import Awaitable
 from typing import Callable
@@ -349,14 +350,40 @@ class SubagentTool(Tool):
         return lines
 
     @staticmethod
+    def _short_target_path(path: str | None) -> str:
+        text = str(path or "").strip()
+        if not text:
+            return ""
+        trimmed = text.rstrip("/").strip()
+        if not trimmed or trimmed == ".":
+            return "the workspace"
+        return Path(trimmed).name or trimmed
+
+    @staticmethod
     def _tool_call_activity(tool_name: str, arguments: dict[str, Any]) -> str:
-        details: list[str] = []
-        for key in ("path", "pattern", "command", "query", "goal"):
-            value = arguments.get(key)
-            if isinstance(value, str) and value.strip():
-                details.append(f"{key}={value.strip()}")
-        suffix = f" ({', '.join(details[:2])})" if details else ""
-        return f"Using {tool_name}{suffix}."
+        path = SubagentTool._short_target_path(arguments.get("path"))
+        pattern = str(arguments.get("pattern") or "").strip()
+
+        if tool_name == "read_file":
+            if path:
+                return f"Reading {path}."
+            return "Reading workspace files."
+        if tool_name == "grep":
+            if path and path != "the workspace" and pattern:
+                return f"Searching {path} for `{pattern}`."
+            if pattern:
+                return f"Searching code for `{pattern}`."
+            return "Searching code."
+        if tool_name == "glob":
+            raw_pattern = str(arguments.get("pattern") or "").strip()
+            if raw_pattern:
+                return f"Finding files matching `{raw_pattern}`."
+            return "Finding files."
+        if tool_name == "list_dir":
+            if path and path != "the workspace":
+                return f"Looking in {path}."
+            return "Looking through the workspace."
+        return f"Using {tool_name}."
 
     def _build_attempt_prompt(
         self,

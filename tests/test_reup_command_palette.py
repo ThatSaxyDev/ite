@@ -374,7 +374,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 tool_registry=SimpleNamespace(
                     get=lambda _name: SimpleNamespace(
                         get_live_progress=lambda _call_id: {
-                            "current_activity": "Using grep.",
+                            "current_activity": "Reading subagent.py.",
                             "last_update_at": "2026-03-22T00:00:01+00:00",
                             "child_session_id": "child-session-1",
                             "activity_history": [
@@ -384,7 +384,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                                 },
                                 {
                                     "at": "2026-03-22T00:00:01+00:00",
-                                    "message": "Using grep.",
+                                    "message": "Reading subagent.py.",
                                 },
                             ],
                         }
@@ -403,9 +403,45 @@ class ReupCommandPaletteTests(unittest.TestCase):
         text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
         self.assertIn("Asking specialist", text)
         self.assertIn("Inspect subagent architecture", text)
-        self.assertIn("Using grep.", text)
+        self.assertIn("Reading subagent.py.", text)
         self.assertIn("child session child-session-1", text)
         self.assertIn("Recent activity", text)
+
+    def test_render_wait_subagent_running_card_shows_three_recent_entries_per_run(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                subagent_runtime=SimpleNamespace(
+                    list_runs=lambda: [
+                        SimpleNamespace(
+                            run_id="subrun_0001",
+                            status="running",
+                            summary="Summary 1",
+                            goal="Goal 1",
+                            current_activity="Reading subagent.py.",
+                            started_at="2026-03-22T00:00:00+00:00",
+                            last_update_at="2026-03-22T00:00:03+00:00",
+                            activity_history=[
+                                {"at": "2026-03-22T00:00:00+00:00", "message": "Looking through the workspace."},
+                                {"at": "2026-03-22T00:00:01+00:00", "message": "Finding files matching `*subagent*.py`."},
+                                {"at": "2026-03-22T00:00:02+00:00", "message": "Reading subagent_loader.py."},
+                                {"at": "2026-03-22T00:00:03+00:00", "message": "Reading subagent.py."},
+                            ],
+                        )
+                    ]
+                )
+            )
+        )
+
+        rendered = app._render_wait_subagent_running_card(
+            args={"return_when": "all_completed"},
+            spinner_index=0,
+        )
+
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        self.assertIn("Finding files matching `*subagent*.py`.", text)
+        self.assertIn("Reading subagent_loader.py.", text)
+        self.assertIn("Reading subagent.py.", text)
 
     def test_tool_completion_icon_tracks_tool_category_and_outcome(self) -> None:
         self.assertEqual(
