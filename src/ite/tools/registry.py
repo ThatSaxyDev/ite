@@ -371,6 +371,10 @@ class ToolRegistry:
         params: dict[str, Any],
     ) -> dict[str, Any]:
         normalized = dict(params)
+        raw_text = ""
+        raw_value = normalized.get("raw_arguments", normalized.get("raw"))
+        if isinstance(raw_value, str):
+            raw_text = raw_value
 
         def adopt(target: str, *aliases: str) -> None:
             existing = normalized.get(target)
@@ -381,6 +385,20 @@ class ToolRegistry:
                 if value in (None, ""):
                     continue
                 normalized[target] = value
+                return
+
+        def adopt_from_raw(target: str, *aliases: str) -> None:
+            existing = normalized.get(target)
+            if existing not in (None, ""):
+                return
+            if not raw_text.strip():
+                return
+            for alias in aliases:
+                pattern = rf'"{re.escape(alias)}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+                match = re.search(pattern, raw_text)
+                if not match:
+                    continue
+                normalized[target] = bytes(match.group(1), "utf-8").decode("unicode_escape")
                 return
 
         if tool_name == "grep":
@@ -437,6 +455,115 @@ class ToolRegistry:
             adopt("patch", "content", "patch_text", "text")
             if "preview" in normalized and "dry_run" not in normalized:
                 normalized["dry_run"] = bool(normalized.get("preview"))
+            return normalized
+
+        if tool_name == "spawn_subagent":
+            adopt(
+                "subagent",
+                "specialist",
+                "agent",
+                "worker",
+                "subagent_name",
+                "specialist_name",
+                "name",
+                "topic",
+                "area",
+            )
+            adopt_from_raw(
+                "subagent",
+                "subagent",
+                "specialist",
+                "agent",
+                "worker",
+                "subagent_name",
+                "specialist_name",
+                "name",
+                "topic",
+                "area",
+            )
+            adopt(
+                "goal",
+                "task",
+                "prompt",
+                "objective",
+                "request",
+                "instruction",
+                "work",
+                "description",
+            )
+            adopt_from_raw(
+                "goal",
+                "goal",
+                "task",
+                "prompt",
+                "objective",
+                "request",
+                "instruction",
+                "work",
+                "description",
+            )
+            return normalized
+
+        if tool_name == "spawn_subagents":
+            requests = normalized.get("requests")
+            if not isinstance(requests, list):
+                candidates = normalized.get("items")
+                if not isinstance(candidates, list):
+                    candidates = normalized.get("subagents")
+                if isinstance(candidates, list):
+                    requests = []
+                    for item in candidates:
+                        if not isinstance(item, dict):
+                            continue
+                        request = dict(item)
+                        subagent = (
+                            request.get("subagent")
+                            or request.get("specialist")
+                            or request.get("agent")
+                            or request.get("worker")
+                            or request.get("name")
+                            or request.get("topic")
+                            or request.get("area")
+                        )
+                        goal = (
+                            request.get("goal")
+                            or request.get("task")
+                            or request.get("prompt")
+                            or request.get("objective")
+                            or request.get("request")
+                            or request.get("instruction")
+                            or request.get("description")
+                            or request.get("work")
+                        )
+                        normalized_request: dict[str, Any] = {}
+                        if subagent not in (None, ""):
+                            normalized_request["subagent"] = subagent
+                        if goal not in (None, ""):
+                            normalized_request["goal"] = goal
+                        requests.append(normalized_request)
+                    normalized["requests"] = requests
+            return normalized
+
+        if tool_name == "wait_subagent":
+            adopt("run_ids", "runs", "ids", "run_id")
+            adopt_from_raw("run_ids", "runs", "ids", "run_id")
+            if isinstance(normalized.get("run_ids"), str):
+                normalized["run_ids"] = [normalized["run_ids"]]
+            adopt("timeout_seconds", "timeout", "wait_seconds")
+            adopt("return_when", "mode", "wait_for")
+            adopt_from_raw("return_when", "mode", "wait_for", "return_when")
+            return normalized
+
+        if tool_name == "cancel_subagent":
+            adopt("run_ids", "runs", "ids", "run_id")
+            adopt_from_raw("run_ids", "runs", "ids", "run_id")
+            if isinstance(normalized.get("run_ids"), str):
+                normalized["run_ids"] = [normalized["run_ids"]]
+            return normalized
+
+        if tool_name == "list_subagents":
+            adopt("status", "statuses", "state")
+            adopt_from_raw("status", "statuses", "state", "status")
             return normalized
 
         return normalized

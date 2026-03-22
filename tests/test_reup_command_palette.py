@@ -12,6 +12,7 @@ from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
+from rich.table import Table
 from textual.widgets import Static
 
 
@@ -218,6 +219,50 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )[0],
             "⌛",
         )
+
+    def test_render_wait_subagent_running_card_shows_live_run_state(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                subagent_runtime=SimpleNamespace(
+                    list_runs=lambda: [
+                        SimpleNamespace(
+                            run_id="subrun_0001",
+                            status="running",
+                            summary="Inspect tool registry internals",
+                            goal="Inspect tool registry internals",
+                            current_activity="Searching code in src/ite.",
+                            started_at="2026-03-22T00:00:00+00:00",
+                            last_update_at="2026-03-22T00:00:01+00:00",
+                            activity_history=[
+                                {
+                                    "at": "2026-03-22T00:00:00+00:00",
+                                    "message": "Starting specialist session.",
+                                },
+                                {
+                                    "at": "2026-03-22T00:00:01+00:00",
+                                    "message": "Searching code in src/ite.",
+                                },
+                            ],
+                        )
+                    ]
+                )
+            )
+        )
+
+        rendered = app._render_wait_subagent_running_card(
+            args={"run_ids": ["subrun_0001"], "return_when": "all_completed"},
+            spinner_index=0,
+        )
+
+        text = "".join(
+            getattr(part, "plain", str(part))
+            for part in rendered.renderables
+        )
+        self.assertIn("Waiting on specialists", text)
+        self.assertIn("recent activity", text.lower())
+        self.assertIn("Searching code in src/ite.", text)
+        self.assertTrue(any(isinstance(part, Table) for part in rendered.renderables))
         self.assertEqual(
             ReupApp._shell_card_icon_and_style(
                 {"status": "idle", "running": True},
@@ -246,6 +291,121 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )[0],
             "❌",
         )
+
+    def test_render_wait_subagent_running_card_prioritizes_more_runs_over_extra_history(self) -> None:
+        app = self._app()
+        runs = []
+        for index in range(4):
+            runs.append(
+                SimpleNamespace(
+                    run_id=f"subrun_000{index + 1}",
+                    status="running",
+                    summary=f"Summary {index + 1}",
+                    goal=f"Goal {index + 1}",
+                    current_activity=f"Activity {index + 1}",
+                    started_at="2026-03-22T00:00:00+00:00",
+                    last_update_at="2026-03-22T00:00:01+00:00",
+                    activity_history=[
+                        {
+                            "at": "2026-03-22T00:00:00+00:00",
+                            "message": "Starting specialist session.",
+                        },
+                        {
+                            "at": "2026-03-22T00:00:01+00:00",
+                            "message": f"Activity {index + 1}",
+                        },
+                    ],
+                )
+            )
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                subagent_runtime=SimpleNamespace(list_runs=lambda: runs)
+            )
+        )
+
+        rendered = app._render_wait_subagent_running_card(
+            args={"return_when": "all_completed"},
+            spinner_index=0,
+        )
+
+        table = next(part for part in rendered.renderables if isinstance(part, Table))
+        self.assertEqual(len(table.rows), 4)
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        self.assertIn("subrun_0001 recent activity", text)
+        self.assertIn("subrun_0002 recent activity", text)
+        self.assertIn("subrun_0003 recent activity", text)
+        self.assertIn("subrun_0004 recent activity", text)
+
+    def test_render_wait_subagent_running_card_compacts_completed_result_to_one_line(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                subagent_runtime=SimpleNamespace(
+                    list_runs=lambda: [
+                        SimpleNamespace(
+                            run_id="subrun_0002",
+                            status="completed",
+                            summary="## Subagent Session & Runtime Behavior - Findings Report\n\n## 1. Session Creation\nMore details here.",
+                            goal="Inspect runtime wiring",
+                            current_activity="## Subagent Session & Runtime Behavior - Findings Report\n\n## 1. Session Creation",
+                            started_at="2026-03-22T00:00:00+00:00",
+                            last_update_at="2026-03-22T00:00:01+00:00",
+                            activity_history=[],
+                        )
+                    ]
+                )
+            )
+        )
+
+        rendered = app._render_wait_subagent_running_card(
+            args={"return_when": "all_completed"},
+            spinner_index=0,
+        )
+
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        self.assertNotIn("Session Creation", text)
+        table = next(part for part in rendered.renderables if isinstance(part, Table))
+        self.assertEqual(len(table.rows), 1)
+
+    def test_render_subagent_running_card_shows_live_specialist_activity(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                tool_registry=SimpleNamespace(
+                    get=lambda _name: SimpleNamespace(
+                        get_live_progress=lambda _call_id: {
+                            "current_activity": "Using grep.",
+                            "last_update_at": "2026-03-22T00:00:01+00:00",
+                            "child_session_id": "child-session-1",
+                            "activity_history": [
+                                {
+                                    "at": "2026-03-22T00:00:00+00:00",
+                                    "message": "Starting specialist session.",
+                                },
+                                {
+                                    "at": "2026-03-22T00:00:01+00:00",
+                                    "message": "Using grep.",
+                                },
+                            ],
+                        }
+                    )
+                )
+            )
+        )
+
+        rendered = app._render_subagent_running_card(
+            call_id="call_1",
+            name="subagent_codebase_investigator",
+            args={"goal": "Inspect subagent architecture"},
+            spinner_index=0,
+        )
+
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        self.assertIn("Asking specialist", text)
+        self.assertIn("Inspect subagent architecture", text)
+        self.assertIn("Using grep.", text)
+        self.assertIn("child session child-session-1", text)
+        self.assertIn("Recent activity", text)
 
     def test_tool_completion_icon_tracks_tool_category_and_outcome(self) -> None:
         self.assertEqual(

@@ -54,6 +54,8 @@ def activity_title(
         return "Stopping shell session" if running else ("Shell session stopped" if done else "Shell session stop failed")
     if name == "spawn_subagent":
         return "Spawning specialist" if running else ("Specialist started" if done else "Specialist spawn failed")
+    if name == "spawn_subagents":
+        return "Spawning specialists" if running else ("Specialists started" if done else "Specialist batch failed")
     if name == "wait_subagent":
         return "Waiting on specialists" if running else ("Specialist wait finished" if done else "Specialist wait failed")
     if name == "list_subagents":
@@ -296,12 +298,37 @@ def describe_tool_activity(
             runs = metadata.get("run") if isinstance(metadata.get("run"), dict) else {}
             run_id = str(runs.get("run_id") or "").strip()
             suffix = f" (`{run_id}`)" if run_id else ""
+            if metadata.get("reused_existing") is True:
+                if subagent:
+                    return f"Reused active specialist `{subagent}`{suffix}."
+                return f"Reused active specialist{suffix}."
             if subagent:
                 return f"Started specialist `{subagent}`{suffix}."
             return f"Started specialist{suffix}."
         if subagent:
             return f"Failed to start specialist `{subagent}`."
         return "Failed to start specialist."
+
+    if name == "spawn_subagents":
+        requests = args.get("requests")
+        count = len(requests) if isinstance(requests, list) else 0
+        if stage == "start":
+            if count:
+                return f"Starting {count} specialist run{'s' if count != 1 else ''}."
+            return "Starting specialist batch."
+        if success:
+            actual_count = metadata.get("count")
+            reused_count = metadata.get("reused_existing_count")
+            count_text = actual_count if isinstance(actual_count, int) else count
+            reused_text = (
+                f" Reused {reused_count} existing run{'s' if reused_count != 1 else ''}."
+                if isinstance(reused_count, int) and reused_count > 0
+                else ""
+            )
+            if count_text:
+                return f"Started {count_text} specialist run{'s' if count_text != 1 else ''}.{reused_text}"
+            return f"Started specialist batch.{reused_text}"
+        return "Failed to start specialist batch."
 
     if name == "wait_subagent":
         if stage == "start":

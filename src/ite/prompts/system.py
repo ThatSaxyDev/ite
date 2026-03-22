@@ -234,7 +234,8 @@ You are a coding agent. Please keep going until the query is completely resolved
   - `episodic`: For recording key decisions or milestones during a session (e.g., "Fixed race condition in worker pool"). Append-only with timestamps.
   Do *not* store general project context in `long_term` — use `semantic` for that.
 - **Task Management:** Use the `todos` tool to track multi-step tasks with scope awareness. Use `scope=execution` for user-facing implementation progress and `scope=planning` for planner-internal breakdowns. Start with execution todos for multi-step work, update them as work evolves, complete tasks immediately when done, and remove tasks that are no longer valid.
-- **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow.
+- **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow. If the user explicitly asks for parallel work across multiple named targets, launch one distinct `spawn_subagent` per target before calling `wait_subagent`, do not wait after only one launch if more independent targets remain, and do not switch to overlapping local investigation for those same targets before the fan-out is complete.
+- **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow. If the user explicitly asks for parallel work across multiple named targets, prefer a single `spawn_subagents` call that contains all targets. If `spawn_subagents` is not used, launch one distinct `spawn_subagent` per target before calling `wait_subagent`, do not wait after only one launch if more independent targets remain, and do not switch to overlapping local investigation for those same targets before the fan-out is complete.
 
 ## Error Recovery
 
@@ -443,7 +444,14 @@ You have access to the following tools to accomplish your tasks:
    - Sub-agents run with isolated context and have limited tool access
    - Provide clear, specific goals when invoking sub-agents
    - For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead
-   - Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis"""
+   - Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis
+   - If multiple independent specialist tasks can run in parallel, prefer `spawn_subagent` for each one, continue gathering context locally, then use `wait_subagent` to join results
+   - If multiple independent specialist tasks can run in parallel, prefer one `spawn_subagents` call containing all requests; otherwise issue all needed `spawn_subagent` calls before waiting
+   - When the user explicitly asks for parallel work across multiple named targets, fan out first: launch one distinct `spawn_subagent` per target before calling `wait_subagent`
+   - Do not call `wait_subagent` after launching only one run if more independent targets are still unassigned
+   - Do not switch to overlapping local investigation for those same targets until you have either launched all intended specialist runs or intentionally decided not to parallelize
+   - Use `list_subagents` to inspect active runs and `cancel_subagent` to stop work that is no longer needed
+   - Prefer the blocking `subagent_*` tools only when you need one specialist result immediately before the next step"""
 
     return guidelines
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -651,6 +653,127 @@ def render_subagent_payload(
             blocks.append(Text("No output", style="#8c97ab"))
 
     return blocks, was_truncated
+
+
+def render_subagent_runtime_payload(
+    *,
+    metadata: dict[str, Any] | None,
+    output: str = "",
+    error: str | None = None,
+    success: bool = True,
+    collapse_completed: bool = False,
+) -> list[Any]:
+    def age_label(value: Any) -> str:
+        if not isinstance(value, str) or not value.strip():
+            return ""
+        try:
+            updated_at = datetime.fromisoformat(value)
+            now = datetime.now(updated_at.tzinfo or timezone.utc)
+            seconds = max(0, int((now - updated_at).total_seconds()))
+        except Exception:
+            return ""
+        if seconds < 2:
+            return "updated just now"
+        if seconds < 60:
+            return f"updated {seconds}s ago"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"updated {minutes}m ago"
+        hours = minutes // 60
+        return f"updated {hours}h ago"
+
+    md = metadata if isinstance(metadata, dict) else {}
+    blocks: list[Any] = []
+
+    requested_subagent = str(md.get("requested_subagent") or "").strip()
+    selected_subagent = str(md.get("selected_subagent") or "").strip()
+    if md.get("reused_existing") is True:
+        blocks.append(Text("Reused matching active specialist run.", style="#8c97ab"))
+    if requested_subagent and selected_subagent:
+        blocks.append(
+            Text(
+                f"Used `{selected_subagent}` for requested specialist `{requested_subagent}`.",
+                style="#8c97ab",
+            )
+        )
+
+    available_subagents = md.get("available_subagents")
+    if isinstance(available_subagents, list) and available_subagents:
+        blocks.append(
+            Text(
+                "Available specialists: " + ", ".join(str(item) for item in available_subagents if str(item).strip()),
+                style="#8c97ab",
+            )
+        )
+
+    runs = md.get("runs")
+    if not isinstance(runs, list) or not runs:
+        run = md.get("run")
+        runs = [run] if isinstance(run, dict) else []
+
+    if not runs:
+        failure_text = str(error or output or "").strip()
+        if failure_text and not success:
+            blocks.append(Text("Failure", style="bold #d8ab74"))
+            blocks.append(render_text_payload(failure_text, success=False))
+        else:
+            blocks.append(Text("No specialist runs.", style="#8c97ab"))
+        return blocks
+
+    table = Table.grid(padding=(0, 1))
+    table.add_column(style="#b7c8e1", no_wrap=True)
+    table.add_column(style="#8c97ab", no_wrap=True)
+    table.add_column(style="#dfe4ea")
+
+    for run in runs[:12]:
+        if not isinstance(run, dict):
+            continue
+        run_id = str(run.get("run_id") or "").strip()
+        status = str(run.get("status") or "").strip()
+        if collapse_completed and status in {"completed", "failed", "timeout", "cancelled"}:
+            detail = ""
+        else:
+            detail = str(
+                run.get("current_activity")
+                or run.get("summary")
+                or run.get("goal")
+                or ""
+            ).strip()
+            freshness = age_label(run.get("last_update_at"))
+            if freshness:
+                detail = f"{freshness}  •  {detail}" if detail else freshness
+        if len(detail) > 120:
+            detail = detail[:117].rstrip() + "..."
+        table.add_row(run_id, status or "unknown", detail or " ")
+
+    blocks.append(table)
+
+    first_run = runs[0] if runs and isinstance(runs[0], dict) else None
+    history = first_run.get("activity_history") if isinstance(first_run, dict) else None
+    if not collapse_completed and isinstance(history, list) and history:
+        blocks.append(Text("Recent activity", style="bold #d8ab74"))
+        for entry in history[-3:]:
+            if not isinstance(entry, dict):
+                continue
+            message = str(entry.get("message") or "").strip()
+            freshness = age_label(entry.get("at"))
+            line = "  •  ".join(part for part in [freshness, message] if part)
+            if line:
+                blocks.append(Text(f"• {line}", style="#8c97ab"))
+
+    completed = md.get("completed_run_ids")
+    pending = md.get("pending_run_ids")
+    cancelled = md.get("cancelled_run_ids")
+    notes: list[str] = []
+    if isinstance(completed, list):
+        notes.append(f"completed={len(completed)}")
+    if isinstance(pending, list):
+        notes.append(f"pending={len(pending)}")
+    if isinstance(cancelled, list):
+        notes.append(f"cancelled={len(cancelled)}")
+    if notes:
+        blocks.append(Text(" • ".join(notes), style="#8c97ab"))
+    return blocks
 
 
 _SHELL_STDERR_MARKER_RE = re.compile(r"(?:^|\n)\s*--- STDERR ---\s*\n", re.MULTILINE)

@@ -60,6 +60,15 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("Prefer `read_pdf` for PDFs and `read_image` for screenshots", prompt)
         self.assertIn("Use `read_file` instead of the structured readers only when exact file text", prompt)
 
+    def test_system_prompt_requires_parallel_subagent_fan_out_before_wait(self) -> None:
+        config = Config(cwd=self.cwd, api_key="test")
+        prompt = get_system_prompt(config)
+
+        self.assertIn("prefer a single `spawn_subagents` call that contains all targets", prompt)
+        self.assertIn("launch one distinct `spawn_subagent` per target before calling `wait_subagent`", prompt)
+        self.assertIn("do not wait after only one launch if more independent targets remain", prompt)
+        self.assertIn("do not switch to overlapping local investigation", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

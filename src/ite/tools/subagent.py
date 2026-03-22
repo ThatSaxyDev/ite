@@ -1,10 +1,13 @@
 import asyncio
+import inspect
 import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
 from typing import Any
+from typing import Awaitable
+from typing import Callable
 
 from pydantic import BaseModel
 from pydantic import Field
@@ -62,6 +65,7 @@ class SubagentTool(Tool):
         self.definition = definition
         self.allowed_tools = list(allowed_tools) if allowed_tools is not None else None
         self.allows_mutation = allows_mutation
+        self._live_progress: dict[str, dict[str, Any]] = {}
 
     @property
     def name(self) -> str:
@@ -120,12 +124,52 @@ class SubagentTool(Tool):
         }
         return any(tool in mutating_tools for tool in allowed)
 
+    def _set_live_progress(
+        self,
+        *,
+        call_id: str,
+        message: str,
+        child_session_id: str | None = None,
+    ) -> None:
+        text = str(message).strip()
+        if not text:
+            return
+        now = datetime.now(timezone.utc).isoformat()
+        state = self._live_progress.setdefault(
+            call_id,
+            {
+                "current_activity": "",
+                "last_update_at": None,
+                "child_session_id": None,
+                "activity_history": [],
+            },
+        )
+        state["current_activity"] = text
+        state["last_update_at"] = now
+        if child_session_id:
+            state["child_session_id"] = child_session_id
+        history = state.setdefault("activity_history", [])
+        if history and history[-1].get("message") == text:
+            history[-1]["at"] = now
+        else:
+            history.append({"at": now, "message": text})
+            if len(history) > 6:
+                del history[:-6]
+
+    def get_live_progress(self, call_id: str) -> dict[str, Any] | None:
+        state = self._live_progress.get(call_id)
+        return dict(state) if isinstance(state, dict) else None
+
+    def clear_live_progress(self, call_id: str) -> None:
+        self._live_progress.pop(call_id, None)
+
     async def _run_subagent_agent(
         self,
         *,
         prompt: str,
         subagent_config: Config,
         tool_calls: list[str],
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> tuple[str, str | None, str | None, str | None, int]:
         from ite.agent.events import AgentEventType
         from ite.agent.agent import Agent
@@ -139,18 +183,65 @@ class SubagentTool(Tool):
         async with Agent(subagent_config) as agent:
             if agent.session is not None:
                 child_session_id = agent.session.session_id
+                if progress_callback is not None:
+                    maybe = progress_callback(
+                        {
+                            "phase": "session_started",
+                            "child_session_id": child_session_id,
+                        }
+                    )
+                    if maybe is not None:
+                        await maybe
             async for event in agent.run(prompt):
                 if event.type == AgentEventType.TOOL_CALL_START:
-                    tool_calls.append(event.data.get("name"))
+                    tool_name = event.data.get("name")
+                    tool_calls.append(tool_name)
+                    if progress_callback is not None:
+                        maybe = progress_callback(
+                            {
+                                "phase": "tool_call_start",
+                                "tool_name": tool_name,
+                                "arguments": event.data.get("arguments", {}),
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
                 elif event.type == AgentEventType.TEXT_COMPLETE:
                     final_response = event.data.get("content")
+                    if progress_callback is not None:
+                        maybe = progress_callback(
+                            {
+                                "phase": "text_complete",
+                                "summary": final_response,
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
                 elif event.type == AgentEventType.AGENT_END:
                     if final_response is None:
                         final_response = event.data.get("response")
+                    if progress_callback is not None:
+                        maybe = progress_callback(
+                            {
+                                "phase": "agent_end",
+                                "summary": final_response,
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
                 elif event.type == AgentEventType.AGENT_ERROR:
                     terminate_response = "error"
                     error = event.data.get("error", "Unknown error")
                     final_response = f"Sub-agent failed: {error}"
+                    if progress_callback is not None:
+                        maybe = progress_callback(
+                            {
+                                "phase": "agent_error",
+                                "error": error,
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
                     break
             if agent.session is not None:
                 child_turn_count = agent.session.turn_count
@@ -186,7 +277,11 @@ class SubagentTool(Tool):
                 actions.append(stripped.split(":", 1)[-1].strip())
         return text, findings, actions
 
-    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+    async def _execute_with_progress(
+        self,
+        invocation: ToolInvocation,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
+    ) -> ToolResult:
         params = SubagentParams(**invocation.params)
         if not params.goal:
             return ToolResult.error_result("No goal specified for subagent")
@@ -224,23 +319,83 @@ class SubagentTool(Tool):
         run_id = f"sa_{uuid.uuid4().hex[:12]}"
         child_session_id: str | None = None
         child_turn_count = 0
+        live_call_id = str(invocation.call_id or "").strip()
+
+        if live_call_id:
+            self._set_live_progress(
+                call_id=live_call_id,
+                message="Starting specialist session.",
+            )
+
+        async def tracked_progress(update: dict[str, Any]) -> None:
+            if live_call_id:
+                phase = str(update.get("phase") or "").strip()
+                if phase == "session_started":
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message="Session started.",
+                        child_session_id=str(update.get("child_session_id") or "").strip() or None,
+                    )
+                elif phase == "tool_call_start":
+                    tool_name = str(update.get("tool_name") or "").strip()
+                    if tool_name:
+                        self._set_live_progress(
+                            call_id=live_call_id,
+                            message=f"Using {tool_name}.",
+                        )
+                elif phase == "text_complete":
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message="Drafted specialist response.",
+                    )
+                elif phase == "agent_error":
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message=str(update.get("error") or "Specialist failed.").strip(),
+                    )
+                elif phase == "agent_end":
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message="Specialist finished.",
+                    )
+            if progress_callback is not None:
+                maybe = progress_callback(update)
+                if maybe is not None:
+                    await maybe
 
         try:
+            runner_kwargs: dict[str, Any] = {
+                "prompt": prompt,
+                "subagent_config": subagent_config,
+                "tool_calls": tool_calls,
+            }
+            try:
+                parameters = inspect.signature(self._run_subagent_agent).parameters
+            except (TypeError, ValueError):
+                parameters = {}
+            if "progress_callback" in parameters:
+                runner_kwargs["progress_callback"] = tracked_progress
             terminate_response, final_response, error, child_session_id, child_turn_count = await asyncio.wait_for(
-                self._run_subagent_agent(
-                    prompt=prompt,
-                    subagent_config=subagent_config,
-                    tool_calls=tool_calls,
-                ),
+                self._run_subagent_agent(**runner_kwargs),
                 timeout=self.definition.timeout_seconds,
             )
         except asyncio.TimeoutError:
             terminate_response = "timeout"
             final_response = "Sub-agent timed out"
+            if live_call_id:
+                self._set_live_progress(
+                    call_id=live_call_id,
+                    message="Specialist timed out.",
+                )
         except Exception as e:
             terminate_response = "error"
             error = str(e)
             final_response = f"Sub-agent failed: {e}"
+            if live_call_id:
+                self._set_live_progress(
+                    call_id=live_call_id,
+                    message=str(e),
+                )
 
         response_text = final_response or ""
         summary, findings, actions = self._normalize_response_payload(response_text)
@@ -281,6 +436,8 @@ class SubagentTool(Tool):
         }
 
         if error:
+            if live_call_id:
+                self.clear_live_progress(live_call_id)
             return ToolResult.error_result(
                 output=output,
                 error=f"Sub-agent '{self.definition.name}' failed",
@@ -288,13 +445,20 @@ class SubagentTool(Tool):
             )
 
         if terminate_response == "timeout":
+            if live_call_id:
+                self.clear_live_progress(live_call_id)
             return ToolResult.error_result(
                 output=output,
                 error=f"Sub-agent '{self.definition.name}' timed out",
                 metadata=metadata,
             )
 
+        if live_call_id:
+            self.clear_live_progress(live_call_id)
         return ToolResult.success_result(output, metadata=metadata)
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        return await self._execute_with_progress(invocation, progress_callback=None)
 
 
 CODEBASE_INVESTIGATOR = SubagentDefinition(
@@ -313,11 +477,11 @@ CODE_REVIEWER = SubagentDefinition(
     goal_prompt="""You are a code review specialist.
 Your job is to review code and provide constructive feedback.
 Look for bugs, code smells, security issues, and improvement opportunities.
-Use read_file, list_dir and grep to examine the code.
+    Use read_file, list_dir and grep to examine the code.
 Do NOT modify any files.""",
     allowed_tools=["read_file", "grep", "list_dir"],
-    max_turns=10,
-    timeout_seconds=300,
+    max_turns=30,
+    timeout_seconds=600,
 )
 
 TOOLING_GUARDIAN = SubagentDefinition(
@@ -328,8 +492,8 @@ Audit tool setup, safety boundaries, and runtime routing assumptions.
 Focus on tool metadata correctness, discovery failures, and policy/risk gaps.
 Return concrete findings and actions in concise bullets.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir"],
-    max_turns=30,
-    timeout_seconds=300,
+    max_turns=40,
+    timeout_seconds=600,
 )
 
 VERIFICATION_REVIEWER = SubagentDefinition(

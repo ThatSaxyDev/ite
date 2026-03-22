@@ -6,6 +6,7 @@ from rich.text import Text
 
 from ite.ui.reup.tool_views import normalize_unified_diff_paths
 from ite.ui.reup.tool_views import render_subagent_payload
+from ite.ui.reup.tool_views import render_subagent_runtime_payload
 from ite.ui.reup.tool_views import render_git_log_output
 
 
@@ -71,6 +72,98 @@ class ReupToolViewsTests(unittest.TestCase):
         self.assertIn("termination=error", joined)
         self.assertIn("Findings", joined)
         self.assertIn("Failure", joined)
+
+    def test_render_subagent_runtime_payload_shows_run_states(self) -> None:
+        blocks = render_subagent_runtime_payload(
+            metadata={
+                "reused_existing": True,
+                "requested_subagent": "registry",
+                "selected_subagent": "codebase_investigator",
+                "runs": [
+                    {
+                        "run_id": "subrun_0001",
+                        "status": "running",
+                        "goal": "Inspect backend architecture",
+                        "current_activity": "Searching code in src/ite.",
+                        "last_update_at": "2026-03-22T00:00:00+00:00",
+                        "activity_history": [
+                            {
+                                "at": "2026-03-22T00:00:00+00:00",
+                                "message": "Starting specialist session.",
+                            },
+                            {
+                                "at": "2026-03-22T00:00:01+00:00",
+                                "message": "Searching code in src/ite.",
+                            },
+                        ],
+                    },
+                    {
+                        "run_id": "subrun_0002",
+                        "status": "completed",
+                        "summary": "Reviewed frontend layout",
+                    },
+                ],
+                "completed_run_ids": ["subrun_0002"],
+                "pending_run_ids": ["subrun_0001"],
+            }
+        )
+
+        self.assertGreaterEqual(len(blocks), 4)
+        self.assertTrue(any(isinstance(block, Table) for block in blocks))
+        text_blocks = [block.plain for block in blocks if isinstance(block, Text)]
+        joined = "\n".join(text_blocks)
+        self.assertIn("Reused matching active specialist run.", joined)
+        self.assertIn("codebase_investigator", joined)
+        self.assertIn("registry", joined)
+        self.assertIn("Recent activity", joined)
+        self.assertIn("Searching code in src/ite.", joined)
+        self.assertIn("completed=1", joined)
+        self.assertIn("pending=1", joined)
+
+    def test_render_subagent_runtime_payload_shows_failure_text_without_runs(self) -> None:
+        blocks = render_subagent_runtime_payload(
+            metadata={
+                "available_subagents": ["codebase_investigator", "code_reviewer"],
+            },
+            error="Unknown subagent 'registry'. Available subagents: codebase_investigator, code_reviewer",
+            success=False,
+        )
+
+        text_blocks = [block.plain for block in blocks if isinstance(block, Text)]
+        joined = "\n".join(text_blocks)
+        self.assertIn("Available specialists:", joined)
+        self.assertIn("Failure", joined)
+        self.assertIn("Unknown subagent 'registry'", joined)
+
+    def test_render_subagent_runtime_payload_collapses_completed_wait_rows(self) -> None:
+        blocks = render_subagent_runtime_payload(
+            metadata={
+                "runs": [
+                    {
+                        "run_id": "subrun_0001",
+                        "status": "completed",
+                        "summary": "Very long completed specialist report that should not be shown here.",
+                        "activity_history": [
+                            {"at": "2026-03-22T00:00:00+00:00", "message": "Specialist finished."}
+                        ],
+                    },
+                    {
+                        "run_id": "subrun_0002",
+                        "status": "running",
+                        "current_activity": "Reading src/ite/ui/reup/app.py",
+                        "last_update_at": "2026-03-22T00:00:01+00:00",
+                    },
+                ]
+            },
+            collapse_completed=True,
+        )
+
+        text_blocks = [block.plain for block in blocks if isinstance(block, Text)]
+        joined = "\n".join(text_blocks)
+        self.assertNotIn("Very long completed specialist report", joined)
+        self.assertNotIn("Recent activity", joined)
+        table = next(block for block in blocks if isinstance(block, Table))
+        self.assertEqual(len(table.rows), 2)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,19 @@ class SpawnSubagentParams(BaseModel):
     goal: str = Field(..., description="Task to delegate to the selected subagent.")
 
 
+class SpawnSubagentRequest(BaseModel):
+    subagent: str = Field(..., description="Registered subagent name without the `subagent_` prefix.")
+    goal: str = Field(..., description="Task to delegate to the selected subagent.")
+
+
+class SpawnSubagentsParams(BaseModel):
+    requests: list[SpawnSubagentRequest] = Field(
+        ...,
+        min_length=1,
+        description="Batch of specialist runs to launch in parallel.",
+    )
+
+
 class WaitSubagentParams(BaseModel):
     run_ids: list[str] | None = Field(
         None,
@@ -79,18 +92,119 @@ class SpawnSubagentTool(_SubagentRuntimeTool):
     def is_mutating(self, params: dict[str, Any]) -> bool:
         return True
 
+    def _available_subagents(self, runtime: SubagentRuntime) -> list[str]:
+        return sorted(
+            tool.name.removeprefix("subagent_")
+            for tool in runtime.tool_registry.get_tools()
+            if tool.name.startswith("subagent_")
+        )
+
+    def _resolve_subagent_name(
+        self,
+        *,
+        runtime: SubagentRuntime,
+        requested: str,
+    ) -> tuple[str, str | None]:
+        available = self._available_subagents(runtime)
+        cleaned = str(requested).strip()
+        if cleaned in available:
+            return cleaned, None
+        if "codebase_investigator" in available:
+            return "codebase_investigator", cleaned or None
+        return cleaned, None
+
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = SpawnSubagentParams(**invocation.params)
         runtime = self._require_runtime()
-        run = await runtime.spawn(
-            subagent=params.subagent,
-            goal=params.goal,
-            parent_tool_call_id=invocation.call_id,
+        selected_subagent, requested_subagent = self._resolve_subagent_name(
+            runtime=runtime,
+            requested=params.subagent,
         )
+        try:
+            run, reused_existing = await runtime.spawn(
+                subagent=selected_subagent,
+                goal=params.goal,
+                parent_tool_call_id=invocation.call_id,
+            )
+        except ValueError as exc:
+            available = self._available_subagents(runtime)
+            return ToolResult.error_result(
+                error=str(exc),
+                metadata={
+                    "requested_subagent": params.subagent,
+                    "available_subagents": available,
+                },
+            )
         payload = {
             "spawned": True,
             "run": run.to_dict(),
+            "reused_existing": reused_existing,
         }
+        if requested_subagent and requested_subagent != selected_subagent:
+            payload["requested_subagent"] = requested_subagent
+            payload["selected_subagent"] = selected_subagent
+        return ToolResult.success_result(
+            json.dumps(payload, indent=2),
+            metadata=payload,
+        )
+
+
+class SpawnSubagentsTool(SpawnSubagentTool):
+    name = "spawn_subagents"
+    description = "Start multiple subagent runs in parallel so the parent can wait on all of them later."
+    schema = SpawnSubagentsParams
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        params = SpawnSubagentsParams(**invocation.params)
+        runtime = self._require_runtime()
+
+        runs: list[dict[str, Any]] = []
+        reused_count = 0
+        resolved: list[dict[str, str]] = []
+
+        for request in params.requests:
+            selected_subagent, requested_subagent = self._resolve_subagent_name(
+                runtime=runtime,
+                requested=request.subagent,
+            )
+            try:
+                run, reused_existing = await runtime.spawn(
+                    subagent=selected_subagent,
+                    goal=request.goal,
+                    parent_tool_call_id=invocation.call_id,
+                )
+            except ValueError as exc:
+                available = self._available_subagents(runtime)
+                return ToolResult.error_result(
+                    error=str(exc),
+                    metadata={
+                        "available_subagents": available,
+                        "failed_request": {
+                            "subagent": request.subagent,
+                            "goal": request.goal,
+                        },
+                        "runs": runs,
+                    },
+                )
+            runs.append(run.to_dict())
+            if reused_existing:
+                reused_count += 1
+            if requested_subagent and requested_subagent != selected_subagent:
+                resolved.append(
+                    {
+                        "requested_subagent": requested_subagent,
+                        "selected_subagent": selected_subagent,
+                    }
+                )
+
+        payload: dict[str, Any] = {
+            "spawned": True,
+            "runs": runs,
+            "count": len(runs),
+            "reused_existing_count": reused_count,
+        }
+        if resolved:
+            payload["resolved_subagents"] = resolved
         return ToolResult.success_result(
             json.dumps(payload, indent=2),
             metadata=payload,

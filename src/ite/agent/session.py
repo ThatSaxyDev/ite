@@ -17,6 +17,7 @@ from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
 from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
+from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentsTool
 from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
@@ -207,6 +208,7 @@ class Session:
     def _sync_subagent_runtime_tools(self) -> None:
         for name in (
             "spawn_subagent",
+            "spawn_subagents",
             "wait_subagent",
             "list_subagents",
             "cancel_subagent",
@@ -216,6 +218,7 @@ class Session:
                 tool,
                 (
                     SpawnSubagentTool,
+                    SpawnSubagentsTool,
                     WaitSubagentTool,
                     ListSubagentsTool,
                     CancelSubagentTool,

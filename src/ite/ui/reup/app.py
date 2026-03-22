@@ -15,6 +15,7 @@ from rich.console import Group
 from rich.cells import cell_len
 from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
@@ -114,6 +115,7 @@ from .tool_views import (
     normalize_unified_diff_paths,
     render_numbered_unified_diff,
     render_subagent_payload,
+    render_subagent_runtime_payload,
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
@@ -247,6 +249,8 @@ class SessionRunState:
     turn_had_error: bool = False
     queued_turn_payload: dict[str, Any] | None = None
     running_shell_call_ids: set[str] = field(default_factory=set)
+    running_subagent_call_ids: set[str] = field(default_factory=set)
+    running_wait_subagent_call_ids: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -291,6 +295,7 @@ class ReupApp(App):
         self._streaming_buffer: str = ""
         self._tool_widgets: dict[str, Static] = {}
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
+        self._tool_name_by_call_id: dict[str, str] = {}
         self._shell_session_cards: dict[str, Static] = {}
         self._shell_session_card_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
@@ -2247,6 +2252,28 @@ class ReupApp(App):
                         spinner_index=self._top_spinner_index,
                     )
                 )
+        for call_id in self._run_state().running_subagent_call_ids:
+            card = self._tool_widgets.get(call_id)
+            args = self._tool_args_by_call_id.get(call_id, {})
+            if card is not None:
+                card.update(
+                    self._render_subagent_running_card(
+                        call_id=call_id,
+                        name=self._tool_name_by_call_id.get(call_id, "subagent"),
+                        args=args,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
+        for call_id in self._run_state().running_wait_subagent_call_ids:
+            card = self._tool_widgets.get(call_id)
+            args = self._tool_args_by_call_id.get(call_id, {})
+            if card is not None:
+                card.update(
+                    self._render_wait_subagent_running_card(
+                        args=args,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
         for session_id, state in list(self._shell_session_card_state.items()):
             if state.metadata.get("running") is not True:
                 continue
@@ -2364,6 +2391,7 @@ class ReupApp(App):
     def _reset_session_local_ui_state(self) -> None:
         self._tool_widgets.clear()
         self._tool_args_by_call_id.clear()
+        self._tool_name_by_call_id.clear()
         self._shell_session_cards.clear()
         self._shell_session_card_state.clear()
         self._streaming_widget = None
@@ -2374,6 +2402,8 @@ class ReupApp(App):
         self._aside_entries = []
         self._aside_pending_widgets = {}
         self._run_state().running_shell_call_ids.clear()
+        self._run_state().running_subagent_call_ids.clear()
+        self._run_state().running_wait_subagent_call_ids.clear()
         if self.is_mounted:
             self._apply_aside_panel_state()
 
@@ -4306,6 +4336,7 @@ class ReupApp(App):
             for call_id in running_ids:
                 self._tool_widgets.pop(call_id, None)
                 self._tool_args_by_call_id.pop(call_id, None)
+                self._tool_name_by_call_id.pop(call_id, None)
 
         self._refresh_empty_state()
 
@@ -4663,6 +4694,200 @@ class ReupApp(App):
             pass
         await conversation.mount(card)
 
+    def _render_wait_subagent_running_card(
+        self,
+        *,
+        args: dict[str, Any],
+        spinner_index: int,
+    ) -> Group:
+        def compact_result_line(value: str) -> str:
+            text = str(value or "").strip()
+            if not text:
+                return ""
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            if not lines:
+                return ""
+            first = lines[0]
+            has_more = len(lines) > 1
+            if len(first) > 72:
+                first = first[:69].rstrip() + "..."
+                has_more = False
+            if has_more and not first.endswith("..."):
+                first = first.rstrip() + " ..."
+            return first
+
+        def age_label(value: Any) -> str:
+            if not isinstance(value, str) or not value.strip():
+                return ""
+            try:
+                updated_at = datetime.fromisoformat(value)
+                now = datetime.now(updated_at.tzinfo)
+                seconds = max(0, int((now - updated_at).total_seconds()))
+            except Exception:
+                return ""
+            if seconds < 2:
+                return "just now"
+            if seconds < 60:
+                return f"{seconds}s ago"
+            minutes = seconds // 60
+            if minutes < 60:
+                return f"{minutes}m ago"
+            hours = minutes // 60
+            return f"{hours}h ago"
+
+        run_ids = args.get("run_ids")
+        selected_ids = (
+            [str(item).strip() for item in run_ids if str(item).strip()]
+            if isinstance(run_ids, list)
+            else []
+        )
+        return_when = str(args.get("return_when") or "all_completed").strip()
+        header = Text()
+        header.append(f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ", style="bold #b7c8e1")
+        header.append("Waiting on specialists", style="bold #edf1f7")
+        header.append("  running", style="#8c93a1")
+
+        blocks: list[Any] = [Text("Watching active specialist runs.", style="#8c97ab")]
+        summary = Text()
+        if selected_ids:
+            summary.append(f"{len(selected_ids)} selected", style="#8c97ab")
+            summary.append("  •  ", style="#667084")
+        summary.append(return_when, style="#8c97ab")
+        blocks.append(summary)
+
+        runtime = getattr(getattr(self.agent, "session", None), "subagent_runtime", None)
+        if runtime is not None:
+            runs = runtime.list_runs()
+            if selected_ids:
+                runs = [run for run in runs if run.run_id in selected_ids]
+            if runs:
+                table = Table.grid(padding=(0, 1))
+                table.add_column(style="#b7c8e1", no_wrap=True)
+                table.add_column(style="#8c97ab", no_wrap=True)
+                table.add_column(style="#dfe4ea")
+                for run in runs[:12]:
+                    elapsed = ""
+                    if isinstance(run.started_at, str) and run.started_at:
+                        try:
+                            started_at = datetime.fromisoformat(run.started_at)
+                            elapsed_ms = max(
+                                0,
+                                int((datetime.now(started_at.tzinfo) - started_at).total_seconds() * 1000),
+                            )
+                            elapsed = f"{elapsed_ms} ms"
+                        except Exception:
+                            elapsed = ""
+                    live = str(getattr(run, "current_activity", "") or "").strip()
+                    freshness = age_label(getattr(run, "last_update_at", None))
+                    status = str(getattr(run, "status", "")).strip()
+                    if status in {"completed", "failed", "timeout", "cancelled"}:
+                        details = compact_result_line(run.summary or run.current_activity or run.goal or "")
+                    else:
+                        details = live or run.summary or run.goal or ""
+                    if elapsed:
+                        details = f"{elapsed}  •  {details}" if details else elapsed
+                    if freshness:
+                        details = f"{details}  •  {freshness}" if details else freshness
+                    if len(details) > 80:
+                        details = details[:77].rstrip() + "..."
+                    table.add_row(run.run_id, run.status, details or "(no summary yet)")
+                blocks.append(table)
+                history_lines: list[Text] = []
+                active_runs = [run for run in runs if str(getattr(run, "status", "")).strip() in {"queued", "running"}]
+                for run in active_runs[:12]:
+                    history = getattr(run, "activity_history", None)
+                    if not isinstance(history, list) or not history:
+                        continue
+                    recent = []
+                    for entry in history[-2:]:
+                        if not isinstance(entry, dict):
+                            continue
+                        message = str(entry.get("message") or "").strip()
+                        freshness = age_label(entry.get("at"))
+                        line = "  •  ".join(part for part in [freshness, message] if part)
+                        if line:
+                            recent.append(line)
+                    if not recent:
+                        continue
+                    history_lines.append(
+                        Text(f"{run.run_id} recent activity", style="bold #d8ab74")
+                    )
+                    for line in recent:
+                        history_lines.append(Text(f"• {line}", style="#8c97ab"))
+                blocks.extend(history_lines)
+            else:
+                blocks.append(Text("No matching specialist runs found.", style="#8c97ab"))
+        else:
+            blocks.append(Text("Specialist runtime unavailable.", style="#8c97ab"))
+
+        return Group(header, *blocks)
+
+    def _render_subagent_running_card(
+        self,
+        *,
+        call_id: str,
+        name: str,
+        args: dict[str, Any],
+        spinner_index: int,
+    ) -> Group:
+        def age_label(value: Any) -> str:
+            if not isinstance(value, str) or not value.strip():
+                return ""
+            try:
+                updated_at = datetime.fromisoformat(value)
+                now = datetime.now(updated_at.tzinfo)
+                seconds = max(0, int((now - updated_at).total_seconds()))
+            except Exception:
+                return ""
+            if seconds < 2:
+                return "just now"
+            if seconds < 60:
+                return f"{seconds}s ago"
+            minutes = seconds // 60
+            if minutes < 60:
+                return f"{minutes}m ago"
+            hours = minutes // 60
+            return f"{hours}h ago"
+
+        header = Text()
+        header.append(f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ", style="bold #b7c8e1")
+        header.append("Asking specialist", style="bold #edf1f7")
+        header.append("  running", style="#8c93a1")
+
+        blocks: list[Any] = []
+        goal = str(args.get("goal") or "").strip()
+        if goal:
+            blocks.append(Text(f"goal  {goal}", style="#dfe4ea"))
+
+        registry = getattr(getattr(self.agent, "session", None), "tool_registry", None)
+        tool = registry.get(name) if registry is not None else None
+        live = tool.get_live_progress(call_id) if tool is not None and hasattr(tool, "get_live_progress") else None
+
+        if isinstance(live, dict):
+            activity = str(live.get("current_activity") or "").strip()
+            freshness = age_label(live.get("last_update_at"))
+            child_session_id = str(live.get("child_session_id") or "").strip()
+            details = "  •  ".join(part for part in [freshness, activity] if part)
+            if details:
+                blocks.append(Text(details, style="#8c97ab"))
+            if child_session_id:
+                blocks.append(Text(f"child session {child_session_id}", style="#8c97ab"))
+            history = live.get("activity_history")
+            if isinstance(history, list) and history:
+                blocks.append(Text("Recent activity", style="bold #d8ab74"))
+                for entry in history[-3:]:
+                    if not isinstance(entry, dict):
+                        continue
+                    message = str(entry.get("message") or "").strip()
+                    freshness = age_label(entry.get("at"))
+                    line = "  •  ".join(part for part in [freshness, message] if part)
+                    if line:
+                        blocks.append(Text(f"• {line}", style="#8c97ab"))
+        elif not blocks:
+            blocks.append(Text("Starting specialist session.", style="#8c97ab"))
+
+        return Group(header, *blocks)
+
     async def add_tool_call_start(
         self,
         *,
@@ -4674,6 +4899,7 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
         arguments = self._normalize_tool_start_arguments(name, arguments)
         self._tool_args_by_call_id[call_id] = arguments
+        self._tool_name_by_call_id[call_id] = name
         shell_session_id = self._shell_session_id_for_tool(name=name, arguments=arguments)
         existing_shell_card = (
             self._shell_session_cards.get(shell_session_id)
@@ -4701,6 +4927,24 @@ class ReupApp(App):
                 render_shell_running_card(
                     arguments,
                     cwd=self.config.cwd,
+                    spinner_index=self._top_spinner_index,
+                )
+            )
+        elif name.startswith("subagent_"):
+            self._run_state().running_subagent_call_ids.add(call_id)
+            card.update(
+                self._render_subagent_running_card(
+                    call_id=call_id,
+                    name=name,
+                    args=arguments,
+                    spinner_index=self._top_spinner_index,
+                )
+            )
+        elif name == "wait_subagent":
+            self._run_state().running_wait_subagent_call_ids.add(call_id)
+            card.update(
+                self._render_wait_subagent_running_card(
+                    args=arguments,
                     spinner_index=self._top_spinner_index,
                 )
             )
@@ -4761,6 +5005,8 @@ class ReupApp(App):
         )
         title_text = activity_title(name, stage="complete", success=success, metadata=md)
         self._run_state().running_shell_call_ids.discard(call_id)
+        self._run_state().running_subagent_call_ids.discard(call_id)
+        self._run_state().running_wait_subagent_call_ids.discard(call_id)
         shell_session_id = self._shell_session_id_for_tool(
             name=name,
             arguments=args,
@@ -5149,6 +5395,17 @@ class ReupApp(App):
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
+        elif name in {"spawn_subagent", "spawn_subagents", "wait_subagent", "list_subagents", "cancel_subagent"}:
+            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.extend(
+                render_subagent_runtime_payload(
+                    metadata=md,
+                    output=output,
+                    error=error,
+                    success=success,
+                    collapse_completed=(name == "wait_subagent"),
+                )
+            )
         elif name.startswith("subagent_"):
             blocks.append(Text(narrative, style="#8c97ab"))
             subagent_blocks, was_truncated = render_subagent_payload(

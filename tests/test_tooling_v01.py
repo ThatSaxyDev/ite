@@ -4,8 +4,10 @@ import unittest
 from pathlib import Path
 
 from ite.config.config import Config
+from ite.agent.subagent_runtime import SubagentRuntime
 from ite.hooks.hook_system import HookSystem
 from ite.tools.base import ToolInvocation
+from ite.tools.base import ToolResult
 from ite.tools.builtin.apply_patch import ApplyPatchTool
 from ite.tools.discovery import ToolDiscoveryManager
 from ite.tools.policy import ToolSelectionPolicy
@@ -72,6 +74,171 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(result.success)
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "read_json")
+
+    async def test_spawn_subagent_alias_params_are_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            spawn = registry.get("spawn_subagent")
+            codebase = registry.get("subagent_codebase_investigator")
+            self.assertIsNotNone(spawn)
+            self.assertIsNotNone(codebase)
+            runtime = SubagentRuntime(
+                config=config,
+                session_id="parent_session_1",
+                tool_registry=registry,
+            )
+            spawn.set_runtime(runtime)  # type: ignore[attr-defined]
+            self.addAsyncCleanup(runtime.shutdown)
+
+            async def fake_execute_with_progress(invocation: ToolInvocation, progress_callback=None):
+                payload = {
+                    "status": "ok",
+                    "subagent": "codebase_investigator",
+                    "termination": "goal",
+                    "tools_used": ["grep"],
+                    "summary": "done",
+                    "findings": [],
+                    "actions": [],
+                }
+                trace = {
+                    "child_session_id": "child_1",
+                    "duration_ms": 1,
+                    "child_turn_count": 1,
+                    "termination": "goal",
+                }
+                return ToolResult.success_result(
+                    "{}",
+                    metadata={"subagent_result": payload, "subagent_trace": trace},
+                )
+
+            codebase._execute_with_progress = fake_execute_with_progress  # type: ignore[method-assign]
+
+            result = await registry.invoke(
+                "spawn_subagent",
+                {"specialist": "registry", "task": "inspect registry internals"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(result.metadata["requested_subagent"], "registry")
+            self.assertEqual(result.metadata["selected_subagent"], "codebase_investigator")
+
+    async def test_spawn_subagent_raw_alias_params_are_salvaged(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            spawn = registry.get("spawn_subagent")
+            codebase = registry.get("subagent_codebase_investigator")
+            self.assertIsNotNone(spawn)
+            self.assertIsNotNone(codebase)
+            runtime = SubagentRuntime(
+                config=config,
+                session_id="parent_session_1",
+                tool_registry=registry,
+            )
+            spawn.set_runtime(runtime)  # type: ignore[attr-defined]
+            self.addAsyncCleanup(runtime.shutdown)
+
+            async def fake_execute_with_progress(invocation: ToolInvocation, progress_callback=None):
+                payload = {
+                    "status": "ok",
+                    "subagent": "codebase_investigator",
+                    "termination": "goal",
+                    "tools_used": ["grep"],
+                    "summary": "done",
+                    "findings": [],
+                    "actions": [],
+                }
+                trace = {
+                    "child_session_id": "child_1",
+                    "duration_ms": 1,
+                    "child_turn_count": 1,
+                    "termination": "goal",
+                }
+                return ToolResult.success_result(
+                    "{}",
+                    metadata={"subagent_result": payload, "subagent_trace": trace},
+                )
+
+            codebase._execute_with_progress = fake_execute_with_progress  # type: ignore[method-assign]
+
+            result = await registry.invoke(
+                "spawn_subagent",
+                {
+                    "raw_arguments": '{"specialist":"registry","task":"inspect registry internals"',
+                },
+                cwd,
+                hook_system,
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(result.metadata["requested_subagent"], "registry")
+            self.assertEqual(result.metadata["selected_subagent"], "codebase_investigator")
+
+    async def test_spawn_subagents_alias_list_is_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            spawn_many = registry.get("spawn_subagents")
+            codebase = registry.get("subagent_codebase_investigator")
+            self.assertIsNotNone(spawn_many)
+            self.assertIsNotNone(codebase)
+            runtime = SubagentRuntime(
+                config=config,
+                session_id="parent_session_1",
+                tool_registry=registry,
+            )
+            spawn_many.set_runtime(runtime)  # type: ignore[attr-defined]
+            self.addAsyncCleanup(runtime.shutdown)
+
+            async def fake_execute_with_progress(invocation: ToolInvocation, progress_callback=None):
+                payload = {
+                    "status": "ok",
+                    "subagent": "codebase_investigator",
+                    "termination": "goal",
+                    "tools_used": ["grep"],
+                    "summary": invocation.params["goal"],
+                    "findings": [],
+                    "actions": [],
+                }
+                trace = {
+                    "child_session_id": "child_1",
+                    "duration_ms": 1,
+                    "child_turn_count": 1,
+                    "termination": "goal",
+                }
+                return ToolResult.success_result(
+                    "{}",
+                    metadata={"subagent_result": payload, "subagent_trace": trace},
+                )
+
+            codebase._execute_with_progress = fake_execute_with_progress  # type: ignore[method-assign]
+
+            result = await registry.invoke(
+                "spawn_subagents",
+                {
+                    "items": [
+                        {"specialist": "registry", "task": "inspect registry internals"},
+                        {"specialist": "reup", "task": "inspect reup rendering"},
+                    ]
+                },
+                cwd,
+                hook_system,
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(result.metadata["count"], 2)
 
     async def test_read_file_toml_is_redirected_to_read_toml(self) -> None:
         with tempfile.TemporaryDirectory() as td:

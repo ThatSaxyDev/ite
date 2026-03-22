@@ -13,6 +13,7 @@ from ite.config.config import Config
 from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolResult
 from ite.tools.subagent import SubagentTool
+from ite.ui.tool_narrative import describe_tool_activity
 
 
 def _utcnow() -> datetime:
@@ -39,6 +40,9 @@ class SubagentRun:
     findings: list[str] = field(default_factory=list)
     actions: list[str] = field(default_factory=list)
     error: str | None = None
+    current_activity: str = ""
+    last_update_at: str | None = None
+    activity_history: list[dict[str, str]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -52,6 +56,24 @@ class SubagentRuntime:
         self._runs: dict[str, SubagentRun] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._counter = 0
+
+    @staticmethod
+    def _goal_key(goal: str) -> str:
+        return " ".join(str(goal).strip().lower().split())
+
+    def _set_activity(self, run: SubagentRun, message: str) -> None:
+        text = str(message).strip()
+        if not text:
+            return
+        now = _utcnow().isoformat()
+        run.current_activity = text
+        run.last_update_at = now
+        if run.activity_history and run.activity_history[-1].get("message") == text:
+            run.activity_history[-1]["at"] = now
+            return
+        run.activity_history.append({"at": now, "message": text})
+        if len(run.activity_history) > 6:
+            run.activity_history = run.activity_history[-6:]
 
     def list_runs(self, *, statuses: set[str] | None = None) -> list[SubagentRun]:
         runs = list(self._runs.values())
@@ -73,7 +95,7 @@ class SubagentRuntime:
         subagent: str,
         goal: str,
         parent_tool_call_id: str | None,
-    ) -> SubagentRun:
+    ) -> tuple[SubagentRun, bool]:
         tool_name = f"subagent_{subagent}"
         tool = self.tool_registry.get(tool_name)
         if not isinstance(tool, SubagentTool):
@@ -85,6 +107,14 @@ class SubagentRuntime:
             raise ValueError(
                 f"Unknown subagent '{subagent}'. Available subagents: {', '.join(available)}"
             )
+
+        goal_key = self._goal_key(goal)
+        for existing in self.list_runs(statuses={"queued", "running"}):
+            if existing.subagent != subagent:
+                continue
+            if self._goal_key(existing.goal) != goal_key:
+                continue
+            return existing, True
 
         run_id = self._next_run_id()
         now = _utcnow().isoformat()
@@ -103,14 +133,52 @@ class SubagentRuntime:
             started_at = _utcnow()
             run.status = "running"
             run.started_at = started_at.isoformat()
+            run.last_update_at = run.started_at
+            self._set_activity(run, "Starting specialist session.")
+
+            async def _progress(update: dict[str, Any]) -> None:
+                phase = str(update.get("phase") or "").strip()
+                if phase == "session_started":
+                    child_session_id = str(update.get("child_session_id") or "").strip()
+                    if child_session_id:
+                        run.child_session_id = child_session_id
+                    self._set_activity(run, "Session started.")
+                    return
+                if phase == "tool_call_start":
+                    tool_name = str(update.get("tool_name") or "").strip()
+                    arguments = update.get("arguments", {})
+                    if tool_name:
+                        self._set_activity(
+                            run,
+                            describe_tool_activity(
+                                tool_name,
+                                arguments if isinstance(arguments, dict) else {},
+                                stage="start",
+                            ),
+                        )
+                    return
+                if phase == "text_complete":
+                    summary = str(update.get("summary") or "").strip()
+                    if summary:
+                        self._set_activity(run, "Drafted specialist response.")
+                    return
+                if phase == "agent_error":
+                    err = str(update.get("error") or "").strip()
+                    self._set_activity(run, err or "Specialist failed.")
+                    return
+                if phase == "agent_end":
+                    self._set_activity(run, "Specialist finished.")
+                    return
+
             try:
-                result = await tool.execute(
+                result = await tool._execute_with_progress(  # type: ignore[attr-defined]
                     ToolInvocation(
                         params={"goal": goal},
                         cwd=Path(self.config.cwd),
                         call_id=parent_tool_call_id,
                         session_id=self.session_id,
-                    )
+                    ),
+                    progress_callback=_progress,
                 )
                 self._apply_result(run, result, started_at=started_at)
             except asyncio.CancelledError:
@@ -122,6 +190,7 @@ class SubagentRuntime:
                     0,
                     int((finished_at - started_at).total_seconds() * 1000),
                 )
+                self._set_activity(run, "Specialist cancelled.")
                 raise
             except Exception as exc:
                 finished_at = _utcnow()
@@ -133,9 +202,10 @@ class SubagentRuntime:
                     0,
                     int((finished_at - started_at).total_seconds() * 1000),
                 )
+                self._set_activity(run, run.error)
 
         self._tasks[run_id] = asyncio.create_task(_runner(), name=run_id)
-        return run
+        return run, False
 
     def _apply_result(
         self,
@@ -175,8 +245,13 @@ class SubagentRuntime:
             if str(item).strip()
         ]
         run.error = result.error
-
         finished_at = _utcnow()
+        if run.summary:
+            self._set_activity(run, run.summary)
+        elif result.error:
+            self._set_activity(run, result.error)
+        else:
+            self._set_activity(run, "Specialist finished.")
         run.finished_at = finished_at.isoformat()
         run.duration_ms = (
             int(trace_payload["duration_ms"])
@@ -257,6 +332,7 @@ class SubagentRuntime:
                     )
                 else:
                     run.duration_ms = 0
+                self._set_activity(run, "Specialist cancelled.")
             task.cancel()
             cancelled.append(run_id)
         if cancelled:
