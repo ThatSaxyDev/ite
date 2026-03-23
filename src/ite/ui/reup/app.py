@@ -114,6 +114,7 @@ from .tool_views import (
     render_list_dir_output,
     normalize_unified_diff_paths,
     render_numbered_unified_diff,
+    summarize_subagent_goal,
     render_subagent_metrics_payload,
     render_subagent_payload,
     render_subagent_runtime_payload,
@@ -4775,6 +4776,7 @@ class ReupApp(App):
                 table.add_column(style="#8c97ab", no_wrap=True)
                 table.add_column(style="#dfe4ea")
                 for run in runs[:12]:
+                    goal_label = summarize_subagent_goal(str(getattr(run, "goal", "") or "").strip())
                     elapsed = ""
                     if isinstance(run.started_at, str) and run.started_at:
                         try:
@@ -4799,11 +4801,23 @@ class ReupApp(App):
                         details = f"{details}  •  {freshness}" if details else freshness
                     if len(details) > 80:
                         details = details[:77].rstrip() + "..."
-                    table.add_row(run.run_id, run.status, details or "(no summary yet)")
+                    status_text = Text(run.status)
+                    if status == "completed":
+                        status_text.stylize("#8fb7a1")
+                    elif status in {"failed", "timeout", "cancelled"}:
+                        status_text.stylize("#c48787")
+                    else:
+                        status_text.stylize("#8c97ab")
+                    run_label = Text(str(run.run_id), style="#b7c8e1")
+                    if goal_label:
+                        run_label.append(" · ", style="#667084")
+                        run_label.append(goal_label, style="#8c97ab")
+                    table.add_row(run_label, status_text, details or "(no summary yet)")
                 blocks.append(table)
                 history_lines: list[Text] = []
                 active_runs = [run for run in runs if str(getattr(run, "status", "")).strip() in {"queued", "running"}]
                 for run in active_runs[:12]:
+                    goal_label = summarize_subagent_goal(str(getattr(run, "goal", "") or "").strip())
                     history = getattr(run, "activity_history", None)
                     if not isinstance(history, list) or not history:
                         continue
@@ -4818,12 +4832,17 @@ class ReupApp(App):
                             recent.append(line)
                     if not recent:
                         continue
-                    history_lines.append(
-                        Text(f"{run.run_id} recent activity", style="bold #d8ab74")
-                    )
+                    history_header = Text(str(run.run_id), style="bold #d8ab74")
+                    if goal_label:
+                        history_header.append(" · ", style="#667084")
+                        history_header.append(goal_label, style="#8c97ab")
+                    history_header.append(" recent activity", style="bold #d8ab74")
+                    history_lines.append(history_header)
                     for index, line in enumerate(recent):
                         style = "#edf1f7" if index == len(recent) - 1 else "#8c97ab"
                         history_lines.append(Text(f"• {line}", style=style))
+                if history_lines:
+                    blocks.append(Text(""))
                 blocks.extend(history_lines)
             else:
                 blocks.append(Text("No matching specialist runs found.", style="#8c97ab"))
@@ -4892,7 +4911,8 @@ class ReupApp(App):
                     freshness = age_label(entry.get("at"))
                     line = "  •  ".join(part for part in [freshness, message] if part)
                     if line:
-                        blocks.append(Text(f"• {line}", style="#8c97ab"))
+                        style = "#edf1f7" if entry is history[-1] else "#8c97ab"
+                        blocks.append(Text(f"• {line}", style=style))
         elif not blocks:
             blocks.append(Text("Starting specialist session.", style="#8c97ab"))
 

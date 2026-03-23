@@ -66,6 +66,44 @@ def display_path(path: str, *, cwd: Path) -> str:
         return path
 
 
+def summarize_subagent_goal(goal: str, *, max_chars: int = 22) -> str:
+    text = " ".join(str(goal or "").strip().split())
+    if not text:
+        return ""
+    for prefix in (
+        "investigate ",
+        "inspect ",
+        "review ",
+        "analyze ",
+        "audit ",
+        "check ",
+        "research ",
+        "look at ",
+        "explore ",
+    ):
+        lowered = text.lower()
+        if lowered.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    for separator in (". ", ": ", " - ", "; ", ", then ", ", and "):
+        if separator in text:
+            text = text.split(separator, 1)[0].strip()
+            break
+    if len(text) <= max_chars:
+        return text
+    words = text.split()
+    compact = ""
+    for word in words:
+        candidate = f"{compact} {word}".strip()
+        if len(candidate) > max_chars:
+            break
+        compact = candidate
+    compact = compact or text[: max_chars - 3].rstrip()
+    if compact != text:
+        compact = compact.rstrip() + "..."
+    return compact
+
+
 def todo_start_hint(arguments: dict[str, Any]) -> str:
     scope = str(arguments.get("scope", "execution")).strip().lower()
     action = str(arguments.get("action", "update")).strip().lower()
@@ -752,6 +790,7 @@ def render_subagent_runtime_payload(
         if not isinstance(run, dict):
             continue
         run_id = str(run.get("run_id") or "").strip()
+        goal_label = summarize_subagent_goal(str(run.get("goal") or "").strip())
         status = str(run.get("status") or "").strip()
         if collapse_completed and status in {"completed", "failed", "timeout", "cancelled"}:
             detail = ""
@@ -767,7 +806,11 @@ def render_subagent_runtime_payload(
                 detail = f"{freshness}  •  {detail}" if detail else freshness
         if len(detail) > 120:
             detail = detail[:117].rstrip() + "..."
-        table.add_row(run_id, status or "unknown", detail or " ")
+        run_label = Text(run_id, style="#b7c8e1")
+        if goal_label:
+            run_label.append(" · ", style="#667084")
+            run_label.append(goal_label, style="#8c97ab")
+        table.add_row(run_label, status or "unknown", detail or " ")
 
     blocks.append(table)
 

@@ -331,10 +331,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
         table = next(part for part in rendered.renderables if isinstance(part, Table))
         self.assertEqual(len(table.rows), 4)
         text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
-        self.assertIn("subrun_0001 recent activity", text)
-        self.assertIn("subrun_0002 recent activity", text)
-        self.assertIn("subrun_0003 recent activity", text)
-        self.assertIn("subrun_0004 recent activity", text)
+        self.assertIn("subrun_0001 · Goal 1 recent activity", text)
+        self.assertIn("subrun_0002 · Goal 2 recent activity", text)
+        self.assertIn("subrun_0003 · Goal 3 recent activity", text)
+        self.assertIn("subrun_0004 · Goal 4 recent activity", text)
 
     def test_render_wait_subagent_running_card_compacts_completed_result_to_one_line(self) -> None:
         app = self._app()
