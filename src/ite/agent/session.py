@@ -18,6 +18,7 @@ from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
 from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentsTool
+from ite.tools.builtin.subagent_runtime_tools import SubagentMetricsTool
 from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
@@ -212,6 +213,7 @@ class Session:
             "wait_subagent",
             "list_subagents",
             "cancel_subagent",
+            "subagent_metrics",
         ):
             tool = self.tool_registry.get(name)
             if isinstance(
@@ -222,6 +224,7 @@ class Session:
                     WaitSubagentTool,
                     ListSubagentsTool,
                     CancelSubagentTool,
+                    SubagentMetricsTool,
                 ),
             ):
                 tool.set_runtime(self.subagent_runtime)

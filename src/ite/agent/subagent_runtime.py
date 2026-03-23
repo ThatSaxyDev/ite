@@ -73,6 +73,52 @@ class SubagentRuntime:
         self._counter = 0
         self._failure_history: dict[str, list[datetime]] = {}
         self._circuit_open_until: dict[str, datetime] = {}
+        self._metrics: dict[str, Any] = {
+            "totals": {
+                "spawn_requests": 0,
+                "spawned_runs": 0,
+                "reused_existing": 0,
+                "completed": 0,
+                "failed": 0,
+                "timeout": 0,
+                "cancelled": 0,
+                "retries_used": 0,
+                "recovered_after_retry": 0,
+                "circuit_breaker_trips": 0,
+                "circuit_breaker_blocks": 0,
+            },
+            "per_subagent": {},
+        }
+
+    def _metrics_bucket(self, subagent: str) -> dict[str, Any]:
+        per = self._metrics.setdefault("per_subagent", {})
+        bucket = per.get(subagent)
+        if isinstance(bucket, dict):
+            return bucket
+        bucket = {
+            "spawn_requests": 0,
+            "spawned_runs": 0,
+            "reused_existing": 0,
+            "completed": 0,
+            "failed": 0,
+            "timeout": 0,
+            "cancelled": 0,
+            "retries_used": 0,
+            "recovered_after_retry": 0,
+            "circuit_breaker_trips": 0,
+            "circuit_breaker_blocks": 0,
+            "total_duration_ms": 0,
+            "total_turns": 0,
+            "terminal_runs": 0,
+        }
+        per[subagent] = bucket
+        return bucket
+
+    def _increment_metric(self, subagent: str, key: str, amount: int = 1) -> None:
+        totals = self._metrics.setdefault("totals", {})
+        totals[key] = int(totals.get(key) or 0) + amount
+        bucket = self._metrics_bucket(subagent)
+        bucket[key] = int(bucket.get(key) or 0) + amount
 
     def _drop_finished_task(self, run_id: str) -> None:
         task = self._tasks.get(run_id)
@@ -106,6 +152,8 @@ class SubagentRuntime:
 
     def _record_terminal_outcome(self, *, subagent: str, status: str) -> None:
         now = _utcnow()
+        if status in {"completed", "failed", "timeout", "cancelled"}:
+            self._increment_metric(subagent, status)
         if status == "completed":
             self._failure_history.pop(subagent, None)
             self._circuit_open_until.pop(subagent, None)
@@ -116,10 +164,13 @@ class SubagentRuntime:
         failures.append(now)
         self._failure_history[subagent] = failures
         if len(failures) >= self.CIRCUIT_FAILURE_THRESHOLD:
+            was_open = subagent in self._circuit_open_until and self._circuit_open_until[subagent] > now
             self._circuit_open_until[subagent] = datetime.fromtimestamp(
                 now.timestamp() + self.CIRCUIT_OPEN_SECONDS,
                 tz=timezone.utc,
             )
+            if not was_open:
+                self._increment_metric(subagent, "circuit_breaker_trips")
 
     def _prune_terminal_runs(self) -> None:
         terminal_statuses = {"completed", "failed", "timeout", "cancelled"}
@@ -197,10 +248,14 @@ class SubagentRuntime:
                 continue
             if self._goal_key(existing.goal) != goal_key:
                 continue
+            self._increment_metric(subagent, "spawn_requests")
+            self._increment_metric(subagent, "reused_existing")
             return existing, True
 
         circuit_open, reopen_at, failure_count = self._is_circuit_open(subagent)
         if circuit_open and reopen_at is not None:
+            self._increment_metric(subagent, "spawn_requests")
+            self._increment_metric(subagent, "circuit_breaker_blocks")
             raise CircuitOpenError(
                 subagent=subagent,
                 reopen_at=reopen_at,
@@ -219,6 +274,8 @@ class SubagentRuntime:
             parent_tool_call_id=parent_tool_call_id,
         )
         self._runs[run_id] = run
+        self._increment_metric(subagent, "spawn_requests")
+        self._increment_metric(subagent, "spawned_runs")
 
         async def _runner() -> None:
             started_at = _utcnow()
@@ -368,8 +425,47 @@ class SubagentRuntime:
             run.status = "timeout"
         else:
             run.status = "failed"
+        bucket = self._metrics_bucket(run.subagent)
+        bucket["total_duration_ms"] = int(bucket.get("total_duration_ms") or 0) + int(run.duration_ms or 0)
+        bucket["total_turns"] = int(bucket.get("total_turns") or 0) + int(run.child_turn_count or 0)
+        bucket["terminal_runs"] = int(bucket.get("terminal_runs") or 0) + 1
+        totals = self._metrics.setdefault("totals", {})
+        totals["retries_used"] = int(totals.get("retries_used") or 0) + int(trace_payload.get("retries_used") or 0)
+        bucket["retries_used"] = int(bucket.get("retries_used") or 0) + int(trace_payload.get("retries_used") or 0)
+        recovered = bool(trace_payload.get("recovered_after_retry") or result_payload.get("recovered_after_retry"))
+        if recovered:
+            totals["recovered_after_retry"] = int(totals.get("recovered_after_retry") or 0) + 1
+            bucket["recovered_after_retry"] = int(bucket.get("recovered_after_retry") or 0) + 1
         self._record_terminal_outcome(subagent=run.subagent, status=run.status)
         self._prune_terminal_runs()
+
+    def metrics(self) -> dict[str, Any]:
+        totals = dict(self._metrics.get("totals", {}))
+        active = self.list_runs(statuses={"queued", "running"})
+        totals["active_runs"] = len(active)
+        totals["retained_runs"] = len(self._runs)
+        per_subagent: dict[str, Any] = {}
+        for name, raw_bucket in (self._metrics.get("per_subagent", {}) or {}).items():
+            if not isinstance(raw_bucket, dict):
+                continue
+            bucket = dict(raw_bucket)
+            terminal_runs = int(bucket.get("terminal_runs") or 0)
+            total_duration = int(bucket.get("total_duration_ms") or 0)
+            total_turns = int(bucket.get("total_turns") or 0)
+            bucket["avg_duration_ms"] = int(total_duration / terminal_runs) if terminal_runs else 0
+            bucket["avg_turns"] = round(total_turns / terminal_runs, 2) if terminal_runs else 0
+            per_subagent[name] = bucket
+        open_circuits = {
+            subagent: reopen_at.isoformat()
+            for subagent, reopen_at in self._circuit_open_until.items()
+            if reopen_at > _utcnow()
+        }
+        return {
+            "session_id": self.session_id,
+            "totals": totals,
+            "per_subagent": per_subagent,
+            "open_circuits": open_circuits,
+        }
 
     async def wait(
         self,

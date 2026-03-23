@@ -62,6 +62,8 @@ def activity_title(
         return "Checking specialists" if running else ("Specialist status ready" if done else "Specialist status failed")
     if name == "cancel_subagent":
         return "Cancelling specialists" if running else ("Specialist cancel complete" if done else "Specialist cancel failed")
+    if name == "subagent_metrics":
+        return "Checking specialist metrics" if running else ("Specialist metrics ready" if done else "Specialist metrics failed")
     if name.startswith("subagent_"):
         return "Asking specialist" if running else ("Specialist finished" if done else "Specialist failed")
     if name == "web_search":
@@ -359,6 +361,18 @@ def describe_tool_activity(
             count = len(cancelled) if isinstance(cancelled, list) else 0
             return f"Cancelled {count} specialist run{'s' if count != 1 else ''}."
         return "Failed to cancel specialist runs."
+
+    if name == "subagent_metrics":
+        if stage == "start":
+            return "Checking specialist metrics."
+        if success:
+            totals = metadata.get("totals")
+            if isinstance(totals, dict):
+                spawned = int(totals.get("spawned_runs") or 0)
+                active = int(totals.get("active_runs") or 0)
+                return f"Specialist metrics ready: {spawned} spawned, {active} active."
+            return "Specialist metrics ready."
+        return "Failed to read specialist metrics."
 
     if name == "grep":
         pattern = str(args.get("pattern", "")).strip()
@@ -768,6 +782,8 @@ def progress_label(
         label = "Checking specialists"
     elif name == "cancel_subagent":
         label = "Cancelling specialists"
+    elif name == "subagent_metrics":
+        label = "Checking specialist metrics"
     elif name == "web_search":
         label = "Researching web"
     elif name == "web_fetch":

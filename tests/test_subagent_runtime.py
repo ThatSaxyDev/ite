@@ -29,6 +29,7 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
             "wait_subagent",
             "list_subagents",
             "cancel_subagent",
+            "subagent_metrics",
         ):
             tool = self.registry.get(name)
             assert tool is not None
@@ -116,6 +117,19 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(listed.success, msg=listed.error)
         self.assertEqual(listed.metadata.get("count"), 1)
         self.assertEqual(listed.metadata["runs"][0]["run_id"], run_id)
+
+        metrics_tool = self.registry.get("subagent_metrics")
+        assert metrics_tool is not None
+        metrics = await metrics_tool.execute(ToolInvocation(params={}, cwd=self.cwd))
+        self.assertTrue(metrics.success, msg=metrics.error)
+        totals = metrics.metadata["totals"]
+        self.assertEqual(totals["spawn_requests"], 1)
+        self.assertEqual(totals["spawned_runs"], 1)
+        self.assertEqual(totals["completed"], 1)
+        self.assertEqual(totals["active_runs"], 0)
+        per = metrics.metadata["per_subagent"]["codebase_investigator"]
+        self.assertEqual(per["avg_duration_ms"], 10)
+        self.assertEqual(per["avg_turns"], 2.0)
 
     async def test_cancel_subagent_marks_run_cancelled(self) -> None:
         tool = self.registry.get("subagent_codebase_investigator")
@@ -534,6 +548,87 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(blocked.metadata["circuit_open"])
         self.assertEqual(blocked.metadata["failure_count"], 2)
         self.assertIn("temporarily paused", blocked.error or "")
+
+        metrics_tool = self.registry.get("subagent_metrics")
+        assert metrics_tool is not None
+        metrics = await metrics_tool.execute(ToolInvocation(params={}, cwd=self.cwd))
+        totals = metrics.metadata["totals"]
+        self.assertEqual(totals["timeout"], 2)
+        self.assertEqual(totals["circuit_breaker_trips"], 1)
+        self.assertEqual(totals["circuit_breaker_blocks"], 1)
+
+    async def test_metrics_count_reuse_and_retry_recovery(self) -> None:
+        tool = self.registry.get("subagent_codebase_investigator")
+        assert tool is not None
+
+        async def slow_success_with_retry_metadata(
+            invocation: ToolInvocation,
+            progress_callback=None,
+        ) -> ToolResult:
+            await asyncio.sleep(0.05)
+            payload = {
+                "status": "ok",
+                "subagent": "codebase_investigator",
+                "termination": "goal",
+                "tools_used": ["read_file"],
+                "summary": "recovered",
+                "findings": [],
+                "actions": [],
+                "attempt_count": 2,
+                "retries_used": 1,
+                "recovered_after_retry": True,
+            }
+            trace = {
+                "child_session_id": "child_1",
+                "duration_ms": 50,
+                "child_turn_count": 3,
+                "termination": "goal",
+                "attempt_count": 2,
+                "retries_used": 1,
+                "recovered_after_retry": True,
+            }
+            return ToolResult.success_result(
+                json.dumps(payload),
+                metadata={"subagent_result": payload, "subagent_trace": trace},
+            )
+
+        tool._execute_with_progress = slow_success_with_retry_metadata  # type: ignore[method-assign]
+        spawn = self.registry.get("spawn_subagent")
+        wait = self.registry.get("wait_subagent")
+        metrics_tool = self.registry.get("subagent_metrics")
+        assert spawn is not None and wait is not None and metrics_tool is not None
+
+        first = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "inspect metrics"},
+                cwd=self.cwd,
+            )
+        )
+        second = await spawn.execute(
+            ToolInvocation(
+                params={"subagent": "codebase_investigator", "goal": "inspect metrics"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertTrue(first.success, msg=first.error)
+        self.assertTrue(second.success, msg=second.error)
+        self.assertTrue(second.metadata["reused_existing"])
+
+        waited = await wait.execute(
+            ToolInvocation(
+                params={"run_ids": [first.metadata["run"]["run_id"]], "timeout_seconds": 1, "return_when": "all_completed"},
+                cwd=self.cwd,
+            )
+        )
+        self.assertTrue(waited.success, msg=waited.error)
+
+        metrics = await metrics_tool.execute(ToolInvocation(params={}, cwd=self.cwd))
+        totals = metrics.metadata["totals"]
+        self.assertEqual(totals["spawn_requests"], 2)
+        self.assertEqual(totals["spawned_runs"], 1)
+        self.assertEqual(totals["reused_existing"], 1)
+        self.assertEqual(totals["retries_used"], 1)
+        self.assertEqual(totals["recovered_after_retry"], 1)
 
     async def test_circuit_breaker_recovers_after_window(self) -> None:
         tool = self.registry.get("subagent_codebase_investigator")

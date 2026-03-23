@@ -626,8 +626,8 @@ def refresh_subagent_tools(
 ) -> None:
     existing = [
         name
-        for name in list(registry._tools.keys())
-        if name.startswith("subagent_")
+        for name, tool in list(registry._tools.items())
+        if isinstance(tool, SubagentTool)
     ]
     for name in existing:
         registry.unregister(name)

@@ -64,6 +64,10 @@ class CancelSubagentParams(BaseModel):
     )
 
 
+class SubagentMetricsParams(BaseModel):
+    pass
+
+
 class _SubagentRuntimeTool(Tool):
     runtime: SubagentRuntime | None = None
 
@@ -333,6 +337,29 @@ class CancelSubagentTool(_SubagentRuntimeTool):
         params = CancelSubagentParams(**invocation.params)
         runtime = self._require_runtime()
         result = await runtime.cancel(run_ids=params.run_ids)
+        return ToolResult.success_result(
+            json.dumps(result, indent=2),
+            metadata=result,
+        )
+
+
+class SubagentMetricsTool(_SubagentRuntimeTool):
+    name = "subagent_metrics"
+    description = "Show runtime health metrics for subagent orchestration in the current session."
+    schema = SubagentMetricsParams
+
+    def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
+        return ToolMetadata(
+            mutating=False,
+            risk_level=ToolRiskLevel.LOW,
+            allowed_in_plan_mode=True,
+            supports_subagent_use=False,
+            output_schema={"type": "object"},
+        )
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        runtime = self._require_runtime()
+        result = runtime.metrics()
         return ToolResult.success_result(
             json.dumps(result, indent=2),
             metadata=result,

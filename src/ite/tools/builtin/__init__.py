@@ -41,6 +41,7 @@ from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
 from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentsTool
+from ite.tools.builtin.subagent_runtime_tools import SubagentMetricsTool
 from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 
 __all__ = [
@@ -85,6 +86,7 @@ __all__ = [
     "RunTypecheckTool",
     "SpawnSubagentTool",
     "SpawnSubagentsTool",
+    "SubagentMetricsTool",
     "WaitSubagentTool",
     "ListSubagentsTool",
     "CancelSubagentTool",
@@ -134,6 +136,7 @@ def get_all_builtin_tools() -> list[type]:
         RunTypecheckTool,
         SpawnSubagentTool,
         SpawnSubagentsTool,
+        SubagentMetricsTool,
         WaitSubagentTool,
         ListSubagentsTool,
         CancelSubagentTool,
