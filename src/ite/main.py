@@ -822,23 +822,7 @@ class CLI:
             session = self.agent.session
             session_manager = SessionManager()
             snapshot = SessionSnapshot(
-                session_id=session.session_id,
-                name=session.name,
-                workspace_path=str(self.config.cwd.resolve()),
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                turn_count=session.turn_count,
-                messages=session.context_manager.get_snapshot_messages(),
-                total_usage=session.context_manager.total_usage,
-                plan_mode_enabled=session.plan_mode_enabled,
-                plan_phase=session.plan_phase,
-                plan_questions_asked=session.plan_questions_asked,
-                plan_target_questions=session.plan_target_questions,
-                pending_plan_text=session.pending_plan_text,
-                active_plan_text=session.active_plan_text,
-                todos_state=session.export_todos_state(),
-                show_planning_todos=session.show_planning_todos,
-                change_history_state=session.export_change_history_state(),
+                **session.snapshot_kwargs(workspace_path=str(self.config.cwd.resolve()))
             )
             session_manager.save_session(snapshot)
         except Exception:

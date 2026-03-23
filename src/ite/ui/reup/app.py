@@ -114,6 +114,7 @@ from .tool_views import (
     render_list_dir_output,
     normalize_unified_diff_paths,
     render_numbered_unified_diff,
+    render_subagent_metrics_payload,
     render_subagent_payload,
     render_subagent_runtime_payload,
     render_shell_command_line,
@@ -3141,8 +3142,14 @@ class ReupApp(App):
                 self.refresh_header()
 
         resumed = Session(config=self.config)
-        resumed.session_id = snapshot.session_id
+        if hasattr(resumed, "set_session_id"):
+            resumed.set_session_id(snapshot.session_id)
+        else:
+            resumed.session_id = snapshot.session_id
         resumed.name = snapshot.name
+        resumed.name_source = snapshot.name_source
+        resumed.name_locked = snapshot.name_locked
+        resumed.name_last_generated_turn = snapshot.name_last_generated_turn
         resumed.created_at = snapshot.created_at
         resumed.updated_at = snapshot.updated_at
         resumed.turn_count = snapshot.turn_count
@@ -3160,6 +3167,8 @@ class ReupApp(App):
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.restore_change_history_state(snapshot.change_history_state)
+        if hasattr(resumed, "restore_subagent_runtime_state"):
+            resumed.restore_subagent_runtime_state(snapshot.subagent_runtime_state)
         dropped_agent: Agent | None = None
         if (
             current_session_id
@@ -5396,6 +5405,16 @@ class ReupApp(App):
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
+        elif name == "subagent_metrics":
+            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.extend(
+                render_subagent_metrics_payload(
+                    metadata=md,
+                    output=output,
+                    error=error,
+                    success=success,
+                )
+            )
         elif name in {"spawn_subagent", "spawn_subagents", "wait_subagent", "list_subagents", "cancel_subagent"}:
             blocks.append(Text(narrative, style="#8c97ab"))
             blocks.extend(

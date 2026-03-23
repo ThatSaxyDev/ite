@@ -150,6 +150,30 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertIn("undo_stack", restored.change_history_state)
         self.assertEqual(restored.change_history_state["undo_stack"][0]["id"], "chg1")
 
+    def test_subagent_runtime_state_round_trips_in_snapshot(self) -> None:
+        snapshot = SessionSnapshot(
+            session_id="subagent-state",
+            name="Subagent State",
+            created_at=datetime(2026, 3, 4, 11, 46, 7, 637365),
+            updated_at=datetime(2026, 3, 4, 11, 46, 52, 384048),
+            turn_count=2,
+            messages=[{"role": "user", "content": "hello"}],
+            total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            subagent_runtime_state={
+                "counter": 7,
+                "runs": [{"run_id": "subrun_0007", "subagent": "codebase_investigator", "goal": "audit", "status": "completed", "created_at": "2026-03-04T11:46:07+00:00"}],
+                "metrics": {"totals": {"spawned_runs": 7}, "per_subagent": {"codebase_investigator": {"spawned_runs": 7}}},
+            },
+        )
+
+        self.manager.save_session(snapshot)
+        restored = self.manager.load_session("subagent-state")
+
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertEqual(restored.subagent_runtime_state["counter"], 7)
+        self.assertEqual(restored.subagent_runtime_state["metrics"]["totals"]["spawned_runs"], 7)
+
     def test_save_session_compacts_older_tool_payloads(self) -> None:
         messages = [
             {

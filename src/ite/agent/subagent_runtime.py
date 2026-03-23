@@ -73,6 +73,7 @@ class SubagentRuntime:
         self._counter = 0
         self._failure_history: dict[str, list[datetime]] = {}
         self._circuit_open_until: dict[str, datetime] = {}
+        self._restored_from_snapshot = False
         self._metrics: dict[str, Any] = {
             "totals": {
                 "spawn_requests": 0,
@@ -462,6 +463,7 @@ class SubagentRuntime:
         }
         return {
             "session_id": self.session_id,
+            "restored_from_snapshot": self._restored_from_snapshot,
             "totals": totals,
             "per_subagent": per_subagent,
             "open_circuits": open_circuits,
@@ -549,3 +551,51 @@ class SubagentRuntime:
 
     async def shutdown(self) -> None:
         await self.cancel(run_ids=list(self._tasks.keys()))
+
+    def export_state(self) -> dict[str, Any]:
+        terminal_statuses = {"completed", "failed", "timeout", "cancelled"}
+        runs = [
+            run.to_dict()
+            for run in self.list_runs()
+            if run.status in terminal_statuses
+        ]
+        return {
+            "counter": self._counter,
+            "runs": runs,
+            "metrics": self.metrics(),
+        }
+
+    def restore_state(self, state: dict[str, Any] | None) -> None:
+        if not isinstance(state, dict):
+            return
+        self._restored_from_snapshot = True
+        self._runs = {}
+        self._tasks = {}
+        counter = state.get("counter")
+        if isinstance(counter, int) and counter >= 0:
+            self._counter = counter
+        runs = state.get("runs")
+        max_counter = self._counter
+        if isinstance(runs, list):
+            for item in runs:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    run = SubagentRun(**item)
+                except TypeError:
+                    continue
+                self._runs[run.run_id] = run
+                if run.run_id.startswith("subrun_"):
+                    try:
+                        max_counter = max(max_counter, int(run.run_id.removeprefix("subrun_")))
+                    except ValueError:
+                        pass
+        self._counter = max_counter
+        metrics = state.get("metrics")
+        if isinstance(metrics, dict):
+            totals = metrics.get("totals")
+            per_subagent = metrics.get("per_subagent")
+            self._metrics = {
+                "totals": dict(totals) if isinstance(totals, dict) else {},
+                "per_subagent": dict(per_subagent) if isinstance(per_subagent, dict) else {},
+            }

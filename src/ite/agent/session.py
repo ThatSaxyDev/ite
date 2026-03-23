@@ -307,7 +307,15 @@ class Session:
             "todos_state": self.export_todos_state(),
             "show_planning_todos": self.show_planning_todos,
             "change_history_state": self.export_change_history_state(),
+            "subagent_runtime_state": self.export_subagent_runtime_state(),
         }
+
+    def export_subagent_runtime_state(self) -> dict[str, Any]:
+        return self.subagent_runtime.export_state()
+
+    def restore_subagent_runtime_state(self, state: dict[str, Any] | None) -> None:
+        self.subagent_runtime.restore_state(state)
+        self._sync_subagent_runtime_tools()
 
     def record_lifecycle_episode(self, summary: str, *, source: str) -> None:
         self.memory_manager.append_episode(

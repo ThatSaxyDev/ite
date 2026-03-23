@@ -247,6 +247,7 @@ class SessionControllerMixin:
         resumed.context_manager.total_usage = snapshot.total_usage
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.restore_change_history_state(snapshot.change_history_state)
+        resumed.restore_subagent_runtime_state(snapshot.subagent_runtime_state)
         resumed.approval_manager.confirmation_callback = self._gui_confirmation_callback
         if hasattr(self, "_sync_plan_toggle_ui"):
             self._sync_plan_toggle_ui()

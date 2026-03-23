@@ -799,6 +799,64 @@ def render_subagent_runtime_payload(
     return blocks
 
 
+def render_subagent_metrics_payload(
+    *,
+    metadata: dict[str, Any] | None,
+    output: str = "",
+    error: str | None = None,
+    success: bool = True,
+) -> list[Any]:
+    md = metadata if isinstance(metadata, dict) else {}
+    blocks: list[Any] = []
+
+    if not success:
+        failure_text = str(error or output or "").strip()
+        if failure_text:
+            blocks.append(Text("Failure", style="bold #d8ab74"))
+            blocks.append(render_text_payload(failure_text, success=False))
+        else:
+            blocks.append(Text("No metrics available.", style="#8c97ab"))
+        return blocks
+
+    totals = md.get("totals")
+    if not isinstance(totals, dict):
+        blocks.append(Text("No metrics available.", style="#8c97ab"))
+        return blocks
+
+    restored = bool(md.get("restored_from_snapshot"))
+
+    historical = Table.grid(padding=(0, 1))
+    historical.add_column(style="#d8ab74", no_wrap=True)
+    historical.add_column(style="#edf1f7")
+    historical.add_row("Historical session totals", "restored from saved session" if restored else "live session history")
+    historical.add_row("Spawned runs", str(int(totals.get("spawned_runs") or 0)))
+    historical.add_row("Completed", str(int(totals.get("completed") or 0)))
+    historical.add_row("Failed", str(int(totals.get("failed") or 0)))
+    historical.add_row("Timeout", str(int(totals.get("timeout") or 0)))
+    historical.add_row("Cancelled", str(int(totals.get("cancelled") or 0)))
+    historical.add_row("Retries used", str(int(totals.get("retries_used") or 0)))
+    historical.add_row("Recovered after retry", str(int(totals.get("recovered_after_retry") or 0)))
+    blocks.append(historical)
+
+    live = Table.grid(padding=(0, 1))
+    live.add_column(style="#b7c8e1", no_wrap=True)
+    live.add_column(style="#edf1f7")
+    live.add_row("Live runtime state", "current process")
+    live.add_row("Active runs", str(int(totals.get("active_runs") or 0)))
+    live.add_row("Retained runs", str(int(totals.get("retained_runs") or 0)))
+    live.add_row("Circuit breaker blocks", str(int(totals.get("circuit_breaker_blocks") or 0)))
+    live.add_row("Circuit breaker trips", str(int(totals.get("circuit_breaker_trips") or 0)))
+    blocks.append(live)
+
+    open_circuits = md.get("open_circuits")
+    if isinstance(open_circuits, dict) and open_circuits:
+        blocks.append(Text("Open circuits", style="bold #d8ab74"))
+        for subagent, reopen_at in open_circuits.items():
+            blocks.append(Text(f"{subagent}: retry after {reopen_at}", style="#8c97ab"))
+
+    return blocks
+
+
 _SHELL_STDERR_MARKER_RE = re.compile(r"(?:^|\n)\s*--- STDERR ---\s*\n", re.MULTILINE)
 
 

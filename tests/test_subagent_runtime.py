@@ -630,6 +630,48 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(totals["retries_used"], 1)
         self.assertEqual(totals["recovered_after_retry"], 1)
 
+    async def test_runtime_state_restore_preserves_historical_metrics(self) -> None:
+        state = {
+            "counter": 4,
+            "runs": [
+                {
+                    "run_id": "subrun_0004",
+                    "subagent": "codebase_investigator",
+                    "goal": "inspect",
+                    "status": "completed",
+                    "created_at": "2026-03-04T11:46:07+00:00",
+                    "finished_at": "2026-03-04T11:46:10+00:00",
+                    "duration_ms": 3000,
+                    "child_turn_count": 4,
+                    "summary": "done",
+                    "activity_history": [],
+                }
+            ],
+            "metrics": {
+                "totals": {"spawned_runs": 4, "completed": 4, "active_runs": 0, "retained_runs": 1},
+                "per_subagent": {
+                    "codebase_investigator": {
+                        "spawned_runs": 4,
+                        "completed": 4,
+                        "total_duration_ms": 12000,
+                        "total_turns": 16,
+                        "terminal_runs": 4,
+                    }
+                },
+            },
+        }
+
+        self.runtime.restore_state(state)
+        metrics_tool = self.registry.get("subagent_metrics")
+        assert metrics_tool is not None
+        metrics = await metrics_tool.execute(ToolInvocation(params={}, cwd=self.cwd))
+        self.assertTrue(metrics.success, msg=metrics.error)
+        totals = metrics.metadata["totals"]
+        self.assertEqual(totals["spawned_runs"], 4)
+        self.assertEqual(totals["completed"], 4)
+        self.assertEqual(totals["retained_runs"], 1)
+        self.assertEqual(metrics.metadata["per_subagent"]["codebase_investigator"]["avg_turns"], 4.0)
+
     async def test_circuit_breaker_recovers_after_window(self) -> None:
         tool = self.registry.get("subagent_codebase_investigator")
         assert tool is not None

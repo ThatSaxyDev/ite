@@ -292,23 +292,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
         and ctx.agent.session.context_manager.message_count > 0
     ):
         current_snapshot = SessionSnapshot(
-            session_id=ctx.agent.session.session_id,
-            name=ctx.agent.session.name,
-            workspace_path=str(ctx.config.cwd.resolve()),
-            created_at=ctx.agent.session.created_at,
-            updated_at=ctx.agent.session.updated_at,
-            turn_count=ctx.agent.session.turn_count,
-            messages=ctx.agent.session.context_manager.get_snapshot_messages(),
-            total_usage=ctx.agent.session.context_manager.total_usage,
-            plan_mode_enabled=ctx.agent.session.plan_mode_enabled,
-            plan_phase=ctx.agent.session.plan_phase,
-            plan_questions_asked=ctx.agent.session.plan_questions_asked,
-            plan_target_questions=ctx.agent.session.plan_target_questions,
-            pending_plan_text=ctx.agent.session.pending_plan_text,
-            active_plan_text=ctx.agent.session.active_plan_text,
-            todos_state=ctx.agent.session.export_todos_state(),
-            show_planning_todos=ctx.agent.session.show_planning_todos,
-            change_history_state=ctx.agent.session.export_change_history_state(),
+            **ctx.agent.session.snapshot_kwargs(workspace_path=str(ctx.config.cwd.resolve()))
         )
         session_manager.save_checkpoint(current_snapshot)
 
@@ -346,6 +330,7 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
     session.context_manager.total_usage = snapshot.total_usage
     session.restore_todos_state(snapshot.todos_state)
     session.restore_change_history_state(snapshot.change_history_state)
+    session.restore_subagent_runtime_state(snapshot.subagent_runtime_state)
     ctx.agent.session = session
 
     title = Text.assemble(("💾  ", ""), ("Resumed", "bold bright_white"))

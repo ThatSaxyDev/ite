@@ -5,6 +5,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ite.ui.reup.tool_views import normalize_unified_diff_paths
+from ite.ui.reup.tool_views import render_subagent_metrics_payload
 from ite.ui.reup.tool_views import render_subagent_payload
 from ite.ui.reup.tool_views import render_subagent_runtime_payload
 from ite.ui.reup.tool_views import render_git_log_output
@@ -213,6 +214,41 @@ class ReupToolViewsTests(unittest.TestCase):
         self.assertNotIn("Recent activity", joined)
         table = next(block for block in blocks if isinstance(block, Table))
         self.assertEqual(len(table.rows), 2)
+
+    def test_render_subagent_metrics_payload_labels_historical_and_live_state(self) -> None:
+        blocks = render_subagent_metrics_payload(
+            metadata={
+                "restored_from_snapshot": True,
+                "totals": {
+                    "spawned_runs": 7,
+                    "completed": 6,
+                    "failed": 1,
+                    "timeout": 0,
+                    "cancelled": 0,
+                    "retries_used": 2,
+                    "recovered_after_retry": 1,
+                    "active_runs": 0,
+                    "retained_runs": 7,
+                    "circuit_breaker_blocks": 0,
+                    "circuit_breaker_trips": 0,
+                },
+                "open_circuits": {},
+            },
+            success=True,
+        )
+
+        tables = [block for block in blocks if isinstance(block, Table)]
+        self.assertEqual(len(tables), 2)
+        rendered = "\n".join(
+            cell.plain if hasattr(cell, "plain") else str(cell)
+            for table in tables
+            for column in table.columns
+            for cell in column.cells
+        )
+        self.assertIn("Historical session totals", rendered)
+        self.assertIn("restored from saved session", rendered)
+        self.assertIn("Live runtime state", rendered)
+        self.assertIn("current process", rendered)
 
 
 if __name__ == "__main__":

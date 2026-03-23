@@ -128,6 +128,7 @@ class SessionSnapshot:
     todos_state: dict[str, Any] | None = None
     show_planning_todos: bool = False
     change_history_state: dict[str, Any] | None = None
+    subagent_runtime_state: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -151,6 +152,7 @@ class SessionSnapshot:
             "todos_state": self.todos_state,
             "show_planning_todos": self.show_planning_todos,
             "change_history_state": self.change_history_state,
+            "subagent_runtime_state": self.subagent_runtime_state,
         }
 
     @classmethod
@@ -176,6 +178,7 @@ class SessionSnapshot:
             todos_state=data.get("todos_state"),
             show_planning_todos=bool(data.get("show_planning_todos", False)),
             change_history_state=data.get("change_history_state"),
+            subagent_runtime_state=data.get("subagent_runtime_state"),
         )
 
 
