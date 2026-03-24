@@ -635,7 +635,7 @@ class SubagentRuntimeToolTests(unittest.IsolatedAsyncioTestCase):
             "counter": 4,
             "runs": [
                 {
-                    "run_id": "subrun_0004",
+                    "run_id": "agent_004",
                     "subagent": "codebase_investigator",
                     "goal": "inspect",
                     "status": "completed",

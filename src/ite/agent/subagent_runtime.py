@@ -222,7 +222,7 @@ class SubagentRuntime:
 
     def _next_run_id(self) -> str:
         self._counter += 1
-        return f"subrun_{self._counter:04d}"
+        return f"agent_{self._counter:03d}"
 
     async def spawn(
         self,
@@ -588,6 +588,11 @@ class SubagentRuntime:
                 if run.run_id.startswith("subrun_"):
                     try:
                         max_counter = max(max_counter, int(run.run_id.removeprefix("subrun_")))
+                    except ValueError:
+                        pass
+                elif run.run_id.startswith("agent_"):
+                    try:
+                        max_counter = max(max_counter, int(run.run_id.removeprefix("agent_")))
                     except ValueError:
                         pass
         self._counter = max_counter

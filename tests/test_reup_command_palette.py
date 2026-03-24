@@ -227,7 +227,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 subagent_runtime=SimpleNamespace(
                     list_runs=lambda: [
                         SimpleNamespace(
-                            run_id="subrun_0001",
+                            run_id="agent_001",
                             status="running",
                             summary="Inspect tool registry internals",
                             goal="Inspect tool registry internals",
@@ -251,7 +251,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         rendered = app._render_wait_subagent_running_card(
-            args={"run_ids": ["subrun_0001"], "return_when": "all_completed"},
+            args={"run_ids": ["agent_001"], "return_when": "all_completed"},
             spinner_index=0,
         )
 
@@ -298,7 +298,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         for index in range(4):
             runs.append(
                 SimpleNamespace(
-                    run_id=f"subrun_000{index + 1}",
+                    run_id=f"agent_{index + 1:03d}",
                     status="running",
                     summary=f"Summary {index + 1}",
                     goal=f"Goal {index + 1}",
@@ -331,10 +331,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
         table = next(part for part in rendered.renderables if isinstance(part, Table))
         self.assertEqual(len(table.rows), 4)
         text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
-        self.assertIn("subrun_0001 · Goal 1 recent activity", text)
-        self.assertIn("subrun_0002 · Goal 2 recent activity", text)
-        self.assertIn("subrun_0003 · Goal 3 recent activity", text)
-        self.assertIn("subrun_0004 · Goal 4 recent activity", text)
+        self.assertIn("agent_001 · Goal 1 recent activity", text)
+        self.assertIn("agent_002 · Goal 2 recent activity", text)
+        self.assertIn("agent_003 · Goal 3 recent activity", text)
+        self.assertIn("agent_004 · Goal 4 recent activity", text)
 
     def test_render_wait_subagent_running_card_compacts_completed_result_to_one_line(self) -> None:
         app = self._app()
@@ -343,7 +343,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 subagent_runtime=SimpleNamespace(
                     list_runs=lambda: [
                         SimpleNamespace(
-                            run_id="subrun_0002",
+                            run_id="agent_002",
                             status="completed",
                             summary="## Subagent Session & Runtime Behavior - Findings Report\n\n## 1. Session Creation\nMore details here.",
                             goal="Inspect runtime wiring",
@@ -414,7 +414,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 subagent_runtime=SimpleNamespace(
                     list_runs=lambda: [
                         SimpleNamespace(
-                            run_id="subrun_0001",
+                            run_id="agent_001",
                             status="running",
                             summary="Summary 1",
                             goal="Goal 1",

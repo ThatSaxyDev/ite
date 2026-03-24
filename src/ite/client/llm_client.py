@@ -97,6 +97,8 @@ class LLMClient:
                         error=format_provider_error(
                             kind="rate_limit",
                             message=str(e),
+                            model_name=self.config.model_name,
+                            base_url=self.config.base_url,
                         ),
                     )
                     return
@@ -110,6 +112,8 @@ class LLMClient:
                         error=format_provider_error(
                             kind="connection",
                             message=str(e),
+                            model_name=self.config.model_name,
+                            base_url=self.config.base_url,
                         ),
                     )
                     return
@@ -126,6 +130,8 @@ class LLMClient:
                         kind="api",
                         message=str(e),
                         status_code=status_code,
+                        model_name=self.config.model_name,
+                        base_url=self.config.base_url,
                     ),
                 )
                 return

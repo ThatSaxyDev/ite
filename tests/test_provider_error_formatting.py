@@ -15,6 +15,8 @@ class ProviderErrorFormattingTests(unittest.TestCase):
             kind="api",
             message=message,
             status_code=404,
+            model_name="kimi-k2.5:cloud",
+            base_url="https://openrouter.ai/api/v1",
         )
 
         self.assertIn("selected model was not found", rendered.lower())
@@ -32,6 +34,8 @@ class ProviderErrorFormattingTests(unittest.TestCase):
             kind="api",
             message=message,
             status_code=502,
+            model_name="ollama/deepseek-r1",
+            base_url="https://openrouter.ai/api/v1",
         )
 
         self.assertIn("could not reach its upstream host", rendered.lower())
@@ -48,11 +52,37 @@ class ProviderErrorFormattingTests(unittest.TestCase):
             kind="api",
             message=message,
             status_code=400,
+            model_name="kimi-k2.5:cloud",
+            base_url="https://openrouter.ai/api/v1",
         )
 
         self.assertIn("exceeded the provider's context limit", rendered.lower())
         self.assertIn("1397", rendered)
         self.assertIn("thread history is too large", rendered.lower())
+
+    def test_generic_provider_error_includes_model_backend_and_payload_details(self) -> None:
+        message = (
+            'Error code: 502 - {"error": {"message": "Provider returned error", '
+            '"type": "provider_error", "code": "upstream_unavailable", '
+            '"metadata": {"provider_name": "OpenRouter", '
+            '"raw": "minimax upstream temporarily unavailable"}}}'
+        )
+
+        rendered = format_provider_error(
+            kind="api",
+            message=message,
+            status_code=502,
+            model_name="minimax/minimax-m2.5:free",
+            base_url="https://openrouter.ai/api/v1",
+        )
+
+        self.assertIn("provider returned a bad gateway error", rendered.lower())
+        self.assertIn("Model: minimax/minimax-m2.5:free", rendered)
+        self.assertIn("Backend: openrouter.ai", rendered)
+        self.assertIn("Type: provider_error", rendered)
+        self.assertIn("Code: upstream_unavailable", rendered)
+        self.assertIn("Provider: OpenRouter", rendered)
+        self.assertIn("Upstream: minimax upstream temporarily unavailable", rendered)
 
 
 if __name__ == "__main__":

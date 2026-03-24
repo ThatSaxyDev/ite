@@ -161,7 +161,7 @@ class SessionManagerCorruptionTests(unittest.TestCase):
             total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
             subagent_runtime_state={
                 "counter": 7,
-                "runs": [{"run_id": "subrun_0007", "subagent": "codebase_investigator", "goal": "audit", "status": "completed", "created_at": "2026-03-04T11:46:07+00:00"}],
+                "runs": [{"run_id": "agent_007", "subagent": "codebase_investigator", "goal": "audit", "status": "completed", "created_at": "2026-03-04T11:46:07+00:00"}],
                 "metrics": {"totals": {"spawned_runs": 7}, "per_subagent": {"codebase_investigator": {"spawned_runs": 7}}},
             },
         )

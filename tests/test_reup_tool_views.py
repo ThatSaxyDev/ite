@@ -114,7 +114,7 @@ class ReupToolViewsTests(unittest.TestCase):
                 "selected_subagent": "codebase_investigator",
                 "runs": [
                     {
-                        "run_id": "subrun_0001",
+                        "run_id": "agent_001",
                         "status": "running",
                         "goal": "Inspect backend architecture",
                         "current_activity": "Searching code in src/ite.",
@@ -131,13 +131,13 @@ class ReupToolViewsTests(unittest.TestCase):
                         ],
                     },
                     {
-                        "run_id": "subrun_0002",
+                        "run_id": "agent_002",
                         "status": "completed",
                         "summary": "Reviewed frontend layout",
                     },
                 ],
-                "completed_run_ids": ["subrun_0002"],
-                "pending_run_ids": ["subrun_0001"],
+                "completed_run_ids": ["agent_002"],
+                "pending_run_ids": ["agent_001"],
             }
         )
 
@@ -190,7 +190,7 @@ class ReupToolViewsTests(unittest.TestCase):
             metadata={
                 "runs": [
                     {
-                        "run_id": "subrun_0001",
+                        "run_id": "agent_001",
                         "status": "completed",
                         "summary": "Very long completed specialist report that should not be shown here.",
                         "activity_history": [
@@ -198,7 +198,7 @@ class ReupToolViewsTests(unittest.TestCase):
                         ],
                     },
                     {
-                        "run_id": "subrun_0002",
+                        "run_id": "agent_002",
                         "status": "running",
                         "current_activity": "Reading src/ite/ui/reup/app.py",
                         "last_update_at": "2026-03-22T00:00:01+00:00",
