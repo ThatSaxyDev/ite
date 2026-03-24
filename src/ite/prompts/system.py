@@ -2,6 +2,7 @@ import platform
 import subprocess
 from functools import lru_cache
 from datetime import datetime
+from typing import Any
 from ite.config.config import Config
 from ite.tools.base import Tool
 
@@ -12,6 +13,7 @@ def get_system_prompt(
     tools: list[Tool] | None = None,
     plan_mode_enabled: bool = False,
     plan_phase: str = "idle",
+    skill_context: dict | None = None,
 ) -> str:
     parts = []
 
@@ -44,6 +46,10 @@ def get_system_prompt(
             parts.append(memory_section)
     if plan_mode_enabled:
         parts.append(_get_plan_mode_section(plan_phase))
+    if skill_context:
+        skills_section = _get_skills_section(skill_context)
+        if skills_section:
+            parts.append(skills_section)
     # Operational guidelines
     parts.append(_get_operational_section())
 
@@ -173,6 +179,49 @@ def _get_security_section() -> str:
 7. **Security First**: Always apply security best practices. Never introduce code that exposes, logs, or commits secrets, API keys, or other sensitive information."""
 
 
+def _get_skills_section(skill_context: dict[str, Any]) -> str:
+    catalog = skill_context.get("catalog") if isinstance(skill_context, dict) else None
+    active = skill_context.get("active") if isinstance(skill_context, dict) else None
+
+    lines = ["# Skills"]
+    lines.append(
+        "- Skills follow the interoperable `SKILL.md` bundle pattern. Keep inactive skills out of the main context; activate them explicitly when needed."
+    )
+
+    if isinstance(catalog, list) and catalog:
+        lines.append("- Available skills:")
+        for entry in catalog[:20]:
+            if not isinstance(entry, dict):
+                continue
+            identifier = str(entry.get("identifier", "")).strip()
+            description = str(entry.get("description", "")).strip()
+            name = str(entry.get("name", identifier)).strip() or identifier
+            source = str(entry.get("source", "")).strip()
+            suffix = f" [{source}]" if source else ""
+            lines.append(f"  - `{identifier}` ({name}){suffix} — {description}")
+
+    if isinstance(active, list) and active:
+        lines.append("- Active skill instructions:")
+        for entry in active:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name", "")).strip()
+            source = str(entry.get("source", "")).strip()
+            description = str(entry.get("description", "")).strip()
+            instructions = str(entry.get("instructions", "")).strip()
+            if not name or not instructions:
+                continue
+            lines.append(f"## Active Skill: {name}")
+            if source:
+                lines.append(f"Source: {source}")
+            if description:
+                lines.append(f"Description: {description}")
+            lines.append("")
+            lines.append(instructions)
+
+    return "\n".join(lines)
+
+
 def _get_operational_section() -> str:
     """Generate operational guidelines."""
     return """# Operational Guidelines
@@ -234,6 +283,7 @@ You are a coding agent. Please keep going until the query is completely resolved
   - `episodic`: For recording key decisions or milestones during a session (e.g., "Fixed race condition in worker pool"). Append-only with timestamps.
   Do *not* store general project context in `long_term` — use `semantic` for that.
 - **Task Management:** Use the `todos` tool to track multi-step tasks with scope awareness. Use `scope=execution` for user-facing implementation progress and `scope=planning` for planner-internal breakdowns. Start with execution todos for multi-step work, update them as work evolves, complete tasks immediately when done, and remove tasks that are no longer valid.
+- **Skills:** Use the `skills` tool to list and inspect available Agent Skills. Activate a skill before relying on its detailed instructions. Favor explicit activation when the user names a skill or when the catalog clearly contains a strong match.
 - **Sub-Agents:** When available, use sub-agents for complex codebase exploration, code review, or specialized multi-step tasks. Sub-agents run with isolated context and have limited tool access, making them ideal for focused investigations. For simple queries (like finding a specific function), use direct tools (`grep`, `read_file`) instead. Use sub-agents when the task involves complex refactoring, codebase exploration, or system-wide analysis. Provide clear, specific goals when invoking sub-agents and integrate their results into your main workflow. If the user explicitly asks for parallel work across multiple named targets, prefer a single `spawn_subagents` call that contains all targets. If `spawn_subagents` is not used, launch one distinct `spawn_subagent` per target before calling `wait_subagent`, do not wait after only one launch if more independent targets remain, and do not switch to overlapping local investigation for those same targets before the fan-out is complete.
 
 ## Error Recovery

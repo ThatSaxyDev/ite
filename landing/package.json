@@ -1,0 +1,14 @@
+{
+  "name": "ite-landing",
+  "version": "1.0.0",
+  "description": "Landing page for ITE - Interactive Terminal Environment",
+  "scripts": {
+    "dev": "go run server.go",
+    "build": "go build -o ite-landing server.go",
+    "start": "./ite-landing",
+    "preview": "open index.html"
+  },
+  "keywords": ["landing", "ite", "terminal", "ai"],
+  "author": "",
+  "license": "MIT"
+}

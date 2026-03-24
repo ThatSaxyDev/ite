@@ -234,6 +234,7 @@ class SessionControllerMixin:
         resumed.turn_count = snapshot.turn_count
         resumed.pending_plan_text = snapshot.pending_plan_text
         resumed.active_plan_text = snapshot.active_plan_text
+        resumed.active_skill_refs = list(snapshot.active_skills or [])
         resumed.show_planning_todos = snapshot.show_planning_todos
 
         if resumed.context_manager is None:
@@ -245,6 +246,8 @@ class SessionControllerMixin:
         resumed.set_plan_phase(snapshot.plan_phase)
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
+        if hasattr(resumed, "restore_active_skills"):
+            resumed.restore_active_skills(snapshot.active_skills)
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.restore_change_history_state(snapshot.change_history_state)
         resumed.restore_subagent_runtime_state(snapshot.subagent_runtime_state)

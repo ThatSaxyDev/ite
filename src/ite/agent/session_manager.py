@@ -125,6 +125,7 @@ class SessionSnapshot:
     plan_target_questions: int = 3
     pending_plan_text: str | None = None
     active_plan_text: str | None = None
+    active_skills: list[str] | None = None
     todos_state: dict[str, Any] | None = None
     show_planning_todos: bool = False
     change_history_state: dict[str, Any] | None = None
@@ -149,6 +150,7 @@ class SessionSnapshot:
             "plan_target_questions": self.plan_target_questions,
             "pending_plan_text": self.pending_plan_text,
             "active_plan_text": self.active_plan_text,
+            "active_skills": self.active_skills,
             "todos_state": self.todos_state,
             "show_planning_todos": self.show_planning_todos,
             "change_history_state": self.change_history_state,
@@ -175,6 +177,7 @@ class SessionSnapshot:
             plan_target_questions=int(data.get("plan_target_questions", 3)),
             pending_plan_text=data.get("pending_plan_text"),
             active_plan_text=data.get("active_plan_text"),
+            active_skills=list(data.get("active_skills") or []),
             todos_state=data.get("todos_state"),
             show_planning_todos=bool(data.get("show_planning_todos", False)),
             change_history_state=data.get("change_history_state"),

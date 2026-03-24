@@ -7,6 +7,7 @@ from ite.tools.builtin.todo import TodosTool
 from ite.tools.builtin.http_tools import HttpRequestTool
 from ite.tools.builtin.web_fetch import WebFetchTool
 from ite.tools.builtin.web_search import WebSearchTool
+from ite.tools.builtin.skills import SkillsTool
 from ite.tools.builtin.glob import GlobTool
 from ite.tools.builtin.grep import GrepTool
 from ite.tools.builtin.list_dir import ListDirTool
@@ -69,6 +70,7 @@ __all__ = [
     "GlobTool",
     "WebSearchTool",
     "WebFetchTool",
+    "SkillsTool",
     "TodosTool",
     "MemoryTool",
     "PlanQuestionTool",
@@ -119,6 +121,7 @@ def get_all_builtin_tools() -> list[type]:
         GlobTool,
         WebSearchTool,
         WebFetchTool,
+        SkillsTool,
         TodosTool,
         MemoryTool,
         PlanQuestionTool,

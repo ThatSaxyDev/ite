@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="ITE — An AI coding agent that lives in your terminal. Write better code faster.">
+  <meta name="theme-color" content="#000000">
+  <title>ITE — AI Coding Agent for Your Terminal</title>
+  
+  <!-- Preconnect -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Preloader -->
+  <div class="preloader" id="preloader">
+    <div class="preloader-content">
+      <div class="preloader-logo">
+        <span class="bracket">[</span>
+        <span class="text" data-scramble>ITE</span>
+        <span class="bracket">]</span>
+      </div>
+      <div class="preloader-bar">
+        <div class="preloader-progress"></div>
+      </div>
+      <div class="preloader-status">
+        <span class="status-text">Initializing</span>
+        <span class="status-dots">...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Cursor -->
+  <div class="cursor-container">
+    <div class="cursor-dot"></div>
+    <div class="cursor-ring"></div>
+    <div class="cursor-trail"></div>
+  </div>
+
+  <!-- Audio Context Overlay -->
+  <div class="audio-overlay" id="audioOverlay" style="display: none;">
+    <button class="audio-enable" data-magnetic>
+      <span>Enable Audio Experience</span>
+    </button>
+  </div>
+
+  <!-- Grain -->
+  <canvas class="grain-canvas" id="grainCanvas"></canvas>
+  
+  <!-- Vignette -->
+  <div class="vignette"></div>
+
+  <!-- Progress -->
+  <div class="progress-container">
+    <div class="progress-bar"></div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="nav" data-blur>
+    <div class="nav-inner">
+      <a href="#" class="logo" data-magnetic data-tilt>
+        <span class="logo-glitch" data-text="[ITE]">[ITE]</span>
+      </a>
+      
+      <div class="nav-links">
+        <a href="#features" data-magnetic data-scramble>Features</a>
+        <a href="#capabilities" data-magnetic data-scramble>Capabilities</a>
+        <a href="#install" data-magnetic data-scramble>Install</a>
+      </div>
+      
+      <button class="nav-cta" data-magnetic data-ripple>
+        <span class="btn-text">Get Started</span>
+        <span class="btn-shine"></span>
+      </button>
+    </div>
+    
+    <div class="nav-border"></div>
+  </nav>
+
+  <!-- WebGL Background -->
+  <div class="webgl-container" id="webglContainer"></div>
+
+  <!-- Hero -->
+  <header class="hero" data-scroll-section>
+    <div class="hero-content">
+      <div class="hero-badge" data-reveal>
+        <div class="badge-glow"></div>
+        <span class="badge-text">SYSTEM_READY</span>
+        <span class="badge-version">v0.17.4</span>
+      </div>
+
+      <h1 class="hero-title">
+        <span class="title-line" data-line="1">
+          <span class="word" data-word="1">The</span>
+          <span class="word" data-word="2">Terminal</span>
+        </span>
+        <span class="title-line" data-line="2">
+          <span class="word glitch-word" data-word="3" data-text="Evolved">Evolved</span>
+        </span>
+      </h1>
+
+      <p class="hero-desc" data-reveal data-split>
+        An AI coding agent that lives in your terminal. Write, build, and ship faster than ever before.
+      </p>
+
+      <div class="hero-actions" data-reveal>
+        <a href="#install" class="btn btn-primary" data-magnetic data-ripple data-hover-sound>
+          <span class="btn-content">
+            <span class="btn-text" data-scramble>Install Now</span>
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M5 12h14M12 5l7 7-7 7" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </span>
+          <span class="btn-particles"></span>
+        </a>
+        
+        <a href="#capabilities" class="btn btn-secondary" data-magnetic data-scramble>
+          <span class="btn-content">Explore</span>
+          <span class="btn-border"></span>
+          <span class="btn-corner"></span>
+        </a>
+      </div>
+
+      <div class="hero-stats" data-reveal>
+        <div class="stat" data-parallax="0.1">
+          <span class="stat-value" data-count="50">0</span>
+          <span class="stat-suffix">K+</span>
+          <span class="stat-label" data-scramble>Downloads</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat" data-parallax="0.15">
+          <span class="stat-value" data-count="120">0</span>
+          <span class="stat-suffix">+</span>
+          <span class="stat-label" data-scramble>Tools</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat" data-parallax="0.2">
+          <span class="stat-value" data-count="98">0</span>
+          <span class="stat-suffix">%</span>
+          <span class="stat-label" data-scramble>Satisfaction</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-terminal" data-reveal data-tilt>
+      <div class="terminal-glow"></div>
+      <div class="terminal-window">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span class="terminal-dot close"></span>
+            <span class="terminal-dot minimize"></span>
+            <span class="terminal-dot maximize"></span>
+          </div>
+          <span class="terminal-title">ite</span>
+        </div>
+        <div class="terminal-body" id="terminalBody">
+          <div class="terminal-line" data-cmd>
+            <span class="prompt">➜</span>
+            <span class="text typing"></span>
+            <span class="cursor"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scroll-indicator" data-parallax="0.3">
+      <div class="scroll-text" data-scramble>Scroll</div>
+      <div class="scroll-line">
+        <div class="scroll-progress"></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Features -->
+  <section class="features" id="features" data-scroll-section>
+    <div class="section-header" data-reveal>
+      <span class="section-eyebrow" data-scramble>Features</span>
+      <h2 class="section-title">
+        <span data-split>Built for builders.</span>
+      </h2>
+      <p class="section-desc" data-split>
+        Everything you need to ship faster, nothing you don't.
+      </p>
+    </div>
+
+    <div class="features-grid">
+      <article class="feature-card" data-reveal data-tilt data-hover-sound>
+        <div class="feature-number">01</div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="8" y="8" width="32" height="32" rx="6"/>
+            <path d="M16 24h16M24 16v16"/>
+          </svg>
+        </div>
+        <h3 class="feature-title" data-scramble>Code Generation</h3>
+        <p class="feature-desc">
+          Write complete functions, files, or projects from natural language. Understands context and conventions.
+        </p>
+        <div class="feature-shine"></div>
+        <div class="feature-border"></div>
+      </article>
+
+      <article class="feature-card" data-reveal data-tilt data-hover-sound>
+        <div class="feature-number">02</div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M24 4v8m0 24v8M4 24h8m24 0h8"/>
+            <circle cx="24" cy="24" r="8"/>
+          </svg>
+        </div>
+        <h3 class="feature-title" data-scramble>Persistent Memory</h3>
+        <p class="feature-desc">
+          Four-layer memory system remembers your preferences, patterns, and decisions across all sessions.
+        </p>
+        <div class="feature-shine"></div>
+        <div class="feature-border"></div>
+      </article>
+
+      <article class="feature-card" data-reveal data-tilt data-hover-sound>
+        <div class="feature-number">03</div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 16l-4 4 4 4m24-8l4 4-4 4M18 12l6 24"/>
+          </svg>
+        </div>
+        <h3 class="feature-title" data-scramble>Sandboxed Execution</h3>
+        <p class="feature-desc">
+          Run code safely with configurable restrictions. You're always in control of what executes.
+        </p>
+        <div class="feature-shine"></div>
+        <div class="feature-border"></div>
+      </article>
+
+      <article class="feature-card" data-reveal data-tilt data-hover-sound>
+        <div class="feature-number">04</div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M8 20v8a4 4 0 004 4h24a4 4 0 004-4v-8"/>
+            <path d="M24 32v8m-8 0h16"/>
+            <path d="M12 20V12a4 4 0 014-4h16a4 4 0 014 4v8"/>
+          </svg>
+        </div>
+        <h3 class="feature-title" data-scramble>Session Recovery</h3>
+        <p class="feature-desc">
+          Automatic checkpoints and persistence. Pick up exactly where you left off, anytime.
+        </p>
+        <div class="feature-shine"></div>
+        <div class="feature-border"></div>
+      </article>
+
+      <article class="feature-card" data-reveal data-tilt data-hover-sound>
+        <div class="feature-number">05</div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="8" y="14" width="32" height="20" rx="4"/>
+            <path d="M16 24h16"/>
+            <path d="M24 20v8"/>
+          </svg>
+        </div>
+        <h3 class="feature-title" data-scramble>MCP Integration</h3>
+        <p class="feature-desc">
+          Connect external tools and servers via the Model Context Protocol.
+        </p>
+        <div class="feature-shine"></div>
+        <div class="feature-border"></div>
+      </article>
+
+      <article class="feature-card" data-reveal data-tilt data-hover-sound>
+        <div class="feature-number">06</div>
+        <div class="feature-icon">
+          <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="24" cy="24" r="16"/>
+            <path d="M24 16v8l6 6"/>
+          </svg>
+        </div>
+        <h3 class="feature-title" data-scramble>Plan Mode</h3>
+        <p class="feature-desc">
+          Get a full execution plan first. Review and approve before any code is written.
+        </p>
+        <div class="feature-shine"></div>
+        <div class="feature-border"></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="install" id="install" data-scroll-section>
+    <div class="install-bg">
+      <div class="install-particles" id="installParticles"></div>
+    </div>
+    
+    <div class="install-content">
+      <div class="section-header" data-reveal>
+        <span class="section-eyebrow" data-scramble>Installation</span>
+        <h2 class="section-title">
+          <span data-split>Two seconds. One command.</span>
+        </h2>
+        <p class="section-desc" data-split>
+          Install once, use everywhere. No config files, no complex setup.
+        </p>
+      </div>
+
+      <div class="install-tabs" data-reveal>
+        <button class="tab-btn active" data-tab="pipx" data-magnetic>
+          <span>pipx</span>
+        </button>
+        <button class="tab-btn" data-tab="pip" data-magnetic>
+          <span>pip</span>
+        </button>
+        <button class="tab-btn" data-tab="brew" data-magnetic>
+          <span>brew</span>
+        </button>
+      </div>
+
+      <div class="install-code" data-reveal data-tilt>
+        <div class="code-glow"></div>
+        <div class="code-header">
+          <span class="code-title">terminal</span>
+          <button class="copy-btn" data-magnetic data-ripple data-hover-sound>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="9" y="9" width="13" height="13" rx="2"/>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+            </svg>
+            <span class="copy-text" data-scramble>Copy</span>
+          </button>
+        </div>
+        <div class="code-content">
+          <pre id="code-pipx" class="code-panel active"><code><span class="comment"># Install with pipx (recommended)</span>
+<span class="cmd">pipx install</span> ite-agent</code></pre>
+          <pre id="code-pip" class="code-panel"><code><span class="comment"># Install with pip</span>
+<span class="cmd">pip install</span> ite-agent</code></pre>
+          <pre id="code-brew" class="code-panel"><code><span class="comment"># Install with Homebrew</span>
+<span class="cmd">brew install</span> ite</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta" data-scroll-section>
+    <div class="cta-bg">
+      <div class="cta-grid"></div>
+      <div class="cta-glow"></div>
+    </div>
+    
+    <div class="cta-content">
+      <h2 class="cta-title" data-reveal>
+        <span data-split>Ready to ship</span>
+        <span class="cta-highlight" data-text="faster?">faster?</span>
+      </h2>
+      
+      <p class="cta-desc" data-reveal data-split>
+        Join thousands of developers who've transformed their workflow.
+      </p>
+      
+      <a href="#install" class="btn btn-large btn-primary" data-magnetic data-ripple data-reveal>
+        <span class="btn-content">
+          <span class="btn-text" data-scramble>Start Building</span>
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M5 12h14M12 5l7 7-7 7" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="btn-particles"></span>
+      </a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer" data-scroll-section>
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <a href="#" class="logo" data-magnetic>
+          <span class="logo-glitch" data-text="[ITE]">[ITE]</span>
+        </a>
+        <p>An AI coding agent for your terminal.</p>
+      </div>
+      <div class="footer-links">
+        <h4 data-scramble>Product</h4>
+        <ul>
+          <li><a href="#features" data-scramble>Features</a></li>
+          <li><a href="#capabilities" data-scramble>Capabilities</a></li>
+          <li><a href="#install" data-scramble>Install</a></li>
+        </ul>
+      </div>
+      <div class="footer-links">
+        <h4 data-scramble>Resources</h4>
+        <ul>
+          <li><a href="#" data-scramble>Docs</a></li>
+          <li><a href="#" data-scramble>API</a></li>
+          <li><a href="#" data-scramble>Examples</a></li>
+        </ul>
+      </div>
+      <div class="footer-links">
+        <h4 data-scramble>Connect</h4>
+        <ul>
+          <li><a href="#" data-scramble>GitHub</a></li>
+          <li><a href="#" data-scramble>Discord</a></li>
+          <li><a href="#" data-scramble>Twitter</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 ITE. Built with care.</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -14,6 +14,7 @@ from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
 from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
 from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.skills import SkillsTool
 from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
 from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
@@ -23,6 +24,8 @@ from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
 from ite.agent.subagent_runtime import SubagentRuntime
+from ite.skills import SkillDefinition
+from ite.skills import SkillManager
 from dataclasses import dataclass, field
 
 
@@ -52,7 +55,10 @@ class Session:
         self.tool_registry = create_default_registry(config)
         self.context_manager: ContextManager | None = None
         self.memory_manager = MemoryManager(self.config.cwd, session_id=self.session_id)
+        self.skill_manager = SkillManager(self.config.cwd)
+        self.active_skill_refs: list[str] = []
         self._sync_memory_tool_session()
+        self._sync_skills_tool_session()
         self.subagent_runtime = SubagentRuntime(
             config=self.config,
             session_id=self.session_id,
@@ -136,11 +142,14 @@ class Session:
 
         self.discovery_manager.discover_all()
         refresh_subagent_tools(self.tool_registry, self.config)
+        self.skill_manager.discover()
+        self.restore_active_skills(self.active_skill_refs)
         self.context_manager = ContextManager(
             config=self.config,
             user_memory=user_memory,
             tools=self.tool_registry.get_tools(),
             memory_provider=self._load_prompt_memory,
+            skill_provider=self._load_skill_context,
         )
         self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
@@ -150,10 +159,26 @@ class Session:
     def _load_prompt_memory(self, current_user_text: str | None) -> dict | None:
         return self.memory_manager.load_prompt_memory(current_user_text)
 
+    def _load_skill_context(self) -> dict[str, Any]:
+        return {
+            "catalog": self.list_available_skills(),
+            "active": [
+                {
+                    "identifier": skill.identifier,
+                    "name": skill.name,
+                    "description": skill.description,
+                    "instructions": skill.instructions,
+                    "source": skill.source,
+                }
+                for skill in self.get_active_skills()
+            ],
+        }
+
     def set_session_id(self, session_id: str) -> None:
         self.session_id = session_id
         self.memory_manager.set_session_id(session_id)
         self._sync_memory_tool_session()
+        self._sync_skills_tool_session()
         self.subagent_runtime.session_id = session_id
         self._sync_subagent_runtime_tools()
 
@@ -205,6 +230,11 @@ class Session:
         tool = self.tool_registry.get("memory")
         if isinstance(tool, MemoryTool):
             tool.set_session_id(self.session_id)
+
+    def _sync_skills_tool_session(self) -> None:
+        tool = self.tool_registry.get("skills")
+        if isinstance(tool, SkillsTool):
+            tool.set_session(self)
 
     def _sync_subagent_runtime_tools(self) -> None:
         for name in (
@@ -304,6 +334,7 @@ class Session:
             "plan_target_questions": self.plan_target_questions,
             "pending_plan_text": self.pending_plan_text,
             "active_plan_text": self.active_plan_text,
+            "active_skills": list(self.active_skill_refs),
             "todos_state": self.export_todos_state(),
             "show_planning_todos": self.show_planning_todos,
             "change_history_state": self.export_change_history_state(),
@@ -507,7 +538,61 @@ class Session:
             "tools_enabled": len(self.tool_registry.get_tools()),
             "mcp_servers": len(self.tool_registry.connected_mcp_servers),
             "tool_discovery_errors": len(self.discovery_manager.errors),
+            "available_skills": len(self.list_available_skills()),
+            "active_skills": len(self.get_active_skills()),
         }
+
+    def refresh_skills(self) -> None:
+        self.skill_manager = SkillManager(self.config.cwd)
+        self.skill_manager.discover()
+        self.active_skill_refs = [
+            ref for ref in self.active_skill_refs if self.skill_manager.get(ref) is not None
+        ]
+        self._sync_skills_tool_session()
+
+    def list_available_skills(self) -> list[dict[str, str]]:
+        return self.skill_manager.summaries()
+
+    def resolve_skill(self, reference: str) -> SkillDefinition | None:
+        return self.skill_manager.get(reference)
+
+    def get_active_skills(self) -> list[SkillDefinition]:
+        active: list[SkillDefinition] = []
+        seen: set[str] = set()
+        for ref in self.active_skill_refs:
+            skill = self.skill_manager.get(ref)
+            if skill is None or skill.identifier in seen:
+                continue
+            active.append(skill)
+            seen.add(skill.identifier)
+        return active
+
+    def activate_skill(self, reference: str) -> SkillDefinition | None:
+        skill = self.resolve_skill(reference)
+        if skill is None:
+            return None
+        if skill.identifier not in self.active_skill_refs:
+            self.active_skill_refs.append(skill.identifier)
+        return skill
+
+    def deactivate_skill(self, reference: str) -> SkillDefinition | None:
+        skill = self.resolve_skill(reference)
+        if skill is None or skill.identifier not in self.active_skill_refs:
+            return None
+        self.active_skill_refs = [
+            ref for ref in self.active_skill_refs if ref != skill.identifier
+        ]
+        return skill
+
+    def clear_active_skills(self) -> None:
+        self.active_skill_refs = []
+
+    def restore_active_skills(self, skill_refs: list[str] | None) -> None:
+        self.active_skill_refs = []
+        for ref in skill_refs or []:
+            skill = self.resolve_skill(ref)
+            if skill is not None and skill.identifier not in self.active_skill_refs:
+                self.active_skill_refs.append(skill.identifier)
 
     def _get_todos_tool(self) -> TodosTool | None:
         tool = self.tool_registry.get("todos")

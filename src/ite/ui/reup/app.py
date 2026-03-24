@@ -3160,12 +3160,15 @@ class ReupApp(App):
         resumed.plan_target_questions = snapshot.plan_target_questions
         resumed.pending_plan_text = snapshot.pending_plan_text
         resumed.active_plan_text = snapshot.active_plan_text
+        resumed.active_skill_refs = list(snapshot.active_skills or [])
         resumed.show_planning_todos = snapshot.show_planning_todos
         resumed_agent = self._build_session_agent(resumed)
         await resumed_agent.__aenter__()
 
         resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
+        if hasattr(resumed, "restore_active_skills"):
+            resumed.restore_active_skills(snapshot.active_skills)
         resumed.restore_todos_state(snapshot.todos_state)
         resumed.restore_change_history_state(snapshot.change_history_state)
         if hasattr(resumed, "restore_subagent_runtime_state"):

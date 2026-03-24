@@ -70,6 +70,35 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("do not switch to overlapping local investigation", prompt)
         self.assertEqual(prompt.count("- **Sub-Agents:**"), 1)
 
+    def test_system_prompt_includes_skill_catalog_and_active_skill_instructions(self) -> None:
+        config = Config(cwd=self.cwd, api_key="test")
+        prompt = get_system_prompt(
+            config,
+            skill_context={
+                "catalog": [
+                    {
+                        "identifier": "design-review",
+                        "name": "Design Review",
+                        "description": "Review polished UI",
+                        "source": "shared-project",
+                    }
+                ],
+                "active": [
+                    {
+                        "identifier": "design-review",
+                        "name": "Design Review",
+                        "description": "Review polished UI",
+                        "source": "shared-project",
+                        "instructions": "Use strict visual review standards.",
+                    }
+                ],
+            },
+        )
+
+        self.assertIn("`design-review` (Design Review) [shared-project]", prompt)
+        self.assertIn("## Active Skill: Design Review", prompt)
+        self.assertIn("Use strict visual review standards.", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

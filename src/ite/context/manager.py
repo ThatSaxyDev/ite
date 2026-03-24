@@ -55,11 +55,13 @@ class ContextManager:
         user_memory: dict | None = None,
         tools: list[Tool] | None = None,
         memory_provider: Callable[[str | None], dict | None] | None = None,
+        skill_provider: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         self.config = config
         self._user_memory = user_memory
         self._tools = tools
         self._memory_provider = memory_provider
+        self._skill_provider = skill_provider
         self._model_name = self.config.model_name
         self._messages: list(MessageItem) = []
         self._latest_usage = TokenUsage()
@@ -235,6 +237,7 @@ class ContextManager:
         user_memory = self._user_memory
         if self._memory_provider:
             user_memory = self._memory_provider(self._latest_user_message_text())
+        skill_context = self._skill_provider() if self._skill_provider else None
 
         system_prompt = get_system_prompt(
             self.config,
@@ -242,6 +245,7 @@ class ContextManager:
             self._tools,
             plan_mode_enabled=self._plan_mode_enabled,
             plan_phase=self._plan_phase,
+            skill_context=skill_context,
         )
         if system_prompt:
             messages.append(
