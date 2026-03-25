@@ -1,16 +1,19 @@
 import unittest
 import asyncio
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, PropertyMock, patch
 from types import SimpleNamespace
 
+from rich.console import Console
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
+from ite.ui.reup.tool_views import render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
 from rich.table import Table
 from textual.widgets import Static
@@ -107,6 +110,120 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(added, 1)
         self.assertIn('@"Screenshot 2021.png"', prompt.text)
+
+    def test_build_command_result_renderable_labels_slash_command_output(self) -> None:
+        app = self._app()
+
+        rendered = app._build_command_result_renderable("Installed skills: critique")
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+
+        self.assertIn("slash command result", text)
+        self.assertIn("Installed skills: critique", text)
+
+    def test_run_command_routes_generic_output_to_command_card(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=SimpleNamespace())
+
+        async def fake_dispatch(_command, _args, ctx):
+            ctx.console.print("Command finished.")
+
+        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+            app._command_registry,
+            "dispatch",
+            AsyncMock(side_effect=fake_dispatch),
+        ), patch.object(app, "post_command_result") as post_command, patch.object(
+            app, "_post_skills_command_result", return_value=True
+        ) as post_skills:
+            asyncio.run(app.run_command("/demo"))
+
+        post_command.assert_called_once_with("/demo", "Command finished.")
+        post_skills.assert_not_called()
+
+    def test_run_command_routes_skills_output_to_specialized_card(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=SimpleNamespace())
+
+        async def fake_dispatch(_command, _args, ctx):
+            ctx.console.print("Skills updated.")
+
+        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+            app._command_registry,
+            "dispatch",
+            AsyncMock(side_effect=fake_dispatch),
+        ), patch.object(app, "post_command_result") as post_command, patch.object(
+            app, "_post_skills_command_result", return_value=True
+        ) as post_skills:
+            asyncio.run(app.run_command("/skills"))
+
+        post_skills.assert_called_once_with([], "Skills updated.")
+        post_command.assert_not_called()
+
+    def test_render_skills_payload_formats_show_output_instead_of_raw_json(self) -> None:
+        rendered = render_skills_payload(
+            output="""
+{
+  "action": "show",
+  "available_count": 21,
+  "active_skills": ["audit"],
+  "skill": "frontend-design",
+  "name": "frontend-design",
+  "description": "Create distinctive production interfaces.",
+  "user_invocable": false,
+  "argument_hint": "",
+  "reference_files": ["reference/color-and-contrast.md"],
+  "trusted": true,
+  "requires_trust": false,
+  "instructions": "Use strong hierarchy."
+}
+            """.strip(),
+            success=True,
+        )
+
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(rendered)
+        text = console.file.getvalue()
+        self.assertIn("frontend-design", text)
+        self.assertIn("inspected", text)
+        self.assertIn("audit", text)
+        self.assertIn("does not activate it", text)
+
+    def test_render_skills_payload_formats_truncated_list_json(self) -> None:
+        rendered = render_skills_payload(
+            output="""
+{
+  "action": "list",
+  "available_count": 21,
+  "active_skills": ["audit"],
+  "skills": [
+    {
+      "identifier": "animate",
+      "description": "Review a feature and enhance it with purposeful motion.",
+      "source": "shared-project",
+      "user_invocable": "true",
+      "trusted": "true",
+      "requires_trust": "false"
+    },
+    {
+      "identifier": "frontend-design",
+      "description": "Create distinctive production interfaces.",
+      "source": "shared-project",
+      "user_invocable": "false",
+      "trusted": "true",
+      "requires_trust": "false"
+    }
+  ]
+}
+            """.strip(),
+            success=True,
+        )
+
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(rendered)
+        text = console.file.getvalue()
+        self.assertIn("skills", text)
+        self.assertIn("animate", text)
+        self.assertIn("frontend-design", text)
+        self.assertNotIn('"identifier": "animate"', text)
 
     def test_consume_dropped_path_text_inserts_refs_instead_of_hidden_queue(self) -> None:
         app = self._app()

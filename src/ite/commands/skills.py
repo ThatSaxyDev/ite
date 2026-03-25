@@ -2,20 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rich import box
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-
 from ite.commands import Command
 from ite.commands import CommandContext
 from ite.commands import CommandRegistry
 from ite.skills import install_skills_from_source
+from ite.skills.rendering import build_skill_detail_renderable
+from ite.skills.rendering import build_skills_overview_renderable
 
 
 def _render_skills_table(ctx: CommandContext) -> None:
     session = ctx.agent.session
-    available = session.list_available_skills()
+    available = session.skill_manager.list_skills()
     active = {skill.identifier for skill in session.get_active_skills()}
 
     if not available:
@@ -24,37 +21,8 @@ def _render_skills_table(ctx: CommandContext) -> None:
         )
         return
 
-    table = Table(
-        title="Skills",
-        title_style="bold bright_white",
-        border_style="cyan",
-        box=box.SIMPLE_HEAVY,
-        padding=(0, 1),
-    )
-    table.add_column("Identifier", style="bold")
-    table.add_column("Status", style="cyan")
-    table.add_column("Invoke", style="green")
-    table.add_column("Source", style="dim")
-    table.add_column("Description")
-
-    for skill in available:
-        identifier = skill["identifier"]
-        table.add_row(
-            identifier,
-            (
-                "active"
-                if identifier in active
-                else "blocked"
-                if skill.get("trusted") == "false" and skill.get("requires_trust") == "true"
-                else "available"
-            ),
-            "yes" if skill.get("user_invocable") == "true" else "no",
-            skill["source"],
-            skill["description"],
-        )
-
     ctx.console.print()
-    ctx.console.print(table)
+    ctx.console.print(build_skills_overview_renderable(available, active))
 
 
 async def cmd_skills(ctx: CommandContext, args: list[str]) -> None:
@@ -78,37 +46,8 @@ async def cmd_skills(ctx: CommandContext, args: list[str]) -> None:
         if skill is None:
             ctx.console.print(f"[error]Skill not found:[/error] {reference}")
             return
-        parts = [skill.description]
-        if skill.requires_trust and not skill.trusted:
-            parts.append("Trust status: blocked until this workspace is trusted with `/skills trust`.")
-        if skill.user_invocable:
-            parts.append("User-invocable: yes")
-        if skill.version:
-            parts.append(f"Version: {skill.version}")
-        if skill.author:
-            parts.append(f"Author: {skill.author}")
-        if skill.homepage:
-            parts.append(f"Homepage: {skill.homepage}")
-        if skill.tags:
-            parts.append("Tags: " + ", ".join(skill.tags[:12]))
-        if skill.argument_hint:
-            parts.append(f"Argument hint: {skill.argument_hint}")
-        if skill.reference_files:
-            refs = "\n".join(f"- {path}" for path in skill.reference_files[:20])
-            parts.append(f"Reference files:\n{refs}")
-        parts.append(skill.instructions)
-        body = "\n\n".join(parts)
         ctx.console.print()
-        ctx.console.print(
-            Panel(
-                body,
-                title=Text.assemble(("Skill ", "dim"), (skill.name, "bold bright_white")),
-                title_align="left",
-                border_style="cyan",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
-        )
+        ctx.console.print(build_skill_detail_renderable(skill, {item.identifier for item in session.get_active_skills()}))
         return
 
     if action in {"use", "activate"}:

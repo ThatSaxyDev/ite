@@ -1,0 +1,394 @@
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Mapping
+
+from rich.console import Group
+from rich.markdown import Markdown
+from rich.table import Table
+from rich.text import Text
+
+from ite.skills.manager import SkillDefinition
+
+
+def skill_state(skill: SkillDefinition, active_ids: set[str]) -> str:
+    if skill.identifier in active_ids:
+        return "active"
+    if skill.requires_trust and not skill.trusted:
+        return "blocked"
+    return "available"
+
+
+def build_skills_overview_renderable(
+    skills: list[SkillDefinition],
+    active_ids: set[str],
+) -> Group | Text:
+    if not skills:
+        return Text(
+            "No skills discovered. Put shared skills in .agents/skills and use .ite/skills only for local overrides.",
+            style="#8c93a1",
+        )
+
+    active_count = sum(1 for skill in skills if skill.identifier in active_ids)
+    blocked_count = sum(
+        1
+        for skill in skills
+        if skill.identifier not in active_ids and skill.requires_trust and not skill.trusted
+    )
+    available_count = max(0, len(skills) - active_count - blocked_count)
+
+    summary = Text()
+    summary.append("skills ", style="bold #edf1f7")
+    summary.append(f"{len(skills)} installed", style="#d7deea")
+    summary.append("  ·  ", style="#6f7785")
+    summary.append(f"{active_count} active", style="bold #8fc7a2")
+    summary.append("  ·  ", style="#6f7785")
+    summary.append(f"{available_count} ready", style="bold #b7c8e1")
+    if blocked_count:
+        summary.append("  ·  ", style="#6f7785")
+        summary.append(f"{blocked_count} blocked", style="bold #d5b07a")
+
+    table = Table.grid(expand=True)
+    table.add_column(ratio=5)
+    table.add_column(width=10)
+    table.add_column(width=9)
+    table.add_column(ratio=6)
+
+    ordered = sorted(
+        skills,
+        key=lambda skill: (
+            {"active": 0, "available": 1, "blocked": 2}[skill_state(skill, active_ids)],
+            skill.identifier,
+        ),
+    )
+    for skill in ordered:
+        state = skill_state(skill, active_ids)
+        title = Text(skill.identifier, style="bold #edf1f7")
+        if skill.name != skill.identifier:
+            title.append(f"  {skill.name}", style="#8c93a1")
+
+        meta_bits = [_format_source_label(skill.source)]
+        if skill.argument_hint:
+            meta_bits.append(skill.argument_hint)
+        if skill.reference_files:
+            ref_label = "ref" if len(skill.reference_files) == 1 else "refs"
+            meta_bits.append(f"{len(skill.reference_files)} {ref_label}")
+        if skill.tags:
+            meta_bits.append(", ".join(skill.tags[:2]))
+        detail = Text(" · ".join(meta_bits), style="#7d8594")
+
+        description = Text(skill.description, style="#d7deea")
+        table.add_row(
+            Group(title, detail),
+            _state_badge(state),
+            Text("invoke", style="#8fc7a2") if skill.user_invocable else Text("assist", style="#8c93a1"),
+            description,
+        )
+
+    source_counts = Counter(_format_source_label(skill.source) for skill in skills)
+    footer = Text("roots ", style="#6f7785")
+    footer.append(" · ".join(f"{name} {count}" for name, count in sorted(source_counts.items())), style="#8c93a1")
+
+    hint = Text(
+        "/skills show <name> to inspect details  ·  /skills use <name> to activate",
+        style="#6f7785",
+    )
+    return Group(summary, Text(""), table, Text(""), footer, hint)
+
+
+def build_skill_detail_renderable(
+    skill: SkillDefinition,
+    active_ids: set[str],
+) -> Group:
+    state = skill_state(skill, active_ids)
+    header = Text(skill.identifier, style="bold #edf1f7")
+    if skill.user_invocable:
+        header.append("  invoke", style="#8fc7a2")
+    header.append(f"  {_format_source_label(skill.source)}", style="#7d8594")
+
+    description = Text(skill.description, style="#d7deea")
+
+    meta = Table.grid(expand=True)
+    meta.add_column(width=14)
+    meta.add_column(ratio=1)
+    meta.add_row(Text("state", style="#8c93a1"), _state_badge(state))
+    if skill.aliases:
+        meta.add_row(
+            Text("aliases", style="#8c93a1"),
+            Text(", ".join(skill.aliases[:8]), style="#d7deea"),
+        )
+    if skill.argument_hint:
+        meta.add_row(
+            Text("arguments", style="#8c93a1"),
+            Text(skill.argument_hint, style="#d7deea"),
+        )
+    if skill.version:
+        meta.add_row(Text("version", style="#8c93a1"), Text(skill.version, style="#d7deea"))
+    if skill.author:
+        meta.add_row(Text("author", style="#8c93a1"), Text(skill.author, style="#d7deea"))
+    if skill.homepage:
+        meta.add_row(Text("homepage", style="#8c93a1"), Text(skill.homepage, style="#b7c8e1"))
+    if skill.tags:
+        meta.add_row(Text("tags", style="#8c93a1"), Text(", ".join(skill.tags[:8]), style="#d7deea"))
+
+    references = None
+    if skill.reference_files:
+        reference_table = Table.grid(expand=True)
+        reference_table.add_column(ratio=1)
+        for path in skill.reference_files[:12]:
+            reference_table.add_row(Text(path, style="#b7c8e1"))
+        references = Group(
+            Text("references", style="bold #8c93a1"),
+            reference_table,
+        )
+
+    trust_note = None
+    if skill.requires_trust and not skill.trusted:
+        trust_note = Text(
+            "Blocked until this workspace is trusted with /skills trust.",
+            style="bold #d5b07a",
+        )
+
+    instructions = Group(
+        Text("instructions", style="bold #8c93a1"),
+        Markdown(skill.instructions),
+    )
+
+    parts = [header, description, Text(""), meta]
+    if trust_note is not None:
+        parts.extend([Text(""), trust_note])
+    if references is not None:
+        parts.extend([Text(""), references])
+    parts.extend([Text(""), instructions])
+    return Group(*parts)
+
+
+def build_skill_feedback_renderable(
+    *,
+    title: str,
+    message: str,
+    active_count: int,
+    available_count: int,
+) -> Group:
+    lead = Text(title, style="bold #edf1f7")
+    body = Text(message.strip(), style="#d7deea")
+    stats = Text()
+    stats.append(f"{active_count} active", style="#8fc7a2")
+    stats.append("  ·  ", style="#6f7785")
+    stats.append(f"{available_count} installed", style="#8c93a1")
+    return Group(lead, body, Text(""), stats)
+
+
+def build_skills_tool_renderable(payload: Mapping[str, object]) -> Group | None:
+    action = str(payload.get("action") or "").strip().lower()
+    if not action:
+        return None
+
+    active_skills = _string_list(payload.get("active_skills"))
+    available_count = int(payload.get("available_count") or 0)
+
+    if action == "list":
+        skills = payload.get("skills")
+        if not isinstance(skills, list):
+            return None
+        return _build_skills_summary_from_payload(
+            skills=skills,
+            active_skills=set(active_skills),
+            available_count=available_count,
+        )
+
+    if action in {"show", "activate"}:
+        return _build_skill_tool_detail(
+            payload=payload,
+            active_skills=active_skills,
+            available_count=available_count,
+        )
+
+    if action in {"deactivate", "clear", "trust", "untrust"}:
+        title_map = {
+            "deactivate": "Skill deactivated",
+            "clear": "Cleared active skills",
+            "trust": "Workspace skills trusted",
+            "untrust": "Workspace skills untrusted",
+        }
+        return build_skill_feedback_renderable(
+            title=title_map[action],
+            message=_tool_message_for_action(action, payload),
+            active_count=len(active_skills),
+            available_count=available_count,
+        )
+
+    return None
+
+
+def _state_badge(state: str) -> Text:
+    if state == "active":
+        return Text("active", style="bold #8fc7a2")
+    if state == "blocked":
+        return Text("blocked", style="bold #d5b07a")
+    return Text("ready", style="bold #b7c8e1")
+
+
+def _format_source_label(source: str) -> str:
+    label = str(source or "").strip().replace("compat-", "").replace("-", " ")
+    return label or "skill root"
+
+
+def _build_skills_summary_from_payload(
+    *,
+    skills: list[object],
+    active_skills: set[str],
+    available_count: int,
+) -> Group:
+    rows: list[tuple[str, str, str, str, bool]] = []
+    blocked_count = 0
+    for item in skills:
+        if not isinstance(item, Mapping):
+            continue
+        identifier = str(item.get("identifier") or "").strip()
+        if not identifier:
+            continue
+        trusted = str(item.get("trusted") or "true").lower() == "true"
+        requires_trust = str(item.get("requires_trust") or "false").lower() == "true"
+        state = "active" if identifier in active_skills else "blocked" if requires_trust and not trusted else "available"
+        if state == "blocked":
+            blocked_count += 1
+        rows.append(
+            (
+                identifier,
+                str(item.get("description") or "").strip(),
+                str(item.get("source") or "").strip(),
+                state,
+                str(item.get("user_invocable") or "false").lower() == "true",
+            )
+        )
+
+    summary = Text()
+    summary.append("skills ", style="bold #edf1f7")
+    summary.append(f"{available_count or len(rows)} available", style="#d7deea")
+    summary.append("  ·  ", style="#6f7785")
+    summary.append(f"{len(active_skills)} active", style="#8fc7a2")
+    if blocked_count:
+        summary.append("  ·  ", style="#6f7785")
+        summary.append(f"{blocked_count} blocked", style="#d5b07a")
+
+    table = Table.grid(expand=True)
+    table.add_column(ratio=4)
+    table.add_column(width=10)
+    table.add_column(width=9)
+    table.add_column(ratio=6)
+    for identifier, description, source, state, user_invocable in rows:
+        meta = Text(_format_source_label(source), style="#7d8594")
+        table.add_row(
+            Group(Text(identifier, style="bold #edf1f7"), meta),
+            _state_badge(state),
+            Text("invoke", style="#8fc7a2") if user_invocable else Text("assist", style="#8c93a1"),
+            Text(description, style="#d7deea"),
+        )
+
+    footer = Text(
+        "The model can inspect other skills without activating them. Only active skills shape the standing session behavior.",
+        style="#6f7785",
+    )
+    return Group(summary, Text(""), table, Text(""), footer)
+
+
+def _build_skill_tool_detail(
+    *,
+    payload: Mapping[str, object],
+    active_skills: list[str],
+    available_count: int,
+) -> Group:
+    skill_id = str(payload.get("skill") or payload.get("name") or "").strip()
+    title = Text(skill_id or "skill", style="bold #edf1f7")
+    if payload.get("action") == "activate":
+        title.append("  active now", style="#8fc7a2")
+    elif skill_id in active_skills:
+        title.append("  active", style="#8fc7a2")
+    else:
+        title.append("  inspected", style="#b7c8e1")
+
+    description = Text(str(payload.get("description") or "").strip(), style="#d7deea")
+
+    meta = Table.grid(expand=True)
+    meta.add_column(width=14)
+    meta.add_column(ratio=1)
+    meta.add_row(
+        Text("active skills", style="#8c93a1"),
+        Text(", ".join(active_skills) if active_skills else "none", style="#d7deea"),
+    )
+    meta.add_row(Text("available", style="#8c93a1"), Text(str(available_count), style="#d7deea"))
+    if "user_invocable" in payload:
+        meta.add_row(
+            Text("invoke", style="#8c93a1"),
+            Text("yes" if bool(payload.get("user_invocable")) else "no", style="#d7deea"),
+        )
+    argument_hint = str(payload.get("argument_hint") or "").strip()
+    if argument_hint:
+        meta.add_row(Text("arguments", style="#8c93a1"), Text(argument_hint, style="#d7deea"))
+    if "trusted" in payload and "requires_trust" in payload:
+        trusted = bool(payload.get("trusted"))
+        requires_trust = bool(payload.get("requires_trust"))
+        trust_text = "trusted" if trusted else "blocked" if requires_trust else "global"
+        meta.add_row(Text("trust", style="#8c93a1"), Text(trust_text, style="#d7deea"))
+
+    refs_block = None
+    references = payload.get("reference_files")
+    if isinstance(references, list) and references:
+        ref_table = Table.grid(expand=True)
+        ref_table.add_column(ratio=1)
+        for path in references[:8]:
+            ref_table.add_row(Text(str(path), style="#b7c8e1"))
+        refs_block = Group(Text("references", style="bold #8c93a1"), ref_table)
+
+    instructions = str(payload.get("instructions") or "").strip()
+    instructions_block = None
+    if instructions:
+        instructions_block = Group(
+            Text("instructions", style="bold #8c93a1"),
+            Markdown(_truncate_markdown(instructions, 1600)),
+        )
+
+    note = Text(
+        "Showing a skill here does not activate it. The active skills rail above is the source of truth.",
+        style="#6f7785",
+    )
+
+    parts: list[object] = [title]
+    if description.plain:
+        parts.extend([description, Text("")])
+    parts.append(meta)
+    parts.extend([Text(""), note])
+    if refs_block is not None:
+        parts.extend([Text(""), refs_block])
+    if instructions_block is not None:
+        parts.extend([Text(""), instructions_block])
+    return Group(*parts)
+
+
+def _tool_message_for_action(action: str, payload: Mapping[str, object]) -> str:
+    active_skills = _string_list(payload.get("active_skills"))
+    if action == "deactivate":
+        skill = str(payload.get("skill") or "").strip()
+        return f"{skill} removed from the active set." if skill else "One skill removed from the active set."
+    if action == "clear":
+        return "No skills remain active in this session."
+    if action == "trust":
+        return "Project-provided skills can now be activated in this workspace."
+    if action == "untrust":
+        if active_skills:
+            return "Workspace untrusted. Local project skills were re-evaluated."
+        return "Workspace untrusted. Project skills remain discoverable but blocked."
+    return "Skills updated."
+
+
+def _truncate_markdown(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 14].rstrip() + "\n\n...[truncated]"
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]

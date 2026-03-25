@@ -77,6 +77,9 @@ from ite.git.working_tree import (
     unstage_path,
     working_tree_change_set,
 )
+from ite.skills import build_skill_detail_renderable
+from ite.skills import build_skill_feedback_renderable
+from ite.skills import build_skills_overview_renderable
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import build_command_context
@@ -114,6 +117,7 @@ from .tool_views import (
     render_list_dir_output,
     normalize_unified_diff_paths,
     render_numbered_unified_diff,
+    render_skills_payload,
     summarize_subagent_goal,
     render_subagent_metrics_payload,
     render_subagent_payload,
@@ -161,6 +165,20 @@ class ReupPromptTextArea(TextArea):
                 event.prevent_default()
             self.action_submit()
             return
+
+
+def _skills_action_title(action: str) -> str:
+    action_map = {
+        "use": "Skill activated",
+        "activate": "Skill activated",
+        "drop": "Skill deactivated",
+        "deactivate": "Skill deactivated",
+        "clear": "Skills cleared",
+        "trust": "Workspace trusted",
+        "untrust": "Workspace untrusted",
+        "add": "Skills installed",
+    }
+    return action_map.get(str(action or "").strip().lower(), "Skills update")
 
 
 class ReupTUIAdapter:
@@ -3381,7 +3399,9 @@ class ReupApp(App):
         if command in {"/branch", "/attach", "/model", "/rename"}:
             self.refresh_header()
         if rendered:
-            self.post_notice(f"Command {command}", rendered)
+            if command == "/skills" and self._post_skills_command_result(args, rendered):
+                return
+            self.post_command_result(command, rendered)
 
     async def _run_aside_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -4427,6 +4447,16 @@ class ReupApp(App):
             exclusive=False,
         )
 
+    def post_command_result(self, command: str, message: str) -> None:
+        self.run_worker(
+            self.add_assistant_card(
+                command,
+                self._build_command_result_renderable(message),
+                css_class="command",
+            ),
+            exclusive=False,
+        )
+
     def post_plan_note(self, title: str, markdown_text: str) -> None:
         self.run_worker(
             self.add_assistant_card(
@@ -4468,6 +4498,53 @@ class ReupApp(App):
         self._message_count += 1
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
+
+    def _build_command_result_renderable(self, message: str) -> Group:
+        lines = [line.rstrip() for line in str(message or "").strip().splitlines()]
+        lead = Text("slash command result", style="#6f7785")
+        if not lines:
+            return Group(lead)
+        if len(lines) == 1:
+            return Group(lead, Text(lines[0], style="#d7deea"))
+        body = Text("\n".join(lines), style="#d7deea")
+        return Group(lead, Text(""), body)
+
+    def _post_skills_command_result(self, args: list[str], rendered: str) -> bool:
+        if not self.agent or not self.agent.session:
+            return False
+
+        session = self.agent.session
+        active_ids = {skill.identifier for skill in session.get_active_skills()}
+        action = args[0].lower() if args else "list"
+        title = "/skills"
+        body: Any
+
+        if not args or action in {"list", "ls"}:
+            body = build_skills_overview_renderable(
+                session.skill_manager.list_skills(),
+                active_ids,
+            )
+        elif action in {"show", "inspect"}:
+            references = [item for item in args[1:] if not item.startswith("--")]
+            reference = " ".join(references).strip()
+            skill = session.resolve_skill(reference)
+            if skill is None:
+                self.post_command_result("/skills", rendered)
+                return True
+            title = f"/skills show {skill.identifier}"
+            body = build_skill_detail_renderable(skill, active_ids)
+        else:
+            body = build_skill_feedback_renderable(
+                title=_skills_action_title(action),
+                message=rendered,
+                active_count=len(active_ids),
+                available_count=len(session.skill_manager.list_skills()),
+            )
+        self.run_worker(
+            self.add_assistant_card(title, body, css_class="skills"),
+            exclusive=False,
+        )
+        return True
 
     async def _remove_cards_by_title(self, titles: set[str]) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -5428,6 +5505,9 @@ class ReupApp(App):
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
+        elif name == "skills":
+            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(render_skills_payload(output=payload, success=success))
         elif name == "subagent_metrics":
             blocks.append(Text(narrative, style="#8c97ab"))
             blocks.extend(

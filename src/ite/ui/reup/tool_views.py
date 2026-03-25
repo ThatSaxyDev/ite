@@ -13,6 +13,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
+from ite.skills import build_skills_tool_renderable
 from ite.ui.tool_narrative import describe_tool_activity
 
 
@@ -595,6 +596,31 @@ def render_text_payload(text: str, *, success: bool, language: str = "text") -> 
     if language != "text":
         return Syntax(text, language, theme="monokai", word_wrap=True)
     return Text(text, style="#dfe4ea")
+
+
+def render_skills_payload(
+    *,
+    output: str,
+    success: bool,
+) -> Any:
+    if not output.strip():
+        return Text("No output", style="#8c93a1")
+    if not success:
+        clipped, _ = truncate_for_tool("skills", output)
+        return render_text_payload(clipped, success=False)
+    try:
+        payload = json.loads(output)
+    except Exception:
+        clipped, _ = truncate_for_tool("skills", output)
+        return render_text_payload(clipped, success=True)
+    if not isinstance(payload, dict):
+        clipped, _ = truncate_for_tool("skills", output)
+        return render_text_payload(clipped, success=True)
+    rendered = build_skills_tool_renderable(payload)
+    if rendered is None:
+        clipped, _ = truncate_for_tool("skills", output)
+        return render_text_payload(clipped, success=True)
+    return rendered
 
 
 def render_subagent_payload(

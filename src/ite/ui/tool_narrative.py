@@ -80,6 +80,13 @@ def activity_title(
         return "Reading image" if running else ("Image loaded" if done else "Image read failed")
     if name == "todos":
         return "Updating checklist" if running else ("Checklist updated" if done else "Checklist update failed")
+    if name == "skills":
+        action = str(metadata.get("action") or "").strip().lower()
+        if action in {"activate", "deactivate", "trust", "untrust", "clear"}:
+            return "Updating skills" if running else ("Skills updated" if done else "Skills update failed")
+        if action == "show":
+            return "Inspecting skill" if running else ("Skill ready" if done else "Skill inspection failed")
+        return "Checking skills" if running else ("Skills ready" if done else "Skills check failed")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else ("Memory retry needed" if recoverable else "Memory update failed"))
     if name == "read_json":
@@ -411,6 +418,51 @@ def describe_tool_activity(
         if success:
             return f"Checked {path}."
         return f"Failed to check {path}."
+
+    if name == "skills":
+        action = str(args.get("action") or metadata.get("action") or "list").strip().lower()
+        skill = str(args.get("skill") or metadata.get("skill") or "").strip()
+        if action == "show":
+            if stage == "start":
+                return f"Inspecting skill `{skill}`." if skill else "Inspecting skill."
+            if success:
+                return f"Loaded details for skill `{skill}`." if skill else "Loaded skill details."
+            return f"Failed to inspect skill `{skill}`." if skill else "Failed to inspect skill."
+        if action == "activate":
+            if stage == "start":
+                return f"Activating skill `{skill}`." if skill else "Activating skill."
+            if success:
+                return f"Activated skill `{skill}`." if skill else "Activated skill."
+            return f"Failed to activate skill `{skill}`." if skill else "Failed to activate skill."
+        if action == "deactivate":
+            if stage == "start":
+                return f"Deactivating skill `{skill}`." if skill else "Deactivating skill."
+            if success:
+                return f"Deactivated skill `{skill}`." if skill else "Deactivated skill."
+            return f"Failed to deactivate skill `{skill}`." if skill else "Failed to deactivate skill."
+        if action == "trust":
+            if stage == "start":
+                return "Trusting workspace skills."
+            if success:
+                return "Workspace skills are now trusted."
+            return "Failed to trust workspace skills."
+        if action == "untrust":
+            if stage == "start":
+                return "Removing trust for workspace skills."
+            if success:
+                return "Workspace skills are no longer trusted."
+            return "Failed to remove workspace skill trust."
+        if action == "clear":
+            if stage == "start":
+                return "Clearing active skills."
+            if success:
+                return "Cleared active skills."
+            return "Failed to clear active skills."
+        if stage == "start":
+            return "Checking available skills."
+        if success:
+            return "Loaded available skills."
+        return "Failed to check available skills."
 
     if name.startswith("subagent_"):
         subagent = name.replace("subagent_", "", 1)

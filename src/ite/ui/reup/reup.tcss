@@ -527,6 +527,42 @@ Screen {
     padding: 0 1 0 1;
 }
 
+.block.command {
+    border: none;
+    background: #181a1d 78%;
+    padding: 1 2;
+    margin: 0 3 2 0;
+}
+
+.block.command .card-title {
+    color: #b7c8e1;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.command .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.skills {
+    border: none;
+    background: #1b1d20 84%;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.skills .card-title {
+    color: #edf1f7;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.skills .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
 .block.change {
     border: round #303236;
     background: #1d1f23 84%;

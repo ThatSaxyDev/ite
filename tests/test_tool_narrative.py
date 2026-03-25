@@ -60,6 +60,34 @@ class ToolNarrativeTests(unittest.TestCase):
             "Finished tests: `python3 -m unittest discover -s tests`.",
         )
 
+    def test_skills_has_specific_narrative_and_title(self) -> None:
+        self.assertEqual(
+            activity_title("skills", stage="complete", success=True, metadata={"action": "list"}),
+            "Skills ready",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "skills",
+                {"action": "list"},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded available skills.",
+        )
+        self.assertEqual(
+            activity_title("skills", stage="complete", success=True, metadata={"action": "show"}),
+            "Skill ready",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "skills",
+                {"action": "show", "skill": "frontend-design"},
+                stage="complete",
+                success=True,
+            ),
+            "Loaded details for skill `frontend-design`.",
+        )
+
     def test_structured_config_tools_have_specific_narratives_and_titles(self) -> None:
         self.assertEqual(
             activity_title("read_toml", stage="complete", success=True),

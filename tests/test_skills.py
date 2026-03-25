@@ -2,10 +2,15 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from io import StringIO
 
+from rich.console import Console
 from ite.config.config import Config
 from ite.skills.installer import install_skills_from_source
 from ite.skills.manager import SkillManager
+from ite.skills.rendering import build_skill_detail_renderable
+from ite.skills.rendering import build_skills_overview_renderable
+from ite.skills.rendering import build_skills_tool_renderable
 from ite.skills.trust import SkillTrustManager
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.skills import SkillsTool
@@ -155,6 +160,114 @@ class SkillManagerTests(unittest.TestCase):
             refs = manager.load_reference_context(skill, max_chars=2000, max_files=2)
             self.assertEqual(refs[0]["path"], "reference/typography.md")
             self.assertIn("Typography guidance", refs[0]["content"])
+
+    def test_overview_renderable_shows_state_counts_and_hints(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            _write_skill(
+                root,
+                "critique",
+                name="critique",
+                description="Evaluate interfaces",
+                body="Be direct.",
+            )
+            _write_skill(
+                root,
+                "frontend-design",
+                name="frontend-design",
+                description="Push stronger frontend direction",
+                body="Use reference/typography.md.",
+            )
+            trust = SkillTrustManager()
+            trust._path = base / "trusted.json"  # type: ignore[attr-defined]
+            manager = SkillManager(base, trust_manager=trust)
+            manager._discovery_roots = lambda: [("shared-project", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            skill = manager.get("critique")
+            self.assertIsNotNone(skill)
+            renderable = build_skills_overview_renderable(
+                manager.list_skills(),
+                {skill.identifier},
+            )
+            console = Console(file=StringIO(), force_terminal=False, width=120)
+            console.print(renderable)
+            output = console.file.getvalue()
+            self.assertIn("2 installed", output)
+            self.assertIn("1 active", output)
+            self.assertIn("/skills show <name>", output)
+            self.assertIn("critique", output)
+
+    def test_detail_renderable_includes_metadata_references_and_instructions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            skill_dir = root / "polish"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: polish\n"
+                "description: Tighten the finish quality.\n"
+                "user-invocable: true\n"
+                "argument-hint: \"[AREA=<value>]\"\n"
+                "author: Team iTE\n"
+                "tags:\n"
+                "  - ui\n"
+                "  - critique\n"
+                "---\n\n"
+                "Review spacing and hierarchy.\n",
+                encoding="utf-8",
+            )
+            reference_dir = skill_dir / "reference"
+            reference_dir.mkdir(parents=True, exist_ok=True)
+            (reference_dir / "typography.md").write_text("Type rules", encoding="utf-8")
+
+            manager = SkillManager(base)
+            manager._discovery_roots = lambda: [("shared-global", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            skill = manager.get("polish")
+            self.assertIsNotNone(skill)
+            renderable = build_skill_detail_renderable(skill, set())
+            console = Console(file=StringIO(), force_terminal=False, width=120)
+            console.print(renderable)
+            output = console.file.getvalue()
+            self.assertIn("polish", output)
+            self.assertIn("arguments", output)
+            self.assertIn("[AREA=<value>]", output)
+            self.assertIn("reference/typography.md", output)
+            self.assertIn("Review spacing and hierarchy.", output)
+
+    def test_tool_renderable_clarifies_shown_skill_is_not_the_active_skill(self) -> None:
+        payload = {
+            "action": "show",
+            "available_count": 21,
+            "active_skills": ["audit"],
+            "skill": "frontend-design",
+            "name": "frontend-design",
+            "description": "Create distinctive production interfaces.",
+            "user_invocable": False,
+            "argument_hint": "",
+            "reference_files": [
+                "reference/color-and-contrast.md",
+                "reference/interaction-design.md",
+            ],
+            "trusted": True,
+            "requires_trust": False,
+            "instructions": "Use strong hierarchy.\n\nAvoid generic layouts.",
+        }
+
+        renderable = build_skills_tool_renderable(payload)
+        self.assertIsNotNone(renderable)
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(renderable)
+        output = console.file.getvalue()
+        self.assertIn("frontend-design", output)
+        self.assertIn("inspected", output)
+        self.assertIn("active skills", output)
+        self.assertIn("audit", output)
+        self.assertIn("does not activate it", output)
 
 
 class SkillInstallerTests(unittest.TestCase):
