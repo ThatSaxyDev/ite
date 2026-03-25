@@ -183,15 +183,15 @@ Screen {
 }
 
 #conversation-shell {
-    width: 1fr;
+    width: 11fr;
+    min-width: 72;
     height: 1fr;
     background: #131315;
 }
 
 #change-review-panel {
-    width: 104;
-    min-width: 84;
-    max-width: 136;
+    width: 9fr;
+    min-width: 72;
     height: 1fr;
     background: #1c1b1d;
     padding: 1 2 0 2;

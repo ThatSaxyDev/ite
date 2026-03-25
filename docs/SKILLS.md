@@ -69,7 +69,7 @@ Supported optional frontmatter:
 - `author`
 - `homepage` or `url`
 
-Unknown frontmatter is preserved and ignored unless a later feature uses it.
+Unknown frontmatter is preserved and ignored unless a later feature uses it .
 
 ## References
 

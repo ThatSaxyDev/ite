@@ -84,5 +84,13 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
         if target_node is not None:
             self.select_node(target_node)
             self.move_cursor(target_node, animate=False)
+            self.call_after_refresh(
+                lambda: self.scroll_to(
+                    x=self.max_scroll_x,
+                    animate=False,
+                    force=True,
+                    immediate=True,
+                )
+            )
             return target_node.data.rel_path
         return None
