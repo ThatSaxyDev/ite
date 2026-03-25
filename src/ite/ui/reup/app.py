@@ -343,6 +343,7 @@ class ReupApp(App):
         self._activity_suffix_index: int = 0
         self._top_state_text: str = ""
         self._activity_widget: Static | None = None
+        self._activity_resume_timer = None
         self._activity_version: int = 0
         self._empty_state_cached_thread_count: int = 0
         self._plan_ready_future: asyncio.Future[bool] | None = None
@@ -734,6 +735,36 @@ class ReupApp(App):
         self._message_count = max(0, self._message_count - 1)
         self._refresh_empty_state()
 
+    def _cancel_activity_resume_timer(self) -> None:
+        timer = self._activity_resume_timer
+        if timer is None:
+            return
+        try:
+            timer.stop()
+        except Exception:
+            pass
+        self._activity_resume_timer = None
+
+    def _schedule_activity_indicator_resume(self, *, delay: float = 0.7) -> None:
+        self._cancel_activity_resume_timer()
+        version = self._activity_version
+
+        def _resume() -> None:
+            self._activity_resume_timer = None
+            if version != self._activity_version:
+                return
+            if not self._is_turn_running:
+                return
+            self.run_worker(
+                self._show_activity_indicator(
+                    self._progress_state_label(),
+                    version,
+                ),
+                exclusive=False,
+            )
+
+        self._activity_resume_timer = self.set_timer(delay, _resume)
+
     def _render_activity_indicator_text(self, label: str) -> Text:
         frame = self._top_spinner_frames[
             self._top_spinner_index % len(self._top_spinner_frames)
@@ -742,10 +773,10 @@ class ReupApp(App):
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
         content = Text()
-        content.append(frame, style="bold #4edea3")
+        content.append(frame, style="bold #62f0b0")
         content.append(" ")
-        content.append(label, style="bold #f2f5f8")
-        content.append(suffix, style="bold #b7c8e1")
+        content.append((label or "Thinking").strip().title() or "Thinking", style="bold #ffffff")
+        content.append(suffix, style="bold #d7deea")
         return content
 
     def _composer_meta_text(self) -> Text:
@@ -3837,6 +3868,7 @@ class ReupApp(App):
         suppressed_tools = {"memory", "plan_question"}
 
         if event.type == AgentEventType.AGENT_END:
+            self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             await self._post_turn_change_summary()
@@ -3845,13 +3877,16 @@ class ReupApp(App):
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
+                self._cancel_activity_resume_timer()
                 self._activity_version += 1
                 await self._hide_activity_indicator(self._activity_version)
                 await self.stream_assistant_delta(content)
+                self._schedule_activity_indicator_resume()
             return
 
         if event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
+            self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             if self._streaming_widget is not None:
@@ -3885,6 +3920,7 @@ class ReupApp(App):
             return
 
         if event.type == AgentEventType.AGENT_ERROR:
+            self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             run_state.turn_had_error = True
@@ -3904,6 +3940,7 @@ class ReupApp(App):
             return
 
         if event.type == AgentEventType.TOOL_CALL_START:
+            self._cancel_activity_resume_timer()
             tool_name = event.data.get("name", "tool")
             if tool_name == "todos":
                 if self._is_internal_todo_event(event.data.get("call_id")):
