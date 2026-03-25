@@ -1,0 +1,2547 @@
+<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:w10="urn:schemas-microsoft-com:office:word" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" xmlns:sl="http://schemas.openxmlformats.org/schemaLibrary/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture" xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas" xmlns:dgm="http://schemas.openxmlformats.org/drawingml/2006/diagram" xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml" xmlns:w16="http://schemas.microsoft.com/office/word/2018/wordml" xmlns:w16cex="http://schemas.microsoft.com/office/word/2018/wordml/cex" xmlns:w16cid="http://schemas.microsoft.com/office/word/2016/wordml/cid" xmlns="http://schemas.microsoft.com/office/tasks/2019/documenttasks" xmlns:cr="http://schemas.microsoft.com/office/comments/2020/reactions">
+  <w:body>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000001">
+      <w:pPr>
+        <w:keepNext w:val="0"/>
+        <w:keepLines w:val="0"/>
+        <w:pageBreakBefore w:val="0"/>
+        <w:widowControl w:val="0"/>
+        <w:pBdr>
+          <w:top w:space="0" w:sz="0" w:val="nil"/>
+          <w:left w:space="0" w:sz="0" w:val="nil"/>
+          <w:bottom w:space="0" w:sz="0" w:val="nil"/>
+          <w:right w:space="0" w:sz="0" w:val="nil"/>
+          <w:between w:space="0" w:sz="0" w:val="nil"/>
+        </w:pBdr>
+        <w:shd w:fill="auto" w:val="clear"/>
+        <w:spacing w:after="0" w:before="0" w:line="276" w:lineRule="auto"/>
+        <w:ind w:left="0" w:right="0" w:firstLine="0"/>
+        <w:jc w:val="left"/>
+        <w:rPr>
+          <w:rFonts w:ascii="Arial" w:cs="Arial" w:eastAsia="Arial" w:hAnsi="Arial"/>
+          <w:b w:val="0"/>
+          <w:i w:val="0"/>
+          <w:smallCaps w:val="0"/>
+          <w:strike w:val="0"/>
+          <w:color w:val="000000"/>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+          <w:u w:val="none"/>
+          <w:shd w:fill="auto" w:val="clear"/>
+          <w:vertAlign w:val="baseline"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:tbl>
+      <w:tblPr>
+        <w:tblStyle w:val="Table1"/>
+        <w:tblpPr w:leftFromText="0" w:rightFromText="0" w:topFromText="0" w:bottomFromText="0" w:vertAnchor="text" w:horzAnchor="text" w:tblpX="0" w:tblpY="0"/>
+        <w:tblW w:w="10906.0" w:type="dxa"/>
+        <w:jc w:val="left"/>
+        <w:tblLayout w:type="fixed"/>
+        <w:tblLook w:val="0400"/>
+      </w:tblPr>
+      <w:tblGrid>
+        <w:gridCol w:w="6120"/>
+        <w:gridCol w:w="499"/>
+        <w:gridCol w:w="4287"/>
+        <w:tblGridChange w:id="0">
+          <w:tblGrid>
+            <w:gridCol w:w="6120"/>
+            <w:gridCol w:w="499"/>
+            <w:gridCol w:w="4287"/>
+          </w:tblGrid>
+        </w:tblGridChange>
+      </w:tblGrid>
+      <w:tr>
+        <w:trPr>
+          <w:cantSplit w:val="0"/>
+          <w:trHeight w:val="936" w:hRule="atLeast"/>
+          <w:tblHeader w:val="0"/>
+        </w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcBorders>
+              <w:top w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:left w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:bottom w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:right w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+            </w:tcBorders>
+          </w:tcPr>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000002">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="217" w:lineRule="auto"/>
+              <w:ind w:left="135" w:right="1414" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">`</w:t>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000003">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="217" w:lineRule="auto"/>
+              <w:ind w:left="135" w:right="1414" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Mobile Applications (Flutter) Developer </w:t>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000004">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="217" w:lineRule="auto"/>
+              <w:ind w:left="135" w:right="1414" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/>
+                <w:b w:val="1"/>
+                <w:sz w:val="40"/>
+                <w:szCs w:val="40"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">DEDEKE, DAVID </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000005">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="0" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve"> </w:t>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcBorders>
+              <w:top w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:left w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:bottom w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:right w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+            </w:tcBorders>
+          </w:tcPr>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000006">
+            <w:pPr>
+              <w:spacing w:after="160" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="0" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcBorders>
+              <w:top w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:left w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:bottom w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:right w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+            </w:tcBorders>
+          </w:tcPr>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000007">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="0" w:right="58" w:firstLine="0"/>
+              <w:jc w:val="right"/>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+              </w:rPr>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">`</w:t>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000008">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="0" w:right="58" w:firstLine="0"/>
+              <w:jc w:val="right"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">+2348068097731 |</w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:color w:val="0463c1"/>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:u w:val="single"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Gmail</w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve"> </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000009">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="1181" w:right="43" w:firstLine="0"/>
+              <w:jc w:val="right"/>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+              </w:rPr>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:color w:val="0463c1"/>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:u w:val="single"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">GitHub</w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve"> </w:t>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000A">
+            <w:pPr>
+              <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="1181" w:right="43" w:firstLine="0"/>
+              <w:jc w:val="right"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Juno House, Yaba, Lagos State </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+      <w:tr>
+        <w:trPr>
+          <w:cantSplit w:val="0"/>
+          <w:trHeight w:val="1706" w:hRule="atLeast"/>
+          <w:tblHeader w:val="0"/>
+        </w:trPr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcBorders>
+              <w:top w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:left w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:bottom w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:right w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+            </w:tcBorders>
+          </w:tcPr>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000B">
+            <w:pPr>
+              <w:spacing w:after="243" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="140" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:b w:val="1"/>
+                <w:sz w:val="21"/>
+                <w:szCs w:val="21"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Skills </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000C">
+            <w:pPr>
+              <w:numPr>
+                <w:ilvl w:val="0"/>
+                <w:numId w:val="3"/>
+              </w:numPr>
+              <w:spacing w:after="60" w:line="239" w:lineRule="auto"/>
+              <w:ind w:left="860" w:hanging="360"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Flutter (Cross-platform (iOS, android, web) applications development) </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000D">
+            <w:pPr>
+              <w:numPr>
+                <w:ilvl w:val="0"/>
+                <w:numId w:val="3"/>
+              </w:numPr>
+              <w:spacing w:after="31" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="860" w:hanging="360"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Dart Programming Language </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000E">
+            <w:pPr>
+              <w:numPr>
+                <w:ilvl w:val="0"/>
+                <w:numId w:val="3"/>
+              </w:numPr>
+              <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="860" w:hanging="360"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Backend-as-a-service: Firebase </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcBorders>
+              <w:top w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:left w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:bottom w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:right w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+            </w:tcBorders>
+          </w:tcPr>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000000F">
+            <w:pPr>
+              <w:spacing w:after="94" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="0" w:firstLine="0"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcBorders>
+              <w:top w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:left w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:bottom w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+              <w:right w:color="000000" w:space="0" w:sz="0" w:val="nil"/>
+            </w:tcBorders>
+            <w:vAlign w:val="bottom"/>
+          </w:tcPr>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000010">
+            <w:pPr>
+              <w:keepNext w:val="0"/>
+              <w:keepLines w:val="0"/>
+              <w:pageBreakBefore w:val="0"/>
+              <w:widowControl w:val="1"/>
+              <w:numPr>
+                <w:ilvl w:val="0"/>
+                <w:numId w:val="4"/>
+              </w:numPr>
+              <w:pBdr>
+                <w:top w:space="0" w:sz="0" w:val="nil"/>
+                <w:left w:space="0" w:sz="0" w:val="nil"/>
+                <w:bottom w:space="0" w:sz="0" w:val="nil"/>
+                <w:right w:space="0" w:sz="0" w:val="nil"/>
+                <w:between w:space="0" w:sz="0" w:val="nil"/>
+              </w:pBdr>
+              <w:shd w:fill="auto" w:val="clear"/>
+              <w:spacing w:after="0" w:before="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="720" w:right="0" w:hanging="360"/>
+              <w:jc w:val="left"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="Calibri" w:cs="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri"/>
+                <w:b w:val="0"/>
+                <w:i w:val="0"/>
+                <w:smallCaps w:val="0"/>
+                <w:strike w:val="0"/>
+                <w:color w:val="000000"/>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:u w:val="none"/>
+                <w:shd w:fill="auto" w:val="clear"/>
+                <w:vertAlign w:val="baseline"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Version Control: Git, GitHub </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000011">
+            <w:pPr>
+              <w:keepNext w:val="0"/>
+              <w:keepLines w:val="0"/>
+              <w:pageBreakBefore w:val="0"/>
+              <w:widowControl w:val="1"/>
+              <w:numPr>
+                <w:ilvl w:val="0"/>
+                <w:numId w:val="4"/>
+              </w:numPr>
+              <w:pBdr>
+                <w:top w:space="0" w:sz="0" w:val="nil"/>
+                <w:left w:space="0" w:sz="0" w:val="nil"/>
+                <w:bottom w:space="0" w:sz="0" w:val="nil"/>
+                <w:right w:space="0" w:sz="0" w:val="nil"/>
+                <w:between w:space="0" w:sz="0" w:val="nil"/>
+              </w:pBdr>
+              <w:shd w:fill="auto" w:val="clear"/>
+              <w:spacing w:after="0" w:before="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="720" w:right="0" w:hanging="360"/>
+              <w:jc w:val="left"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">CI/CD</w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="Calibri" w:cs="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri"/>
+                <w:b w:val="0"/>
+                <w:i w:val="0"/>
+                <w:smallCaps w:val="0"/>
+                <w:strike w:val="0"/>
+                <w:color w:val="000000"/>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:u w:val="none"/>
+                <w:shd w:fill="auto" w:val="clear"/>
+                <w:vertAlign w:val="baseline"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve"> </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+          <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000012">
+            <w:pPr>
+              <w:keepNext w:val="0"/>
+              <w:keepLines w:val="0"/>
+              <w:pageBreakBefore w:val="0"/>
+              <w:widowControl w:val="1"/>
+              <w:numPr>
+                <w:ilvl w:val="0"/>
+                <w:numId w:val="4"/>
+              </w:numPr>
+              <w:pBdr>
+                <w:top w:space="0" w:sz="0" w:val="nil"/>
+                <w:left w:space="0" w:sz="0" w:val="nil"/>
+                <w:bottom w:space="0" w:sz="0" w:val="nil"/>
+                <w:right w:space="0" w:sz="0" w:val="nil"/>
+                <w:between w:space="0" w:sz="0" w:val="nil"/>
+              </w:pBdr>
+              <w:shd w:fill="auto" w:val="clear"/>
+              <w:spacing w:after="0" w:before="0" w:line="259" w:lineRule="auto"/>
+              <w:ind w:left="720" w:right="0" w:hanging="360"/>
+              <w:jc w:val="left"/>
+              <w:rPr/>
+            </w:pPr>
+            <w:r>
+              <w:rPr>
+                <w:rFonts w:ascii="Calibri" w:cs="Calibri" w:eastAsia="Calibri" w:hAnsi="Calibri"/>
+                <w:b w:val="0"/>
+                <w:i w:val="0"/>
+                <w:smallCaps w:val="0"/>
+                <w:strike w:val="0"/>
+                <w:color w:val="000000"/>
+                <w:sz w:val="20"/>
+                <w:szCs w:val="20"/>
+                <w:u w:val="none"/>
+                <w:shd w:fill="auto" w:val="clear"/>
+                <w:vertAlign w:val="baseline"/>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+              <w:t xml:space="preserve">Agile Development </w:t>
+            </w:r>
+            <w:r>
+              <w:rPr>
+                <w:rtl w:val="0"/>
+              </w:rPr>
+            </w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000013">
+      <w:pPr>
+        <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+      <w:r>
+        <mc:AlternateContent>
+          <mc:Choice Requires="wpg">
+            <w:drawing>
+              <wp:anchor allowOverlap="1" behindDoc="0" distB="0" distT="0" distL="114300" distR="114300" hidden="0" layoutInCell="1" locked="0" relativeHeight="0" simplePos="0">
+                <wp:simplePos x="0" y="0"/>
+                <wp:positionH relativeFrom="column">
+                  <wp:posOffset>76201</wp:posOffset>
+                </wp:positionH>
+                <wp:positionV relativeFrom="paragraph">
+                  <wp:posOffset>-939799</wp:posOffset>
+                </wp:positionV>
+                <wp:extent cx="6894576" cy="6096"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:wrapSquare wrapText="bothSides" distB="0" distT="0" distL="114300" distR="114300"/>
+                <wp:docPr id="5372" name=""/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup">
+                    <wpg:wgp>
+                      <wpg:cNvGrpSpPr/>
+                      <wpg:grpSpPr>
+                        <a:xfrm>
+                          <a:off x="1898700" y="3776950"/>
+                          <a:ext cx="6894576" cy="6096"/>
+                          <a:chOff x="1898700" y="3776950"/>
+                          <a:chExt cx="6894600" cy="9150"/>
+                        </a:xfrm>
+                      </wpg:grpSpPr>
+                      <wpg:grpSp>
+                        <wpg:cNvGrpSpPr/>
+                        <wpg:grpSpPr>
+                          <a:xfrm>
+                            <a:off x="1898712" y="3776952"/>
+                            <a:ext cx="6894576" cy="9144"/>
+                            <a:chOff x="0" y="0"/>
+                            <a:chExt cx="6894576" cy="9144"/>
+                          </a:xfrm>
+                        </wpg:grpSpPr>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="3" name="Shape 3"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6894575" cy="6075"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect">
+                              <a:avLst/>
+                            </a:prstGeom>
+                            <a:noFill/>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:txbx>
+                            <w:txbxContent>
+                              <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000">
+                                <w:pPr>
+                                  <w:spacing w:after="0" w:before="0" w:line="240"/>
+                                  <w:ind w:left="0" w:right="0" w:firstLine="0"/>
+                                  <w:jc w:val="left"/>
+                                  <w:textDirection w:val="btLr"/>
+                                </w:pPr>
+                              </w:p>
+                            </w:txbxContent>
+                          </wps:txbx>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="10" name="Shape 10"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6894576" cy="9144"/>
+                            </a:xfrm>
+                            <a:custGeom>
+                              <a:rect b="b" l="l" r="r" t="t"/>
+                              <a:pathLst>
+                                <a:path extrusionOk="0" h="9144" w="6894576">
+                                  <a:moveTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:moveTo>
+                                  <a:lnTo>
+                                    <a:pt x="6894576" y="0"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="6894576" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:lnTo>
+                                </a:path>
+                              </a:pathLst>
+                            </a:custGeom>
+                            <a:solidFill>
+                              <a:srgbClr val="000000"/>
+                            </a:solidFill>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                      </wpg:grpSp>
+                    </wpg:wgp>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:anchor>
+            </w:drawing>
+          </mc:Choice>
+          <mc:Fallback>
+            <w:drawing>
+              <wp:anchor allowOverlap="1" behindDoc="0" distB="0" distT="0" distL="114300" distR="114300" hidden="0" layoutInCell="1" locked="0" relativeHeight="0" simplePos="0">
+                <wp:simplePos x="0" y="0"/>
+                <wp:positionH relativeFrom="column">
+                  <wp:posOffset>76201</wp:posOffset>
+                </wp:positionH>
+                <wp:positionV relativeFrom="paragraph">
+                  <wp:posOffset>-939799</wp:posOffset>
+                </wp:positionV>
+                <wp:extent cx="6894576" cy="6096"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:wrapSquare wrapText="bothSides" distB="0" distT="0" distL="114300" distR="114300"/>
+                <wp:docPr id="5372" name="image4.png"/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:pic>
+                      <pic:nvPicPr>
+                        <pic:cNvPr id="0" name="image4.png"/>
+                        <pic:cNvPicPr preferRelativeResize="0"/>
+                      </pic:nvPicPr>
+                      <pic:blipFill>
+                        <a:blip r:embed="rId7"/>
+                        <a:srcRect/>
+                        <a:stretch>
+                          <a:fillRect/>
+                        </a:stretch>
+                      </pic:blipFill>
+                      <pic:spPr>
+                        <a:xfrm>
+                          <a:off x="0" y="0"/>
+                          <a:ext cx="6894576" cy="6096"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="rect"/>
+                        <a:ln/>
+                      </pic:spPr>
+                    </pic:pic>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:anchor>
+            </w:drawing>
+          </mc:Fallback>
+        </mc:AlternateContent>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000014">
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+        <w:ind w:left="135" w:firstLine="140"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Projects </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000015">
+      <w:pPr>
+        <w:spacing w:after="112" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="110" w:right="-44" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+        </w:rPr>
+        <mc:AlternateContent>
+          <mc:Choice Requires="wpg">
+            <w:drawing>
+              <wp:inline distB="0" distT="0" distL="0" distR="0">
+                <wp:extent cx="6894576" cy="6096"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:docPr id="5369" name=""/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup">
+                    <wpg:wgp>
+                      <wpg:cNvGrpSpPr/>
+                      <wpg:grpSpPr>
+                        <a:xfrm>
+                          <a:off x="1898700" y="3776950"/>
+                          <a:ext cx="6894576" cy="6096"/>
+                          <a:chOff x="1898700" y="3776950"/>
+                          <a:chExt cx="6894600" cy="9150"/>
+                        </a:xfrm>
+                      </wpg:grpSpPr>
+                      <wpg:grpSp>
+                        <wpg:cNvGrpSpPr/>
+                        <wpg:grpSpPr>
+                          <a:xfrm>
+                            <a:off x="1898712" y="3776952"/>
+                            <a:ext cx="6894576" cy="9144"/>
+                            <a:chOff x="0" y="0"/>
+                            <a:chExt cx="6894576" cy="9144"/>
+                          </a:xfrm>
+                        </wpg:grpSpPr>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="3" name="Shape 3"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6894575" cy="6075"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect">
+                              <a:avLst/>
+                            </a:prstGeom>
+                            <a:noFill/>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:txbx>
+                            <w:txbxContent>
+                              <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000">
+                                <w:pPr>
+                                  <w:spacing w:after="0" w:before="0" w:line="240"/>
+                                  <w:ind w:left="0" w:right="0" w:firstLine="0"/>
+                                  <w:jc w:val="left"/>
+                                  <w:textDirection w:val="btLr"/>
+                                </w:pPr>
+                              </w:p>
+                            </w:txbxContent>
+                          </wps:txbx>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="4" name="Shape 4"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6894576" cy="9144"/>
+                            </a:xfrm>
+                            <a:custGeom>
+                              <a:rect b="b" l="l" r="r" t="t"/>
+                              <a:pathLst>
+                                <a:path extrusionOk="0" h="9144" w="6894576">
+                                  <a:moveTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:moveTo>
+                                  <a:lnTo>
+                                    <a:pt x="6894576" y="0"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="6894576" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:lnTo>
+                                </a:path>
+                              </a:pathLst>
+                            </a:custGeom>
+                            <a:solidFill>
+                              <a:srgbClr val="000000"/>
+                            </a:solidFill>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                      </wpg:grpSp>
+                    </wpg:wgp>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </mc:Choice>
+          <mc:Fallback>
+            <w:drawing>
+              <wp:inline distB="0" distT="0" distL="0" distR="0">
+                <wp:extent cx="6894576" cy="6096"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:docPr id="5369" name="image1.png"/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:pic>
+                      <pic:nvPicPr>
+                        <pic:cNvPr id="0" name="image1.png"/>
+                        <pic:cNvPicPr preferRelativeResize="0"/>
+                      </pic:nvPicPr>
+                      <pic:blipFill>
+                        <a:blip r:embed="rId7"/>
+                        <a:srcRect/>
+                        <a:stretch>
+                          <a:fillRect/>
+                        </a:stretch>
+                      </pic:blipFill>
+                      <pic:spPr>
+                        <a:xfrm>
+                          <a:off x="0" y="0"/>
+                          <a:ext cx="6894576" cy="6096"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="rect"/>
+                        <a:ln/>
+                      </pic:spPr>
+                    </pic:pic>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </mc:Fallback>
+        </mc:AlternateContent>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000016">
+      <w:pPr>
+        <w:spacing w:after="121" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="140" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">TODLR HUB – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Child Financial Education (</w:t>
+      </w:r>
+      <w:hyperlink r:id="rId8">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">App Store Link</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:hyperlink r:id="rId9">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="0463c1"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">, </w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:hyperlink r:id="rId10">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">Playstore Link</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:hyperlink r:id="rId11">
+        <w:r>
+          <w:rPr>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">)</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000017">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Studied designs made available and implemented key features necessary to the growth of the application </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000018">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Synchronized the application with </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Firebase</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, making use of local storage (shared preferences) for seamless data flow. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000019">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:spacing w:after="67" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Handled state management efficiently with the </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Provider </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">framework. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001A">
+      <w:pPr>
+        <w:spacing w:after="67" w:lineRule="auto"/>
+        <w:ind w:left="484" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001B">
+      <w:pPr>
+        <w:spacing w:after="121" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="141" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Coded Shots – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Code snapshot tool (</w:t>
+      </w:r>
+      <w:hyperlink r:id="rId12">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">Web link</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, </w:t>
+      </w:r>
+      <w:hyperlink r:id="rId13">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">MacOS DMG</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">) </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001C">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Developed a macOS and web app using Flutter for capturing beautiful code snippets with native syntax highlighting. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001D">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Built a smooth, user-friendly interface without webviews or JavaScript for optimal performance. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001E">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:spacing w:after="61" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Designed the app to streamline the process of sharing code snippets with minimal steps. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000001F">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:spacing w:after="61" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Focused on a lightweight, functional tool for developers to capture and share high-quality code visuals effortlessly.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000020">
+      <w:pPr>
+        <w:spacing w:after="61" w:lineRule="auto"/>
+        <w:ind w:left="484" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000021">
+      <w:pPr>
+        <w:spacing w:after="121" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="140" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">PAY SCORE – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">FinTech Product (</w:t>
+      </w:r>
+      <w:hyperlink r:id="rId14">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">Demo Link</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">) </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000022">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Utilized </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Flutter </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">to build the &#x2018;front-end&#x2019; financial technology mobile application for Payscore</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="15"/>
+          <w:szCs w:val="15"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">. </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000023">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Implemented a QR code payment system for fast and secure transfer, receiving, and withdrawal of funds in Naira. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000024">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Implemented channels for fast and secure transfer, receiving, and withdrawal of funds in Naira. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000025">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Handled state management, as well as, REST APIs consumption, efficiently with the </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Riverpod </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">framework. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000026">
+      <w:pPr>
+        <w:ind w:left="484" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000027">
+      <w:pPr>
+        <w:spacing w:after="121" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="140" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">MONA – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">FinTech Product (</w:t>
+      </w:r>
+      <w:hyperlink r:id="rId15">
+        <w:r>
+          <w:rPr>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">Store Link</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">) </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000028">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Utilized </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Flutter </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">to build a fintech platform enabling seamless money transfers between Nigerian banks.</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="15"/>
+          <w:szCs w:val="15"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">. </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000029">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Built with modern technologies, ensuring scalability and compliance with Nigerian financial regulations. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002A">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Integrates REST APIs and state management solutions for optimized performance and reliability. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002B">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Handled state management, as well as, REST APIs consumption, efficiently with the </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Riverpod </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">framework. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002C">
+      <w:pPr>
+        <w:ind w:left="126" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002D">
+      <w:pPr>
+        <w:spacing w:after="36" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002E">
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+        <w:ind w:left="135" w:firstLine="140"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Work Experience </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000002F">
+      <w:pPr>
+        <w:spacing w:after="4" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="110" w:right="-135" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+        </w:rPr>
+        <mc:AlternateContent>
+          <mc:Choice Requires="wpg">
+            <w:drawing>
+              <wp:inline distB="0" distT="0" distL="0" distR="0">
+                <wp:extent cx="6952489" cy="6095"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:docPr id="5371" name=""/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup">
+                    <wpg:wgp>
+                      <wpg:cNvGrpSpPr/>
+                      <wpg:grpSpPr>
+                        <a:xfrm>
+                          <a:off x="1869750" y="3776950"/>
+                          <a:ext cx="6952489" cy="6095"/>
+                          <a:chOff x="1869750" y="3776950"/>
+                          <a:chExt cx="6952500" cy="9150"/>
+                        </a:xfrm>
+                      </wpg:grpSpPr>
+                      <wpg:grpSp>
+                        <wpg:cNvGrpSpPr/>
+                        <wpg:grpSpPr>
+                          <a:xfrm>
+                            <a:off x="1869756" y="3776953"/>
+                            <a:ext cx="6952489" cy="9144"/>
+                            <a:chOff x="0" y="0"/>
+                            <a:chExt cx="6952489" cy="9144"/>
+                          </a:xfrm>
+                        </wpg:grpSpPr>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="3" name="Shape 3"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6952475" cy="6075"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect">
+                              <a:avLst/>
+                            </a:prstGeom>
+                            <a:noFill/>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:txbx>
+                            <w:txbxContent>
+                              <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000">
+                                <w:pPr>
+                                  <w:spacing w:after="0" w:before="0" w:line="240"/>
+                                  <w:ind w:left="0" w:right="0" w:firstLine="0"/>
+                                  <w:jc w:val="left"/>
+                                  <w:textDirection w:val="btLr"/>
+                                </w:pPr>
+                              </w:p>
+                            </w:txbxContent>
+                          </wps:txbx>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="8" name="Shape 8"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6952489" cy="9144"/>
+                            </a:xfrm>
+                            <a:custGeom>
+                              <a:rect b="b" l="l" r="r" t="t"/>
+                              <a:pathLst>
+                                <a:path extrusionOk="0" h="9144" w="6952489">
+                                  <a:moveTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:moveTo>
+                                  <a:lnTo>
+                                    <a:pt x="6952489" y="0"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="6952489" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:lnTo>
+                                </a:path>
+                              </a:pathLst>
+                            </a:custGeom>
+                            <a:solidFill>
+                              <a:srgbClr val="000000"/>
+                            </a:solidFill>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                      </wpg:grpSp>
+                    </wpg:wgp>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </mc:Choice>
+          <mc:Fallback>
+            <w:drawing>
+              <wp:inline distB="0" distT="0" distL="0" distR="0">
+                <wp:extent cx="6952489" cy="6095"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:docPr id="5371" name="image3.png"/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:pic>
+                      <pic:nvPicPr>
+                        <pic:cNvPr id="0" name="image3.png"/>
+                        <pic:cNvPicPr preferRelativeResize="0"/>
+                      </pic:nvPicPr>
+                      <pic:blipFill>
+                        <a:blip r:embed="rId7"/>
+                        <a:srcRect/>
+                        <a:stretch>
+                          <a:fillRect/>
+                        </a:stretch>
+                      </pic:blipFill>
+                      <pic:spPr>
+                        <a:xfrm>
+                          <a:off x="0" y="0"/>
+                          <a:ext cx="6952489" cy="6095"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="rect"/>
+                        <a:ln/>
+                      </pic:spPr>
+                    </pic:pic>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </mc:Fallback>
+        </mc:AlternateContent>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000030">
+      <w:pPr>
+        <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000031">
+      <w:pPr>
+        <w:tabs>
+          <w:tab w:val="center" w:leader="none" w:pos="2225"/>
+          <w:tab w:val="right" w:leader="none" w:pos="10924"/>
+        </w:tabs>
+        <w:spacing w:after="114" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">   </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">LEAD MOBILE DEVELOPER – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">RETROSTACK TECH </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">– </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">LAGOS </w:t>
+        <w:tab/>
+        <w:t xml:space="preserve">August 2022 - July 2023</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000032">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Developed scalable, highly-optimized, cross-platform front-end mobile application </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000033">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Integrated efficient RESTful APIs to seamlessly function with external services and databases. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000034">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Optimized code to enhance system reliability and performance </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000035">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="62" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Contributed to Agile development processes, participating in sprint planning and delivering iterative software updates </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000036">
+      <w:pPr>
+        <w:spacing w:after="62" w:lineRule="auto"/>
+        <w:ind w:left="484" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000037">
+      <w:pPr>
+        <w:tabs>
+          <w:tab w:val="center" w:leader="none" w:pos="1412"/>
+          <w:tab w:val="right" w:leader="none" w:pos="10924"/>
+        </w:tabs>
+        <w:spacing w:after="114" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">  </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">FLUTTER INSTRUCTOR – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">HIIT PLC </w:t>
+        <w:tab/>
+        <w:t xml:space="preserve">October 2023 – December 2023 </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000038">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Drafted a curriculum that covers the basics of Flutter and Dart Programming Language. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000039">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Instructing and guiding students through hands-on exercises, fostering a deep understanding of Flutter development principles. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000003A">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Providing personalized assistance and constructive feedback to ensure students' mastery of Flutter development skills. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000003B">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="67" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Fostering a positive and inclusive classroom atmosphere, promoting a passion for continuous learning and skill development. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000003C">
+      <w:pPr>
+        <w:spacing w:after="67" w:lineRule="auto"/>
+        <w:ind w:left="484" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000003D">
+      <w:pPr>
+        <w:spacing w:after="114" w:lineRule="auto"/>
+        <w:ind w:left="136" w:firstLine="141"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">FLUTTER DEVELOPER / MOBILE ENGINEER – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">TODLR, INC </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">– </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">DELAWARE, USA.                                                                                                       October 2023 – March 2024 </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000003E">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Actively participating in Agile methodologies, sprint planning and iterative software updates, contributing to a dynamic and efficient development environment. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000003F">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Maintaining the Todlr Hub &#x201C;Parent&#x201D; application by optimizing already established processes and adding new key features. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000040">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Presented detailed written reports, each week to upper management alongside my apprentice supervisor. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000041">
+      <w:pPr>
+        <w:ind w:left="484" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000042">
+      <w:pPr>
+        <w:spacing w:after="114" w:lineRule="auto"/>
+        <w:ind w:left="136" w:firstLine="141"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">FLUTTER DEVELOPER / MOBILE ENGINEER – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">GFA Technologies </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">– </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">OGUN. NIGERIA                                                                                                    March 2024 – October 2024 </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000043">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Led the conversion of an existing </w:t>
+      </w:r>
+      <w:hyperlink r:id="rId16">
+        <w:r>
+          <w:rPr>
+            <w:b w:val="1"/>
+            <w:color w:val="467886"/>
+            <w:u w:val="single"/>
+            <w:rtl w:val="0"/>
+          </w:rPr>
+          <w:t xml:space="preserve">web platform</w:t>
+        </w:r>
+      </w:hyperlink>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> to a mobile app using Flutter, enhancing accessibility and user experience. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000044">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Actively participated in Agile workflows, including sprint planning and software iteration, contributing to a streamlined development process. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000045">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000046">
+      <w:pPr>
+        <w:tabs>
+          <w:tab w:val="center" w:leader="none" w:pos="1412"/>
+          <w:tab w:val="right" w:leader="none" w:pos="10924"/>
+        </w:tabs>
+        <w:spacing w:after="114" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">  </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">FLUTTER DEVELOPER / MOBILE ENGINEER – </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">MONA, LAGOS </w:t>
+        <w:tab/>
+        <w:t xml:space="preserve">October 2024 – May 2024 </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000047">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Developed and maintained</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> a high-performance fintech mobile application for seamless money transfers between Nigerian banks.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000048">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Implemented secure and efficient transaction workflows</w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">, enhancing user experience and ensuring data integrity. </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000049">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Collaborated with a cross-functional team to deliver key features on time, such as real-time payment tracking and multi-account management.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000004A">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="67" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Integrated third-party APIs and ensured compliance with Nigerian financial regulations and industry standards.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000004B">
+      <w:pPr>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="2"/>
+        </w:numPr>
+        <w:spacing w:after="67" w:lineRule="auto"/>
+        <w:ind w:left="484" w:hanging="358"/>
+        <w:rPr>
+          <w:u w:val="none"/>
+        </w:rPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Built a payment sdk that synchronizes with the mobile transactions  experience provided by the Mona app.</w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000004C">
+      <w:pPr>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000004D">
+      <w:pPr>
+        <w:ind w:left="126" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000004E">
+      <w:pPr>
+        <w:spacing w:after="31" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="0000004F">
+      <w:pPr>
+        <w:pStyle w:val="Heading1"/>
+        <w:ind w:left="135" w:firstLine="140"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Education </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000050">
+      <w:pPr>
+        <w:spacing w:after="1" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="110" w:right="-44" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+        </w:rPr>
+        <mc:AlternateContent>
+          <mc:Choice Requires="wpg">
+            <w:drawing>
+              <wp:inline distB="0" distT="0" distL="0" distR="0">
+                <wp:extent cx="6894576" cy="6096"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:docPr id="5370" name=""/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup">
+                    <wpg:wgp>
+                      <wpg:cNvGrpSpPr/>
+                      <wpg:grpSpPr>
+                        <a:xfrm>
+                          <a:off x="1898700" y="3776950"/>
+                          <a:ext cx="6894576" cy="6096"/>
+                          <a:chOff x="1898700" y="3776950"/>
+                          <a:chExt cx="6894600" cy="9150"/>
+                        </a:xfrm>
+                      </wpg:grpSpPr>
+                      <wpg:grpSp>
+                        <wpg:cNvGrpSpPr/>
+                        <wpg:grpSpPr>
+                          <a:xfrm>
+                            <a:off x="1898712" y="3776952"/>
+                            <a:ext cx="6894576" cy="9144"/>
+                            <a:chOff x="0" y="0"/>
+                            <a:chExt cx="6894576" cy="9144"/>
+                          </a:xfrm>
+                        </wpg:grpSpPr>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="3" name="Shape 3"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6894575" cy="6075"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect">
+                              <a:avLst/>
+                            </a:prstGeom>
+                            <a:noFill/>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:txbx>
+                            <w:txbxContent>
+                              <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000">
+                                <w:pPr>
+                                  <w:spacing w:after="0" w:before="0" w:line="240"/>
+                                  <w:ind w:left="0" w:right="0" w:firstLine="0"/>
+                                  <w:jc w:val="left"/>
+                                  <w:textDirection w:val="btLr"/>
+                                </w:pPr>
+                              </w:p>
+                            </w:txbxContent>
+                          </wps:txbx>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                        <wps:wsp>
+                          <wps:cNvSpPr/>
+                          <wps:cNvPr id="6" name="Shape 6"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="6894576" cy="9144"/>
+                            </a:xfrm>
+                            <a:custGeom>
+                              <a:rect b="b" l="l" r="r" t="t"/>
+                              <a:pathLst>
+                                <a:path extrusionOk="0" h="9144" w="6894576">
+                                  <a:moveTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:moveTo>
+                                  <a:lnTo>
+                                    <a:pt x="6894576" y="0"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="6894576" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="9144"/>
+                                  </a:lnTo>
+                                  <a:lnTo>
+                                    <a:pt x="0" y="0"/>
+                                  </a:lnTo>
+                                </a:path>
+                              </a:pathLst>
+                            </a:custGeom>
+                            <a:solidFill>
+                              <a:srgbClr val="000000"/>
+                            </a:solidFill>
+                            <a:ln>
+                              <a:noFill/>
+                            </a:ln>
+                          </wps:spPr>
+                          <wps:bodyPr anchorCtr="0" anchor="ctr" bIns="91425" lIns="91425" spcFirstLastPara="1" rIns="91425" wrap="square" tIns="91425">
+                            <a:noAutofit/>
+                          </wps:bodyPr>
+                        </wps:wsp>
+                      </wpg:grpSp>
+                    </wpg:wgp>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </mc:Choice>
+          <mc:Fallback>
+            <w:drawing>
+              <wp:inline distB="0" distT="0" distL="0" distR="0">
+                <wp:extent cx="6894576" cy="6096"/>
+                <wp:effectExtent b="0" l="0" r="0" t="0"/>
+                <wp:docPr id="5370" name="image2.png"/>
+                <a:graphic>
+                  <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                    <pic:pic>
+                      <pic:nvPicPr>
+                        <pic:cNvPr id="0" name="image2.png"/>
+                        <pic:cNvPicPr preferRelativeResize="0"/>
+                      </pic:nvPicPr>
+                      <pic:blipFill>
+                        <a:blip r:embed="rId7"/>
+                        <a:srcRect/>
+                        <a:stretch>
+                          <a:fillRect/>
+                        </a:stretch>
+                      </pic:blipFill>
+                      <pic:spPr>
+                        <a:xfrm>
+                          <a:off x="0" y="0"/>
+                          <a:ext cx="6894576" cy="6096"/>
+                        </a:xfrm>
+                        <a:prstGeom prst="rect"/>
+                        <a:ln/>
+                      </pic:spPr>
+                    </pic:pic>
+                  </a:graphicData>
+                </a:graphic>
+              </wp:inline>
+            </w:drawing>
+          </mc:Fallback>
+        </mc:AlternateContent>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000051">
+      <w:pPr>
+        <w:spacing w:after="0" w:line="259" w:lineRule="auto"/>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve"> </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000052">
+      <w:pPr>
+        <w:ind w:left="136" w:firstLine="141"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:b w:val="1"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">BACHELOR OF SCIENCE IN SOFTWARE ENGINEERING </w:t>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">– Babcock University – Ilishan-Remo, Ogun State </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000053">
+      <w:pPr>
+        <w:tabs>
+          <w:tab w:val="center" w:leader="none" w:pos="1574"/>
+          <w:tab w:val="right" w:leader="none" w:pos="10924"/>
+        </w:tabs>
+        <w:ind w:left="0" w:firstLine="0"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:sz w:val="22"/>
+          <w:szCs w:val="22"/>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:tab/>
+      </w:r>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Grade: Second Class Honors (Upper Division) </w:t>
+        <w:tab/>
+        <w:t xml:space="preserve">July 2023 </w:t>
+      </w:r>
+    </w:p>
+    <w:p w:rsidR="00000000" w:rsidDel="00000000" w:rsidP="00000000" w:rsidRDefault="00000000" w:rsidRPr="00000000" w14:paraId="00000054">
+      <w:pPr>
+        <w:ind w:left="136" w:firstLine="141"/>
+        <w:rPr/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rtl w:val="0"/>
+        </w:rPr>
+        <w:t xml:space="preserve">Majors: Mobile Applications Development, Big Data Engineering, Database Management, Requirements Engineering </w:t>
+      </w:r>
+    </w:p>
+    <w:sectPr>
+      <w:pgSz w:h="15840" w:w="12240" w:orient="portrait"/>
+      <w:pgMar w:bottom="1440" w:top="389" w:left="581" w:right="735" w:header="720" w:footer="720"/>
+      <w:pgNumType w:start="1"/>
+    </w:sectPr>
+  </w:body>
+</w:document>

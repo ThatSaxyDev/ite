@@ -187,6 +187,12 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
     lines.append(
         "- Skills follow the interoperable `SKILL.md` bundle pattern. Keep inactive skills out of the main context; activate them explicitly when needed."
     )
+    lines.append(
+        "- If an active skill clearly matches the user's file type or task domain, use that skill's workflow before falling back to generic tools."
+    )
+    lines.append(
+        "- Resolve any relative `scripts/`, `templates/`, `reference/`, `references/`, or asset paths mentioned by a skill relative to that skill's directory, not the project root."
+    )
 
     if isinstance(catalog, list) and catalog:
         lines.append("- Available skills:")
@@ -216,6 +222,8 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
             description = str(entry.get("description", "")).strip()
             instructions = str(entry.get("instructions", "")).strip()
             argument_hint = str(entry.get("argument_hint", "")).strip()
+            directory = str(entry.get("directory", "")).strip()
+            skill_file = str(entry.get("skill_file", "")).strip()
             reference_files = entry.get("reference_files")
             loaded_references = entry.get("loaded_references")
             if not name or not instructions:
@@ -227,8 +235,16 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
                 lines.append(f"Description: {description}")
             if argument_hint:
                 lines.append(f"Argument hint: {argument_hint}")
+            if directory:
+                lines.append(f"Skill directory: {directory}")
+            if skill_file:
+                lines.append(f"Skill file: {skill_file}")
             if isinstance(reference_files, list) and reference_files:
                 lines.append("References: " + ", ".join(str(item) for item in reference_files[:8]))
+                if directory:
+                    lines.append(
+                        "Reference paths above are relative to the skill directory unless they are already absolute."
+                    )
             lines.append("")
             lines.append(instructions)
             if isinstance(loaded_references, list) and loaded_references:

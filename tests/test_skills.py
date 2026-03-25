@@ -179,6 +179,28 @@ class SkillManagerTests(unittest.TestCase):
             self.assertEqual(refs[0]["path"], "reference/typography.md")
             self.assertIn("Typography guidance", refs[0]["content"])
 
+    def test_skill_definition_exposes_directory_for_relative_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            _write_skill(
+                root,
+                "docx",
+                name="docx",
+                description="Work with docx files",
+                body="Run python scripts/office/unpack.py on the file.",
+            )
+
+            manager = SkillManager(base)
+            manager._discovery_roots = lambda: [("shared-project", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            skill = manager.get("docx")
+            self.assertIsNotNone(skill)
+            assert skill is not None
+            self.assertEqual(skill.directory, root / "docx")
+            self.assertEqual(skill.skill_file, root / "docx" / "SKILL.md")
+
     def test_overview_renderable_shows_state_counts_and_hints(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)

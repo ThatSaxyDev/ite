@@ -92,6 +92,8 @@ class SystemPromptTests(unittest.TestCase):
                         "description": "Review polished UI",
                         "source": "shared-project",
                         "argument_hint": "[AREA=<value>]",
+                        "directory": "/tmp/skills/design-review",
+                        "skill_file": "/tmp/skills/design-review/SKILL.md",
                         "reference_files": ["reference/typography.md"],
                         "instructions": "Use strict visual review standards.",
                     }
@@ -102,8 +104,12 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("`design-review` (Design Review) [shared-project] user-invocable [AREA=<value>]", prompt)
         self.assertIn("## Active Skill: Design Review", prompt)
         self.assertIn("Argument hint: [AREA=<value>]", prompt)
+        self.assertIn("Skill directory: /tmp/skills/design-review", prompt)
+        self.assertIn("Skill file: /tmp/skills/design-review/SKILL.md", prompt)
         self.assertIn("References: reference/typography.md", prompt)
+        self.assertIn("Reference paths above are relative to the skill directory", prompt)
         self.assertIn("Use strict visual review standards.", prompt)
+        self.assertIn("use that skill's workflow before falling back to generic tools", prompt)
 
 
 if __name__ == "__main__":

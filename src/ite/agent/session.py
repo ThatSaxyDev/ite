@@ -177,6 +177,8 @@ class Session:
                     "description": skill.description,
                     "instructions": skill.instructions,
                     "source": skill.source,
+                    "directory": str(skill.directory),
+                    "skill_file": str(skill.skill_file),
                     "user_invocable": skill.user_invocable,
                     "argument_hint": skill.argument_hint or "",
                     "reference_files": list(skill.reference_files),
