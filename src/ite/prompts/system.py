@@ -197,8 +197,14 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
             description = str(entry.get("description", "")).strip()
             name = str(entry.get("name", identifier)).strip() or identifier
             source = str(entry.get("source", "")).strip()
+            invocable = bool(str(entry.get("user_invocable", "")).strip().lower() == "true")
+            argument_hint = str(entry.get("argument_hint", "")).strip()
+            trusted = bool(str(entry.get("trusted", "")).strip().lower() == "true")
             suffix = f" [{source}]" if source else ""
-            lines.append(f"  - `{identifier}` ({name}){suffix} — {description}")
+            invoke_suffix = " user-invocable" if invocable else ""
+            hint_suffix = f" {argument_hint}" if argument_hint else ""
+            trust_suffix = "" if trusted else " untrusted"
+            lines.append(f"  - `{identifier}` ({name}){suffix}{invoke_suffix}{hint_suffix}{trust_suffix} — {description}")
 
     if isinstance(active, list) and active:
         lines.append("- Active skill instructions:")
@@ -209,6 +215,9 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
             source = str(entry.get("source", "")).strip()
             description = str(entry.get("description", "")).strip()
             instructions = str(entry.get("instructions", "")).strip()
+            argument_hint = str(entry.get("argument_hint", "")).strip()
+            reference_files = entry.get("reference_files")
+            loaded_references = entry.get("loaded_references")
             if not name or not instructions:
                 continue
             lines.append(f"## Active Skill: {name}")
@@ -216,8 +225,24 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
                 lines.append(f"Source: {source}")
             if description:
                 lines.append(f"Description: {description}")
+            if argument_hint:
+                lines.append(f"Argument hint: {argument_hint}")
+            if isinstance(reference_files, list) and reference_files:
+                lines.append("References: " + ", ".join(str(item) for item in reference_files[:8]))
             lines.append("")
             lines.append(instructions)
+            if isinstance(loaded_references, list) and loaded_references:
+                lines.append("")
+                lines.append("Loaded reference excerpts:")
+                for ref in loaded_references[:4]:
+                    if not isinstance(ref, dict):
+                        continue
+                    path = str(ref.get("path", "")).strip()
+                    content = str(ref.get("content", "")).strip()
+                    if not path or not content:
+                        continue
+                    lines.append(f"### Reference: {path}")
+                    lines.append(content)
 
     return "\n".join(lines)
 

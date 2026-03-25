@@ -80,6 +80,18 @@ pipx install ite_agent-0.0.17-py3-none-any.whl
 ite
 ```
 
+### Skills
+
+`ite` supports interoperable `SKILL.md` bundles for reusable specialist behavior.
+
+- Put shared skills in `.agents/skills`
+- Put private local overrides in `.ite/skills`
+- Use `/skills` to list, inspect, and activate them
+- Trust repo-provided skills with `/skills trust`
+- Install local packs with `/skills add <path>`
+
+See [docs/SKILLS.md](docs/SKILLS.md) for the supported roots, frontmatter, and commands.
+
 ## Configuration
 
 Run `ite` for the first time to set up your API credentials interactively.

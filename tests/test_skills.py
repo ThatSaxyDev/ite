@@ -4,7 +4,9 @@ import unittest
 from pathlib import Path
 
 from ite.config.config import Config
+from ite.skills.installer import install_skills_from_source
 from ite.skills.manager import SkillManager
+from ite.skills.trust import SkillTrustManager
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.skills import SkillsTool
 
@@ -67,6 +69,114 @@ class SkillManagerTests(unittest.TestCase):
             self.assertIsNotNone(manager.get("impeccable"))
             self.assertIsNotNone(manager.get("design-review"))
 
+    def test_skill_parses_invocation_metadata_and_references(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            skill_dir = root / "critique"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: critique\n"
+                "description: Evaluate design effectiveness.\n"
+                "user-invocable: true\n"
+                "argument-hint: \"[AREA=<value>]\"\n"
+                "aliases:\n"
+                "  - review-ui\n"
+                "---\n\n"
+                "Use the frontend-design skill first.\n",
+                encoding="utf-8",
+            )
+            reference_dir = skill_dir / "reference"
+            reference_dir.mkdir(parents=True, exist_ok=True)
+            (reference_dir / "typography.md").write_text("Type rules", encoding="utf-8")
+
+            manager = SkillManager(base)
+            manager._discovery_roots = lambda: [("shared-project", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            skill = manager.get("review-ui")
+            self.assertIsNotNone(skill)
+            self.assertTrue(skill.user_invocable)
+            self.assertEqual(skill.argument_hint, "[AREA=<value>]")
+            self.assertEqual(skill.reference_files, ["reference/typography.md"])
+
+    def test_discovery_roots_include_common_universal_pack_paths(self) -> None:
+        manager = SkillManager(Path.cwd())
+        labels = [label for label, _ in manager._discovery_roots()]
+        self.assertIn("compat-codex-project", labels)
+        self.assertIn("compat-cursor-project", labels)
+        self.assertIn("compat-gemini-project", labels)
+        self.assertIn("compat-opencode-project", labels)
+
+    def test_untrusted_project_skill_is_marked_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            _write_skill(
+                root,
+                "critique",
+                name="critique",
+                description="Evaluate interfaces",
+                body="See reference/typography.md before proceeding.",
+            )
+            trust = SkillTrustManager()
+            trust._path = base / "trusted.json"  # type: ignore[attr-defined]
+            manager = SkillManager(base, trust_manager=trust)
+            manager._discovery_roots = lambda: [("shared-project", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            skill = manager.get("critique")
+            self.assertIsNotNone(skill)
+            self.assertTrue(skill.requires_trust)
+            self.assertFalse(skill.trusted)
+
+    def test_reference_context_prefers_explicitly_mentioned_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            skill_dir = root / "frontend-design"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: frontend-design\ndescription: Design UIs\n---\n\nRead reference/typography.md first.\n",
+                encoding="utf-8",
+            )
+            ref_dir = skill_dir / "reference"
+            ref_dir.mkdir(parents=True, exist_ok=True)
+            (ref_dir / "typography.md").write_text("Typography guidance", encoding="utf-8")
+            (ref_dir / "motion.md").write_text("Motion guidance", encoding="utf-8")
+
+            manager = SkillManager(base)
+            manager._discovery_roots = lambda: [("shared-global", root)]  # type: ignore[method-assign]
+            manager.discover()
+            skill = manager.get("frontend-design")
+            self.assertIsNotNone(skill)
+
+            refs = manager.load_reference_context(skill, max_chars=2000, max_files=2)
+            self.assertEqual(refs[0]["path"], "reference/typography.md")
+            self.assertIn("Typography guidance", refs[0]["content"])
+
+
+class SkillInstallerTests(unittest.TestCase):
+    def test_install_skills_from_universal_pack_prefers_supported_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            pack = base / "pack"
+            source_root = pack / ".agents" / "skills"
+            _write_skill(
+                source_root,
+                "critique",
+                name="critique",
+                description="Evaluate interfaces",
+                body="Be direct.",
+            )
+            destination = base / "dest"
+            result = install_skills_from_source(pack, destination)
+
+            self.assertEqual(result.detected_root, ".agents/skills")
+            self.assertEqual(result.installed_skill_names, ["critique"])
+            self.assertTrue((destination / "critique" / "SKILL.md").is_file())
+
 
 class _FakeSession:
     def __init__(self) -> None:
@@ -76,6 +186,11 @@ class _FakeSession:
                 "name": "design-review",
                 "description": "Review polished UI",
                 "source": "shared-project",
+                "user_invocable": "true",
+                "argument_hint": "[AREA=<value>]",
+                "references": "1",
+                "trusted": "true",
+                "requires_trust": "false",
             }
         ]
         self.skill = type(
@@ -87,9 +202,14 @@ class _FakeSession:
                 "description": "Review polished UI",
                 "instructions": "Use strict visual review standards.",
                 "source": "shared-project",
+                "user_invocable": True,
+                "argument_hint": "[AREA=<value>]",
+                "reference_files": ["reference/typography.md"],
+                "metadata": {"user-invocable": True},
             },
         )()
         self.active: list[str] = []
+        self.trusted = False
 
     def list_available_skills(self):
         return self.available
@@ -116,6 +236,13 @@ class _FakeSession:
     def clear_active_skills(self):
         self.active = []
 
+    def trust_skill_workspace(self):
+        self.trusted = True
+
+    def untrust_skill_workspace(self):
+        self.trusted = False
+        self.active = []
+
 
 class SkillsToolTests(unittest.IsolatedAsyncioTestCase):
     async def test_activate_returns_instructions_and_marks_skill_active(self) -> None:
@@ -135,3 +262,21 @@ class SkillsToolTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["skill"], "design-review")
         self.assertIn("Use strict visual review standards.", payload["instructions"])
         self.assertEqual(payload["active_skills"], ["design-review"])
+        self.assertTrue(payload["user_invocable"])
+        self.assertEqual(payload["argument_hint"], "[AREA=<value>]")
+        self.assertEqual(payload["reference_files"], ["reference/typography.md"])
+
+    async def test_trust_action_is_supported(self) -> None:
+        tool = SkillsTool(Config(cwd=Path.cwd(), api_key="test"))
+        session = _FakeSession()
+        tool.set_session(session)
+
+        result = await tool.execute(
+            ToolInvocation(
+                params={"action": "trust"},
+                cwd=Path.cwd(),
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertTrue(session.trusted)

@@ -81,6 +81,8 @@ class SystemPromptTests(unittest.TestCase):
                         "name": "Design Review",
                         "description": "Review polished UI",
                         "source": "shared-project",
+                        "user_invocable": "true",
+                        "argument_hint": "[AREA=<value>]",
                     }
                 ],
                 "active": [
@@ -89,14 +91,18 @@ class SystemPromptTests(unittest.TestCase):
                         "name": "Design Review",
                         "description": "Review polished UI",
                         "source": "shared-project",
+                        "argument_hint": "[AREA=<value>]",
+                        "reference_files": ["reference/typography.md"],
                         "instructions": "Use strict visual review standards.",
                     }
                 ],
             },
         )
 
-        self.assertIn("`design-review` (Design Review) [shared-project]", prompt)
+        self.assertIn("`design-review` (Design Review) [shared-project] user-invocable [AREA=<value>]", prompt)
         self.assertIn("## Active Skill: Design Review", prompt)
+        self.assertIn("Argument hint: [AREA=<value>]", prompt)
+        self.assertIn("References: reference/typography.md", prompt)
         self.assertIn("Use strict visual review standards.", prompt)
 
 

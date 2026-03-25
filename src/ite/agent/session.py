@@ -26,6 +26,7 @@ from ite.agent.change_history import ChangeHistory
 from ite.agent.subagent_runtime import SubagentRuntime
 from ite.skills import SkillDefinition
 from ite.skills import SkillManager
+from ite.skills import SkillTrustManager
 from dataclasses import dataclass, field
 
 
@@ -55,7 +56,8 @@ class Session:
         self.tool_registry = create_default_registry(config)
         self.context_manager: ContextManager | None = None
         self.memory_manager = MemoryManager(self.config.cwd, session_id=self.session_id)
-        self.skill_manager = SkillManager(self.config.cwd)
+        self.skill_trust_manager = SkillTrustManager()
+        self.skill_manager = SkillManager(self.config.cwd, trust_manager=self.skill_trust_manager)
         self.active_skill_refs: list[str] = []
         self._sync_memory_tool_session()
         self._sync_skills_tool_session()
@@ -160,18 +162,31 @@ class Session:
         return self.memory_manager.load_prompt_memory(current_user_text)
 
     def _load_skill_context(self) -> dict[str, Any]:
-        return {
-            "catalog": self.list_available_skills(),
-            "active": [
+        remaining_reference_chars = 6000
+        active_entries: list[dict[str, Any]] = []
+        for skill in self.get_active_skills():
+            loaded_refs = self.skill_manager.load_reference_context(
+                skill,
+                max_chars=remaining_reference_chars,
+            )
+            remaining_reference_chars -= sum(len(item["content"]) for item in loaded_refs)
+            active_entries.append(
                 {
                     "identifier": skill.identifier,
                     "name": skill.name,
                     "description": skill.description,
                     "instructions": skill.instructions,
                     "source": skill.source,
+                    "user_invocable": skill.user_invocable,
+                    "argument_hint": skill.argument_hint or "",
+                    "reference_files": list(skill.reference_files),
+                    "loaded_references": loaded_refs,
+                    "trusted": skill.trusted,
                 }
-                for skill in self.get_active_skills()
-            ],
+            )
+        return {
+            "catalog": self.list_available_skills(),
+            "active": active_entries,
         }
 
     def set_session_id(self, session_id: str) -> None:
@@ -543,7 +558,7 @@ class Session:
         }
 
     def refresh_skills(self) -> None:
-        self.skill_manager = SkillManager(self.config.cwd)
+        self.skill_manager = SkillManager(self.config.cwd, trust_manager=self.skill_trust_manager)
         self.skill_manager.discover()
         self.active_skill_refs = [
             ref for ref in self.active_skill_refs if self.skill_manager.get(ref) is not None
@@ -569,7 +584,7 @@ class Session:
 
     def activate_skill(self, reference: str) -> SkillDefinition | None:
         skill = self.resolve_skill(reference)
-        if skill is None:
+        if skill is None or (skill.requires_trust and not skill.trusted):
             return None
         if skill.identifier not in self.active_skill_refs:
             self.active_skill_refs.append(skill.identifier)
@@ -591,8 +606,21 @@ class Session:
         self.active_skill_refs = []
         for ref in skill_refs or []:
             skill = self.resolve_skill(ref)
-            if skill is not None and skill.identifier not in self.active_skill_refs:
+            if (
+                skill is not None
+                and (not skill.requires_trust or skill.trusted)
+                and skill.identifier not in self.active_skill_refs
+            ):
                 self.active_skill_refs.append(skill.identifier)
+
+    def trust_skill_workspace(self) -> None:
+        self.skill_trust_manager.trust_workspace(self.config.cwd)
+        self.refresh_skills()
+
+    def untrust_skill_workspace(self) -> None:
+        self.skill_trust_manager.untrust_workspace(self.config.cwd)
+        self.clear_active_skills()
+        self.refresh_skills()
 
     def _get_todos_tool(self) -> TodosTool | None:
         tool = self.tool_registry.get("todos")

@@ -16,7 +16,7 @@ from ite.tools.base import ToolRiskLevel
 class SkillsParams(BaseModel):
     action: str = Field(
         "list",
-        description="Action to perform: list, show, activate, deactivate, or clear.",
+        description="Action to perform: list, show, activate, deactivate, trust, untrust, or clear.",
     )
     skill: str | None = Field(
         None,
@@ -26,8 +26,8 @@ class SkillsParams(BaseModel):
     @model_validator(mode="after")
     def _validate(self) -> "SkillsParams":
         action = self.action.strip().lower()
-        if action not in {"list", "show", "activate", "deactivate", "clear"}:
-            raise ValueError("action must be one of: list, show, activate, deactivate, clear")
+        if action not in {"list", "show", "activate", "deactivate", "trust", "untrust", "clear"}:
+            raise ValueError("action must be one of: list, show, activate, deactivate, trust, untrust, clear")
         if action in {"show", "activate", "deactivate"} and not str(self.skill or "").strip():
             raise ValueError("skill is required for show, activate, and deactivate")
         return self
@@ -48,7 +48,7 @@ class SkillsTool(Tool):
 
     def get_metadata(self, params: dict[str, Any]) -> ToolMetadata:
         action = str(params.get("action") or "list").strip().lower()
-        mutating = action in {"activate", "deactivate", "clear"}
+        mutating = action in {"activate", "deactivate", "trust", "untrust", "clear"}
         return ToolMetadata(
             mutating=mutating,
             risk_level=ToolRiskLevel.LOW,
@@ -62,6 +62,11 @@ class SkillsTool(Tool):
                     "active_skills": {"type": "array", "items": {"type": "string"}},
                     "available_count": {"type": "integer"},
                     "skill": {"type": "string"},
+                    "user_invocable": {"type": "boolean"},
+                    "argument_hint": {"type": "string"},
+                    "reference_files": {"type": "array", "items": {"type": "string"}},
+                    "trusted": {"type": "boolean"},
+                    "requires_trust": {"type": "boolean"},
                     "instructions": {"type": "string"},
                 },
             },
@@ -99,11 +104,26 @@ class SkillsTool(Tool):
                 "skill": skill.identifier,
                 "name": skill.name,
                 "description": skill.description,
+                "user_invocable": skill.user_invocable,
+                "argument_hint": skill.argument_hint or "",
+                "reference_files": list(skill.reference_files),
+                "trusted": bool(getattr(skill, "trusted", True)),
+                "requires_trust": bool(getattr(skill, "requires_trust", False)),
+                "metadata": skill.metadata,
                 "instructions": skill.instructions,
             }
             return ToolResult.success_result(json.dumps(payload, ensure_ascii=False, indent=2))
 
         if action == "activate":
+            preview = session.resolve_skill(params.skill or "")
+            if (
+                preview is not None
+                and bool(getattr(preview, "requires_trust", False))
+                and not bool(getattr(preview, "trusted", True))
+            ):
+                return ToolResult.error_result(
+                    "Workspace skills are blocked until trusted. Run the skills tool with action=trust first."
+                )
             skill = session.activate_skill(params.skill or "")
             if skill is None:
                 return ToolResult.error_result(f"Skill not found: {params.skill}")
@@ -114,7 +134,30 @@ class SkillsTool(Tool):
                 "skill": skill.identifier,
                 "name": skill.name,
                 "description": skill.description,
+                "user_invocable": skill.user_invocable,
+                "argument_hint": skill.argument_hint or "",
+                "reference_files": list(skill.reference_files),
+                "trusted": bool(getattr(skill, "trusted", True)),
+                "requires_trust": bool(getattr(skill, "requires_trust", False)),
                 "instructions": skill.instructions,
+            }
+            return ToolResult.success_result(json.dumps(payload, ensure_ascii=False, indent=2))
+
+        if action == "trust":
+            session.trust_skill_workspace()
+            payload = {
+                "action": "trust",
+                "available_count": len(session.list_available_skills()),
+                "active_skills": [item.identifier for item in session.get_active_skills()],
+            }
+            return ToolResult.success_result(json.dumps(payload, ensure_ascii=False, indent=2))
+
+        if action == "untrust":
+            session.untrust_skill_workspace()
+            payload = {
+                "action": "untrust",
+                "available_count": len(session.list_available_skills()),
+                "active_skills": [item.identifier for item in session.get_active_skills()],
             }
             return ToolResult.success_result(json.dumps(payload, ensure_ascii=False, indent=2))
 
