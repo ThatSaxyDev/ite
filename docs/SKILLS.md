@@ -89,13 +89,14 @@ Example:
 ## Commands
 
 - `/skills`
+- `/skills help`
 - `/skills show <name>`
 - `/skills use <name>`
 - `/skills drop <name>`
 - `/skills clear`
 - `/skills trust`
 - `/skills untrust`
-- `/skills add <path> [--global|--local]`
+- `/skills add <path|owner/repo|git-url> [--global|--local]`
 
 The `skills` tool exposes the same basic operations to the model.
 
@@ -106,12 +107,17 @@ The `skills` tool exposes the same basic operations to the model.
 - a single skill directory containing `SKILL.md`
 - a folder of skills
 - a universal pack root that contains one of the known `*/skills/` roots
+- a git URL
+- a GitHub shorthand like `owner/repo`
 
 Examples:
 
 ```text
+/skills help
 /skills add ~/Downloads/impeccable-style-universal
 /skills add ~/Downloads/critique
+/skills add openai/agent-skills
+/skills add https://github.com/openai/agent-skills.git
 /skills add ~/Downloads/impeccable-style-universal --global
 ```
 

@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Eroding Geometries</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Lora:wght@400;500&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            :root {
+                --anthropic-dark: #141413;
+                --anthropic-light: #faf9f5;
+                --anthropic-mid-gray: #b0aea5;
+                --anthropic-light-gray: #e8e6dc;
+                --anthropic-orange: #d97757;
+                --anthropic-blue: #6a9bcc;
+                --anthropic-green: #788c5d;
+            }
+
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: "Poppins", sans-serif;
+                background: linear-gradient(
+                    135deg,
+                    var(--anthropic-light) 0%,
+                    #f5f3ee 100%
+                );
+                min-height: 100vh;
+                color: var(--anthropic-dark);
+            }
+
+            .container {
+                display: flex;
+                min-height: 100vh;
+                padding: 20px;
+                gap: 20px;
+            }
+
+            .sidebar {
+                width: 320px;
+                flex-shrink: 0;
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                padding: 24px;
+                border-radius: 12px;
+                box-shadow: 0 10px 30px rgba(20, 20, 19, 0.1);
+                overflow-y: auto;
+                overflow-x: hidden;
+            }
+
+            .sidebar h1 {
+                font-family: "Lora", serif;
+                font-size: 24px;
+                font-weight: 500;
+                color: var(--anthropic-dark);
+                margin-bottom: 8px;
+            }
+
+            .sidebar .subtitle {
+                color: var(--anthropic-mid-gray);
+                font-size: 14px;
+                margin-bottom: 32px;
+                line-height: 1.4;
+            }
+
+            .control-section {
+                margin-bottom: 32px;
+            }
+
+            .control-section h3 {
+                font-size: 16px;
+                font-weight: 600;
+                color: var(--anthropic-dark);
+                margin-bottom: 16px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .control-section h3::before {
+                content: "•";
+                color: var(--anthropic-orange);
+                font-weight: bold;
+            }
+
+            .seed-input {
+                width: 100%;
+                background: var(--anthropic-light);
+                padding: 12px;
+                border-radius: 8px;
+                font-family: "Courier New", monospace;
+                font-size: 14px;
+                margin-bottom: 12px;
+                border: 1px solid var(--anthropic-light-gray);
+                text-align: center;
+            }
+
+            .seed-input:focus {
+                outline: none;
+                border-color: var(--anthropic-orange);
+                box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.1);
+                background: white;
+            }
+
+            .seed-controls {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                margin-bottom: 8px;
+            }
+
+            .regen-button {
+                margin-bottom: 0;
+            }
+
+            .control-group {
+                margin-bottom: 20px;
+            }
+
+            .control-group label {
+                display: block;
+                font-size: 14px;
+                font-weight: 500;
+                color: var(--anthropic-dark);
+                margin-bottom: 8px;
+            }
+
+            .slider-container {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .slider-container input[type="range"] {
+                flex: 1;
+                height: 4px;
+                background: var(--anthropic-light-gray);
+                border-radius: 2px;
+                outline: none;
+                -webkit-appearance: none;
+            }
+
+            .slider-container input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                width: 16px;
+                height: 16px;
+                background: var(--anthropic-orange);
+                border-radius: 50%;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+
+            .slider-container input[type="range"]::-webkit-slider-thumb:hover {
+                transform: scale(1.1);
+                background: #c86641;
+            }
+
+            .slider-container input[type="range"]::-moz-range-thumb {
+                width: 16px;
+                height: 16px;
+                background: var(--anthropic-orange);
+                border-radius: 50%;
+                border: none;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+
+            .value-display {
+                font-family: "Courier New", monospace;
+                font-size: 12px;
+                color: var(--anthropic-mid-gray);
+                min-width: 60px;
+                text-align: right;
+            }
+
+            .color-group {
+                margin-bottom: 16px;
+            }
+
+            .color-group label {
+                display: block;
+                font-size: 12px;
+                color: var(--anthropic-mid-gray);
+                margin-bottom: 4px;
+            }
+
+            .color-picker-container {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .color-picker-container input[type="color"] {
+                width: 32px;
+                height: 32px;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                background: none;
+                padding: 0;
+            }
+
+            .color-value {
+                font-family: "Courier New", monospace;
+                font-size: 12px;
+                color: var(--anthropic-mid-gray);
+            }
+
+            .button {
+                background: var(--anthropic-orange);
+                color: white;
+                border: none;
+                padding: 10px 16px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                width: 100%;
+            }
+
+            .button:hover {
+                background: #c86641;
+                transform: translateY(-1px);
+            }
+
+            .button:active {
+                transform: translateY(0);
+            }
+
+            .button.secondary {
+                background: var(--anthropic-blue);
+            }
+
+            .button.secondary:hover {
+                background: #5a8bb8;
+            }
+
+            .button.tertiary {
+                background: var(--anthropic-green);
+            }
+
+            .button.tertiary:hover {
+                background: #6b7b52;
+            }
+
+            .button-row {
+                display: flex;
+                gap: 8px;
+            }
+
+            .button-row .button {
+                flex: 1;
+            }
+
+            .canvas-area {
+                flex: 1;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 0;
+            }
+
+            #canvas-container {
+                width: 100%;
+                max-width: 1000px;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 20px 40px rgba(20, 20, 19, 0.1);
+                background: white;
+            }
+
+            #canvas-container canvas {
+                display: block;
+                width: 100% !important;
+                height: auto !important;
+            }
+
+            .loading {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                color: var(--anthropic-mid-gray);
+            }
+
+            @media (max-width: 600px) {
+                .container {
+                    flex-direction: column;
+                }
+
+                .sidebar {
+                    width: 100%;
+                }
+
+                .canvas-area {
+                    padding: 20px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="sidebar">
+                <h1>Eroding Geometries</h1>
+                <div class="subtitle">Where mathematical precision meets organic decay</div>
+
+                <div class="control-section">
+                    <h3>Seed</h3>
+                    <input
+                        type="number"
+                        id="seed-input"
+                        class="seed-input"
+                        value="12345"
+                        onchange="updateSeed()"
+                    />
+                    <div class="seed-controls">
+                        <button
+                            class="button secondary"
+                            onclick="previousSeed()"
+                        >
+                            ← Prev
+                        </button>
+                        <button class="button secondary" onclick="nextSeed()">
+                            Next →
+                        </button>
+                    </div>
+                    <button
+                        class="button tertiary regen-button"
+                        onclick="randomSeedAndUpdate()"
+                    >
+                        ↻ Random
+                    </button>
+                </div>
+
+                <div class="control-section">
+                    <h3>Parameters</h3>
+
+                    <div class="control-group">
+                        <label>Tessellation Density</label>
+                        <div class="slider-container">
+                            <input
+                                type="range"
+                                id="tessellation"
+                                min="4"
+                                max="24"
+                                step="1"
+                                value="12"
+                                oninput="updateParam('tessellation', this.value)"
+                            />
+                            <span class="value-display" id="tessellation-value">12</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Erosion Strength</label>
+                        <div class="slider-container">
+                            <input
+                                type="range"
+                                id="erosion"
+                                min="0"
+                                max="1"
+                                step="0.05"
+                                value="0.6"
+                                oninput="updateParam('erosion', this.value)"
+                            />
+                            <span class="value-display" id="erosion-value">0.6</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Noise Octaves</label>
+                        <div class="slider-container">
+                            <input
+                                type="range"
+                                id="octaves"
+                                min="1"
+                                max="6"
+                                step="1"
+                                value="4"
+                                oninput="updateParam('octaves', this.value)"
+                            />
+                            <span class="value-display" id="octaves-value">4</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Particle Count</label>
+                        <div class="slider-container">
+                            <input
+                                type="range"
+                                id="particleCount"
+                                min="500"
+                                max="5000"
+                                step="250"
+                                value="2000"
+                                oninput="updateParam('particleCount', this.value)"
+                            />
+                            <span class="value-display" id="particleCount-value">2000</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h3>Colors</h3>
+
+                    <div class="color-group">
+                        <label>Stone Base</label>
+                        <div class="color-picker-container">
+                            <input
+                                type="color"
+                                id="color1"
+                                value="#5a6b7c"
+                                onchange="updateColor('color1', this.value)"
+                            />
+                            <span class="color-value" id="color1-value">#5a6b7c</span>
+                        </div>
+                    </div>
+
+                    <div class="color-group">
+                        <label>Weathered Ochre</label>
+                        <div class="color-picker-container">
+                            <input
+                                type="color"
+                                id="color2"
+                                value="#8b7355"
+                                onchange="updateColor('color2', this.value)"
+                            />
+                            <span class="color-value" id="color2-value">#8b7355</span>
+                        </div>
+                    </div>
+
+                    <div class="color-group">
+                        <label>Shadow Depth</label>
+                        <div class="color-picker-container">
+                            <input
+                                type="color"
+                                id="color3"
+                                value="#4a4035"
+                                onchange="updateColor('color3', this.value)"
+                            />
+                            <span class="color-value" id="color3-value">#4a4035</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="control-section">
+                    <h3>Actions</h3>
+                    <div class="button-row">
+                        <button class="button" onclick="resetParameters()">
+                            Reset
+                        </button>
+                        <button class="button secondary" onclick="downloadCanvas()">
+                            Save PNG
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="canvas-area">
+                <div id="canvas-container">
+                    <div class="loading">Initializing generative art...</div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let params = {
+                seed: 12345,
+                tessellation: 12,
+                erosion: 0.6,
+                octaves: 4,
+                particleCount: 2000,
+                colorPalette: ["#5a6b7c", "#8b7355", "#4a4035"],
+            };
+
+            let defaultParams = JSON.parse(JSON.stringify(params));
+            let particles = [];
+            let buffer;
+            let noiseScale = 0.003;
+
+            function setup() {
+                let canvas = createCanvas(1200, 1200);
+                canvas.parent("canvas-container");
+                buffer = createGraphics(1200, 1200);
+                
+                initializeSystem();
+                document.querySelector(".loading").style.display = "none";
+            }
+
+            function initializeSystem() {
+                randomSeed(params.seed);
+                noiseSeed(params.seed);
+                
+                particles = [];
+                
+                buffer.background(250, 249, 245);
+                
+                drawGeometricBase();
+                
+                initializeParticles();
+                
+                for (let i = 0; i < 800; i++) {
+                    updateParticles();
+                }
+            }
+
+            function drawGeometricBase() {
+                let cols = params.tessellation;
+                let rows = params.tessellation;
+                let cellW = width / cols;
+                let cellH = height / rows;
+                
+                buffer.noStroke();
+                
+                let c1 = hexToRgb(params.colorPalette[0]);
+                let c2 = hexToRgb(params.colorPalette[1]);
+                let c3 = hexToRgb(params.colorPalette[2]);
+                
+                for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        let x = i * cellW;
+                        let y = j * cellH;
+                        
+                        let noiseVal = 0;
+                        let scale = noiseScale;
+                        let amp = 1;
+                        let maxAmp = 0;
+                        
+                        for (let o = 0; o < params.octaves; o++) {
+                            noiseVal += noise(x * scale, y * scale) * amp;
+                            maxAmp += amp;
+                            scale *= 2;
+                            amp *= 0.5;
+                        }
+                        noiseVal /= maxAmp;
+                        
+                        let baseColor;
+                        if (noiseVal < 0.33) {
+                            baseColor = lerpColor(
+                                color(c3.r, c3.g, c3.b),
+                                color(c1.r, c1.g, c1.b),
+                                noiseVal / 0.33
+                            );
+                        } else if (noiseVal < 0.66) {
+                            baseColor = lerpColor(
+                                color(c1.r, c1.g, c1.b),
+                                color(c2.r, c2.g, c2.b),
+                                (noiseVal - 0.33) / 0.33
+                            );
+                        } else {
+                            baseColor = lerpColor(
+                                color(c2.r, c2.g, c2.b),
+                                color(250, 249, 245),
+                                (noiseVal - 0.66) / 0.34
+                            );
+                        }
+                        
+                        let jitter = params.erosion * 10;
+                        let x1 = x + random(-jitter, jitter);
+                        let y1 = y + random(-jitter, jitter);
+                        let x2 = x + cellW + random(-jitter, jitter);
+                        let y2 = y + random(-jitter, jitter);
+                        let x3 = x + cellW + random(-jitter, jitter);
+                        let y3 = y + cellH + random(-jitter, jitter);
+                        let x4 = x + random(-jitter, jitter);
+                        let y4 = y + cellH + random(-jitter, jitter);
+                        
+                        buffer.fill(baseColor);
+                        buffer.beginShape();
+                        buffer.vertex(x1, y1);
+                        buffer.vertex(x2, y2);
+                        buffer.vertex(x3, y3);
+                        buffer.vertex(x4, y4);
+                        buffer.endShape(CLOSE);
+                    }
+                }
+            }
+
+            function initializeParticles() {
+                for (let i = 0; i < params.particleCount; i++) {
+                    particles.push({
+                        x: random(width),
+                        y: random(height),
+                        vx: 0,
+                        vy: 0,
+                        life: random(100, 400),
+                        color: random() < 0.6 ? 
+                            hexToRgb(params.colorPalette[2]) : 
+                            hexToRgb(params.colorPalette[1])
+                    });
+                }
+            }
+
+            function updateParticles() {
+                for (let p of particles) {
+                    let scale = noiseScale * 2;
+                    let angle = noise(p.x * scale, p.y * scale) * TWO_PI * 2;
+                    
+                    p.vx += cos(angle) * 0.1;
+                    p.vy += sin(angle) * 0.1;
+                    
+                    p.vx *= 0.95;
+                    p.vy *= 0.95;
+                    
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    
+                    if (p.x < 0) p.x = width;
+                    if (p.x > width) p.x = 0;
+                    if (p.y < 0) p.y = height;
+                    if (p.y > height) p.y = 0;
+                    
+                    p.life--;
+                    
+                    if (p.life <= 0 || random() < 0.002 * params.erosion) {
+                        let alpha = random(5, 20) * params.erosion;
+                        buffer.noStroke();
+                        buffer.fill(p.color.r, p.color.g, p.color.b, alpha);
+                        buffer.circle(p.x, p.y, random(2, 8));
+                        
+                        p.x = random(width);
+                        p.y = random(height);
+                        p.life = random(100, 400);
+                    }
+                }
+            }
+
+            function draw() {
+                updateParticles();
+                
+                if (frameCount % 2 === 0) {
+                    image(buffer, 0, 0);
+                }
+                
+                if (frameCount > 1000) {
+                    noLoop();
+                }
+            }
+
+            function hexToRgb(hex) {
+                let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : { r: 100, g: 100, b: 100 };
+            }
+
+            function updateParam(paramName, value) {
+                if (paramName === 'tessellation' || paramName === 'octaves' || paramName === 'particleCount') {
+                    params[paramName] = parseInt(value);
+                } else {
+                    params[paramName] = parseFloat(value);
+                }
+                document.getElementById(paramName + "-value").textContent = value;
+                initializeSystem();
+                loop();
+            }
+
+            function updateColor(colorId, value) {
+                let idx = parseInt(colorId.replace('color', '')) - 1;
+                params.colorPalette[idx] = value;
+                document.getElementById(colorId + "-value").textContent = value;
+                initializeSystem();
+                loop();
+            }
+
+            function updateSeedDisplay() {
+                document.getElementById("seed-input").value = params.seed;
+            }
+
+            function updateSeed() {
+                let input = document.getElementById("seed-input");
+                let newSeed = parseInt(input.value);
+                if (newSeed && newSeed > 0) {
+                    params.seed = newSeed;
+                    initializeSystem();
+                    loop();
+                } else {
+                    updateSeedDisplay();
+                }
+            }
+
+            function previousSeed() {
+                params.seed = Math.max(1, params.seed - 1);
+                updateSeedDisplay();
+                initializeSystem();
+                loop();
+            }
+
+            function nextSeed() {
+                params.seed = params.seed + 1;
+                updateSeedDisplay();
+                initializeSystem();
+                loop();
+            }
+
+            function randomSeedAndUpdate() {
+                params.seed = Math.floor(Math.random() * 999999) + 1;
+                updateSeedDisplay();
+                initializeSystem();
+                loop();
+            }
+
+            function resetParameters() {
+                params = JSON.parse(JSON.stringify(defaultParams));
+                
+                document.getElementById("tessellation").value = params.tessellation;
+                document.getElementById("tessellation-value").textContent = params.tessellation;
+                document.getElementById("erosion").value = params.erosion;
+                document.getElementById("erosion-value").textContent = params.erosion;
+                document.getElementById("octaves").value = params.octaves;
+                document.getElementById("octaves-value").textContent = params.octaves;
+                document.getElementById("particleCount").value = params.particleCount;
+                document.getElementById("particleCount-value").textContent = params.particleCount;
+                
+                document.getElementById("color1").value = params.colorPalette[0];
+                document.getElementById("color1-value").textContent = params.colorPalette[0];
+                document.getElementById("color2").value = params.colorPalette[1];
+                document.getElementById("color2-value").textContent = params.colorPalette[1];
+                document.getElementById("color3").value = params.colorPalette[2];
+                document.getElementById("color3-value").textContent = params.colorPalette[2];
+                
+                updateSeedDisplay();
+                initializeSystem();
+                loop();
+            }
+
+            function downloadCanvas() {
+                saveCanvas('eroding_geometries_' + params.seed, 'png');
+            }
+
+            window.addEventListener("load", function () {
+                updateSeedDisplay();
+            });
+        </script>
+    </body>
+</html>

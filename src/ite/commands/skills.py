@@ -7,6 +7,7 @@ from ite.commands import CommandContext
 from ite.commands import CommandRegistry
 from ite.skills import install_skills_from_source
 from ite.skills.rendering import build_skill_detail_renderable
+from ite.skills.rendering import build_skills_help_renderable
 from ite.skills.rendering import build_skills_overview_renderable
 
 
@@ -37,6 +38,11 @@ async def cmd_skills(ctx: CommandContext, args: list[str]) -> None:
     option_args = [item for item in args[1:] if item.startswith("--")]
     value_args = [item for item in args[1:] if not item.startswith("--")]
     reference = " ".join(value_args).strip()
+
+    if action in {"help", "guide"}:
+        ctx.console.print()
+        ctx.console.print(build_skills_help_renderable())
+        return
 
     if action in {"show", "inspect"}:
         if not reference:
@@ -85,7 +91,7 @@ async def cmd_skills(ctx: CommandContext, args: list[str]) -> None:
 
     if action == "add":
         if not reference:
-            ctx.console.print("[error]Usage: /skills add <path> [--global|--local][/error]")
+            ctx.console.print("[error]Usage: /skills add <path|owner/repo|git-url> [--global|--local][/error]")
             return
         install_global = "--global" in option_args
         install_local = "--local" in option_args
@@ -99,7 +105,7 @@ async def cmd_skills(ctx: CommandContext, args: list[str]) -> None:
         else:
             destination = ctx.config.cwd / ".agents" / "skills"
         try:
-            result = install_skills_from_source(Path(reference), destination)
+            result = install_skills_from_source(reference, destination)
         except Exception as exc:
             ctx.console.print(f"[error]Failed to install skills:[/error] {exc}")
             return
@@ -129,7 +135,7 @@ async def cmd_skills(ctx: CommandContext, args: list[str]) -> None:
         return
 
     ctx.console.print(
-        "[error]Usage:[/error] [green]/skills[/green], [green]/skills show <name>[/green], [green]/skills use <name>[/green], [green]/skills drop <name>[/green], [green]/skills clear[/green], [green]/skills add <path> [--global|--local][/green], [green]/skills trust[/green], [green]/skills untrust[/green]"
+        "[error]Usage:[/error] [green]/skills[/green], [green]/skills help[/green], [green]/skills show <name>[/green], [green]/skills use <name>[/green], [green]/skills drop <name>[/green], [green]/skills clear[/green], [green]/skills add <path|owner/repo|git-url> [--global|--local][/green], [green]/skills trust[/green], [green]/skills untrust[/green]"
     )
 
 

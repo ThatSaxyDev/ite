@@ -19,15 +19,62 @@ def skill_state(skill: SkillDefinition, active_ids: set[str]) -> str:
     return "available"
 
 
+def build_skills_help_renderable() -> Group:
+    title = Text("skills", style="bold #edf1f7")
+    intro = Text(
+        "Skills are optional instruction bundles that can shape how the agent works in this session.",
+        style="#d7deea",
+    )
+
+    commands = Table.grid(expand=True)
+    commands.add_column(width=24)
+    commands.add_column(ratio=1)
+    commands.add_row(Text("/skills", style="bold #b7c8e1"), Text("List discovered skills and show which ones are active.", style="#d7deea"))
+    commands.add_row(Text("/skills help", style="bold #b7c8e1"), Text("Show the quick guide and the core workflow.", style="#d7deea"))
+    commands.add_row(Text("/skills show <name>", style="bold #b7c8e1"), Text("Inspect a skill without activating it.", style="#d7deea"))
+    commands.add_row(Text("/skills use <name>", style="bold #b7c8e1"), Text("Activate a skill so it affects the current session.", style="#d7deea"))
+    commands.add_row(Text("/skills drop <name>", style="bold #b7c8e1"), Text("Deactivate one active skill.", style="#d7deea"))
+    commands.add_row(Text("/skills clear", style="bold #b7c8e1"), Text("Clear the active skill stack.", style="#d7deea"))
+    commands.add_row(Text("/skills add <path|owner/repo|url>", style="bold #b7c8e1"), Text("Install a local skill directory, git repo, or pack into this workspace.", style="#d7deea"))
+
+    rules = Text()
+    rules.append("Key rules", style="bold #8c93a1")
+    rules.append("\n")
+    rules.append("• Showing a skill is read-only.\n", style="#d7deea")
+    rules.append("• Active skills shape the current session until you drop or clear them.\n", style="#d7deea")
+    rules.append("• Project-provided shared skills may require ", style="#d7deea")
+    rules.append("/skills trust", style="bold #b7c8e1")
+    rules.append(" before they can be activated.", style="#d7deea")
+
+    example = Text(
+        "Example: /skills  →  /skills show critique  →  /skills use critique",
+        style="#6f7785",
+    )
+    return Group(title, intro, Text(""), commands, Text(""), rules, Text(""), example)
+
+
 def build_skills_overview_renderable(
     skills: list[SkillDefinition],
     active_ids: set[str],
 ) -> Group | Text:
     if not skills:
-        return Text(
-            "No skills discovered. Put shared skills in .agents/skills and use .ite/skills only for local overrides.",
-            style="#8c93a1",
+        lead = Text("No skills discovered yet.", style="bold #edf1f7")
+        intro = Text(
+            "Skills are reusable instruction bundles. Install or add one, then activate it when you want the agent to work differently.",
+            style="#d7deea",
         )
+        commands = Text()
+        commands.append("Start here: ", style="#8c93a1")
+        commands.append("/skills", style="bold #b7c8e1")
+        commands.append("  ·  ", style="#6f7785")
+        commands.append("/skills show <name>", style="bold #b7c8e1")
+        commands.append("  ·  ", style="#6f7785")
+        commands.append("/skills use <name>", style="bold #b7c8e1")
+        install = Text(
+            "Shared project skills belong in .agents/skills. Use .ite/skills only for local overrides.",
+            style="#6f7785",
+        )
+        return Group(lead, intro, Text(""), commands, Text(""), install)
 
     active_count = sum(1 for skill in skills if skill.identifier in active_ids)
     blocked_count = sum(
@@ -90,7 +137,7 @@ def build_skills_overview_renderable(
     footer.append(" · ".join(f"{name} {count}" for name, count in sorted(source_counts.items())), style="#8c93a1")
 
     hint = Text(
-        "/skills show <name> to inspect details  ·  /skills use <name> to activate",
+        "/skills show <name> inspects  ·  /skills use <name> activates  ·  only active skills shape this session",
         style="#6f7785",
     )
     return Group(summary, Text(""), table, Text(""), footer, hint)

@@ -1,14 +1,17 @@
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from io import StringIO
+from unittest.mock import patch
 
 from rich.console import Console
 from ite.config.config import Config
 from ite.skills.installer import install_skills_from_source
 from ite.skills.manager import SkillManager
 from ite.skills.rendering import build_skill_detail_renderable
+from ite.skills.rendering import build_skills_help_renderable
 from ite.skills.rendering import build_skills_overview_renderable
 from ite.skills.rendering import build_skills_tool_renderable
 from ite.skills.trust import SkillTrustManager
@@ -23,6 +26,21 @@ def _write_skill(root: Path, folder: str, *, name: str, description: str, body: 
         f"---\nname: {name}\ndescription: {description}\n---\n\n{body}\n",
         encoding="utf-8",
     )
+
+
+def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(cwd), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _init_repo(cwd: Path) -> None:
+    _run_git(cwd, "init")
+    _run_git(cwd, "config", "user.name", "ITE Tests")
+    _run_git(cwd, "config", "user.email", "ite-tests@example.com")
 
 
 class SkillManagerTests(unittest.TestCase):
@@ -196,8 +214,29 @@ class SkillManagerTests(unittest.TestCase):
             output = console.file.getvalue()
             self.assertIn("2 installed", output)
             self.assertIn("1 active", output)
-            self.assertIn("/skills show <name>", output)
+            self.assertIn("/skills show <name> inspects", output)
             self.assertIn("critique", output)
+
+    def test_overview_empty_state_explains_skills_and_core_commands(self) -> None:
+        renderable = build_skills_overview_renderable([], set())
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(renderable)
+        output = console.file.getvalue()
+        self.assertIn("No skills discovered yet.", output)
+        self.assertIn("Skills are reusable instruction bundles.", output)
+        self.assertIn("/skills", output)
+        self.assertIn("/skills show <name>", output)
+        self.assertIn("/skills use <name>", output)
+
+    def test_help_renderable_explains_show_vs_use(self) -> None:
+        renderable = build_skills_help_renderable()
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(renderable)
+        output = console.file.getvalue()
+        self.assertIn("Skills are optional instruction bundles", output)
+        self.assertIn("/skills help", output)
+        self.assertIn("Inspect a skill without activating it.", output)
+        self.assertIn("Active skills shape the current session", output)
 
     def test_detail_renderable_includes_metadata_references_and_instructions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -289,6 +328,55 @@ class SkillInstallerTests(unittest.TestCase):
             self.assertEqual(result.detected_root, ".agents/skills")
             self.assertEqual(result.installed_skill_names, ["critique"])
             self.assertTrue((destination / "critique" / "SKILL.md").is_file())
+
+    def test_install_skills_from_git_url_clones_repo_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            repo = base / "repo"
+            repo.mkdir(parents=True, exist_ok=True)
+            _init_repo(repo)
+            _write_skill(
+                repo / ".agents" / "skills",
+                "critique",
+                name="critique",
+                description="Evaluate interfaces",
+                body="Be direct.",
+            )
+            _run_git(repo, "add", "-A", "--", ".")
+            _run_git(repo, "commit", "-m", "add skills")
+
+            destination = base / "dest"
+            result = install_skills_from_source(repo.as_uri(), destination)
+
+            self.assertEqual(result.detected_root, ".agents/skills")
+            self.assertEqual(result.installed_skill_names, ["critique"])
+            self.assertTrue((destination / "critique" / "SKILL.md").is_file())
+
+    def test_install_skills_from_github_shorthand_uses_github_clone_url(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            destination = base / "dest"
+
+            def fake_run(args, **kwargs):
+                clone_target = Path(args[-1])
+                _write_skill(
+                    clone_target / ".agents" / "skills",
+                    "critique",
+                    name="critique",
+                    description="Evaluate interfaces",
+                    body="Be direct.",
+                )
+                return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+            with patch("ite.skills.installer.subprocess.run", side_effect=fake_run) as run:
+                result = install_skills_from_source("openai/agent-skills", destination)
+
+            self.assertEqual(result.installed_skill_names, ["critique"])
+            self.assertTrue((destination / "critique" / "SKILL.md").is_file())
+            run.assert_called_once()
+            clone_args = run.call_args.args[0]
+            self.assertEqual(clone_args[:4], ["git", "clone", "--depth", "1"])
+            self.assertEqual(clone_args[4], "https://github.com/openai/agent-skills.git")
 
 
 class _FakeSession:
