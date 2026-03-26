@@ -9,13 +9,10 @@ author: ite
 argument-hint: "[INPUT=<path>] [OUTPUT=<path>]"
 ---
 
-# PDF Skill
+[//]: # (Modified from the Apache-licensed openai/skills pdf skill for iTE.)
+[//]: # (Changes: workspace-local temp guidance plus bundled iTE helper scripts.)
 
-Modified from `openai/skills` `skills/.curated/pdf/SKILL.md` for `ite`.
-Changes in this version:
-- switched temp/output guidance to workspace-local paths
-- replaced dependency-heavy generation/extraction steps with bundled helper scripts
-- added explicit inspect and validate commands that match the shipped `ite` bundle
+# iTE PDF workflow
 
 Use this skill whenever the user is working with PDF input or explicitly wants a PDF output artifact.
 

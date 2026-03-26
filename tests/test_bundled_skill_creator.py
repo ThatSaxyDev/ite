@@ -17,6 +17,8 @@ class BundledSkillCreatorTests(unittest.TestCase):
         self.assertTrue((skill.directory / "LICENSE.txt").is_file())
         self.assertTrue((skill.directory / "scripts" / "init_skill.py").is_file())
         self.assertTrue((skill.directory / "references" / "openai_yaml.md").is_file())
+        self.assertNotIn("Codex is already very smart", skill.instructions)
+        self.assertIn("iTE already knows the basics", skill.instructions)
 
 
 if __name__ == "__main__":
