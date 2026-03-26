@@ -1065,20 +1065,63 @@ class Agent:
                 if asyncio.current_task() and asyncio.current_task().cancelling():
                     raise asyncio.CancelledError
 
-                result = await session.tool_registry.invoke(
-                    tool_call.name,
-                    tool_call.arguments,
-                    self.config.cwd,
-                    session.hook_system,
-                    session.approval_manager,
-                    tool_call_id=tool_call.call_id,
-                    session_id=session.session_id,
-                    plan_mode_enabled=session.plan_mode_enabled,
-                    plan_phase=session.plan_phase,
-                    todo_execution_handoff_active=session.todo_execution_handoff_active,
-                    set_plan_phase=session.set_plan_phase,
-                    plan_question_callback=self.plan_question_callback,
+                progress_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+                async def on_tool_progress(update: dict[str, Any]) -> None:
+                    await progress_queue.put(update)
+
+                invoke_task = asyncio.create_task(
+                    session.tool_registry.invoke(
+                        tool_call.name,
+                        tool_call.arguments,
+                        self.config.cwd,
+                        session.hook_system,
+                        session.approval_manager,
+                        tool_call_id=tool_call.call_id,
+                        session_id=session.session_id,
+                        plan_mode_enabled=session.plan_mode_enabled,
+                        plan_phase=session.plan_phase,
+                        todo_execution_handoff_active=session.todo_execution_handoff_active,
+                        set_plan_phase=session.set_plan_phase,
+                        plan_question_callback=self.plan_question_callback,
+                        progress_callback=on_tool_progress,
+                    )
                 )
+
+                while True:
+                    try:
+                        update = await asyncio.wait_for(progress_queue.get(), timeout=0.05)
+                    except asyncio.TimeoutError:
+                        if invoke_task.done():
+                            break
+                        continue
+                    yield AgentEvent.tool_call_progress(
+                        tool_call.call_id,
+                        tool_call.name,
+                        output=str(update.get("output") or ""),
+                        metadata=update.get("metadata")
+                        if isinstance(update.get("metadata"), dict)
+                        else {},
+                        success=bool(update.get("success", True)),
+                        error=str(update.get("error") or "") or None,
+                        exit_code=update.get("exit_code"),
+                    )
+
+                while not progress_queue.empty():
+                    update = progress_queue.get_nowait()
+                    yield AgentEvent.tool_call_progress(
+                        tool_call.call_id,
+                        tool_call.name,
+                        output=str(update.get("output") or ""),
+                        metadata=update.get("metadata")
+                        if isinstance(update.get("metadata"), dict)
+                        else {},
+                        success=bool(update.get("success", True)),
+                        error=str(update.get("error") or "") or None,
+                        exit_code=update.get("exit_code"),
+                    )
+
+                result = await invoke_task
 
                 if asyncio.current_task() and asyncio.current_task().cancelling():
                     raise asyncio.CancelledError

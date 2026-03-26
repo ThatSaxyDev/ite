@@ -927,6 +927,9 @@ def render_subagent_metrics_payload(
 
 
 _SHELL_STDERR_MARKER_RE = re.compile(r"(?:^|\n)\s*--- STDERR ---\s*\n", re.MULTILINE)
+_TERMINAL_CLEAR_RE = re.compile(r"\x1b\[(?:2K|K)")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_PROGRESS_LINE_RE = re.compile(r"^\s*\d{1,3}%\s")
 
 
 def split_shell_payload(payload: str) -> tuple[str, str]:
@@ -938,6 +941,43 @@ def split_shell_payload(payload: str) -> tuple[str, str]:
     stdout = parts[0].strip()
     stderr = "\n".join(part.strip() for part in parts[1:] if part.strip())
     return stdout, stderr
+
+
+def collapse_terminal_rewrites(text: str) -> str:
+    if not text:
+        return ""
+    normalized = text.replace("\r\n", "\n")
+    normalized = _TERMINAL_CLEAR_RE.sub("", normalized)
+    lines: list[str] = []
+    for line in normalized.split("\n"):
+        if "\r" in line:
+            line = line.split("\r")[-1]
+        lines.append(line)
+    compacted_lines: list[str] = []
+    pending_progress: str | None = None
+    for line in lines:
+        plain = _ANSI_ESCAPE_RE.sub("", line).strip()
+        is_progress = bool(_PROGRESS_LINE_RE.match(plain))
+        if is_progress:
+            pending_progress = line
+            continue
+        if pending_progress is not None:
+            compacted_lines.append(pending_progress)
+            pending_progress = None
+        compacted_lines.append(line)
+    if pending_progress is not None:
+        compacted_lines.append(pending_progress)
+    return "\n".join(compacted_lines).strip()
+
+
+def render_terminal_payload(text: str, *, tone: str = "stdout") -> Any:
+    collapsed = collapse_terminal_rewrites(text)
+    if not collapsed:
+        return Text("No output", style="#8c97ab")
+    if "\x1b" in collapsed:
+        return Text.from_ansi(collapsed)
+    style = "#dfe4ea" if tone == "stdout" else "#f0c48d"
+    return Text(collapsed, style=style)
 
 
 def shell_session_state(metadata: dict[str, Any] | None) -> str:
@@ -1050,13 +1090,16 @@ def render_shell_result_payload(
             blocks.append(Text("No new output yet.", style="#8c97ab"))
         return blocks
 
-    if stdout_text:
-        blocks.append(Text("stdout", style="bold #b7c8e1"))
-        blocks.append(render_text_payload(stdout_text, success=True))
-    if stderr_text:
-        blocks.append(Text("stderr", style="bold #d8ab74"))
-        blocks.append(render_text_payload(stderr_text, success=False))
-
     if not stdout_text and not stderr_text:
         blocks.append(Text("No output", style="#8c97ab"))
+        return blocks
+
+    if stdout_text and stderr_text:
+        blocks.append(render_terminal_payload(stdout_text, tone="stdout"))
+        blocks.append(Text("stderr", style="bold #d8ab74"))
+        blocks.append(render_terminal_payload(stderr_text, tone="stderr"))
+    elif stdout_text:
+        blocks.append(render_terminal_payload(stdout_text, tone="stdout"))
+    else:
+        blocks.append(render_terminal_payload(stderr_text, tone="stderr"))
     return blocks

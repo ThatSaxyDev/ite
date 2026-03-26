@@ -1,6 +1,7 @@
 import asyncio
 import fnmatch
 import os
+import pty
 import re
 import shutil
 import signal
@@ -627,18 +628,116 @@ class ShellTool(_ShellCommonTool):
         else:
             shell_cmd = ["/bin/bash", "-c", params.command]
 
-        process = await asyncio.create_subprocess_exec(
-            *shell_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=env,
-            start_new_session=True,
-        )
+        state_lock = asyncio.Lock()
+        combined_output = ""
+        last_stream: str | None = None
+        stdout_bytes = 0
+        stderr_bytes = 0
+        has_stdout = False
+        has_stderr = False
+
+        async def emit_progress() -> None:
+            if invocation.progress_callback is None:
+                return
+            async with state_lock:
+                output_snapshot = combined_output
+                metadata = {
+                    "command": params.command,
+                    "cwd": str(cwd),
+                    "stdout_bytes": stdout_bytes,
+                    "stderr_bytes": stderr_bytes,
+                    "has_stdout": has_stdout,
+                    "has_stderr": has_stderr,
+                    "safety_classification": safety.value,
+                    "timed_out": False,
+                    "running": True,
+                    "status": "command_running",
+                    "has_new_output": True,
+                }
+            await invocation.progress_callback(
+                {
+                    "output": output_snapshot,
+                    "metadata": metadata,
+                    "success": True,
+                    "exit_code": None,
+                }
+            )
+
+        async def append_chunk(text: str, *, stream: str) -> None:
+            nonlocal combined_output, last_stream, stdout_bytes, stderr_bytes, has_stdout, has_stderr
+            if not text:
+                return
+            async with state_lock:
+                payload = text
+                if stream == "stderr" and last_stream != "stderr":
+                    separator = "\n" if combined_output and not combined_output.endswith("\n") else ""
+                    payload = f"{separator}--- STDERR ---\n{text}"
+                combined_output += payload
+                if stream == "stdout":
+                    stdout_bytes += len(text.encode("utf-8", errors="replace"))
+                    has_stdout = has_stdout or bool(text.strip())
+                else:
+                    stderr_bytes += len(text.encode("utf-8", errors="replace"))
+                    has_stderr = has_stderr or bool(text.strip())
+                last_stream = stream
+            await emit_progress()
+
+        async def read_stream(
+            reader: asyncio.StreamReader | None,
+            *,
+            stream: str,
+        ) -> None:
+            if reader is None:
+                return
+            while True:
+                chunk = await reader.read(_SHELL_SESSION_CHUNK_SIZE)
+                if not chunk:
+                    break
+                await append_chunk(
+                    chunk.decode("utf-8", errors="replace"),
+                    stream=stream,
+                )
+        transport = None
+        if sys.platform == "win32":
+            process = await asyncio.create_subprocess_exec(
+                *shell_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=env,
+                start_new_session=True,
+            )
+            reader_tasks = [
+                asyncio.create_task(read_stream(process.stdout, stream="stdout")),
+                asyncio.create_task(read_stream(process.stderr, stream="stderr")),
+            ]
+        else:
+            master_fd, slave_fd = pty.openpty()
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *shell_cmd,
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    cwd=cwd,
+                    env=env,
+                    start_new_session=True,
+                )
+            finally:
+                os.close(slave_fd)
+
+            reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(reader)
+            loop = asyncio.get_event_loop()
+            read_pipe = os.fdopen(master_fd, "rb", 0)
+            transport, _ = await loop.connect_read_pipe(lambda: protocol, read_pipe)
+            reader_tasks = [
+                asyncio.create_task(read_stream(reader, stream="stdout")),
+            ]
 
         try:
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(),
+            await asyncio.wait_for(
+                process.wait(),
                 timeout=params.timeout,
             )
         except asyncio.CancelledError:
@@ -646,12 +745,16 @@ class ShellTool(_ShellCommonTool):
                 await _terminate_process(process)
             except ProcessLookupError:
                 pass
+            for task in reader_tasks:
+                task.cancel()
             raise
         except asyncio.TimeoutError:
             try:
                 await _terminate_process(process)
             except ProcessLookupError:
                 pass
+            for task in reader_tasks:
+                task.cancel()
             return ToolResult.error_result(
                 f"Command timed out after {params.timeout} seconds",
                 metadata={
@@ -662,25 +765,18 @@ class ShellTool(_ShellCommonTool):
                     "safety_classification": safety.value,
                 },
             )
-
-        stdout = stdout_data.decode("utf-8", errors="replace")
-        stderr = stderr_data.decode("utf-8", errors="replace")
+        finally:
+            if transport is not None:
+                transport.close()
+            await asyncio.gather(*reader_tasks, return_exceptions=True)
 
         exit_code = process.returncode
-
-        output_parts: list[str] = []
-
-        if stdout.strip():
-            output_parts.append(stdout.rstrip())
-
-        if stderr.strip():
-            stderr_block = stderr.rstrip()
-            if output_parts:
-                output_parts.append("--- STDERR ---\n" + stderr_block)
-            else:
-                output_parts.append(stderr_block)
-
-        output = "\n\n".join(output_parts)
+        async with state_lock:
+            output = combined_output.strip()
+            final_stdout_bytes = stdout_bytes
+            final_stderr_bytes = stderr_bytes
+            final_has_stdout = has_stdout
+            final_has_stderr = has_stderr
         if exit_code != 0:
             output = (output + "\n\n" if output else "") + f"Exit code: {exit_code}"
 
@@ -691,17 +787,17 @@ class ShellTool(_ShellCommonTool):
 
         return ToolResult(
             success=exit_code == 0,
-            error=stderr if exit_code != 0 else None,
+            error=output if exit_code != 0 else None,
             exit_code=exit_code,
             output=output,
             truncated=was_truncated,
             metadata={
                 "command": params.command,
                 "cwd": str(cwd),
-                "stdout_bytes": len(stdout_data),
-                "stderr_bytes": len(stderr_data),
-                "has_stdout": bool(stdout.strip()),
-                "has_stderr": bool(stderr.strip()),
+                "stdout_bytes": final_stdout_bytes,
+                "stderr_bytes": final_stderr_bytes,
+                "has_stdout": final_has_stdout,
+                "has_stderr": final_has_stderr,
                 "safety_classification": safety.value,
                 "timed_out": False,
             },

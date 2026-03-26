@@ -13,7 +13,7 @@ from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
-from ite.ui.reup.tool_views import render_skills_payload
+from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
 from rich.table import Table
 from textual.widgets import Static
@@ -314,6 +314,51 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(stdout, "")
         self.assertEqual(stderr, "warning one\nwarning two")
+
+    def test_collapse_terminal_rewrites_keeps_latest_carriage_return_frame(self) -> None:
+        collapsed = collapse_terminal_rewrites(
+            "Uploading wheel\n0%\r15%\r71%\r100%\nDone\n"
+        )
+
+        self.assertEqual(collapsed, "Uploading wheel\n100%\nDone")
+
+    def test_collapse_terminal_rewrites_compacts_stacked_progress_frames(self) -> None:
+        collapsed = collapse_terminal_rewrites(
+            "Uploading wheel\n"
+            "0% ===== 0.0/856.6 kB\n"
+            "0% ===== 0.0/856.6 kB\n"
+            "15% ==== 131.1/856.6 kB\n"
+            "17% ==== 147.5/856.6 kB\n"
+            "17% ==== 147.5/856.6 kB\n"
+        )
+
+        self.assertEqual(
+            collapsed,
+            "Uploading wheel\n17% ==== 147.5/856.6 kB",
+        )
+
+    def test_render_shell_result_payload_uses_compact_terminal_body(self) -> None:
+        rendered = render_shell_result_payload(
+            payload="Uploading wheel\n0%\r15%\r71%\r100%\nDone\n",
+            metadata={
+                "session_id": "sh_123",
+                "status": "completed",
+                "running": False,
+                "has_new_output": True,
+            },
+            exit_code=0,
+        )
+
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        for block in rendered:
+            console.print(block)
+        text = console.file.getvalue()
+
+        self.assertIn("sh_123", text)
+        self.assertIn("exit 0", text)
+        self.assertIn("100%", text)
+        self.assertNotIn("15%", text)
+        self.assertNotIn("stdout", text)
 
     def test_shell_session_state_uses_backend_status_when_present(self) -> None:
         self.assertEqual(

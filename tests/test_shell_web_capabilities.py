@@ -156,6 +156,31 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("hello", result.output)
             self.assertEqual(result.metadata.get("safety_classification"), "safe")
 
+    async def test_shell_execute_emits_progress_updates(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+            updates: list[dict[str, object]] = []
+
+            async def on_progress(update: dict[str, object]) -> None:
+                updates.append(update)
+
+            result = await tool.execute(
+                ToolInvocation(
+                    params={
+                        "command": "python3 -c \"import time; print('hello', flush=True); time.sleep(0.05); print('done', flush=True)\""
+                    },
+                    cwd=cwd,
+                    progress_callback=on_progress,
+                )
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIn("hello", result.output)
+            self.assertTrue(updates)
+            self.assertTrue(any("hello" in str(update.get("output") or "") for update in updates))
+            self.assertTrue(all(isinstance(update.get("metadata"), dict) for update in updates))
+
     async def test_shell_environment_prepends_discovered_rg_directory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

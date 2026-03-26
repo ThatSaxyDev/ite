@@ -120,6 +120,7 @@ class ToolRegistry:
         plan_question_callback: (
             Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
         ) = None,
+        progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> ToolResult:
         started_at = time.perf_counter()
         params = self._normalize_params_for_phase(
@@ -223,6 +224,7 @@ class ToolRegistry:
             cwd=cwd,
             call_id=tool_call_id,
             session_id=session_id,
+            progress_callback=progress_callback,
         )
 
         if name == "plan_question":

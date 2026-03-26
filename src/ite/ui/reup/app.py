@@ -318,6 +318,7 @@ class ReupApp(App):
         self._tool_name_by_call_id: dict[str, str] = {}
         self._shell_session_cards: dict[str, Static] = {}
         self._shell_session_card_state: dict[str, ShellSessionCardState] = {}
+        self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
         self._composer_history: list[str] = []
@@ -2296,13 +2297,27 @@ class ReupApp(App):
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
             if card is not None:
-                card.update(
-                    render_shell_running_card(
-                        args,
-                        cwd=self.config.cwd,
-                        spinner_index=self._top_spinner_index,
+                live_state = self._live_shell_call_state.get(call_id)
+                if live_state is not None:
+                    card.update(
+                        self._render_shell_session_card(
+                            name=live_state.name,
+                            arguments=live_state.arguments,
+                            metadata=live_state.metadata,
+                            payload=live_state.payload,
+                            success=live_state.success,
+                            exit_code=live_state.exit_code,
+                            animate_running=True,
+                        )
                     )
-                )
+                else:
+                    card.update(
+                        render_shell_running_card(
+                            args,
+                            cwd=self.config.cwd,
+                            spinner_index=self._top_spinner_index,
+                        )
+                    )
         for call_id in self._run_state().running_subagent_call_ids:
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
@@ -2445,6 +2460,7 @@ class ReupApp(App):
         self._tool_name_by_call_id.clear()
         self._shell_session_cards.clear()
         self._shell_session_card_state.clear()
+        self._live_shell_call_state.clear()
         self._streaming_widget = None
         self._streaming_buffer = ""
         self._activity_widget = None
@@ -4091,6 +4107,16 @@ class ReupApp(App):
             )
             return
 
+        if event.type == AgentEventType.TOOL_CALL_PROGRESS:
+            await self._update_tool_call_progress(
+                call_id=event.data.get("call_id", ""),
+                name=event.data.get("name", "tool"),
+                output=event.data.get("output", ""),
+                metadata=event.data.get("metadata"),
+                exit_code=event.data.get("exit_code"),
+            )
+            return
+
         if event.type == AgentEventType.PLAN_READY:
             plan_text = event.data.get("plan_text", "")
             if isinstance(plan_text, str) and plan_text.strip():
@@ -4795,7 +4821,7 @@ class ReupApp(App):
                     shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
                 )
             )
-        display_payload = payload if (name in {"shell_poll", "shell_stop"} or not success) else ""
+        display_payload = payload if (name in {"shell", "shell_poll", "shell_stop"} or not success or md.get("running") is True) else ""
         output_display, _ = truncate_for_tool(name, display_payload)
         blocks.extend(
             render_shell_result_payload(
@@ -4811,6 +4837,45 @@ class ReupApp(App):
         header.append("  ")
         header.append("Shell", style=title_style)
         return Group(header, *blocks)
+
+    async def _update_tool_call_progress(
+        self,
+        *,
+        call_id: str,
+        name: str,
+        output: str,
+        metadata: dict[str, Any] | None,
+        exit_code: int | None,
+    ) -> None:
+        if name != "shell":
+            return
+        card = self._tool_widgets.get(call_id)
+        if card is None:
+            return
+        args = self._tool_args_by_call_id.get(call_id, {})
+        md = metadata if isinstance(metadata, dict) else {}
+        state = ShellSessionCardState(
+            card=card,
+            name=name,
+            arguments=args,
+            metadata=md,
+            payload=output or "",
+            success=True,
+            exit_code=exit_code,
+        )
+        self._live_shell_call_state[call_id] = state
+        card.update(
+            self._render_shell_session_card(
+                name=name,
+                arguments=args,
+                metadata=md,
+                payload=output or "",
+                success=True,
+                exit_code=exit_code,
+                animate_running=True,
+            )
+        )
+        self._set_loading_state("idle", busy=False)
 
     async def _move_card_to_bottom(self, card: Static) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
@@ -5151,6 +5216,7 @@ class ReupApp(App):
         )
         title_text = activity_title(name, stage="complete", success=success, metadata=md)
         self._run_state().running_shell_call_ids.discard(call_id)
+        self._live_shell_call_state.pop(call_id, None)
         self._run_state().running_subagent_call_ids.discard(call_id)
         self._run_state().running_wait_subagent_call_ids.discard(call_id)
         shell_session_id = self._shell_session_id_for_tool(

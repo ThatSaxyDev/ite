@@ -19,6 +19,7 @@ class AgentEventType(str, Enum):
 
     # tool calls
     TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_PROGRESS = "tool_call_progress"
     TOOL_CALL_COMPLETE = "tool_call_complete"
 
     # loop detection
@@ -113,6 +114,31 @@ class AgentEvent:
                 "diff": result.diff.to_diff() if result.diff else None,
                 "truncated": result.truncated,
                 "exit_code": result.exit_code,
+            },
+        )
+
+    @classmethod
+    def tool_call_progress(
+        cls,
+        call_id: str,
+        name: str,
+        *,
+        output: str,
+        metadata: dict[str, Any] | None = None,
+        success: bool = True,
+        error: str | None = None,
+        exit_code: int | None = None,
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.TOOL_CALL_PROGRESS,
+            data={
+                "call_id": call_id,
+                "name": name,
+                "success": success,
+                "output": output,
+                "error": error,
+                "metadata": metadata or {},
+                "exit_code": exit_code,
             },
         )
 

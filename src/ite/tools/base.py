@@ -3,7 +3,7 @@ from dataclasses import field
 from pydantic import ValidationError
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Awaitable, Callable
 import abc
 from enum import Enum
 from pydantic import BaseModel
@@ -103,6 +103,7 @@ class ToolInvocation:
     cwd: Path
     call_id: str | None = None
     session_id: str | None = None
+    progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
 
 @dataclass
