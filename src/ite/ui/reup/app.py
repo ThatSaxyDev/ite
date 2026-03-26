@@ -125,6 +125,7 @@ from .tool_views import (
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
+    render_terminal_snapshot_payload,
     shell_session_state,
     render_text_payload,
     render_todo_payload,
@@ -4822,13 +4823,35 @@ class ReupApp(App):
                 )
             )
         display_payload = payload if (name in {"shell", "shell_poll", "shell_stop"} or not success or md.get("running") is True) else ""
-        output_display, _ = truncate_for_tool(name, display_payload)
-        blocks.extend(
-            render_shell_result_payload(
-                payload=output_display,
-                metadata=md,
-                exit_code=exit_code,
-                running_suffix=running_suffix,
+        summary = Text()
+        session_id = str(md.get("session_id") or "").strip()
+        if session_id:
+            summary.append(session_id, style="#8c97ab")
+        if isinstance(md.get("running"), bool) or md.get("status"):
+            if summary.plain:
+                summary.append("  •  ", style="#667084")
+            status_label, status_style = shell_session_state(md), "#8c97ab"
+            if md.get("running") is True:
+                status_label = "command running" + running_suffix
+                status_style = "#b7c8e1"
+            elif status_label == "exited":
+                status_style = "#8c97ab"
+            summary.append(status_label.replace("_", " "), style=status_style)
+        if exit_code is not None:
+            if summary.plain:
+                summary.append("  •  ", style="#667084")
+            summary.append(f"exit {exit_code}", style="#8c97ab")
+        if md.get("timed_out"):
+            if summary.plain:
+                summary.append("  •  ", style="#667084")
+            summary.append("timed out", style="#f5b54f")
+        if summary.plain:
+            blocks.append(summary)
+        blocks.append(
+            render_terminal_snapshot_payload(
+                display_payload,
+                tone="stdout" if success else "stderr",
+                max_lines=12 if md.get("running") is True else 16,
             )
         )
 
@@ -5280,6 +5303,28 @@ class ReupApp(App):
                     )
                     await self._move_card_to_bottom(card)
 
+            await self._pin_activity_indicator_to_end()
+            return
+
+        if name == "shell":
+            shell_md = dict(md)
+            shell_md.setdefault("running", False)
+            shell_md.setdefault("status", "exited" if success else "failed")
+            card.update(
+                self._render_shell_session_card(
+                    name=name,
+                    arguments=args,
+                    metadata=shell_md,
+                    payload=payload,
+                    success=success,
+                    exit_code=exit_code,
+                )
+            )
+            card.remove_class("running")
+            if success:
+                card.add_class("success")
+            else:
+                card.add_class("error")
             await self._pin_activity_indicator_to_end()
             return
 

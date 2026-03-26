@@ -337,6 +337,19 @@ class ReupCommandPaletteTests(unittest.TestCase):
             "Uploading wheel\n17% ==== 147.5/856.6 kB",
         )
 
+    def test_collapse_terminal_rewrites_applies_cursor_up_and_clear_line(self) -> None:
+        collapsed = collapse_terminal_rewrites(
+            "Uploading wheel\n"
+            "100% ===== 856.6/856.6 kB\n"
+            "Uploading source\n"
+            "\x1b[2A\x1b[2K\r48% ==== 3.4/7.0 MB\n"
+        )
+
+        self.assertEqual(
+            collapsed,
+            "Uploading wheel\n48% ==== 3.4/7.0 MB\nUploading source",
+        )
+
     def test_render_shell_result_payload_uses_compact_terminal_body(self) -> None:
         rendered = render_shell_result_payload(
             payload="Uploading wheel\n0%\r15%\r71%\r100%\nDone\n",

@@ -947,16 +947,83 @@ def collapse_terminal_rewrites(text: str) -> str:
     if not text:
         return ""
     normalized = text.replace("\r\n", "\n")
-    normalized = _TERMINAL_CLEAR_RE.sub("", normalized)
-    lines: list[str] = []
-    for line in normalized.split("\n"):
-        if "\r" in line:
-            line = line.split("\r")[-1]
-        lines.append(line)
+    lines: list[list[str]] = [[]]
+    row = 0
+    col = 0
+
+    def ensure_line(index: int) -> list[str]:
+        while len(lines) <= index:
+            lines.append([])
+        return lines[index]
+
+    def write_char(ch: str) -> None:
+        nonlocal col
+        line = ensure_line(row)
+        while len(line) < col:
+            line.append(" ")
+        if col < len(line):
+            line[col] = ch
+        else:
+            line.append(ch)
+        col += 1
+
+    index = 0
+    text_len = len(normalized)
+    while index < text_len:
+        ch = normalized[index]
+        if ch == "\x1b" and index + 1 < text_len and normalized[index + 1] == "[":
+            match = re.match(r"\x1b\[([0-9;?]*)([A-Za-z])", normalized[index:])
+            if match:
+                params_text, command = match.groups()
+                params = [int(part) for part in params_text.split(";") if part.isdigit()]
+                amount = params[0] if params else 1
+                if command == "A":
+                    row = max(0, row - amount)
+                elif command == "B":
+                    row += amount
+                    ensure_line(row)
+                elif command == "C":
+                    col += amount
+                elif command == "D":
+                    col = max(0, col - amount)
+                elif command == "K":
+                    line = ensure_line(row)
+                    mode = params[0] if params else 0
+                    if mode == 2:
+                        line.clear()
+                        col = 0
+                    elif mode == 1:
+                        del line[:col]
+                        col = 0
+                    else:
+                        del line[col:]
+                index += match.end()
+                continue
+        if ch == "\n":
+            row += 1
+            col = 0
+            ensure_line(row)
+            index += 1
+            continue
+        if ch == "\r":
+            col = 0
+            index += 1
+            continue
+        if ch == "\b":
+            col = max(0, col - 1)
+            index += 1
+            continue
+        if ch == "\x1b":
+            index += 1
+            continue
+        write_char(ch)
+        index += 1
+
+    lines_plain = ["".join(line).rstrip() for line in lines]
     compacted_lines: list[str] = []
     pending_progress: str | None = None
-    for line in lines:
-        plain = _ANSI_ESCAPE_RE.sub("", line).strip()
+    for line in lines_plain:
+        plain = line.strip()
         is_progress = bool(_PROGRESS_LINE_RE.match(plain))
         if is_progress:
             pending_progress = line
@@ -974,6 +1041,28 @@ def render_terminal_payload(text: str, *, tone: str = "stdout") -> Any:
     collapsed = collapse_terminal_rewrites(text)
     if not collapsed:
         return Text("No output", style="#8c97ab")
+    if "\x1b" in collapsed:
+        return Text.from_ansi(collapsed)
+    style = "#dfe4ea" if tone == "stdout" else "#f0c48d"
+    return Text(collapsed, style=style)
+
+
+def render_terminal_snapshot_payload(
+    text: str,
+    *,
+    tone: str = "stdout",
+    max_lines: int = 12,
+    max_chars: int = 16000,
+) -> Any:
+    if not text:
+        return Text("No output", style="#8c97ab")
+    window = text[-max_chars:] if len(text) > max_chars else text
+    collapsed = collapse_terminal_rewrites(window)
+    if not collapsed:
+        return Text("No output", style="#8c97ab")
+    lines = collapsed.splitlines()
+    if len(lines) > max_lines:
+        collapsed = "\n".join(lines[-max_lines:])
     if "\x1b" in collapsed:
         return Text.from_ansi(collapsed)
     style = "#dfe4ea" if tone == "stdout" else "#f0c48d"
