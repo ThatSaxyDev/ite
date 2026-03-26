@@ -115,8 +115,6 @@ def build_skills_overview_renderable(
             title.append(f"  {skill.name}", style="#8c93a1")
 
         meta_bits = [_format_source_label(skill.source)]
-        if skill.argument_hint:
-            meta_bits.append(skill.argument_hint)
         if skill.reference_files:
             ref_label = "ref" if len(skill.reference_files) == 1 else "refs"
             meta_bits.append(f"{len(skill.reference_files)} {ref_label}")
@@ -163,11 +161,6 @@ def build_skill_detail_renderable(
         meta.add_row(
             Text("aliases", style="#8c93a1"),
             Text(", ".join(skill.aliases[:8]), style="#d7deea"),
-        )
-    if skill.argument_hint:
-        meta.add_row(
-            Text("arguments", style="#8c93a1"),
-            Text(skill.argument_hint, style="#d7deea"),
         )
     if skill.version:
         meta.add_row(Text("version", style="#8c93a1"), Text(skill.version, style="#d7deea"))
@@ -346,6 +339,7 @@ def _build_skill_tool_detail(
     active_skills: list[str],
     available_count: int,
 ) -> Group:
+    del available_count
     skill_id = str(payload.get("skill") or payload.get("name") or "").strip()
     title = Text(skill_id or "skill", style="bold #edf1f7")
     if payload.get("action") == "activate":
@@ -356,61 +350,7 @@ def _build_skill_tool_detail(
         title.append("  inspected", style="#b7c8e1")
 
     description = Text(str(payload.get("description") or "").strip(), style="#d7deea")
-
-    meta = Table.grid(expand=True)
-    meta.add_column(width=14)
-    meta.add_column(ratio=1)
-    meta.add_row(
-        Text("active skills", style="#8c93a1"),
-        Text(", ".join(active_skills) if active_skills else "none", style="#d7deea"),
-    )
-    meta.add_row(Text("available", style="#8c93a1"), Text(str(available_count), style="#d7deea"))
-    if "user_invocable" in payload:
-        meta.add_row(
-            Text("invoke", style="#8c93a1"),
-            Text("yes" if bool(payload.get("user_invocable")) else "no", style="#d7deea"),
-        )
-    argument_hint = str(payload.get("argument_hint") or "").strip()
-    if argument_hint:
-        meta.add_row(Text("arguments", style="#8c93a1"), Text(argument_hint, style="#d7deea"))
-    if "trusted" in payload and "requires_trust" in payload:
-        trusted = bool(payload.get("trusted"))
-        requires_trust = bool(payload.get("requires_trust"))
-        trust_text = "trusted" if trusted else "blocked" if requires_trust else "global"
-        meta.add_row(Text("trust", style="#8c93a1"), Text(trust_text, style="#d7deea"))
-
-    refs_block = None
-    references = payload.get("reference_files")
-    if isinstance(references, list) and references:
-        ref_table = Table.grid(expand=True)
-        ref_table.add_column(ratio=1)
-        for path in references[:8]:
-            ref_table.add_row(Text(str(path), style="#b7c8e1"))
-        refs_block = Group(Text("references", style="bold #8c93a1"), ref_table)
-
-    instructions = str(payload.get("instructions") or "").strip()
-    instructions_block = None
-    if instructions:
-        instructions_block = Group(
-            Text("instructions", style="bold #8c93a1"),
-            Markdown(_truncate_markdown(instructions, 1600)),
-        )
-
-    note = Text(
-        "Showing a skill here does not activate it. The active skills rail above is the source of truth.",
-        style="#6f7785",
-    )
-
-    parts: list[object] = [title]
-    if description.plain:
-        parts.extend([description, Text("")])
-    parts.append(meta)
-    parts.extend([Text(""), note])
-    if refs_block is not None:
-        parts.extend([Text(""), refs_block])
-    if instructions_block is not None:
-        parts.extend([Text(""), instructions_block])
-    return Group(*parts)
+    return Group(title, description) if description.plain else Group(title)
 
 
 def _tool_message_for_action(action: str, payload: Mapping[str, object]) -> str:

@@ -295,8 +295,8 @@ class SkillManagerTests(unittest.TestCase):
             console.print(renderable)
             output = console.file.getvalue()
             self.assertIn("polish", output)
-            self.assertIn("arguments", output)
-            self.assertIn("[AREA=<value>]", output)
+            self.assertNotIn("arguments", output)
+            self.assertNotIn("[AREA=<value>]", output)
             self.assertIn("reference/typography.md", output)
             self.assertIn("Review spacing and hierarchy.", output)
 
@@ -326,9 +326,11 @@ class SkillManagerTests(unittest.TestCase):
         output = console.file.getvalue()
         self.assertIn("frontend-design", output)
         self.assertIn("inspected", output)
-        self.assertIn("active skills", output)
-        self.assertIn("audit", output)
-        self.assertIn("does not activate it", output)
+        self.assertNotIn("active skills", output)
+        self.assertNotIn("audit", output)
+        self.assertNotIn("arguments", output)
+        self.assertNotIn("references", output)
+        self.assertNotIn("instructions", output)
 
 
 class SkillInstallerTests(unittest.TestCase):

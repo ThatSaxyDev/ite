@@ -122,3 +122,12 @@ Examples:
 ```
 
 Default destination is `<project>/.agents/skills`.
+
+## Bundled First-Party Skills
+
+`ite` currently vendors these first-party skills in the shared project root so they ship with the app and are discoverable out of the box:
+
+- `docx`
+- `pdf`
+
+These are the curated, product-owned skills. Other compatible skills can still be installed from local packs or repos with `/skills add`.
