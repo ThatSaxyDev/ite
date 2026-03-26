@@ -1,6 +1,6 @@
 ---
 name: pdf
-description: Create, inspect, extract, render, and validate PDF files. Use for reading PDFs, generating polished PDF outputs, checking page count or structure, and reviewing rendered pages when layout matters.
+description: Use when tasks involve reading, creating, or reviewing PDF files where rendering and layout matter; prefer visual checks by rendering pages and use the bundled helper scripts for generation, extraction, and inspection.
 tags:
   - pdf
   - documents
@@ -9,17 +9,15 @@ author: ite
 argument-hint: "[INPUT=<path>] [OUTPUT=<path>]"
 ---
 
-# PDF workflow
+# PDF Skill
+
+Modified from `openai/skills` `skills/.curated/pdf/SKILL.md` for `ite`.
+Changes in this version:
+- switched temp/output guidance to workspace-local paths
+- replaced dependency-heavy generation/extraction steps with bundled helper scripts
+- added explicit inspect and validate commands that match the shipped `ite` bundle
 
 Use this skill whenever the user is working with PDF input or explicitly wants a PDF output artifact.
-
-## Core rules
-
-- Prefer rendered page review when layout matters.
-- Resolve all script paths relative to this skill directory.
-- Prefer a workspace-local scratch directory such as `./.ite/tmp/pdf/<job-id>/`.
-- Keep the source PDF unchanged unless the user explicitly asks to overwrite it.
-- Validate generated PDFs before presenting them as final.
 
 ## Default workflows
 
@@ -30,13 +28,15 @@ python <skill_dir>/scripts/inspect_pdf.py input.pdf
 python <skill_dir>/scripts/validate_pdf.py input.pdf
 ```
 
+Prefer this before any deeper work so you know page count, file size, preview text, and basic structural status.
+
 ### Extract text
 
 ```bash
 python <skill_dir>/scripts/extract_pdf_text.py input.pdf --output extracted.txt
 ```
 
-This skill supports lightweight extraction. If the file uses complex embedded fonts or scanned pages, call out the limitation.
+This skill supports lightweight extraction. If the file uses complex embedded fonts, image-only pages, or scanned content, call out the limitation instead of pretending extraction is complete.
 
 ### Create a new PDF
 
@@ -44,7 +44,7 @@ This skill supports lightweight extraction. If the file uses complex embedded fo
 python <skill_dir>/scripts/write_pdf.py draft.txt output.pdf --title "Status Update"
 ```
 
-Templates in `templates/` are starter content.
+Templates in `templates/` are starter content. Use workspace-local drafts and outputs unless the user requests a different destination.
 
 If you just need a quick starter document:
 
@@ -59,6 +59,13 @@ python <skill_dir>/scripts/render_pdf.py input.pdf --output_dir ./.ite/tmp/pdf/j
 ```
 
 This requires `pdftoppm` from Poppler. If it is missing, say so directly.
+
+## Temp and output conventions
+
+- Prefer a workspace-local scratch directory such as `./.ite/tmp/pdf/<job-id>/`.
+- Keep the source PDF unchanged unless the user explicitly asks to overwrite it.
+- Validate generated PDFs before presenting them as final.
+- Resolve all script paths relative to this skill directory.
 
 ## Choosing the path
 
