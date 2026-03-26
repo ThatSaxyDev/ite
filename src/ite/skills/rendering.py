@@ -114,7 +114,7 @@ def build_skills_overview_renderable(
         if skill.name != skill.identifier:
             title.append(f"  {skill.name}", style="#8c93a1")
 
-        meta_bits = [_format_source_label(skill.source)]
+        meta_bits = [_format_source_label(skill.source, author=skill.author)]
         if skill.reference_files:
             ref_label = "ref" if len(skill.reference_files) == 1 else "refs"
             meta_bits.append(f"{len(skill.reference_files)} {ref_label}")
@@ -130,7 +130,7 @@ def build_skills_overview_renderable(
             description,
         )
 
-    source_counts = Counter(_format_source_label(skill.source) for skill in skills)
+    source_counts = Counter(_format_source_label(skill.source, author=skill.author) for skill in skills)
     footer = Text("roots ", style="#6f7785")
     footer.append(" · ".join(f"{name} {count}" for name, count in sorted(source_counts.items())), style="#8c93a1")
 
@@ -149,7 +149,7 @@ def build_skill_detail_renderable(
     header = Text(skill.identifier, style="bold #edf1f7")
     if skill.user_invocable:
         header.append("  invoke", style="#8fc7a2")
-    header.append(f"  {_format_source_label(skill.source)}", style="#7d8594")
+    header.append(f"  {_format_source_label(skill.source, author=skill.author)}", style="#7d8594")
 
     description = Text(skill.description, style="#d7deea")
 
@@ -269,7 +269,9 @@ def _state_badge(state: str) -> Text:
     return Text("ready", style="bold #b7c8e1")
 
 
-def _format_source_label(source: str) -> str:
+def _format_source_label(source: str, *, author: str | None = None) -> str:
+    if source == "shared-project" and str(author or "").strip().lower() == "ite":
+        return "ite bundled"
     label = str(source or "").strip().replace("compat-", "").replace("-", " ")
     return label or "skill root"
 
@@ -318,7 +320,10 @@ def _build_skills_summary_from_payload(
     table.add_column(width=9)
     table.add_column(ratio=6)
     for identifier, description, source, state, user_invocable in rows:
-        meta = Text(_format_source_label(source), style="#7d8594")
+        meta = Text(
+            _format_source_label(source, author=str(item.get("author") or "").strip() or None),
+            style="#7d8594",
+        )
         table.add_row(
             Group(Text(identifier, style="bold #edf1f7"), meta),
             _state_badge(state),

@@ -6,6 +6,7 @@ from zipfile import ZipFile
 import shutil
 import tempfile
 import xml.etree.ElementTree as ET
+import json
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 NS = {"w": W_NS}
@@ -62,6 +63,19 @@ def paragraph_texts(tree: ET.ElementTree) -> list[str]:
     return paragraphs
 
 
+def inspect_docx(path: Path) -> dict[str, object]:
+    tree = load_document_tree(path)
+    paragraphs = paragraph_texts(tree)
+    preview = paragraphs[:5]
+    return {
+        "path": str(path.resolve()),
+        "size_bytes": path.stat().st_size,
+        "paragraph_count": len(paragraphs),
+        "preview": preview,
+        "validation_errors": validate_docx(path),
+    }
+
+
 def set_paragraphs(tree: ET.ElementTree, paragraphs: list[str]) -> ET.ElementTree:
     root = tree.getroot()
     body = root.find("w:body", NS)
@@ -78,6 +92,27 @@ def set_paragraphs(tree: ET.ElementTree, paragraphs: list[str]) -> ET.ElementTre
     if sect_pr is not None:
         body.append(sect_pr)
     return tree
+
+
+def replace_in_paragraphs(
+    paragraphs: list[str],
+    replacements: list[tuple[str, str]],
+) -> tuple[list[str], int]:
+    updated = list(paragraphs)
+    total_replacements = 0
+    for old, new in replacements:
+        next_paragraphs: list[str] = []
+        for paragraph in updated:
+            occurrences = paragraph.count(old)
+            if occurrences:
+                total_replacements += occurrences
+            next_paragraphs.append(paragraph.replace(old, new))
+        updated = next_paragraphs
+    return updated, total_replacements
+
+
+def json_dump(payload: dict[str, object]) -> str:
+    return json.dumps(payload, indent=2)
 
 
 def build_simple_document(paragraphs: list[str], title: str | None = None) -> bytes:

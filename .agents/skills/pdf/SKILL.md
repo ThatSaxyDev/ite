@@ -46,6 +46,12 @@ python <skill_dir>/scripts/write_pdf.py draft.txt output.pdf --title "Status Upd
 
 Templates in `templates/` are starter content.
 
+If you just need a quick starter document:
+
+```bash
+python <skill_dir>/scripts/write_pdf.py <skill_dir>/templates/report.txt output.pdf --title "Status Update"
+```
+
 ### Render pages for review
 
 ```bash

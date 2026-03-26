@@ -5,6 +5,7 @@ from pathlib import Path
 
 from _docx_core import load_document_tree
 from _docx_core import paragraph_texts
+from _docx_core import replace_in_paragraphs
 from _docx_core import set_paragraphs
 from _docx_core import write_document_tree
 
@@ -25,12 +26,12 @@ def main() -> int:
 
     tree = load_document_tree(args.input)
     paragraphs = paragraph_texts(tree)
-    updated = list(paragraphs)
-    for old, new in args.replace:
-        updated = [paragraph.replace(old, new) for paragraph in updated]
+    updated, replacement_count = replace_in_paragraphs(paragraphs, args.replace)
+    if replacement_count == 0:
+        raise SystemExit("no matching text was found for replacement")
     set_paragraphs(tree, updated)
     write_document_tree(args.input, args.output, tree)
-    print(args.output.resolve())
+    print(f"{args.output.resolve()} ({replacement_count} replacements)")
     return 0
 
 

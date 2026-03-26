@@ -239,6 +239,32 @@ class SkillManagerTests(unittest.TestCase):
             self.assertIn("/skills show <name> inspects", output)
             self.assertIn("critique", output)
 
+    def test_overview_renderable_marks_ite_shared_project_skills_as_bundled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            skill_dir = root / "docx"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: docx\n"
+                "description: Work with Word docs.\n"
+                "author: ite\n"
+                "---\n\n"
+                "Use helper scripts.\n",
+                encoding="utf-8",
+            )
+
+            manager = SkillManager(base)
+            manager._discovery_roots = lambda: [("shared-project", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            renderable = build_skills_overview_renderable(manager.list_skills(), set())
+            console = Console(file=StringIO(), force_terminal=False, width=120)
+            console.print(renderable)
+            output = console.file.getvalue()
+            self.assertIn("ite bundled", output)
+
     def test_overview_empty_state_explains_skills_and_core_commands(self) -> None:
         renderable = build_skills_overview_renderable([], set())
         console = Console(file=StringIO(), force_terminal=False, width=120)
@@ -299,6 +325,34 @@ class SkillManagerTests(unittest.TestCase):
             self.assertNotIn("[AREA=<value>]", output)
             self.assertIn("reference/typography.md", output)
             self.assertIn("Review spacing and hierarchy.", output)
+
+    def test_detail_renderable_marks_ite_shared_project_skills_as_bundled(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "skills"
+            skill_dir = root / "pdf"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\n"
+                "name: pdf\n"
+                "description: Work with PDFs.\n"
+                "author: ite\n"
+                "---\n\n"
+                "Render when layout matters.\n",
+                encoding="utf-8",
+            )
+
+            manager = SkillManager(base)
+            manager._discovery_roots = lambda: [("shared-project", root)]  # type: ignore[method-assign]
+            manager.discover()
+
+            skill = manager.get("pdf")
+            self.assertIsNotNone(skill)
+            renderable = build_skill_detail_renderable(skill, set())
+            console = Console(file=StringIO(), force_terminal=False, width=120)
+            console.print(renderable)
+            output = console.file.getvalue()
+            self.assertIn("ite bundled", output)
 
     def test_tool_renderable_clarifies_shown_skill_is_not_the_active_skill(self) -> None:
         payload = {

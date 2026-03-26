@@ -26,7 +26,13 @@ Use this skill whenever the user is working with a `.docx` file or explicitly wa
 
 ### Inspect or extract text
 
-Use the extractor first when the goal is to read or summarize a document:
+Inspect first when the goal is to understand the file quickly:
+
+```bash
+python <skill_dir>/scripts/inspect_docx.py input.docx
+```
+
+Then use the extractor when you need readable content:
 
 ```bash
 python <skill_dir>/scripts/extract_docx.py input.docx --format markdown --output extracted.md
@@ -61,6 +67,10 @@ python <skill_dir>/scripts/write_docx.py draft.md output.docx --title "Quarterly
 ```
 
 Templates in `templates/` are starter content, not strict requirements.
+
+```bash
+python <skill_dir>/scripts/write_docx.py output.docx --template memo --title "Quarterly Update"
+```
 
 ### Visual review
 
