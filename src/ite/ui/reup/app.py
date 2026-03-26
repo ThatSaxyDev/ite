@@ -4538,13 +4538,12 @@ class ReupApp(App):
 
     def _build_command_result_renderable(self, message: str) -> Group:
         lines = [line.rstrip() for line in str(message or "").strip().splitlines()]
-        lead = Text("slash command result", style="#6f7785")
         if not lines:
-            return Group(lead)
+            return Group()
         if len(lines) == 1:
-            return Group(lead, Text(lines[0], style="#d7deea"))
+            return Group(Text(lines[0], style="#d7deea"))
         body = Text("\n".join(lines), style="#d7deea")
-        return Group(lead, Text(""), body)
+        return Group(body)
 
     def _post_skills_command_result(self, args: list[str], rendered: str) -> bool:
         if not self.agent or not self.agent.session:

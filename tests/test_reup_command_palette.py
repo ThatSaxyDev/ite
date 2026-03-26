@@ -111,14 +111,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(added, 1)
         self.assertIn('@"Screenshot 2021.png"', prompt.text)
 
-    def test_build_command_result_renderable_labels_slash_command_output(self) -> None:
+    def test_build_command_result_renderable_omits_generic_label(self) -> None:
         app = self._app()
 
         rendered = app._build_command_result_renderable("Installed skills: critique")
         text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
 
-        self.assertIn("slash command result", text)
         self.assertIn("Installed skills: critique", text)
+        self.assertNotIn("slash command result", text)
 
     def test_run_command_routes_generic_output_to_command_card(self) -> None:
         app = self._app()
@@ -184,8 +184,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         text = console.file.getvalue()
         self.assertIn("frontend-design", text)
         self.assertIn("inspected", text)
-        self.assertIn("audit", text)
-        self.assertIn("does not activate it", text)
+        self.assertIn("Create distinctive production interfaces.", text)
+        self.assertNotIn("audit", text)
+        self.assertNotIn("does not activate it", text)
 
     def test_render_skills_payload_formats_truncated_list_json(self) -> None:
         rendered = render_skills_payload(
