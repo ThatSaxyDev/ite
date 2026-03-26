@@ -396,6 +396,30 @@ class ReupCommandPaletteTests(unittest.TestCase):
             "⌛",
         )
 
+    def test_shell_session_card_content_shows_idle_when_running_without_new_output(self) -> None:
+        app = self._app()
+
+        header, body = app._build_shell_session_card_content(
+            name="shell_poll",
+            arguments={"session_id": "sh_123"},
+            metadata={
+                "session_id": "sh_123",
+                "running": True,
+                "status": "idle",
+                "has_new_output": False,
+            },
+            payload="Uploading wheel\n100%\n",
+            success=True,
+            exit_code=None,
+        )
+
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(header)
+        console.print(body)
+        text = console.file.getvalue()
+        self.assertIn("idle", text)
+        self.assertNotIn("command running", text)
+
     def test_render_wait_subagent_running_card_shows_live_run_state(self) -> None:
         app = self._app()
         app.agent = SimpleNamespace(
@@ -467,6 +491,30 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )[0],
             "❌",
         )
+
+    def test_shell_session_card_content_shows_idle_when_running_without_new_output(self) -> None:
+        app = self._app()
+
+        header, body = app._build_shell_session_card_content(
+            name="shell_poll",
+            arguments={"session_id": "sh_123"},
+            metadata={
+                "session_id": "sh_123",
+                "running": True,
+                "status": "idle",
+                "has_new_output": False,
+            },
+            payload="Uploading wheel\n100%\n",
+            success=True,
+            exit_code=None,
+        )
+
+        console = Console(file=StringIO(), force_terminal=False, width=120)
+        console.print(header)
+        console.print(body)
+        text = console.file.getvalue()
+        self.assertIn("idle", text)
+        self.assertNotIn("command running", text)
 
     def test_render_wait_subagent_running_card_prioritizes_more_runs_over_extra_history(self) -> None:
         app = self._app()
@@ -742,16 +790,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             {"path": "poems/river.md (+2 more)"},
         )
 
-    def test_reset_session_local_ui_state_clears_shell_session_cards(self) -> None:
+    def test_reset_session_local_ui_state_clears_tool_widgets(self) -> None:
         app = self._app()
-        app._shell_session_cards["sh_123"] = Static()
         app._tool_widgets["call_1"] = Static()
         app._tool_args_by_call_id["call_1"] = {"session_id": "sh_123"}
 
         with patch.object(ReupApp, "is_mounted", new_callable=PropertyMock, return_value=False):
             app._reset_session_local_ui_state()
 
-        self.assertEqual(app._shell_session_cards, {})
         self.assertEqual(app._tool_widgets, {})
         self.assertEqual(app._tool_args_by_call_id, {})
 
@@ -876,78 +922,6 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_shell_session_cards_track_multiple_active_sessions(self) -> None:
-        app = self._app()
-
-        class DummyConversation:
-            def __init__(self) -> None:
-                self.children: list[object] = []
-
-            async def mount(self, child: object) -> None:
-                self.children.append(child)
-
-        async def scenario() -> None:
-            conversation = DummyConversation()
-            with (
-                patch.object(app, "query_one", return_value=conversation),
-                patch.object(app, "_refresh_empty_state"),
-                patch.object(app, "_pin_activity_indicator_to_end", new=AsyncMock()),
-                patch.object(app, "_move_card_to_bottom", new=AsyncMock()),
-            ):
-                await app.add_tool_call_start(
-                    call_id="call_1",
-                    name="shell_start",
-                    tool_kind="shell",
-                    arguments={},
-                )
-                await app.update_tool_call(
-                    call_id="call_1",
-                    name="shell_start",
-                    tool_kind="shell",
-                    success=True,
-                    output="Started interactive shell session `sh_one`.",
-                    error=None,
-                    metadata={
-                        "session_id": "sh_one",
-                        "running": True,
-                        "status": "idle",
-                        "mode": "shell",
-                    },
-                    diff=None,
-                    truncated=False,
-                    exit_code=None,
-                )
-                await app.add_tool_call_start(
-                    call_id="call_2",
-                    name="shell_start",
-                    tool_kind="shell",
-                    arguments={},
-                )
-                await app.update_tool_call(
-                    call_id="call_2",
-                    name="shell_start",
-                    tool_kind="shell",
-                    success=True,
-                    output="Started interactive shell session `sh_two`.",
-                    error=None,
-                    metadata={
-                        "session_id": "sh_two",
-                        "running": True,
-                        "status": "idle",
-                        "mode": "shell",
-                    },
-                    diff=None,
-                    truncated=False,
-                    exit_code=None,
-                )
-
-            self.assertEqual(set(app._shell_session_cards), {"sh_one", "sh_two"})
-            self.assertNotEqual(
-                app._shell_session_cards["sh_one"],
-                app._shell_session_cards["sh_two"],
-            )
-
-        asyncio.run(scenario())
 
     def test_plan_ready_enter_is_not_implicit_approval(self) -> None:
         app = self._app()

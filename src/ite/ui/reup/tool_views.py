@@ -1051,7 +1051,7 @@ def render_terminal_snapshot_payload(
     text: str,
     *,
     tone: str = "stdout",
-    max_lines: int = 12,
+    max_lines: int | None = None,
     max_chars: int = 16000,
 ) -> Any:
     if not text:
@@ -1060,9 +1060,10 @@ def render_terminal_snapshot_payload(
     collapsed = collapse_terminal_rewrites(window)
     if not collapsed:
         return Text("No output", style="#8c97ab")
-    lines = collapsed.splitlines()
-    if len(lines) > max_lines:
-        collapsed = "\n".join(lines[-max_lines:])
+    if max_lines is not None:
+        lines = collapsed.splitlines()
+        if len(lines) > max_lines:
+            collapsed = "\n".join(lines[-max_lines:])
     if "\x1b" in collapsed:
         return Text.from_ansi(collapsed)
     style = "#dfe4ea" if tone == "stdout" else "#f0c48d"

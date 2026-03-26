@@ -915,6 +915,33 @@ Screen {
     margin-bottom: 2;
 }
 
+.block.shell-card {
+    background: #181a1d 96%;
+    padding: 1 2;
+    margin-top: 0;
+    margin-bottom: 2;
+    layout: vertical;
+    height: auto;
+    min-height: 12;
+}
+
+.shell-card-header {
+    color: #b7c8e1;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.shell-card-scroll {
+    height: auto;
+    max-height: 18;
+    min-height: 8;
+    overflow-y: auto;
+}
+
+.shell-card-body {
+    color: #dfe4ea;
+}
+
 .block.assistant {
     margin-top: 1;
 }
