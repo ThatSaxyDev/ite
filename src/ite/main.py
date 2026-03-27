@@ -1140,10 +1140,16 @@ class CLI:
                     self.tui.stop_spinner()
                     trigger_tokens = int(event.data.get("trigger_tokens", 0))
                     context_window = int(event.data.get("context_window", 0))
+                    trigger_reason = str(event.data.get("trigger_reason", "threshold"))
                     used_pct = (trigger_tokens / context_window * 100) if context_window else 0
-                    console.print(
-                        f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
-                    )
+                    if trigger_reason == "overflow_retry":
+                        console.print(
+                            f"[dim]Context compacted after overflow retry · local estimate {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
+                        )
+                    else:
+                        console.print(
+                            f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
+                        )
                     self.tui.start_spinner(progress_label(plan_mode=plan_only_phase))
 
                 elif event.type == AgentEventType.PLAN_READY:

@@ -3971,10 +3971,15 @@ class ReupApp(App):
         if event.type == AgentEventType.CONTEXT_COMPACTED:
             trigger_tokens = int(event.data.get("trigger_tokens", 0))
             context_window = int(event.data.get("context_window", 0))
+            trigger_reason = str(event.data.get("trigger_reason", "threshold"))
             used_pct = (trigger_tokens / context_window * 100) if context_window else 0
             self.post_system(
                 "Context",
-                f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used).",
+                (
+                    f"Compacted after overflow retry. Local estimate was {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
+                    if trigger_reason == "overflow_retry"
+                    else f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
+                ),
             )
             return
 

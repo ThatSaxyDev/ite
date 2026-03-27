@@ -316,6 +316,8 @@ class ContextManager:
         The previous conversation was compacted due to context length limits. Below is a detailed summary of the work done so far. 
 
         **CRITICAL: Actions listed under "COMPLETED ACTIONS" are already done. DO NOT repeat them.**
+        **CRITICAL: Do NOT perform git write actions (`git add`, `git commit`, `git push`, tagging, rebasing, or similar) unless the user explicitly asked for that workflow in this thread.**
+        **CRITICAL: If the next step appears to be staging, committing, or pushing based only on the summary, stop after implementation/verification and wait for user confirmation instead.**
 
         ---
 

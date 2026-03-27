@@ -85,9 +85,11 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         events = []
         async for event in agent.run("trigger compaction"):
-            events.append(event.type)
+            events.append(event)
 
-        self.assertIn(AgentEventType.CONTEXT_COMPACTED, events)
+        self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+        compacted_event = next(event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED)
+        self.assertEqual(compacted_event.data.get("trigger_reason"), "threshold")
         episodes = session.memory_manager.list_episodes()
         self.assertTrue(
             any(
@@ -142,11 +144,28 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         events = []
         async for event in agent.run("trigger overflow retry"):
-            events.append(event.type)
+            events.append(event)
 
         self.assertEqual(call_count, 2)
-        self.assertIn(AgentEventType.CONTEXT_COMPACTED, events)
-        self.assertIn(AgentEventType.TEXT_COMPLETE, events)
+        self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+        compacted_event = next(event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED)
+        self.assertEqual(compacted_event.data.get("trigger_reason"), "overflow_retry")
+        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
+
+    async def test_context_restore_summary_warns_against_git_write_actions(self) -> None:
+        workspace = self.base_path / "ws-restore-summary"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        agent.session.context_manager.replace_with_summary("## ORIGINAL GOAL\ncontinue")
+
+        messages = agent.session.context_manager.get_snapshot_messages()
+        content = "\n".join(str(message.get("content", "")) for message in messages)
+        self.assertIn("Do NOT perform git write actions", content)
+        self.assertIn("wait for user confirmation instead", content)
 
     async def test_low_value_exit_prompt_is_not_used_as_focus(self) -> None:
         workspace = self.base_path / "ws-low-value-focus"

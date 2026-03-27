@@ -773,6 +773,7 @@ class Agent:
                         trigger_tokens=trigger_tokens,
                         context_window=context_window,
                         summary_chars=len(summary),
+                        trigger_reason="threshold",
                     )
 
             tool_schemas = session.tool_registry.get_schemas()
@@ -848,6 +849,7 @@ class Agent:
                             trigger_tokens=trigger_tokens,
                             context_window=context_window,
                             summary_chars=len(summary),
+                            trigger_reason="overflow_retry",
                         )
                         overflow_compaction_attempted = True
                         continue

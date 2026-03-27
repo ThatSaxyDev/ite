@@ -307,11 +307,17 @@ class AgentEventControllerMixin:
         elif event.type == AgentEventType.CONTEXT_COMPACTED:
             trigger_tokens = int(event.data.get("trigger_tokens", 0))
             context_window = int(event.data.get("context_window", 0))
+            trigger_reason = str(event.data.get("trigger_reason", "threshold"))
             used_pct = (trigger_tokens / context_window * 100) if context_window else 0
+            message = (
+                f"Context compacted after overflow retry. Local estimate was {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
+                if trigger_reason == "overflow_retry"
+                else f"Context compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
+            )
             self._add_assistant_card(
                 "Context",
                 ft.Text(
-                    f"Context compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used).",
+                    message,
                     color=TEXT_SECONDARY,
                 ),
             )

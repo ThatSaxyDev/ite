@@ -141,6 +141,41 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(decision, ApprovalDecision.APPROVED)
 
+    async def test_shell_approval_classification_auto_policy_still_confirms_git_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            manager = ApprovalManager(ApprovalPolicy.AUTO, cwd)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+            command = "git add src/app.py && git commit -m 'save work'"
+
+            decision = await manager.check_approval(
+                ApprovalContext(
+                    tool_name="shell",
+                    params={"command": command},
+                    is_mutating=tool.is_mutating({"command": command}),
+                    affected_paths=[],
+                    command=command,
+                )
+            )
+
+            self.assertEqual(decision, ApprovalDecision.NEEDS_CONFIRMATION)
+
+    async def test_git_commit_tool_requires_confirmation_even_in_auto_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            manager = ApprovalManager(ApprovalPolicy.AUTO, cwd)
+
+            decision = await manager.check_approval(
+                ApprovalContext(
+                    tool_name="git_commit",
+                    params={"message": "checkpoint"},
+                    is_mutating=True,
+                    affected_paths=[cwd],
+                )
+            )
+
+            self.assertEqual(decision, ApprovalDecision.NEEDS_CONFIRMATION)
+
     async def test_shell_execute_allows_inside_sandbox(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

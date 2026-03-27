@@ -262,6 +262,47 @@ class GitToolTests(unittest.IsolatedAsyncioTestCase):
             head = _run_git(cwd, "log", "-1", "--format=%s").stdout.strip()
             self.assertEqual(head, "update app")
 
+    async def test_git_commit_confirmation_explains_reason_and_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            _init_repo(cwd)
+            _commit_file(cwd, "app.py", "print('one')\n", "initial commit")
+            (cwd / "app.py").write_text("print('two')\n", encoding="utf-8")
+            _run_git(cwd, "add", "app.py")
+            (cwd / "notes.txt").write_text("draft\n", encoding="utf-8")
+
+            tool = GitCommitTool(Config(cwd=cwd, api_key="test"))
+            confirmation = await tool.get_confirmation(
+                ToolInvocation(params={"message": "update app"}, cwd=cwd)
+            )
+
+            assert confirmation is not None
+            self.assertIn("Reason for approval: git write actions always require a final confirmation.", confirmation.description)
+            self.assertIn("Will commit only the changes that are already staged.", confirmation.description)
+            self.assertIn("Working tree now:", confirmation.description)
+            self.assertIn("Files: app.py", confirmation.description)
+
+    async def test_git_commit_confirmation_mentions_staging_working_tree_when_requested(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            _init_repo(cwd)
+            _commit_file(cwd, "app.py", "print('one')\n", "initial commit")
+            (cwd / "app.py").write_text("print('two')\n", encoding="utf-8")
+            (cwd / "notes.txt").write_text("draft\n", encoding="utf-8")
+
+            tool = GitCommitTool(Config(cwd=cwd, api_key="test"))
+            confirmation = await tool.get_confirmation(
+                ToolInvocation(
+                    params={"message": "checkpoint", "include_unstaged": True, "push": True},
+                    cwd=cwd,
+                )
+            )
+
+            assert confirmation is not None
+            self.assertIn("Will stage current working tree changes before committing.", confirmation.description)
+            self.assertIn("This action will also push after creating the commit.", confirmation.description)
+            self.assertIn("Files: app.py, notes.txt", confirmation.description)
+
     async def test_git_push_fails_cleanly_without_remote(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

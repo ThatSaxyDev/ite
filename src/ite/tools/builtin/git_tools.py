@@ -100,6 +100,37 @@ def _build_file_entries(change_set: Any | None, cwd: Path) -> list[dict[str, Any
     return entries
 
 
+def _summarize_commit_confirmation(cwd: Path, *, include_unstaged: bool, push: bool) -> str:
+    branch = current_branch(cwd) or "unknown"
+    change_set = working_tree_change_set(cwd)
+    staged = [_rel_path(diff.path, cwd) for diff in getattr(change_set, "staged_changes", [])]
+    unstaged = [_rel_path(diff.path, cwd) for diff in getattr(change_set, "unstaged_changes", [])]
+    untracked = [_rel_path(diff.path, cwd) for diff in getattr(change_set, "untracked_changes", [])]
+
+    if include_unstaged:
+        visible_files = list(dict.fromkeys([*staged, *unstaged, *untracked]))
+        scope = "Will stage current working tree changes before committing."
+    else:
+        visible_files = list(dict.fromkeys(staged))
+        scope = "Will commit only the changes that are already staged."
+
+    preview = ", ".join(visible_files[:5])
+    if len(visible_files) > 5:
+        preview = f"{preview}, +{len(visible_files) - 5} more"
+
+    lines = [
+        f"Branch: {branch}",
+        "Reason for approval: git write actions always require a final confirmation.",
+        scope,
+        f"Working tree now: {len(staged)} staged, {len(unstaged)} unstaged, {len(untracked)} untracked.",
+    ]
+    if preview:
+        lines.append(f"Files: {preview}")
+    if push:
+        lines.append("This action will also push after creating the commit.")
+    return "\n".join(lines)
+
+
 class GitStatusParams(BaseModel):
     include_diff_summary: bool = Field(
         True,
@@ -535,12 +566,20 @@ class GitCommitTool(Tool):
 
     async def get_confirmation(self, invocation: ToolInvocation) -> ToolConfirmation | None:
         params = GitCommitParams(**invocation.params)
-        push_suffix = " and push" if params.push else ""
+        cwd = invocation.cwd.resolve()
+        summary = _summarize_commit_confirmation(
+            cwd,
+            include_unstaged=params.include_unstaged,
+            push=params.push,
+        )
         return ToolConfirmation(
             tool_name=self.name,
-            description=f"Create git commit{push_suffix}: {params.message.strip() or 'Update files'}",
+            description=(
+                f"Create git commit: {params.message.strip() or 'Update files'}\n\n"
+                f"{summary}"
+            ),
             params=invocation.params,
-            affected_paths=[invocation.cwd.resolve()],
+            affected_paths=[cwd],
         )
 
     async def execute(self, invocation: ToolInvocation) -> ToolResult:

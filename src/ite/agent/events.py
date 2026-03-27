@@ -155,6 +155,7 @@ class AgentEvent:
         trigger_tokens: int,
         context_window: int,
         summary_chars: int,
+        trigger_reason: str = "threshold",
     ) -> AgentEvent:
         return cls(
             type=AgentEventType.CONTEXT_COMPACTED,
@@ -162,6 +163,7 @@ class AgentEvent:
                 "trigger_tokens": trigger_tokens,
                 "context_window": context_window,
                 "summary_chars": summary_chars,
+                "trigger_reason": trigger_reason,
             },
         )
 

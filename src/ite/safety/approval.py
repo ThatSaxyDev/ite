@@ -3,6 +3,7 @@ from enum import Enum
 from pathlib import Path
 import re
 import inspect
+import shlex
 from typing import Any, Awaitable, Callable
 from ite.config.config import ApprovalPolicy
 from ite.tools.base import ToolConfirmation
@@ -93,6 +94,36 @@ AUTO_APPROVE_ON_REQUEST_IN_CWD_TOOLS = {
     "write_file",
 }
 
+ALWAYS_CONFIRM_TOOLS = {
+    "git_commit",
+    "git_push",
+}
+
+_READ_ONLY_GIT_BRANCH_FLAGS = {
+    "-a",
+    "-r",
+    "-v",
+    "-vv",
+    "--all",
+    "--remotes",
+    "--show-current",
+    "--list",
+}
+
+_READ_ONLY_GIT_REMOTE_FLAGS = {
+    "-v",
+}
+
+_READ_ONLY_GIT_TAG_FLAGS = {
+    "-l",
+    "--list",
+    "-n",
+    "--contains",
+    "--points-at",
+    "--merged",
+    "--no-merged",
+}
+
 
 def _split_compound_command(command: str) -> list[str]:
     """Split a compound command into individual sub-commands.
@@ -105,6 +136,54 @@ def _split_compound_command(command: str) -> list[str]:
     subshells = re.findall(r"\$\(([^)]+)\)", command)
     parts.extend(subshells)
     return [p.strip() for p in parts if p.strip()]
+
+
+def _git_command_requires_confirmation(command: str) -> bool:
+    for sub_cmd in _split_compound_command(command):
+        if _single_git_command_requires_confirmation(sub_cmd):
+            return True
+    return False
+
+
+def _single_git_command_requires_confirmation(command: str) -> bool:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return command.strip().lower().startswith("git ")
+
+    if not tokens or tokens[0] != "git":
+        return False
+
+    index = 1
+    while index < len(tokens) and tokens[index].startswith("-"):
+        flag = tokens[index]
+        index += 1
+        if flag in {"-C", "-c"} and index < len(tokens):
+            index += 1
+
+    if index >= len(tokens):
+        return False
+
+    subcommand = tokens[index]
+    args = tokens[index + 1 :]
+
+    if subcommand in {"status", "log", "diff", "show"}:
+        return False
+
+    if subcommand == "branch":
+        return bool(args) and not all(arg in _READ_ONLY_GIT_BRANCH_FLAGS for arg in args)
+
+    if subcommand == "remote":
+        if not args:
+            return False
+        if args[0] == "show":
+            return False
+        return not all(arg in _READ_ONLY_GIT_REMOTE_FLAGS for arg in args)
+
+    if subcommand == "tag":
+        return bool(args) and not all(arg in _READ_ONLY_GIT_TAG_FLAGS for arg in args)
+
+    return True
 
 
 def is_dangerous_command(command: str) -> bool:
@@ -165,6 +244,11 @@ class ApprovalManager:
         if is_dangerous_command(command):
             return ApprovalDecision.REJECTED
 
+        if _git_command_requires_confirmation(command):
+            if self.approval_policy == ApprovalPolicy.NEVER:
+                return ApprovalDecision.REJECTED
+            return ApprovalDecision.NEEDS_CONFIRMATION
+
         if self.approval_policy == ApprovalPolicy.NEVER:
             if is_safe_command(command):
                 return ApprovalDecision.APPROVED
@@ -194,6 +278,13 @@ class ApprovalManager:
             and self.approval_policy != ApprovalPolicy.NEVER
         ):
             return ApprovalDecision.APPROVED
+
+        if context.tool_name in ALWAYS_CONFIRM_TOOLS:
+            if self.approval_policy == ApprovalPolicy.YOLO:
+                return ApprovalDecision.APPROVED
+            if self.approval_policy == ApprovalPolicy.NEVER:
+                return ApprovalDecision.REJECTED
+            return ApprovalDecision.NEEDS_CONFIRMATION
 
         if context.command:
             decision = self._assess_command_safety(context.command)
