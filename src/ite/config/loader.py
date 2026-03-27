@@ -2,6 +2,7 @@ from platformdirs import user_data_dir
 import logging
 import os
 import json
+import re
 from typing import Any
 import keyring
 from ite.utils.errors import ConfigError
@@ -39,6 +40,8 @@ like SQL injection, XSS, and hardcoded secrets.
 """
 
 logger = logging.getLogger(__name__)
+_TOML_TABLE_RE = re.compile(r"^\s*\[(.+?)\]\s*$")
+_TOML_BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def get_config_dir() -> Path:
@@ -254,6 +257,137 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     os.chmod(config_path, 0o600)
     return config_path
+
+
+def save_mcp_server_config(
+    *,
+    cwd: Path | None,
+    scope: str,
+    server: str,
+    config: dict[str, Any],
+) -> Path:
+    path = _mcp_config_path_for_scope(cwd, scope)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    table_name = f"mcp_servers.{server}"
+    remaining = _remove_toml_table(existing, table_name).rstrip()
+    section = _render_mcp_server_section(server, config)
+    content = f"{remaining}\n\n{section}\n" if remaining else f"{section}\n"
+    path.write_text(content, encoding="utf-8")
+    if path == get_system_config_path():
+        os.chmod(path, 0o600)
+    return path
+
+
+def load_mcp_server_config(
+    *,
+    cwd: Path | None,
+    scope: str,
+    server: str,
+) -> dict[str, Any] | None:
+    path = _mcp_config_path_for_scope(cwd, scope)
+    if not path.exists():
+        return None
+    try:
+        raw = _parse_toml(path)
+    except ConfigError:
+        return None
+    mcp_servers = raw.get("mcp_servers", {})
+    if not isinstance(mcp_servers, dict):
+        return None
+    server_cfg = mcp_servers.get(server)
+    return dict(server_cfg) if isinstance(server_cfg, dict) else None
+
+
+def _mcp_config_path_for_scope(cwd: Path | None, scope: str) -> Path:
+    normalized = str(scope or "workspace").strip().lower()
+    if normalized == "global":
+        return get_system_config_path()
+    if cwd is None:
+        raise ValueError("Workspace cwd is required for workspace-scoped MCP config")
+    return ensure_workspace_layout(cwd) / CONFIG_FILE_NAME
+
+
+def _remove_toml_table(text: str, table_name: str) -> str:
+    if not text.strip():
+        return ""
+    lines = text.splitlines()
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        match = _TOML_TABLE_RE.match(line)
+        if match:
+            current_name = match.group(1).strip()
+            if current_name == table_name:
+                skipping = True
+                continue
+            if skipping:
+                skipping = False
+        if not skipping:
+            kept.append(line)
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return "\n".join(kept)
+
+
+def _render_mcp_server_section(server: str, config: dict[str, Any]) -> str:
+    lines = [f"[mcp_servers.{server}]"]
+    preferred_order = [
+        "enabled",
+        "auto_connect",
+        "startup_timeout_sec",
+        "command",
+        "args",
+        "env",
+        "cwd",
+        "url",
+        "transport",
+        "headers",
+        "auth",
+        "sse_read_timeout_sec",
+        "oauth_timeout_sec",
+        "oauth_scopes",
+        "oauth_client_name",
+        "oauth_callback_port",
+    ]
+    seen: set[str] = set()
+    for key in preferred_order:
+        if key in config:
+            lines.append(f"{key} = {_toml_value(config[key])}")
+            seen.add(key)
+    for key, value in config.items():
+        if key in seen:
+            continue
+        lines.append(f"{key} = {_toml_value(value)}")
+    return "\n".join(lines)
+
+
+def _toml_key(key: str) -> str:
+    if _TOML_BARE_KEY_RE.match(key):
+        return key
+    return json.dumps(key, ensure_ascii=False)
+
+
+def _toml_value(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, Path):
+        return json.dumps(str(value), ensure_ascii=False)
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    if isinstance(value, dict):
+        body = ", ".join(
+            f"{_toml_key(str(key))} = {_toml_value(item)}"
+            for key, item in value.items()
+        )
+        return "{ " + body + " }"
+    if value is None:
+        return '""'
+    return json.dumps(str(value), ensure_ascii=False)
 
 
 def load_mcp_env_store(cwd: Path | None, scope: str = "workspace") -> dict[str, dict[str, str]]:

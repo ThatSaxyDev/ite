@@ -813,6 +813,88 @@ class MCPEnvCommandTests(unittest.IsolatedAsyncioTestCase):
             )
 
 
+class MCPAddCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mcp_add_copies_workspace_server_to_global_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as sys_td:
+            cwd = Path(td)
+            ite_dir = cwd / ".ite"
+            ite_dir.mkdir(parents=True, exist_ok=True)
+            (ite_dir / "config.toml").write_text(
+                "\n".join(
+                    [
+                        "[mcp_servers.netlify]",
+                        'command = "npx"',
+                        'args = ["-y", "@netlify/mcp"]',
+                        "auto_connect = true",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            console_output = io.StringIO()
+            console = Console(file=console_output, force_terminal=False, width=160)
+            config = load_config(cwd)
+            manager = SimpleNamespace(_clients={})
+            ctx = CommandContext(
+                config=config,
+                agent=SimpleNamespace(
+                    session=SimpleNamespace(
+                        mcp_manager=manager,
+                        tool_registry=SimpleNamespace(),
+                    )
+                ),
+                tui=SimpleNamespace(),
+                console=console,
+            )
+
+            with patch("ite.config.loader.get_config_dir", return_value=Path(sys_td)):
+                await cmd_mcp(ctx, ["add", "netlify"])
+
+            system_config = (Path(sys_td) / "config.toml").read_text(encoding="utf-8")
+            self.assertIn("[mcp_servers.netlify]", system_config)
+            self.assertIn('command = "npx"', system_config)
+            self.assertIn('args = ["-y", "@netlify/mcp"]', system_config)
+            self.assertIn("auto_connect = true", system_config)
+
+    async def test_mcp_add_can_copy_global_server_to_workspace_config(self) -> None:
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as sys_td:
+            cwd = Path(td)
+            system_dir = Path(sys_td)
+            (system_dir / "config.toml").write_text(
+                "\n".join(
+                    [
+                        "[mcp_servers.chrome-devtools]",
+                        'url = "http://127.0.0.1:9222/mcp"',
+                        'transport = "streamable_http"',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            console_output = io.StringIO()
+            console = Console(file=console_output, force_terminal=False, width=160)
+
+            with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+                config = load_config(cwd)
+                manager = SimpleNamespace(_clients={})
+                ctx = CommandContext(
+                    config=config,
+                    agent=SimpleNamespace(
+                        session=SimpleNamespace(
+                            mcp_manager=manager,
+                            tool_registry=SimpleNamespace(),
+                        )
+                    ),
+                    tui=SimpleNamespace(),
+                    console=console,
+                )
+                await cmd_mcp(ctx, ["add", "chrome-devtools", "--scope", "workspace"])
+
+            workspace_config = (cwd / ".ite" / "config.toml").read_text(encoding="utf-8")
+            self.assertIn("[mcp_servers.chrome-devtools]", workspace_config)
+            self.assertIn('url = "http://127.0.0.1:9222/mcp"', workspace_config)
+
+
 class MCPOAuthStorageTests(unittest.IsolatedAsyncioTestCase):
     async def test_file_async_key_value_store_persists_values(self) -> None:
         with tempfile.TemporaryDirectory() as td:

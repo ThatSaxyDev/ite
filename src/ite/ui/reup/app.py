@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shlex
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -434,6 +435,7 @@ class ReupApp(App):
         self._open_session_order: list[str] = []
         self._open_session_workspaces: dict[str, Path] = {}
         self._session_tabs_version: int = 0
+        self._shutdown_started: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -524,18 +526,31 @@ class ReupApp(App):
         self._sync_command_palette("")
 
     async def on_unmount(self) -> None:
-        await self.cancel_active_turn()
+        await self._shutdown_agents()
+
+    async def _shutdown_agents(self) -> None:
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+
+        try:
+            await asyncio.wait_for(self.cancel_active_turn(), timeout=1.5)
+        except Exception:
+            pass
+
         agents_to_close: dict[str, Agent] = {}
         if self.agent is not None and self.agent.session is not None:
             session_id = self._session_id(self.agent.session)
             if session_id:
                 agents_to_close[session_id] = self.agent
         agents_to_close.update(self._session_agents)
+
         for agent in agents_to_close.values():
             try:
-                await agent.__aexit__(None, None, None)
+                await asyncio.wait_for(agent.__aexit__(None, None, None), timeout=2.0)
             except Exception:
                 pass
+
         if self.agent is not None:
             self.agent = None
 
@@ -3404,6 +3419,7 @@ class ReupApp(App):
         args = parts[1:]
 
         if command in {"/exit", "/quit"}:
+            await self._shutdown_agents()
             self.exit()
             return
 
@@ -6278,3 +6294,6 @@ class ReupApp(App):
 def run_reup(config: Config) -> None:
     app = ReupApp(config)
     app.run()
+    if sys.stdout.isatty():
+        sys.stdout.write("\n")
+        sys.stdout.flush()

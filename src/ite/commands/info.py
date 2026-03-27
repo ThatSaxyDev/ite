@@ -7,8 +7,10 @@ from ite.config.loader import (
     get_system_secrets_path,
     get_workspace_secrets_path,
     load_config,
+    load_mcp_server_config,
     load_mcp_env_store,
     remove_mcp_env_var,
+    save_mcp_server_config,
     save_mcp_env_var,
 )
 from ite.memory import MemoryManager
@@ -494,6 +496,10 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
         await _cmd_mcp_env(ctx, args[1:])
         return
 
+    if subcommand == "add":
+        await _cmd_mcp_add(ctx, args[1:])
+        return
+
     if subcommand == "doctor":
         await _cmd_mcp_doctor(ctx, args[1:])
         return
@@ -503,6 +509,7 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
             "[error]Usage:[/error] [code]/mcp[/code], "
             "[code]/mcp start <server>[/code], "
             "[code]/mcp stop <server>[/code], "
+            "[code]/mcp add ...[/code], "
             "[code]/mcp env ...[/code], "
             "[code]/mcp doctor <server>[/code]"
         )
@@ -659,6 +666,51 @@ async def _cmd_mcp_env(ctx: CommandContext, args: list[str]) -> None:
         "[code]/mcp env import <server> <KEY> [PROCESS_ENV_NAME][/code], "
         "[code]/mcp env unset <server> <KEY>[/code] "
         "[dim](defaults to --scope global)[/dim]"
+    )
+
+
+async def _cmd_mcp_add(ctx: CommandContext, args: list[str]) -> None:
+    scope, remaining = _extract_scope_flag(args)
+    scope = scope or "global"
+    if not remaining:
+        _print_mcp_add_usage(ctx)
+        return
+
+    server = remaining[0].strip()
+    if not server or len(remaining) > 1:
+        _print_mcp_add_usage(ctx)
+        return
+
+    source_scope = "workspace" if scope == "global" else "global"
+    source_config = load_mcp_server_config(
+        cwd=ctx.config.cwd,
+        scope=source_scope,
+        server=server,
+    )
+    if source_config is None:
+        ctx.console.print(
+            f"[error]MCP server not found in {source_scope} config:[/error] [code]{server}[/code]"
+        )
+        return
+
+    path = save_mcp_server_config(
+        cwd=ctx.config.cwd,
+        scope=scope,
+        server=server,
+        config=source_config,
+    )
+    _reload_mcp_runtime_config(ctx)
+    ctx.console.print(
+        f"[success]Copied MCP server[/success] [cyan]{server}[/cyan] "
+        f"[dim]from {source_scope} to {scope} config ({path})[/dim]"
+    )
+
+
+def _print_mcp_add_usage(ctx: CommandContext) -> None:
+    ctx.console.print(
+        "[error]Usage:[/error] "
+        "[code]/mcp add <server> [--scope global|workspace][/code] "
+        "[dim](copies the server definition from the opposite config scope)[/dim]"
     )
 
 
