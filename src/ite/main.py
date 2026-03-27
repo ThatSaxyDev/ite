@@ -32,6 +32,7 @@ from rich.text import Text
 from rich import box
 from ite.ui.tool_narrative import progress_label
 from dataclasses import dataclass
+from ite.config.loader import save_mcp_server_config
 
 try:
     from prompt_toolkit import PromptSession
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 console = get_console()
 
 
-class IteCommand(click.Command):
+class _HintingMixin:
     _hint_map = {
         "c": "Use `ite` for reup. Use `ite -l` for legacy or `ite -d` for desktop.",
         "chat": "Use `ite` for reup. Use `ite -l` for legacy or `ite -d` for desktop.",
@@ -63,6 +64,14 @@ class IteCommand(click.Command):
                 rendered = f"-{option_name}" if len(option_name) == 1 else f"--{option_name}"
                 raise click.UsageError(f"No such option '{rendered}'. {hint}") from None
             raise
+
+
+class IteCommand(_HintingMixin, click.Command):
+    pass
+
+
+class IteGroup(_HintingMixin, click.Group):
+    pass
 
 
 @dataclass(frozen=True)
@@ -1201,8 +1210,80 @@ class CLI:
                 AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
 
 
-@click.command(cls=IteCommand)
-@click.version_option(version="0.0.19", prog_name="ite")
+def _load_runtime_config(
+    *,
+    workspace_dir: Path,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+) -> Config:
+    ensure_workspace_layout(workspace_dir)
+    try:
+        config = load_config(cwd=workspace_dir)
+    except Exception as e:
+        console.print(f"[error]Configuration error: {e}[/error]")
+        sys.exit(1)
+
+    if api_key:
+        config.api_key = api_key
+    if base_url:
+        config.base_url = base_url
+    if model:
+        config.model.name = model
+    return config
+
+
+def _run_main_app(
+    *,
+    workspace_dir: Path,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    desktop: bool,
+    legacy: bool,
+) -> None:
+    config = _load_runtime_config(
+        workspace_dir=workspace_dir,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+
+    # Setup routing:
+    # - Legacy TUI: keep terminal wizard behavior.
+    # - GUI: launch GUI setup view instead of forcing terminal wizard first.
+    # - Reup (default): chat-first terminal app.
+    if not desktop and not legacy and config.needs_setup:
+        from ite.config.setup import run_setup_wizard
+
+        config = run_setup_wizard(console, config)
+
+    errors = config.validate()
+    if errors:
+        setup_missing_errors = {"missing_api_key", "missing_base_url", "missing_model"}
+        if desktop or chat:
+            real_errors = [e for e in errors if e not in setup_missing_errors]
+        else:
+            real_errors = [e for e in errors if e not in setup_missing_errors]
+        if real_errors:
+            for error in real_errors:
+                console.print(f"[error]{error}[/error]")
+            sys.exit(1)
+
+    if desktop:
+        from ite.ui.gui import run_gui
+        run_gui(config)
+    elif legacy:
+        cli = CLI(config)
+        asyncio.run(cli.run_interactive())
+    else:
+        from ite.ui.reup import run_reup
+
+        run_reup(config)
+
+
+@click.group(cls=IteGroup, invoke_without_command=True)
+@click.version_option(version="0.0.20", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",
@@ -1224,7 +1305,9 @@ class CLI:
     is_flag=True,
     help="Launch the legacy terminal UI",
 )
+@click.pass_context
 def main(
+    ctx: click.Context,
     cwd: Path | None,
     model: str | None,
     api_key: str | None,
@@ -1233,56 +1316,69 @@ def main(
     legacy: bool = False,
 ):
     workspace_dir = cwd or Path.cwd()
+    ctx.ensure_object(dict)
+    ctx.obj["workspace_dir"] = workspace_dir
+    ctx.obj["model"] = model
+    ctx.obj["api_key"] = api_key
+    ctx.obj["base_url"] = base_url
+    if ctx.invoked_subcommand is None:
+        _run_main_app(
+            workspace_dir=workspace_dir,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            desktop=desktop,
+            legacy=legacy,
+        )
+
+
+@main.group("mcp")
+def mcp_group() -> None:
+    """Manage persisted MCP server definitions."""
+
+
+@mcp_group.command("add", context_settings={"ignore_unknown_options": True})
+@click.argument("server")
+@click.argument("target")
+@click.argument("target_args", nargs=-1, type=str)
+@click.option(
+    "--scope",
+    type=click.Choice(["global", "workspace"]),
+    default="global",
+    show_default=True,
+)
+@click.pass_context
+def mcp_add(
+    ctx: click.Context,
+    server: str,
+    target: str,
+    target_args: tuple[str, ...],
+    scope: str,
+) -> None:
+    workspace_dir = Path(ctx.obj.get("workspace_dir") or Path.cwd())
     ensure_workspace_layout(workspace_dir)
 
-    try:
-        config = load_config(cwd=workspace_dir)
-    except Exception as e:
-        console.print(f"[error]Configuration error: {e}[/error]")
-        sys.exit(1)
-
-    # CLI flags override everything
-    if api_key:
-        config.api_key = api_key
-    if base_url:
-        config.base_url = base_url
-    if model:
-        config.model.name = model
-
-    # Setup routing:
-    # - Legacy TUI: keep terminal wizard behavior.
-    # - GUI: launch GUI setup view instead of forcing terminal wizard first.
-    # - Reup (default): chat-first terminal app.
-    if not desktop and not legacy and config.needs_setup:
-        from ite.config.setup import run_setup_wizard
-
-        config = run_setup_wizard(console, config)
-
-    errors = config.validate()
-    if errors:
-        # In GUI mode missing_api_key is handled by the in-app setup flow.
-        setup_missing_errors = {"missing_api_key", "missing_base_url", "missing_model"}
-        if desktop or chat:
-            real_errors = [e for e in errors if e not in setup_missing_errors]
-        else:
-            # For TUI the wizard should have already handled setup-required fields.
-            real_errors = [e for e in errors if e not in setup_missing_errors]
-        if real_errors:
-            for error in real_errors:
-                console.print(f"[error]{error}[/error]")
-            sys.exit(1)
-
-    if desktop:
-        from ite.ui.gui import run_gui
-        run_gui(config)
-    elif legacy:
-        cli = CLI(config)
-        asyncio.run(cli.run_interactive())
+    payload: dict[str, Any]
+    if target.startswith(("http://", "https://")):
+        payload = {"url": target}
     else:
-        # Default: launch reup (chat-first terminal app)
-        from ite.ui.reup import run_reup
+        payload = {"command": target}
+        if target_args:
+            payload["args"] = list(target_args)
 
-        run_reup(config)
+    try:
+        path = save_mcp_server_config(
+            cwd=workspace_dir,
+            scope=scope,
+            server=server,
+            config=payload,
+        )
+    except Exception as exc:
+        raise click.ClickException(f"Failed to save MCP server '{server}': {exc}") from exc
+    console.print(
+        f"[success]Saved MCP server[/success] [cyan]{server}[/cyan] "
+        f"[dim]to {scope} config ({path})[/dim]"
+    )
 
 
 if __name__ == "__main__":

@@ -740,6 +740,65 @@ class MCPConfigTests(unittest.TestCase):
             self.assertEqual(env["NETLIFY_PERSONAL_ACCESS_TOKEN"], "workspace-token")
             self.assertEqual(env["NETLIFY_TEAM_ID"], "team-123")
 
+    def test_load_config_skips_invalid_mcp_server_instead_of_failing_startup(self) -> None:
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as sys_td:
+            cwd = Path(td)
+            ite_dir = cwd / ".ite"
+            ite_dir.mkdir(parents=True, exist_ok=True)
+            (ite_dir / "config.toml").write_text(
+                "\n".join(
+                    [
+                        "[mcp_servers.netlify]",
+                        "enabled = true",
+                        "",
+                        "[mcp_servers.chrome]",
+                        'command = "npx"',
+                        'args = ["-y", "chrome-devtools-mcp@latest"]',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("ite.config.loader.get_config_dir", return_value=Path(sys_td)):
+                config = load_config(cwd)
+
+            self.assertNotIn("netlify", config.mcp_servers)
+            self.assertIn("chrome", config.mcp_servers)
+
+    def test_load_config_does_not_create_mcp_server_from_secrets_only(self) -> None:
+        with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as sys_td:
+            cwd = Path(td)
+            ite_dir = cwd / ".ite"
+            ite_dir.mkdir(parents=True, exist_ok=True)
+            (ite_dir / "config.toml").write_text(
+                "\n".join(
+                    [
+                        "[mcp_servers.chrome]",
+                        'command = "npx"',
+                        'args = ["-y", "chrome-devtools-mcp@latest"]',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (ite_dir / "secrets.toml").write_text(
+                "\n".join(
+                    [
+                        "[mcp_env.netlify]",
+                        'NETLIFY_PERSONAL_ACCESS_TOKEN = "workspace-token"',
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("ite.config.loader.get_config_dir", return_value=Path(sys_td)):
+                config = load_config(cwd)
+
+            self.assertNotIn("netlify", config.mcp_servers)
+            self.assertIn("chrome", config.mcp_servers)
+
 
 class MCPEnvCommandTests(unittest.IsolatedAsyncioTestCase):
     async def test_mcp_env_import_defaults_to_global_scope_and_reloads_runtime(self) -> None:

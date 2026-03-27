@@ -78,6 +78,45 @@ class CLIModeRoutingTests(unittest.TestCase):
         mock_run_gui.assert_called_once()
         mock_run_reup.assert_not_called()
 
+    def test_mcp_add_writes_global_stdio_server(self) -> None:
+        system_dir = self.cwd / "system"
+        system_dir.mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("ite.main.ensure_workspace_layout", return_value=self.cwd / ".ite"),
+            patch("ite.config.loader.get_config_dir", return_value=system_dir),
+        ):
+            result = self.runner.invoke(
+                main,
+                ["mcp", "add", "netlify", "npx", "--", "-y", "@netlify/mcp"],
+            )
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        written = (system_dir / "config.toml").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.netlify]", written)
+        self.assertIn('command = "npx"', written)
+        self.assertIn('args = ["-y", "@netlify/mcp"]', written)
+
+    def test_mcp_add_writes_workspace_url_server(self) -> None:
+        result = self.runner.invoke(
+            main,
+            [
+                "--cwd",
+                str(self.cwd),
+                "mcp",
+                "add",
+                "chrome-devtools",
+                "https://127.0.0.1:9222/mcp",
+                "--scope",
+                "workspace",
+            ],
+        )
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        written = (self.cwd / ".ite" / "config.toml").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.chrome-devtools]", written)
+        self.assertIn('url = "https://127.0.0.1:9222/mcp"', written)
+
 
 if __name__ == "__main__":
     unittest.main()

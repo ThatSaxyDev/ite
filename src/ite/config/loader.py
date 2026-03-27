@@ -8,7 +8,7 @@ import keyring
 from ite.utils.errors import ConfigError
 from ite.config.config import ApprovalPolicy
 import tomli
-from ite.config.config import Config
+from ite.config.config import Config, MCPServerConfig
 from pathlib import Path
 from platformdirs import user_config_dir
 from pydantic import ValidationError
@@ -189,6 +189,8 @@ def load_config(
         if agent_md_content:
             config_dict["developer_instructions"] = agent_md_content
 
+    config_dict = _drop_invalid_mcp_servers(config_dict)
+
     try:
         config = Config(**config_dict)
     except ValidationError as e:
@@ -197,6 +199,28 @@ def load_config(
         raise ConfigError(f"Invalid configuration: {e}") from e
 
     return config
+
+
+def _drop_invalid_mcp_servers(config_dict: dict[str, Any]) -> dict[str, Any]:
+    raw_servers = config_dict.get("mcp_servers")
+    if not isinstance(raw_servers, dict):
+        return config_dict
+
+    valid_servers: dict[str, Any] = {}
+    for name, raw in raw_servers.items():
+        if not isinstance(raw, dict):
+            logger.warning("Skipping invalid MCP server '%s': entry must be a table", name)
+            continue
+        try:
+            validated = MCPServerConfig(**raw)
+        except Exception as exc:
+            logger.warning("Skipping invalid MCP server '%s': %s", name, exc)
+            continue
+        valid_servers[str(name)] = validated.model_dump(exclude_defaults=True)
+
+    result = dict(config_dict)
+    result["mcp_servers"] = valid_servers
+    return result
 
 
 def save_system_config(
@@ -266,12 +290,13 @@ def save_mcp_server_config(
     server: str,
     config: dict[str, Any],
 ) -> Path:
+    normalized = MCPServerConfig(**config).model_dump(exclude_defaults=True)
     path = _mcp_config_path_for_scope(cwd, scope)
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     table_name = f"mcp_servers.{server}"
     remaining = _remove_toml_table(existing, table_name).rstrip()
-    section = _render_mcp_server_section(server, config)
+    section = _render_mcp_server_section(server, normalized)
     content = f"{remaining}\n\n{section}\n" if remaining else f"{section}\n"
     path.write_text(content, encoding="utf-8")
     if path == get_system_config_path():
@@ -476,6 +501,8 @@ def _merge_mcp_secrets_into_config(
     result = config_dict.copy()
     mcp_servers = dict(result.get("mcp_servers", {}) or {})
     for server, values in secrets.items():
+        if server not in mcp_servers:
+            continue
         server_cfg = dict(mcp_servers.get(server, {}) or {})
         merged_env = dict(server_cfg.get("env", {}) or {})
         merged_env.update(values)

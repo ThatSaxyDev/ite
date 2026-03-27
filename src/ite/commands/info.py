@@ -693,12 +693,16 @@ async def _cmd_mcp_add(ctx: CommandContext, args: list[str]) -> None:
         )
         return
 
-    path = save_mcp_server_config(
-        cwd=ctx.config.cwd,
-        scope=scope,
-        server=server,
-        config=source_config,
-    )
+    try:
+        path = save_mcp_server_config(
+            cwd=ctx.config.cwd,
+            scope=scope,
+            server=server,
+            config=source_config,
+        )
+    except Exception as exc:
+        ctx.console.print(f"[error]Failed to copy MCP server:[/error] {exc}")
+        return
     _reload_mcp_runtime_config(ctx)
     ctx.console.print(
         f"[success]Copied MCP server[/success] [cyan]{server}[/cyan] "
