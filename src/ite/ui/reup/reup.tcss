@@ -954,6 +954,11 @@ Screen {
     margin-bottom: 2;
 }
 
+.block.tool.mcp-card {
+    background: #181a1d 96%;
+    padding: 1 2;
+}
+
 .block.success {
     border: none;
     background: #181a1d 94%;

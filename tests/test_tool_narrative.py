@@ -45,6 +45,27 @@ class ToolNarrativeTests(unittest.TestCase):
             "Loaded unstaged diff for lib/app.dart.",
         )
 
+    def test_mcp_tools_have_specific_narrative(self) -> None:
+        self.assertEqual(
+            describe_tool_activity(
+                "chrome-devtools__navigate_page",
+                {"url": "https://ite.kiishi.space"},
+                {"mcp_server": "chrome-devtools", "mcp_tool": "navigate_page"},
+                stage="start",
+            ),
+            "Calling Chrome Devtools `navigate page`.",
+        )
+        self.assertEqual(
+            describe_tool_activity(
+                "chrome-devtools__navigate_page",
+                {"url": "https://ite.kiishi.space"},
+                {"mcp_server": "chrome-devtools", "mcp_tool": "navigate_page"},
+                stage="complete",
+                success=True,
+            ),
+            "Chrome Devtools `navigate page` returned data.",
+        )
+
     def test_run_tests_has_specific_narrative_and_title(self) -> None:
         self.assertEqual(
             activity_title("run_tests", stage="complete", success=True),

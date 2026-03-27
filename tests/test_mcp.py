@@ -27,6 +27,7 @@ from ite.tools.mcp.mcp_tool import MCPTool
 from ite.ui.tool_narrative import activity_title
 from ite.ui.reup.tool_views import parse_nested_json_payload
 from ite.ui.reup.tool_views import summarize_mcp_success
+from ite.ui.reup.tool_views import format_mcp_identity
 
 
 class MCPClientTests(unittest.IsolatedAsyncioTestCase):
@@ -335,6 +336,30 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
                 "Open Chrome and allow the debugging session, then try again.",
             )
 
+    async def test_mcp_success_includes_ui_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock(
+                return_value={"output": '{"ok": true}', "is_error": False}
+            )
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="navigate_page",
+                    description="Navigate page",
+                    server_name="chrome-devtools",
+                ),
+                name="chrome-devtools__navigate_page",
+            )
+
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertTrue(result.success)
+            self.assertEqual(result.metadata["mcp_server"], "chrome-devtools")
+            self.assertEqual(result.metadata["mcp_tool"], "navigate_page")
+
 
 class MCPUiRenderingTests(unittest.TestCase):
     def test_activity_title_for_mcp_success_is_not_generic(self) -> None:
@@ -345,7 +370,7 @@ class MCPUiRenderingTests(unittest.TestCase):
             metadata={"mcp_server": "netlify"},
         )
 
-        self.assertEqual(title, "Netlify updated")
+        self.assertEqual(title, "Netlify MCP completed")
 
     def test_activity_title_humanizes_mcp_server_name(self) -> None:
         title = activity_title(
@@ -355,7 +380,7 @@ class MCPUiRenderingTests(unittest.TestCase):
             metadata={"mcp_server": "chrome-devtools"},
         )
 
-        self.assertEqual(title, "Chrome Devtools failed")
+        self.assertEqual(title, "Chrome Devtools MCP failed")
 
     def test_parse_nested_json_payload_decodes_stringified_json(self) -> None:
         parsed = parse_nested_json_payload(
@@ -375,6 +400,28 @@ class MCPUiRenderingTests(unittest.TestCase):
         self.assertEqual(summary, "Loaded 1 result from Netlify.")
         self.assertFalse(truncated)
         self.assertTrue(blocks)
+
+    def test_summarize_mcp_success_splits_plain_text_sections(self) -> None:
+        summary, blocks, truncated = summarize_mcp_success(
+            server_name="chrome-devtools",
+            tool_name="chrome-devtools__take_snapshot",
+            payload_text=(
+                "Pages\n\n"
+                "1: https://ite.kiishi.space/\n\n"
+                "Latest page snapshot\n\n"
+                'uid=1_0 RootWebArea "iTE - Coming Soon"'
+            ),
+        )
+
+        self.assertEqual(summary, "Chrome Devtools data loaded.")
+        self.assertFalse(truncated)
+        self.assertGreaterEqual(len(blocks), 4)
+
+    def test_format_mcp_identity_humanizes_server_and_tool_names(self) -> None:
+        self.assertEqual(
+            format_mcp_identity("chrome-devtools__navigate_page"),
+            "Chrome Devtools • Navigate Page",
+        )
 
 
 class MCPManagerTests(unittest.TestCase):

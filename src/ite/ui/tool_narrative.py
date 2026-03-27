@@ -25,10 +25,10 @@ def activity_title(
     if mcp_server:
         label = _server_label(mcp_server)
         if running:
-            return f"Checking {label}"
+            return f"{label} MCP running"
         if done:
-            return f"{label} updated"
-        return "Trying again" if recoverable else f"{label} failed"
+            return f"{label} MCP completed"
+        return "Trying again" if recoverable else f"{label} MCP failed"
     if redirect and not running and not done:
         return "Switching tools"
     if name == "read_file":
@@ -160,6 +160,23 @@ def describe_tool_activity(
         if redirect_to:
             return f"`{redirect_to}` fits this step better, so continuing there."
         return f"This step is being continued with a more suitable tool."
+
+    mcp_server = str(metadata.get("mcp_server") or "").strip()
+    mcp_tool = str(metadata.get("mcp_tool") or "").strip()
+    if not mcp_server and "__" in str(name or ""):
+        inferred_server, inferred_tool = str(name).split("__", 1)
+        mcp_server = inferred_server.strip()
+        if not mcp_tool:
+            mcp_tool = inferred_tool.strip()
+    if mcp_server:
+        server_label = _server_label(mcp_server)
+        tool_label = " ".join(part for part in re.split(r"[-_]+", mcp_tool) if part).strip()
+        quoted_tool = f" `{tool_label}`" if tool_label else ""
+        if stage == "start":
+            return f"Calling {server_label}{quoted_tool}."
+        if success:
+            return f"{server_label}{quoted_tool} returned data."
+        return f"{server_label}{quoted_tool} failed."
 
     if name == "read_file":
         path = _path(args, metadata)

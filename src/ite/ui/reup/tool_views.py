@@ -17,6 +17,47 @@ from ite.skills import build_skills_tool_renderable
 from ite.ui.tool_narrative import describe_tool_activity
 
 
+def split_mcp_tool_identity(
+    tool_name: str,
+    *,
+    server_name: str | None = None,
+    mcp_tool_name: str | None = None,
+) -> tuple[str, str]:
+    resolved_server = str(server_name or "").strip()
+    resolved_tool = str(mcp_tool_name or "").strip()
+    raw_name = str(tool_name or "").strip()
+    if raw_name and "__" in raw_name:
+        inferred_server, inferred_tool = raw_name.split("__", 1)
+        if not resolved_server:
+            resolved_server = inferred_server.strip()
+        if not resolved_tool:
+            resolved_tool = inferred_tool.strip()
+    elif raw_name and not resolved_tool:
+        resolved_tool = raw_name
+    return resolved_server, resolved_tool
+
+
+def humanize_mcp_name(value: str) -> str:
+    words = [part for part in re.split(r"[-_]+", str(value or "").strip()) if part]
+    if not words:
+        return ""
+    return " ".join(word.capitalize() for word in words)
+
+
+def _is_empty_mcp_value(value: Any) -> bool:
+    return value is None or value == ""
+
+
+def format_mcp_identity(tool_name: str, *, server_name: str | None = None, mcp_tool_name: str | None = None) -> str:
+    resolved_server, resolved_tool = split_mcp_tool_identity(
+        tool_name,
+        server_name=server_name,
+        mcp_tool_name=mcp_tool_name,
+    )
+    parts = [part for part in [humanize_mcp_name(resolved_server), humanize_mcp_name(resolved_tool)] if part]
+    return " • ".join(parts)
+
+
 def ordered_args(tool_name: str, args: dict[str, Any]) -> list[tuple[str, Any]]:
     preferred_order = {
         "read_file": ["path", "offset", "limit"],
@@ -433,7 +474,7 @@ def summarize_mcp_success(
     payload_text: str,
 ) -> tuple[str, list[Any], bool]:
     parsed = parse_nested_json_payload(payload_text)
-    label = server_name.capitalize() if server_name else "MCP"
+    label = humanize_mcp_name(server_name) or "MCP"
     blocks: list[Any] = []
     was_truncated = False
 
@@ -482,19 +523,119 @@ def summarize_mcp_success(
         summary = f"{label} details loaded."
         if primary:
             summary = f"Loaded {primary} from {label}."
-        details = []
-        for key in ("site_id", "url", "state", "teamId"):
-            value = str(parsed.get(key) or "").strip()
-            if value:
-                details.append(f"{key}: {value}")
-        for line in details[:3]:
-            blocks.append(Text(line, style="#8c97ab"))
+        table = Table.grid(padding=(0, 1))
+        table.add_column(style="#8c93a1", no_wrap=True)
+        table.add_column(style="#dfe4ea", overflow="fold")
+        seen_keys: set[str] = set()
+        preferred_keys = [
+            "id",
+            "name",
+            "title",
+            "slug",
+            "state",
+            "status",
+            "url",
+            "site_id",
+            "primarySiteUrl",
+            "teamId",
+        ]
+        for key in preferred_keys:
+            value = parsed.get(key)
+            if _is_empty_mcp_value(value):
+                continue
+            table.add_row(key, str(value))
+            seen_keys.add(key)
+            if len(seen_keys) >= 6:
+                break
+        if len(seen_keys) < 6:
+            for key, value in parsed.items():
+                if key in seen_keys or _is_empty_mcp_value(value):
+                    continue
+                table.add_row(str(key), str(value))
+                seen_keys.add(str(key))
+                if len(seen_keys) >= 6:
+                    break
+        if seen_keys:
+            blocks.append(table)
         return summary, blocks, was_truncated
 
     output_display, was_truncated = truncate_for_tool(tool_name, payload_text)
     if output_display.strip():
-        blocks.append(render_text_payload(output_display, success=True))
+        sections = split_mcp_text_sections(output_display)
+        if sections:
+            for title, body in sections:
+                blocks.append(Text(title, style="bold #b7c8e1"))
+                if body.strip():
+                    blocks.append(render_text_payload(body, success=True))
+        else:
+            blocks.append(render_text_payload(output_display, success=True))
     return f"{label} data loaded.", blocks, was_truncated
+
+
+def split_mcp_text_sections(text: str) -> list[tuple[str, str]]:
+    lines = text.splitlines()
+    sections: list[tuple[str, str]] = []
+    current_title: str | None = None
+    current_body: list[str] = []
+    index = 0
+
+    def flush() -> None:
+        nonlocal current_title, current_body
+        if current_title and any(line.strip() for line in current_body):
+            sections.append((current_title, "\n".join(current_body).strip()))
+        current_title = None
+        current_body = []
+
+    while index < len(lines):
+        raw_line = lines[index]
+        stripped = raw_line.strip()
+        markdown_match = re.match(r"^#{1,3}\s+(.+)$", stripped)
+        heading = markdown_match.group(1).strip() if markdown_match else None
+        if heading is None and _looks_like_mcp_heading(lines, index):
+            heading = stripped
+        if heading is not None:
+            flush()
+            current_title = heading
+            index += 1
+            while index < len(lines) and not lines[index].strip():
+                index += 1
+            continue
+        if current_title is not None:
+            current_body.append(raw_line)
+        index += 1
+
+    flush()
+    return sections if len(sections) >= 2 else []
+
+
+def _looks_like_mcp_heading(lines: list[str], index: int) -> bool:
+    stripped = lines[index].strip()
+    if not stripped or len(stripped) > 48:
+        return False
+    if any(token in stripped for token in ("http://", "https://", "{", "}", "[", "]", ":", "=")):
+        return False
+    if not re.match(r"^[A-Za-z][A-Za-z0-9 /_-]*$", stripped):
+        return False
+    has_blank_before = index == 0 or not lines[index - 1].strip()
+    has_blank_after = index + 1 < len(lines) and not lines[index + 1].strip()
+    return has_blank_before and has_blank_after
+
+
+def render_mcp_start_payload(
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    cwd: Path,
+) -> list[Any]:
+    identity = format_mcp_identity(tool_name)
+    blocks: list[Any] = []
+    if identity:
+        blocks.append(Text(identity, style="#dfe4ea"))
+    if arguments:
+        blocks.append(render_args_table(tool_name, arguments, cwd=cwd))
+    else:
+        blocks.append(Text("Waiting for MCP response.", style="#8c97ab"))
+    return blocks
 
 
 def render_todo_payload(

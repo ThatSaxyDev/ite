@@ -80,7 +80,7 @@ class MCPTool(Tool):
                     metadata=self._error_metadata(str(output or "")),
                 )
 
-            return ToolResult.success_result(output)
+            return ToolResult.success_result(output, metadata=self._success_metadata())
         except Exception as e:
             raw = f"MCP tool failed: {e}"
             return ToolResult.error_result(
@@ -88,15 +88,19 @@ class MCPTool(Tool):
                 metadata=self._error_metadata(raw),
             )
 
+    def _success_metadata(self) -> dict[str, Any]:
+        server_name = self._tool_info.server_name or self.name.split("__", 1)[0]
+        return {
+            "mcp_server": server_name,
+            "mcp_tool": self._tool_info.name,
+        }
+
     def _error_metadata(self, raw_error: str) -> dict[str, Any]:
         server_name = self._tool_info.server_name or self.name.split("__", 1)[0]
         summary, detail, recoverable = self._classify_error(raw_error, server_name)
-        metadata: dict[str, Any] = {
-            "mcp_server": server_name,
-            "mcp_tool": self._tool_info.name,
-            "ui_summary": summary,
-            "ui_detail": detail,
-        }
+        metadata: dict[str, Any] = self._success_metadata()
+        metadata["ui_summary"] = summary
+        metadata["ui_detail"] = detail
         if recoverable:
             metadata["recoverable"] = True
         return metadata

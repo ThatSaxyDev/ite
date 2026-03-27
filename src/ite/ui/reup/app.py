@@ -119,11 +119,13 @@ from .modals import (
 from .tool_views import (
     display_path,
     extract_read_file_code,
+    format_mcp_identity,
     guess_language,
     render_args_table,
     render_grep_output,
     render_git_log_output,
     render_list_dir_output,
+    render_mcp_start_payload,
     normalize_unified_diff_paths,
     render_numbered_unified_diff,
     render_skills_payload,
@@ -5440,15 +5442,32 @@ class ReupApp(App):
             card = existing_card
         elif name == "shell":
             card = ShellToolCard(classes="block tool shell-card running")
+        elif tool_kind == "mcp":
+            card = Static(classes="block tool mcp-card running")
         else:
             card = Static(classes="block tool running")
+        mcp_md: dict[str, Any] | None = None
+        if tool_kind == "mcp":
+            inferred_server, inferred_tool = (name.split("__", 1) + [""])[:2]
+            mcp_md = {
+                "mcp_server": inferred_server,
+                "mcp_tool": inferred_tool,
+            }
         border_style = "#2a6edb"
-        title_text = activity_title(name, stage="start")
-        narrative = describe_tool_activity(name, arguments, stage="start")
+        title_text = activity_title(name, stage="start", metadata=mcp_md)
+        narrative = describe_tool_activity(name, arguments, mcp_md, stage="start")
 
         blocks: list[Any] = []
         if name == "todos":
             blocks.append(Text(todo_start_hint(arguments), style="#dfe4ea"))
+        elif tool_kind == "mcp":
+            blocks.extend(
+                render_mcp_start_payload(
+                    tool_name=name,
+                    arguments=arguments,
+                    cwd=self.config.cwd,
+                )
+            )
         elif arguments:
             blocks.append(render_args_table(name, arguments, cwd=self.config.cwd))
         else:
@@ -5498,6 +5517,8 @@ class ReupApp(App):
             header.append("⌛ ", style="bold #b7c8e1")
             header.append(title_text, style="bold #edf1f7")
             header.append("  running", style="#8c93a1")
+            if tool_kind == "mcp" and narrative:
+                blocks.insert(0, Text(narrative, style="#8c97ab"))
             card.update(Group(header, *blocks))
         self._tool_widgets[call_id] = card
 
@@ -5941,9 +5962,13 @@ class ReupApp(App):
         elif tool_kind == "mcp":
             server_name = str(md.get("mcp_server") or "").strip()
             mcp_tool_name = str(md.get("mcp_tool") or "").strip()
-            identity_bits = [part for part in [server_name, mcp_tool_name] if part]
-            if identity_bits:
-                blocks.append(Text(" • ".join(identity_bits), style="#8c97ab"))
+            identity = format_mcp_identity(
+                name,
+                server_name=server_name,
+                mcp_tool_name=mcp_tool_name,
+            )
+            if identity:
+                blocks.append(Text(identity, style="#8c97ab"))
             if success:
                 if payload.strip():
                     summary, mcp_blocks, was_truncated = summarize_mcp_success(
