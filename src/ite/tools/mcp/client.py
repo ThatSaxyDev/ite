@@ -3,17 +3,27 @@ from dataclasses import field
 from dataclasses import dataclass
 import os
 import shutil
-from fastmcp.client.transports import StdioTransport, SSETransport
+from fastmcp.client.transports import (
+    SSETransport,
+    StdioTransport,
+    StreamableHttpTransport,
+    WSTransport,
+)
 from enum import Enum
 from pathlib import Path
 from ite.config.config import MCPServerConfig
 from fastmcp import Client
 import logging
+from ite.tools.mcp.oauth import build_oauth_provider
 
 logger = logging.getLogger(__name__)
 
 
+MCPStatusCallback = Any
+
+
 class MCPServerStatus(str, Enum):
+    READY = "ready"
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -24,8 +34,11 @@ class MCPServerStatus(str, Enum):
 class MCPToolInfo:
     name: str
     description: str
+    title: str | None = None
     input_schema: dict[str, Any] = field(default_factory=dict)
+    output_schema: dict[str, Any] = field(default_factory=dict)
     server_name: str = ""
+    annotations: dict[str, Any] = field(default_factory=dict)
 
 
 class MCPClient:
@@ -39,7 +52,11 @@ class MCPClient:
         self.config = config
         self.cwd = cwd
         self.status = MCPServerStatus.DISCONNECTED
+        self.status_detail: str | None = None
+        self.auth_phase: str | None = None
+        self.last_error: str | None = None
         self._client: Client | None = None
+        self._status_callback: MCPStatusCallback = None
 
         self._tools: dict[str, MCPToolInfo] = dict()
 
@@ -47,8 +64,12 @@ class MCPClient:
     def tools(self) -> list[MCPToolInfo]:
         return list(self._tools.values())
 
-    def _create_transport(self) -> StdioTransport | SSETransport:
-        if self.config.command:
+    def _create_transport(
+        self,
+    ) -> StdioTransport | SSETransport | StreamableHttpTransport | WSTransport:
+        transport = self.config.effective_transport
+        auth = self._resolve_auth()
+        if transport == "stdio":
             env = os.environ.copy()
             env.update(self.config.env)
             cwd = self.config.cwd if self.config.cwd is not None else self.cwd
@@ -59,22 +80,60 @@ class MCPClient:
                 cwd=str(cwd),
                 log_file=Path(os.devnull),
             )
-
-        else:
+        if transport == "sse":
             return SSETransport(
                 url=self.config.url,
+                headers=self.config.headers or None,
+                auth=auth,
+                sse_read_timeout=self.config.sse_read_timeout_sec,
             )
+        if transport == "streamable_http":
+            kwargs: dict[str, Any] = {
+                "url": self.config.url,
+                "headers": self.config.headers or None,
+                "auth": auth,
+            }
+            return StreamableHttpTransport(**kwargs)
+        if transport == "ws":
+            return WSTransport(url=self.config.url)
+        raise ValueError(f"Unsupported MCP transport: {transport}")
 
-    async def connect(self) -> None:
+    def _resolve_auth(self) -> Any:
+        if self.config.auth == "oauth":
+            return build_oauth_provider(
+                self.config,
+                str(self.config.url),
+                progress_reporter=self._oauth_progress,
+            )
+        return self.config.auth
+
+    async def connect(self, status_callback: MCPStatusCallback = None) -> None:
         if self.status == MCPServerStatus.CONNECTED:
             return
 
-        self.status = MCPServerStatus.CONNECTING
+        self._status_callback = status_callback
+        missing_env = self.config.unresolved_env_vars()
+        if missing_env:
+            message = "Missing environment variables: " + ", ".join(missing_env)
+            self.last_error = message
+            await self._set_status(MCPServerStatus.ERROR, detail=message)
+            raise RuntimeError(message)
+        await self._set_status(
+            MCPServerStatus.CONNECTING,
+            detail="Connecting.",
+        )
+        self._tools.clear()
+        self.last_error = None
+        self.auth_phase = None
 
         try:
             self._client = Client(transport=self._create_transport())
 
             await self._client.__aenter__()
+            await self._set_status(
+                MCPServerStatus.CONNECTING,
+                detail="Connected to server transport. Discovering tools.",
+            )
 
             tool_result = await self._client.list_tools()
             tools = (
@@ -89,16 +148,26 @@ class MCPClient:
                 self._tools[tool.name] = MCPToolInfo(
                     name=tool.name,
                     description=tool.description or "",
+                    title=getattr(tool, "title", None),
                     input_schema=(
                         tool.inputSchema if hasattr(tool, "inputSchema") else {}
                     ),
+                    output_schema=(
+                        tool.outputSchema if hasattr(tool, "outputSchema") else {}
+                    )
+                    or {},
                     server_name=self.name,
+                    annotations=self._extract_annotations(tool),
                 )
 
-            self.status = MCPServerStatus.CONNECTED
+            await self._set_status(
+                MCPServerStatus.CONNECTED,
+                detail=f"Connected with {len(self._tools)} tool(s).",
+            )
+            self.auth_phase = None
 
         except Exception as e:
-            self.status = MCPServerStatus.ERROR
+            await self._cleanup_failed_connect()
             cmd = self.config.command or self.config.url or "unknown"
 
             # Check for command-not-found (FileNotFoundError wrapped in RuntimeError)
@@ -117,6 +186,8 @@ class MCPClient:
                     f"  → Check the 'command' field in [mcp_servers.{self.name}] "
                     f"in your .ite/config.toml"
                 )
+                self.last_error = msg
+                await self._set_status(MCPServerStatus.ERROR, detail=hint)
                 logger.error(msg)
                 raise RuntimeError(msg) from None
 
@@ -128,16 +199,48 @@ class MCPClient:
                 f"  → Check the configuration in [mcp_servers.{self.name}] "
                 f"in your .ite/config.toml"
             )
+            self.last_error = msg
+            await self._set_status(MCPServerStatus.ERROR, detail=error_str)
             logger.error(msg)
             raise RuntimeError(msg) from None
+        finally:
+            self._status_callback = None
 
-    async def disconnect(self) -> None:
+    async def _cleanup_failed_connect(self) -> None:
+        if not self._client:
+            return
+
+        try:
+            await self._client.__aexit__(None, None, None)
+        except Exception:
+            logger.debug(
+                "MCP server '%s' cleanup after failed connect also failed",
+                self.name,
+                exc_info=True,
+            )
+        finally:
+            self._client = None
+            self._tools.clear()
+
+    def _extract_annotations(self, tool: Any) -> dict[str, Any]:
+        annotations = getattr(tool, "annotations", None)
+        if annotations is None:
+            return {}
+        if hasattr(annotations, "model_dump"):
+            return annotations.model_dump(exclude_none=True)
+        if isinstance(annotations, dict):
+            return {k: v for k, v in annotations.items() if v is not None}
+        return {}
+
+    async def disconnect(self, *, status: MCPServerStatus = MCPServerStatus.DISCONNECTED) -> None:
         if self._client:
             await self._client.__aexit__(None, None, None)
             self._client = None
 
         self._tools.clear()
-        self.status = MCPServerStatus.DISCONNECTED
+        self.status = status
+        self.status_detail = None
+        self.auth_phase = None
 
     async def call_tool(
         self,
@@ -156,3 +259,29 @@ class MCPClient:
                 output.append(str(item))
 
         return {"output": "\n".join(output), "is_error": result.is_error}
+
+    async def _oauth_progress(self, phase: str, detail: str | None = None) -> None:
+        self.auth_phase = phase
+        if phase in {"auth_required", "opening_browser", "waiting_for_callback", "callback_received", "exchanging_token"}:
+            await self._set_status(MCPServerStatus.CONNECTING, detail=detail)
+
+    async def _set_status(
+        self,
+        status: MCPServerStatus,
+        *,
+        detail: str | None = None,
+    ) -> None:
+        self.status = status
+        self.status_detail = detail
+        if self._status_callback is None:
+            return
+        result = self._status_callback(
+            {
+                "server": self.name,
+                "status": status.value,
+                "detail": detail,
+                "auth_phase": self.auth_phase,
+            }
+        )
+        if result is not None:
+            await result

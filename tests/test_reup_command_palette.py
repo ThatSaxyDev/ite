@@ -13,6 +13,7 @@ from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
+from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
 from rich.table import Table
@@ -120,6 +121,85 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("Installed skills: critique", text)
         self.assertNotIn("slash command result", text)
 
+    def test_build_command_title_widget_separates_kicker_and_name(self) -> None:
+        app = self._app()
+
+        title = app._build_command_title_widget("/tools")
+
+        self.assertIn("command-title-row", title.classes)
+        children = list(getattr(title, "_pending_children", []))
+        self.assertEqual(len(children), 2)
+        self.assertEqual(getattr(children[0], "_Static__content", None), "command")
+        self.assertEqual(getattr(children[1], "_Static__content", None), "/tools")
+
+    def test_build_command_result_renderable_dims_box_lines(self) -> None:
+        app = self._app()
+
+        rendered = app._build_command_result_renderable("title\n│────│\nvalue")
+        renderables = list(rendered.renderables)
+
+        self.assertEqual(len(renderables), 3)
+        self.assertEqual(renderables[1].style, "#5f6975")
+
+    def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
+        app = self._app()
+
+        rendered = app._build_streaming_command_renderable(
+            [],
+            pending_active=True,
+            pending_text="",
+            spinner_index=0,
+        )
+
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        self.assertIn("⠋", text)
+
+    def test_build_streaming_command_renderable_hides_generic_spinner_once_lines_exist(self) -> None:
+        app = self._app()
+
+        rendered = app._build_streaming_command_renderable(
+            ["netlify  connecting"],
+            pending_active=True,
+            pending_text="",
+            spinner_index=0,
+        )
+
+        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        self.assertEqual(text.count("⠋"), 1)
+
+    def test_build_streaming_command_renderable_animates_prefix_on_first_line(self) -> None:
+        app = self._app()
+
+        first = app._build_streaming_command_renderable(
+            ["netlify  connecting"],
+            pending_active=True,
+            pending_text="",
+            spinner_index=0,
+        )
+        second = app._build_streaming_command_renderable(
+            ["netlify  connecting"],
+            pending_active=True,
+            pending_text="",
+            spinner_index=1,
+        )
+
+        first_text = "".join(getattr(part, "plain", str(part)) for part in first.renderables)
+        second_text = "".join(getattr(part, "plain", str(part)) for part in second.renderables)
+        self.assertIn("⠋", first_text)
+        self.assertIn("⠙", second_text)
+
+    def test_tick_top_indicator_advances_streaming_command_spinner_without_top_busy(self) -> None:
+        app = self._app()
+        widget = Static()
+        app._streaming_command_cards["/mcp"] = (widget, [], True, "")
+        app._top_busy = False
+        app._aside_pending_widgets = {}
+        before = app._top_spinner_index
+
+        app._tick_top_indicator()
+
+        self.assertEqual(app._top_spinner_index, before + 1)
+
     def test_run_command_routes_generic_output_to_command_card(self) -> None:
         app = self._app()
         app.agent = SimpleNamespace(session=SimpleNamespace())
@@ -139,6 +219,74 @@ class ReupCommandPaletteTests(unittest.TestCase):
         post_command.assert_called_once_with("/demo", "Command finished.")
         post_skills.assert_not_called()
 
+    def test_run_command_routes_tools_output_to_native_command_view(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(
+            tool_registry=SimpleNamespace(get_tools=lambda: []),
+            get_stats=lambda: {},
+            mcp_manager=SimpleNamespace(get_all_servers=lambda: []),
+            export_todos_state=lambda: {},
+            show_planning_todos=False,
+            plan_mode_enabled=False,
+            plan_phase="idle",
+            current_plan_text=lambda: "",
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        async def fake_dispatch(_command, _args, ctx):
+            ctx.console.print("legacy boxed output")
+
+        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+            app._command_registry,
+            "dispatch",
+            AsyncMock(side_effect=fake_dispatch),
+        ), patch.object(app, "post_command_result") as post_command, patch.object(
+            app, "_post_skills_command_result", return_value=False
+        ), patch.object(app, "add_assistant_card", AsyncMock()) as add_card:
+            asyncio.run(app.run_command("/tools"))
+
+        post_command.assert_not_called()
+        add_card.assert_called_once()
+
+    def test_run_command_routes_memory_output_to_native_command_view(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(
+            session_id="sess_123",
+            tool_registry=SimpleNamespace(get_tools=lambda: []),
+            get_stats=lambda: {},
+            mcp_manager=SimpleNamespace(get_all_servers=lambda: []),
+            export_todos_state=lambda: {},
+            show_planning_todos=False,
+            plan_mode_enabled=False,
+            plan_phase="idle",
+            current_plan_text=lambda: "",
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        manager = SimpleNamespace(
+            load_active_controls=lambda: {},
+            list_entries=lambda _store: [],
+            list_episodes=lambda: [],
+            debug_prompt_memory=lambda query: {"controls": {}, "episodic": [], "long_term": {}, "semantic": {}, "short_term": {}, "query": query},
+        )
+
+        async def fake_dispatch(_command, _args, ctx):
+            ctx.console.print("legacy memory output")
+
+        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+            app._command_registry,
+            "dispatch",
+            AsyncMock(side_effect=fake_dispatch),
+        ), patch("ite.ui.reup.app.MemoryManager", return_value=manager), patch.object(
+            app, "post_command_result"
+        ) as post_command, patch.object(
+            app, "_post_skills_command_result", return_value=False
+        ), patch.object(app, "add_assistant_card", AsyncMock()) as add_card:
+            asyncio.run(app.run_command("/memory"))
+
+        post_command.assert_not_called()
+        add_card.assert_called_once()
+
     def test_run_command_routes_skills_output_to_specialized_card(self) -> None:
         app = self._app()
         app.agent = SimpleNamespace(session=SimpleNamespace())
@@ -156,6 +304,40 @@ class ReupCommandPaletteTests(unittest.TestCase):
             asyncio.run(app.run_command("/skills"))
 
         post_skills.assert_called_once_with([], "Skills updated.")
+        post_command.assert_not_called()
+
+    def test_streaming_command_output_emits_lines_immediately(self) -> None:
+        emitted: list[str] = []
+        output = StreamingCommandOutput(on_line=emitted.append)
+
+        output.write("first line\nsecond")
+        output.write(" line\n")
+        output.flush_pending()
+
+        self.assertEqual(emitted, ["first line", "second line"])
+        self.assertTrue(output.had_live_output)
+
+    def test_run_command_streams_mcp_start_updates_via_single_stream_path(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=SimpleNamespace())
+
+        async def fake_dispatch(_command, _args, ctx):
+            ctx.console.print("step one")
+            ctx.console.print("step two")
+
+        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+            app._command_registry,
+            "dispatch",
+            AsyncMock(side_effect=fake_dispatch),
+        ), patch.object(app, "post_streaming_command_result") as post_stream, patch.object(
+            app, "post_command_result"
+        ) as post_command:
+            asyncio.run(app.run_command("/mcp start vercel"))
+
+        self.assertEqual(
+            [call.args for call in post_stream.call_args_list],
+            [("/mcp", "step one"), ("/mcp", "step two")],
+        )
         post_command.assert_not_called()
 
     def test_render_skills_payload_formats_show_output_instead_of_raw_json(self) -> None:

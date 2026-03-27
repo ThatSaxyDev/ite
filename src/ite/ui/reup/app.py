@@ -77,14 +77,23 @@ from ite.git.working_tree import (
     unstage_path,
     working_tree_change_set,
 )
+from ite.memory import MemoryManager
 from ite.skills import build_skill_detail_renderable
 from ite.skills import build_skill_feedback_renderable
 from ite.skills import build_skills_overview_renderable
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
-from .adapters.registry import build_command_context
+from .adapters.registry import StreamingCommandOutput, build_command_context
 from .change_tree import ChangedFilesTree
 from .change_views import build_change_card_body, change_entry_label
+from .command_views import (
+    build_memory_command_renderable,
+    build_memory_prompt_command_renderable,
+    build_mcp_command_renderable,
+    build_stats_command_renderable,
+    build_tools_command_renderable,
+    build_workboard_command_renderable,
+)
 from .composer_views import (
     SlashCommandOption,
     build_command_palette_options,
@@ -349,6 +358,7 @@ class ReupApp(App):
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
+        self._streaming_command_cards: dict[str, tuple[Static, list[str], bool, str | None]] = {}
         self._composer_history: list[str] = []
         self._composer_history_index: int | None = None
         self._composer_history_draft: str = ""
@@ -2308,7 +2318,11 @@ class ReupApp(App):
         return True
 
     def _tick_top_indicator(self) -> None:
-        if not self._top_busy and not self._aside_pending_widgets:
+        has_pending_command_spinner = any(
+            pending_active
+            for _body_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
+        )
+        if not self._top_busy and not self._aside_pending_widgets and not has_pending_command_spinner:
             return
         self._top_spinner_index += 1
         if self._top_spinner_index % 3 == 0:
@@ -2321,6 +2335,16 @@ class ReupApp(App):
             pending_text = self._render_aside_pending_text()
             for widget in list(self._aside_pending_widgets.values()):
                 widget.update(pending_text)
+        for body_widget, lines, pending_active, pending_text in list(self._streaming_command_cards.values()):
+            if pending_active:
+                body_widget.update(
+                    self._build_streaming_command_renderable(
+                        lines,
+                        pending_active=pending_active,
+                        pending_text=pending_text,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
         for call_id in self._run_state().running_shell_call_ids:
             card = self._tool_widgets.get(call_id)
             args = self._tool_args_by_call_id.get(call_id, {})
@@ -3448,7 +3472,14 @@ class ReupApp(App):
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
-        output = io.StringIO()
+        live_stream_command = command == "/mcp" and bool(args) and args[0].lower() == "start"
+        output = (
+            StreamingCommandOutput(
+                on_line=lambda line: self.post_streaming_command_result(command, line)
+            )
+            if live_stream_command
+            else io.StringIO()
+        )
         ctx = build_command_context(
             config=self.config,
             agent=self.agent,
@@ -3465,11 +3496,18 @@ class ReupApp(App):
             self.post_system("Command Error", str(exc), is_error=True)
             return
 
+        if isinstance(output, StreamingCommandOutput):
+            output.flush_pending()
         rendered = output.getvalue().strip()
         if command in {"/branch", "/attach", "/model", "/rename"}:
             self.refresh_header()
-        if rendered:
+        had_live_output = isinstance(output, StreamingCommandOutput) and output.had_live_output
+        if live_stream_command:
+            self.finalize_streaming_command_result(command)
+        if rendered and not had_live_output:
             if command == "/skills" and self._post_skills_command_result(args, rendered):
+                return
+            if self._post_native_command_result(command, args):
                 return
             self.post_command_result(command, rendered)
 
@@ -4537,12 +4575,57 @@ class ReupApp(App):
     def post_command_result(self, command: str, message: str) -> None:
         self.run_worker(
             self.add_assistant_card(
-                command,
+                self._build_command_title_widget(command),
                 self._build_command_result_renderable(message),
                 css_class="command",
             ),
             exclusive=False,
         )
+
+    def post_streaming_command_result(self, command: str, message: str) -> None:
+        self.run_worker(
+            self._append_command_result_card(command, message),
+            exclusive=False,
+        )
+
+    async def start_streaming_command_result(
+        self, command: str, pending_text: str | None = None
+    ) -> None:
+        existing = self._streaming_command_cards.get(command)
+        if existing is not None:
+            body_widget, lines, _old_pending_active, _old_pending = existing
+            self._streaming_command_cards[command] = (body_widget, lines, True, pending_text)
+            body_widget.update(
+                self._build_streaming_command_renderable(
+                    lines,
+                    pending_active=True,
+                    pending_text=pending_text,
+                    spinner_index=self._top_spinner_index,
+                )
+            )
+            await self._pin_activity_indicator_to_end()
+            return
+
+        body_widget = Static(classes="card-body command-body")
+        body_widget.update(
+            self._build_streaming_command_renderable(
+                [],
+                pending_active=True,
+                pending_text=pending_text,
+                spinner_index=self._top_spinner_index,
+            )
+        )
+        card = Container(
+            self._build_command_title_widget(command),
+            body_widget,
+            classes="block command",
+        )
+        conversation = self.query_one("#conversation", VerticalScroll)
+        await conversation.mount(card)
+        self._streaming_command_cards[command] = (body_widget, [], True, pending_text)
+        self._message_count += 1
+        self._refresh_empty_state()
+        await self._pin_activity_indicator_to_end()
 
     def post_plan_note(self, title: str, markdown_text: str) -> None:
         self.run_worker(
@@ -4563,9 +4646,16 @@ class ReupApp(App):
         )
 
     async def add_assistant_card(
-        self, title: str, body: Any, css_class: str = "assistant"
+        self, title: Any, body: Any, css_class: str = "assistant"
     ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
+
+        if isinstance(title, Widget):
+            title_widget = title
+            title_widget.add_class("card-title")
+            title_widget.add_class(f"{css_class}-title")
+        else:
+            title_widget = Static(title, classes=f"card-title {css_class}-title")
 
         if isinstance(body, Widget):
             body_widget = body
@@ -4576,7 +4666,7 @@ class ReupApp(App):
             body_widget.update(body if not isinstance(body, str) else str(body))
 
         card = Container(
-            Static(title, classes="card-title"),
+            title_widget,
             body_widget,
             classes=f"block {css_class}",
         )
@@ -4586,14 +4676,158 @@ class ReupApp(App):
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
 
+    async def _append_command_result_card(self, command: str, message: str) -> None:
+        text = str(message).strip()
+        if not text:
+            return
+
+        existing = self._streaming_command_cards.get(command)
+        if existing is None:
+            await self.start_streaming_command_result(command, "")
+            existing = self._streaming_command_cards.get(command)
+            if existing is None:
+                return
+
+        body_widget, lines, _pending_active, pending_text = existing
+        lines.append(text)
+        body_widget.update(
+            self._build_streaming_command_renderable(
+                lines,
+                pending_active=True,
+                pending_text=pending_text,
+                spinner_index=self._top_spinner_index,
+            )
+        )
+        await self._pin_activity_indicator_to_end()
+
+    def finalize_streaming_command_result(self, command: str) -> None:
+        existing = self._streaming_command_cards.pop(command, None)
+        if existing is None:
+            return
+        body_widget, lines, _pending_active, _pending_text = existing
+        body_widget.update(
+            self._build_streaming_command_renderable(
+                lines,
+                pending_active=False,
+                pending_text=None,
+            )
+        )
+
+    def _build_command_title_widget(self, command: str) -> Widget:
+        return Horizontal(
+            Static("command", classes="command-kicker"),
+            Static(command, classes="command-name"),
+            classes="command-title-row",
+        )
+
     def _build_command_result_renderable(self, message: str) -> Group:
         lines = [line.rstrip() for line in str(message or "").strip().splitlines()]
         if not lines:
             return Group()
         if len(lines) == 1:
-            return Group(Text(lines[0], style="#d7deea"))
-        body = Text("\n".join(lines), style="#d7deea")
-        return Group(body)
+            return Group(Text(lines[0], style="#edf1f7"))
+        renderables: list[Text] = []
+        for index, line in enumerate(lines):
+            if not line.strip():
+                renderables.append(Text(""))
+                continue
+            style = "#edf1f7" if index == 0 else "#c9d3e0"
+            if self._is_box_drawing_line(line):
+                style = "#5f6975"
+            renderables.append(Text(line, style=style))
+        return Group(*renderables)
+
+    def _build_streaming_command_renderable(
+        self,
+        lines: list[str],
+        *,
+        pending_active: bool,
+        pending_text: str | None,
+        spinner_index: int = 0,
+    ) -> Group:
+        blocks: list[Any] = []
+        show_pending_row = pending_active and not lines
+        if show_pending_row:
+            status = Text()
+            status.append(
+                f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
+                style="bold #b8d8ff",
+            )
+            if pending_text:
+                status.append(pending_text, style="#8c93a1")
+            blocks.append(status)
+        if lines:
+            if pending_active:
+                first_line = Text()
+                first_line.append(
+                    f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
+                    style="bold #b8d8ff",
+                )
+                first_line.append(lines[0], style="#edf1f7")
+                blocks.append(first_line)
+                if len(lines) > 1:
+                    blocks.extend(
+                        self._build_command_result_renderable("\n".join(lines[1:])).renderables
+                    )
+            else:
+                blocks.extend(self._build_command_result_renderable("\n".join(lines)).renderables)
+        return Group(*blocks)
+
+    def _post_native_command_result(self, command: str, args: list[str]) -> bool:
+        if not self.agent or not self.agent.session:
+            return False
+
+        session = self.agent.session
+        body: Any | None = None
+        if command == "/tools":
+            body = build_tools_command_renderable(session.tool_registry.get_tools())
+        elif command == "/stats":
+            body = build_stats_command_renderable(session.get_stats())
+        elif command == "/workboard":
+            body = build_workboard_command_renderable(session)
+        elif command == "/mcp" and (not args or args[0].lower() == "list"):
+            body = build_mcp_command_renderable(session.mcp_manager.get_all_servers())
+        elif command == "/memory":
+            manager = MemoryManager(self.config.cwd, session_id=session.session_id)
+            if args and args[0].lower() == "prompt":
+                query = " ".join(args[1:]).strip()
+                if query:
+                    body = build_memory_prompt_command_renderable(
+                        query,
+                        manager.debug_prompt_memory(query),
+                    )
+            else:
+                body = build_memory_command_renderable(
+                    session_id=session.session_id,
+                    workspace=str(self.config.cwd),
+                    controls=manager.load_active_controls(),
+                    long_term=manager.list_entries("long_term"),
+                    semantic=manager.list_entries("semantic"),
+                    short_term=manager.list_entries("short_term"),
+                    episodic=manager.list_episodes()[-5:],
+                )
+
+        if body is None:
+            return False
+
+        self.run_worker(
+            self.add_assistant_card(
+                self._build_command_title_widget(command),
+                body,
+                css_class="command",
+            ),
+            exclusive=False,
+        )
+        return True
+
+    @staticmethod
+    def _is_box_drawing_line(line: str) -> bool:
+        stripped = line.strip()
+        if not stripped:
+            return False
+        box_chars = set("│┃─━┌┐└┘├┤┬┴┼╭╮╯╰╞╡╤╧╪═║╔╗╚╝╠╣╦╩╬╭╮╰╯┏┓┗┛")
+        content_chars = {ch for ch in stripped if not ch.isspace()}
+        return bool(content_chars) and content_chars.issubset(box_chars)
 
     def _post_skills_command_result(self, args: list[str], rendered: str) -> bool:
         if not self.agent or not self.agent.session:

@@ -529,20 +529,66 @@ Screen {
 
 .block.command {
     border: none;
-    background: #181a1d 78%;
-    padding: 1 2;
-    margin: 0 3 2 0;
+    background: #151a21 94%;
+    padding: 1 2 1 2;
+    margin: 0 2 2 0;
 }
 
 .block.command .card-title {
-    color: #b7c8e1;
-    text-style: bold;
-    margin-bottom: 0;
+    color: #8c93a1;
+    text-style: none;
+    margin-bottom: 1;
 }
 
 .block.command .card-body {
-    margin-top: 1;
+    margin-top: 0;
     padding: 0;
+}
+
+.command-title-row {
+    width: 1fr;
+    height: auto;
+    align-vertical: middle;
+}
+
+.command-kicker {
+    width: auto;
+    margin-right: 2;
+    padding: 0 1;
+    background: #24384a;
+    color: #d9ecff;
+    text-style: bold;
+}
+
+.command-name {
+    width: 1fr;
+    color: #dfe8f3;
+    text-style: bold;
+}
+
+.command-body {
+    color: #d7deea;
+}
+
+.command-body Markdown {
+    color: #d7deea;
+}
+
+.command-body Markdown H1,
+.command-body Markdown H2,
+.command-body Markdown H3,
+.command-body Markdown Strong {
+    color: #edf1f7;
+}
+
+.command-body MarkdownFence {
+    background: #0e0e10;
+    border: round #32465a;
+}
+
+.command-body MarkdownBlockQuote {
+    border-left: solid #3b5166;
+    background: #141920;
 }
 
 .block.skills {

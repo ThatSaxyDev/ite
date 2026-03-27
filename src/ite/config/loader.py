@@ -1,7 +1,9 @@
 from platformdirs import user_data_dir
 import logging
 import os
+import json
 from typing import Any
+import keyring
 from ite.utils.errors import ConfigError
 from ite.config.config import ApprovalPolicy
 import tomli
@@ -11,6 +13,7 @@ from platformdirs import user_config_dir
 from pydantic import ValidationError
 
 CONFIG_FILE_NAME = "config.toml"
+SECRETS_FILE_NAME = "secrets.toml"
 AGENT_MD_FILE = "AGENT.MD"
 WORKSPACE_DIR_NAME = ".ite"
 
@@ -48,6 +51,14 @@ def get_data_dir() -> Path:
 
 def get_system_config_path() -> Path:
     return get_config_dir() / CONFIG_FILE_NAME
+
+
+def get_system_secrets_path() -> Path:
+    return get_config_dir() / SECRETS_FILE_NAME
+
+
+def get_workspace_secrets_path(cwd: Path) -> Path:
+    return cwd.resolve() / WORKSPACE_DIR_NAME / SECRETS_FILE_NAME
 
 
 def _parse_toml(path: Path):
@@ -152,6 +163,16 @@ def load_config(
         except ConfigError:
             logger.warning(f"Skipping invalid project config: {project_path}")
 
+    config_dict = _merge_mcp_secrets_into_config(
+        config_dict,
+        _load_mcp_secrets(get_system_secrets_path()),
+    )
+
+    config_dict = _merge_mcp_secrets_into_config(
+        config_dict,
+        _load_mcp_secrets(get_workspace_secrets_path(cwd)),
+    )
+
     # Approval policy is global user preference and should be consistent
     # across projects/sessions.
     if "approval" in system_config_dict:
@@ -233,3 +254,175 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     os.chmod(config_path, 0o600)
     return config_path
+
+
+def load_mcp_env_store(cwd: Path | None, scope: str = "workspace") -> dict[str, dict[str, str]]:
+    path = _mcp_secrets_path_for_scope(cwd, scope)
+    return _load_mcp_secrets(path)
+
+
+def save_mcp_env_var(
+    *,
+    cwd: Path | None,
+    scope: str,
+    server: str,
+    key: str,
+    value: str,
+) -> Path:
+    path = _mcp_secrets_path_for_scope(cwd, scope)
+    secrets = _load_mcp_secrets(path)
+    bucket = secrets.setdefault(server, {})
+    bucket[key] = value
+    if str(scope).strip().lower() == "global":
+        keyring.set_password(_mcp_keyring_service(server), key, value)
+    _write_mcp_secrets(path, secrets)
+    return path
+
+
+def remove_mcp_env_var(
+    *,
+    cwd: Path | None,
+    scope: str,
+    server: str,
+    key: str,
+) -> Path:
+    path = _mcp_secrets_path_for_scope(cwd, scope)
+    secrets = _load_mcp_secrets(path)
+    if str(scope).strip().lower() == "global":
+        try:
+            keyring.delete_password(_mcp_keyring_service(server), key)
+        except Exception:
+            pass
+    if server in secrets:
+        secrets[server].pop(key, None)
+        if not secrets[server]:
+            secrets.pop(server, None)
+    _write_mcp_secrets(path, secrets)
+    return path
+
+
+def _mcp_secrets_path_for_scope(cwd: Path | None, scope: str) -> Path:
+    normalized = str(scope or "workspace").strip().lower()
+    if normalized == "global":
+        return get_system_secrets_path()
+    if cwd is None:
+        raise ValueError("Workspace cwd is required for workspace-scoped MCP env")
+    ensure_workspace_layout(cwd)
+    return get_workspace_secrets_path(cwd)
+
+
+def _load_mcp_secrets(path: Path) -> dict[str, dict[str, str]]:
+    if path == get_system_secrets_path():
+        return _load_global_mcp_secrets_from_keyring(path)
+    if not path.is_file():
+        return {}
+    raw = _parse_toml(path)
+    mcp_env = raw.get("mcp_env", {})
+    if not isinstance(mcp_env, dict):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for server, values in mcp_env.items():
+        if not isinstance(server, str) or not isinstance(values, dict):
+            continue
+        bucket: dict[str, str] = {}
+        for key, value in values.items():
+            if isinstance(key, str) and isinstance(value, str):
+                bucket[key] = value
+        if bucket:
+            result[server] = bucket
+    return result
+
+
+def _merge_mcp_secrets_into_config(
+    config_dict: dict[str, Any],
+    secrets: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    if not secrets:
+        return config_dict
+    result = config_dict.copy()
+    mcp_servers = dict(result.get("mcp_servers", {}) or {})
+    for server, values in secrets.items():
+        server_cfg = dict(mcp_servers.get(server, {}) or {})
+        merged_env = dict(server_cfg.get("env", {}) or {})
+        merged_env.update(values)
+        server_cfg["env"] = merged_env
+        mcp_servers[server] = server_cfg
+    result["mcp_servers"] = mcp_servers
+    return result
+
+
+def _write_mcp_secrets(path: Path, secrets: dict[str, dict[str, str]]) -> None:
+    if path == get_system_secrets_path():
+        _write_global_mcp_secret_metadata(path, secrets)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = [
+        "# MCP secrets for iTE",
+        "# Generated by /mcp env commands.",
+        "",
+    ]
+    for server in sorted(secrets):
+        values = secrets[server]
+        if not values:
+            continue
+        lines.append(f"[mcp_env.{server}]")
+        for key in sorted(values):
+            lines.append(f"{key} = {json.dumps(values[key])}")
+        lines.append("")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+
+
+def _load_global_mcp_secrets_from_keyring(path: Path) -> dict[str, dict[str, str]]:
+    metadata = _load_mcp_secret_metadata(path)
+    result: dict[str, dict[str, str]] = {}
+    for server, keys in metadata.items():
+        bucket: dict[str, str] = {}
+        for key in keys:
+            try:
+                value = keyring.get_password(_mcp_keyring_service(server), key)
+            except Exception as exc:
+                logger.warning("Failed to read MCP secret from keyring for %s:%s: %s", server, key, exc)
+                continue
+            if value is not None:
+                bucket[key] = value
+        if bucket:
+            result[server] = bucket
+    return result
+
+
+def _load_mcp_secret_metadata(path: Path) -> dict[str, list[str]]:
+    if not path.is_file():
+        return {}
+    raw = _parse_toml(path)
+    mcp_env = raw.get("mcp_env", {})
+    if not isinstance(mcp_env, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for server, values in mcp_env.items():
+        if not isinstance(server, str) or not isinstance(values, dict):
+            continue
+        keys = values.get("keys", [])
+        if isinstance(keys, list):
+            result[server] = [str(item) for item in keys if str(item).strip()]
+    return result
+
+
+def _write_global_mcp_secret_metadata(path: Path, secrets: dict[str, dict[str, str]]) -> None:
+    metadata = {server: sorted(values.keys()) for server, values in secrets.items() if values}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = [
+        "# MCP secret metadata for iTE",
+        "# Values are stored in the OS keyring. This file only tracks key names.",
+        "",
+    ]
+    for server in sorted(metadata):
+        lines.append(f"[mcp_env.{server}]")
+        lines.append(f"keys = {json.dumps(metadata[server])}")
+        lines.append("")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    os.chmod(path, 0o600)
+
+
+def _mcp_keyring_service(server: str) -> str:
+    return f"ite.mcp.{server}"

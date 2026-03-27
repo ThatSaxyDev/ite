@@ -52,6 +52,7 @@ class MCPManager:
                 config=server_config,
                 cwd=self.config.cwd,
             )
+            self._clients[name].status = MCPServerStatus.READY
 
         if not self._clients:
             self._initialized = True
@@ -62,12 +63,15 @@ class MCPManager:
         server_word = "server" if server_count == 1 else "servers"
         names = ", ".join(self._clients.keys())
 
-        connection_tasks = [
-            asyncio.wait_for(
-                client.connect(), timeout=client.config.startup_timeout_sec
-            )
-            for name, client in self._clients.items()
+        startup_clients = [
+            client for client in self._clients.values() if client.config.auto_connect
         ]
+
+        if not startup_clients:
+            self._initialized = True
+            return
+
+        connection_tasks = [self._connect_client(client) for client in startup_clients]
 
         with console.status(
             f"[muted] Connecting to {server_count} MCP {server_word} ({names})...[/muted]",
@@ -83,7 +87,8 @@ class MCPManager:
         mcp_table.add_column(min_width=12)  # server name
         mcp_table.add_column()  # details
 
-        for (name, client), result in zip(self._clients.items(), results):
+        for client, result in zip(startup_clients, results):
+            name = client.name
             if isinstance(result, Exception):
                 mcp_table.add_row(
                     Text("●", style="bright_red"),
@@ -119,6 +124,79 @@ class MCPManager:
 
         self._initialized = True
 
+    async def _connect_client(self, client: MCPClient, status_callback=None) -> None:
+        timeout_sec = (
+            client.config.oauth_timeout_sec
+            if client.config.auth == "oauth"
+            else client.config.startup_timeout_sec
+        )
+        try:
+            await asyncio.wait_for(
+                client.connect(status_callback=status_callback),
+                timeout=timeout_sec,
+            )
+        except TimeoutError as exc:
+            timeout_message = (
+                f"MCP server '{client.name}' timed out after "
+                f"{timeout_sec:g}s during startup"
+            )
+            await client.disconnect(status=MCPServerStatus.ERROR)
+            client.status = MCPServerStatus.ERROR
+            client.last_error = timeout_message
+            client.status_detail = "Timed out during startup."
+            raise RuntimeError(
+                timeout_message
+            ) from exc
+
+    async def connect_server(self, name: str, registry: ToolRegistry, status_callback=None) -> int:
+        client = self._clients.get(name)
+        if client is None:
+            raise KeyError(f"Unknown MCP server: {name}")
+        if client.status == MCPServerStatus.CONNECTED:
+            return 0
+
+        await self._connect_client(client, status_callback=status_callback)
+        return self._register_client_tools(client, registry)
+
+    async def disconnect_server(self, name: str, registry: ToolRegistry) -> int:
+        client = self._clients.get(name)
+        if client is None:
+            raise KeyError(f"Unknown MCP server: {name}")
+
+        removed = registry.unregister_mcp_server(name)
+        await client.disconnect(status=MCPServerStatus.READY)
+        return removed
+
+    @property
+    def configured_server_count(self) -> int:
+        return len(self._clients)
+
+    @property
+    def connected_server_count(self) -> int:
+        return sum(
+            1
+            for client in self._clients.values()
+            if client.status == MCPServerStatus.CONNECTED
+        )
+
+    @property
+    def failed_server_count(self) -> int:
+        return sum(
+            1 for client in self._clients.values() if client.status == MCPServerStatus.ERROR
+        )
+
+    @property
+    def total_tool_count(self) -> int:
+        return sum(len(client.tools) for client in self._clients.values())
+
+    @property
+    def startup_server_count(self) -> int:
+        return sum(1 for client in self._clients.values() if client.config.auto_connect)
+
+    @property
+    def all_startup_servers_failed(self) -> bool:
+        return self.startup_server_count > 0 and self.connected_server_count == 0
+
     def register_tools(self, registry: ToolRegistry) -> int:
         count = 0
 
@@ -126,16 +204,22 @@ class MCPManager:
             if client.status != MCPServerStatus.CONNECTED:
                 continue
 
-            for tool_info in client.tools:
-                mcp_tool = MCPTool(
-                    tool_info=tool_info,
-                    client=client,
-                    config=self.config,
-                    name=f"{client.name}__{tool_info.name}",
-                )
-                registry.register_mcp_tool(mcp_tool)
-                count += 1
+            count += self._register_client_tools(client, registry)
 
+        return count
+
+    def _register_client_tools(self, client: MCPClient, registry: ToolRegistry) -> int:
+        count = 0
+        registry.unregister_mcp_server(client.name)
+        for tool_info in client.tools:
+            mcp_tool = MCPTool(
+                tool_info=tool_info,
+                client=client,
+                config=self.config,
+                name=f"{client.name}__{tool_info.name}",
+            )
+            registry.register_mcp_tool(mcp_tool)
+            count += 1
         return count
 
     async def shutdown(self) -> None:
@@ -149,11 +233,24 @@ class MCPManager:
     def get_all_servers(self) -> list[dict[str, Any]]:
         servers = []
         for name, client in self._clients.items():
+            unresolved = getattr(client.config, "unresolved_env_vars", None)
+            missing_env = unresolved() if callable(unresolved) else []
+            detail = client.status_detail
+            if missing_env and client.status == MCPServerStatus.READY:
+                detail = "Missing env: " + ", ".join(missing_env)
             server_info = {
                 "name": name,
                 "status": client.status.value,
                 "tools": len(client.tools),
+                "transport": client.config.effective_transport,
+                "auto_connect": client.config.auto_connect,
+                "detail": detail,
+                "auth_phase": client.auth_phase,
+                "last_error": client.last_error,
+                "missing_env": missing_env,
             }
+            if client.config.url:
+                server_info["url"] = client.config.url
             servers.append(server_info)
 
         return servers

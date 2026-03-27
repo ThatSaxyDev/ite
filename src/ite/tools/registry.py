@@ -31,8 +31,12 @@ class ToolRegistry:
         self.config = config
 
     @property
-    def connected_mcp_servers(self) -> list[Tool]:
-        return self._mcp_tools.values()
+    def connected_mcp_servers(self) -> list[str]:
+        return sorted({name.split("__", 1)[0] for name in self._mcp_tools})
+
+    @property
+    def mcp_tool_count(self) -> int:
+        return len(self._mcp_tools)
 
     def register(self, tool: Tool) -> None:
         if tool.name in self._tools:
@@ -48,6 +52,13 @@ class ToolRegistry:
 
         self._mcp_tools[tool.name] = tool
         logger.debug(f"Registered MCP tool: {tool.name}")
+
+    def unregister_mcp_server(self, server_name: str) -> int:
+        prefix = f"{server_name}__"
+        matching = [name for name in self._mcp_tools if name.startswith(prefix)]
+        for name in matching:
+            del self._mcp_tools[name]
+        return len(matching)
 
     def unregister(self, name: str) -> bool:
         if name in self._tools:

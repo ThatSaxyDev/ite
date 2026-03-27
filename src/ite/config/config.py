@@ -1,7 +1,8 @@
 from __future__ import annotations
-from pydantic import model_validator
-from typing import Any
+from pydantic import field_validator, model_validator
+from typing import Any, ClassVar
 import os
+import re
 from pathlib import Path
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -28,6 +29,7 @@ class ShellEnvironmentPolicy(BaseModel):
 
 class MCPServerConfig(BaseModel):
     enabled: bool = True
+    auto_connect: bool = False
     startup_timeout_sec: float = 10
 
     # stdio transport
@@ -38,6 +40,59 @@ class MCPServerConfig(BaseModel):
 
     # http/sse transport
     url: str | None = None
+    transport: str = "auto"
+    headers: dict[str, str] = Field(default_factory=dict)
+    auth: str | None = None
+    sse_read_timeout_sec: float | None = None
+    oauth_timeout_sec: float = 300
+    oauth_scopes: list[str] = Field(default_factory=list)
+    oauth_client_name: str = "iTE MCP Client"
+    oauth_callback_port: int | None = None
+
+    _ENV_VAR_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
+        r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))"
+    )
+
+    @field_validator("command", "url", "auth", mode="before")
+    @classmethod
+    def expand_string_env_vars(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return os.path.expandvars(value)
+        return value
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def expand_list_env_vars(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        return [os.path.expandvars(item) if isinstance(item, str) else item for item in value]
+
+    @field_validator("env", "headers", mode="before")
+    @classmethod
+    def expand_mapping_env_vars(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {
+            str(key): os.path.expandvars(item) if isinstance(item, str) else item
+            for key, item in value.items()
+        }
+
+    @field_validator("cwd", mode="before")
+    @classmethod
+    def expand_cwd_env_vars(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return Path(os.path.expandvars(value))
+        return value
+
+    @property
+    def effective_transport(self) -> str:
+        if self.transport != "auto":
+            return self.transport
+        if self.command:
+            return "stdio"
+        if self.url and self.url.rstrip("/").endswith("/sse"):
+            return "sse"
+        return "streamable_http"
 
     @model_validator(mode="after")
     def validate_transport(self) -> MCPServerConfig:
@@ -52,7 +107,51 @@ class MCPServerConfig(BaseModel):
         if has_command and has_url:
             raise ValueError("MCP Server must have only one of command or url set")
 
+        transport = self.effective_transport
+        if has_command and transport != "stdio":
+            raise ValueError(
+                "MCP Server using 'command' must use transport 'stdio' or 'auto'"
+            )
+        if has_url and transport not in {"sse", "streamable_http", "ws"}:
+            raise ValueError(
+                "MCP Server using 'url' must use transport 'sse', "
+                "'streamable_http', 'ws', or 'auto'"
+            )
+        if transport == "ws" and (self.headers or self.auth):
+            raise ValueError(
+                "WebSocket MCP transport does not support configured headers or auth"
+            )
+        if self.auth == "oauth" and not has_url:
+            raise ValueError("OAuth MCP auth requires a URL-based MCP server")
+        if self.auth != "oauth" and (
+            self.oauth_scopes or self.oauth_callback_port is not None
+        ):
+            raise ValueError(
+                "OAuth-specific MCP settings require auth = 'oauth'"
+            )
+
         return self
+
+    def unresolved_env_vars(self) -> list[str]:
+        names: set[str] = set()
+        for value in [self.command, self.url, self.auth, *(self.args or [])]:
+            names.update(self._extract_unresolved_env_var_names(value))
+        for mapping in (self.env, self.headers):
+            for item in mapping.values():
+                names.update(self._extract_unresolved_env_var_names(item))
+        if self.cwd is not None:
+            names.update(self._extract_unresolved_env_var_names(str(self.cwd)))
+        return sorted(names)
+
+    @classmethod
+    def _extract_unresolved_env_var_names(cls, value: Any) -> set[str]:
+        if not isinstance(value, str):
+            return set()
+        names: set[str] = set()
+        for match in cls._ENV_VAR_PATTERN.finditer(value):
+            names.add(match.group(1) or match.group(2) or "")
+        names.discard("")
+        return names
 
 
 class ApprovalPolicy(str, Enum):

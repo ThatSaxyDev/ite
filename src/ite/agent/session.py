@@ -115,6 +115,16 @@ class Session:
         try:
             await self.mcp_manager.initialize()
             self.mcp_manager.register_tools(self.tool_registry)
+            if self.mcp_manager.all_startup_servers_failed:
+                self._record_runtime_issue(
+                    component="mcp",
+                    capability="mcp",
+                    message="MCP unavailable; continuing without external MCP tools.",
+                    details=(
+                        f"Configured {self.mcp_manager.startup_server_count} startup server(s); "
+                        f"0 connected."
+                    ),
+                )
         except Exception as exc:
             self._record_runtime_issue(
                 component="mcp",
@@ -553,7 +563,9 @@ class Session:
             "active_plan_available": self.has_active_plan(),
             "pending_attachments": len(self.pending_attachment_paths),
             "tools_enabled": len(self.tool_registry.get_tools()),
-            "mcp_servers": len(self.tool_registry.connected_mcp_servers),
+            "mcp_servers": self.mcp_manager.connected_server_count,
+            "mcp_tools": self.tool_registry.mcp_tool_count,
+            "mcp_failed_servers": self.mcp_manager.failed_server_count,
             "tool_discovery_errors": len(self.discovery_manager.errors),
             "available_skills": len(self.list_available_skills()),
             "active_skills": len(self.get_active_skills()),

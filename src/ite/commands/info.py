@@ -1,8 +1,20 @@
 """Info commands: /stats, /tools, /mcp, /workboard, /memory."""
 
+from collections import defaultdict
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
+from ite.config.loader import (
+    get_system_secrets_path,
+    get_workspace_secrets_path,
+    load_config,
+    load_mcp_env_store,
+    remove_mcp_env_var,
+    save_mcp_env_var,
+)
 from ite.memory import MemoryManager
+from ite.tools.base import Tool, ToolRiskLevel
+from ite.tools.mcp.mcp_tool import MCPTool
+from ite.tools.subagent import SubagentTool
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -77,23 +89,45 @@ async def cmd_tools(ctx: CommandContext, args: list[str]) -> None:
     title = Text.assemble(
         ("🔧 ", ""), (f"Available Tools ({len(tools)})", "bold bright_white")
     )
-    tools_table = Table.grid(padding=(0, 2))
-    tools_table.add_column(style="code", justify="right", min_width=4)
-    tools_table.add_column(style="green bold", min_width=20)
-    tools_table.add_column(style="code")
-    for i, tool in enumerate(tools, 1):
-        desc = getattr(tool, "description", "")
-        if desc and len(desc) > 60:
-            desc = desc[:57] + "..."
-        tools_table.add_row(
-            Text(str(i), style="code"),
-            Text(tool.name, style="cyan bold"),
-            Text(desc, style="code"),
-        )
+    grouped: dict[str, list[Tool]] = defaultdict(list)
+    for tool in tools:
+        grouped[_tool_section_name(tool)].append(tool)
+
+    summary = Text.assemble(
+        ("Built-in ", "code"),
+        (str(len(grouped.get("Built-in", []))), "bold cyan"),
+        ("  •  Verification ", "code"),
+        (str(len(grouped.get("Verification", []))), "bold cyan"),
+        ("  •  Subagent Runtime ", "code"),
+        (str(len(grouped.get("Subagent Runtime", []))), "bold cyan"),
+        ("  •  Specialists ", "code"),
+        (str(len(grouped.get("Subagent Specialists", []))), "bold cyan"),
+        ("  •  Custom ", "code"),
+        (str(len(grouped.get("Custom", []))), "bold cyan"),
+        ("  •  MCP ", "code"),
+        (str(len(grouped.get("MCP", []))), "bold cyan"),
+    )
+
+    sections: list[object] = [summary]
+    order = [
+        "Built-in",
+        "Verification",
+        "Subagent Runtime",
+        "Subagent Specialists",
+        "Custom",
+        "MCP",
+    ]
+    for section_name in order:
+        section_tools = grouped.get(section_name, [])
+        if not section_tools:
+            continue
+        sections.append(Rule(style="grey35"))
+        sections.append(_render_tool_section(section_name, section_tools))
+
     ctx.console.print()
     ctx.console.print(
         Panel(
-            tools_table,
+            Group(*sections),
             title=title,
             title_align="left",
             border_style="cyan",
@@ -276,8 +310,204 @@ async def cmd_workboard(ctx: CommandContext, args: list[str]) -> None:
     )
 
 
+def _tool_section_name(tool: Tool) -> str:
+    if isinstance(tool, MCPTool):
+        return "MCP"
+    if isinstance(tool, SubagentTool):
+        return "Subagent Specialists"
+
+    module_name = tool.__class__.__module__
+    if module_name.startswith("ite.tools.builtin.subagent_runtime_tools"):
+        return "Subagent Runtime"
+    if tool.name in {"run_tests", "run_linter", "run_typecheck"}:
+        return "Verification"
+    if module_name.startswith("ite.tools.builtin."):
+        return "Built-in"
+    if module_name.startswith("discovered_tool_") or not module_name.startswith("ite."):
+        return "Custom"
+    return "Built-in"
+
+
+def _tool_access_label(tool: Tool) -> str:
+    metadata = tool.get_metadata({})
+    return "write" if metadata.mutating else "read"
+
+
+def _tool_risk_style(tool: Tool) -> tuple[str, str]:
+    metadata = tool.get_metadata({})
+    styles = {
+        ToolRiskLevel.LOW: ("low", "green"),
+        ToolRiskLevel.MEDIUM: ("med", "yellow"),
+        ToolRiskLevel.HIGH: ("high", "red"),
+    }
+    return styles.get(metadata.risk_level, ("med", "yellow"))
+
+
+def _truncate_tool_desc(tool: Tool, max_chars: int = 72) -> str:
+    desc = getattr(tool, "description", "") or ""
+    if len(desc) <= max_chars:
+        return desc
+    return desc[: max_chars - 3].rstrip() + "..."
+
+
+def _render_tool_section(section_name: str, tools: list[Tool]) -> Panel:
+    if section_name == "MCP":
+        by_server: dict[str, list[Tool]] = defaultdict(list)
+        for tool in tools:
+            server, _, _ = tool.name.partition("__")
+            by_server[server or "unknown"].append(tool)
+
+        blocks: list[object] = []
+        for index, server_name in enumerate(sorted(by_server)):
+            if index:
+                blocks.append(Rule(style="grey35"))
+            blocks.append(_render_mcp_server_block(server_name, by_server[server_name]))
+        return Panel(
+            Group(*blocks),
+            title=Text(f"MCP Tools ({len(tools)})", style="bold cyan"),
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+
+    body = Group(*[_render_tool_line(tool) for tool in sorted(tools, key=lambda item: item.name)])
+    return Panel(
+        body,
+        title=Text.assemble(
+            (_section_icon(section_name) + " ", "cyan"),
+            (f"{section_name} ", "bold cyan"),
+            (f"{len(tools)}", "dim"),
+        ),
+        title_align="left",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+
+def _render_mcp_server_block(server_name: str, tools: list[Tool]) -> Group:
+    summary = Text.assemble(
+        ("◦ ", "cyan"),
+        (server_name, "bold cyan"),
+        ("  ", ""),
+        (f"{len(tools)} tools", "dim"),
+    )
+    lines: list[object] = [summary]
+    for tool in sorted(tools, key=lambda item: item.name):
+        lines.append(_render_tool_line(tool, display_name=tool.name.partition("__")[2] or tool.name))
+    return Group(*lines)
+
+
+def _section_icon(section_name: str) -> str:
+    icons = {
+        "Built-in": "◆",
+        "Verification": "✓",
+        "Subagent Runtime": "⇄",
+        "Subagent Specialists": "◉",
+        "Custom": "✦",
+        "MCP": "⎇",
+    }
+    return icons.get(section_name, "•")
+
+
+def _render_tool_line(tool: Tool, *, display_name: str | None = None) -> Text:
+    metadata = tool.get_metadata({})
+    risk_label, risk_style = _tool_risk_style(tool)
+    access = _tool_access_label(tool).upper()
+    desc = _truncate_tool_desc(tool)
+    name = display_name or tool.name
+    return Text.assemble(
+        ("• ", "grey50"),
+        (name, "green bold"),
+        ("  ", ""),
+        ("[", "grey50"),
+        (access, "cyan"),
+        ("]", "grey50"),
+        (" ", ""),
+        ("[", "grey50"),
+        (risk_label.upper(), risk_style),
+        ("]", "grey50"),
+        ("  ", ""),
+        (desc, "dim"),
+    )
+
+
 async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
+    if not ctx.agent or not ctx.agent.session:
+        ctx.console.print("[error]No active session[/error]")
+        return
+
     mcp_mgr = ctx.agent.session.mcp_manager
+    subcommand = args[0].lower() if args else "list"
+
+    if subcommand == "start":
+        if len(args) < 2:
+            ctx.console.print("[error]Usage:[/error] [code]/mcp start <server>[/code]")
+            return
+        name = args[1]
+        seen_updates: set[tuple[str, str | None]] = set()
+
+        async def _status_update(payload: dict[str, str | None]) -> None:
+            status = payload.get("status")
+            detail = payload.get("detail")
+            key = (str(status), detail)
+            if key in seen_updates:
+                return
+            seen_updates.add(key)
+            line = _format_mcp_status_line(name, str(status or ""), detail)
+            if line:
+                ctx.console.print(line)
+
+        try:
+            tool_count = await mcp_mgr.connect_server(
+                name,
+                ctx.agent.session.tool_registry,
+                status_callback=_status_update,
+            )
+        except Exception as exc:
+            ctx.console.print(f"[error]Failed to start MCP server '{name}':[/error] {exc}")
+            return
+        ctx.console.print(
+            f"[success]Started MCP server[/success] [cyan]{name}[/cyan] "
+            f"[dim]({tool_count} tools registered)[/dim]"
+        )
+        return
+
+    if subcommand == "stop":
+        if len(args) < 2:
+            ctx.console.print("[error]Usage:[/error] [code]/mcp stop <server>[/code]")
+            return
+        name = args[1]
+        try:
+            removed = await mcp_mgr.disconnect_server(name, ctx.agent.session.tool_registry)
+        except Exception as exc:
+            ctx.console.print(f"[error]Failed to stop MCP server '{name}':[/error] {exc}")
+            return
+        ctx.console.print(
+            f"[success]Stopped MCP server[/success] [cyan]{name}[/cyan] "
+            f"[dim]({removed} tools removed)[/dim]"
+        )
+        return
+
+    if subcommand == "env":
+        await _cmd_mcp_env(ctx, args[1:])
+        return
+
+    if subcommand == "doctor":
+        await _cmd_mcp_doctor(ctx, args[1:])
+        return
+
+    if subcommand not in {"list"}:
+        ctx.console.print(
+            "[error]Usage:[/error] [code]/mcp[/code], "
+            "[code]/mcp start <server>[/code], "
+            "[code]/mcp stop <server>[/code], "
+            "[code]/mcp env ...[/code], "
+            "[code]/mcp doctor <server>[/code]"
+        )
+        return
+
     servers = mcp_mgr.get_all_servers()
     title = Text.assemble(
         ("🔌 ", ""), (f"MCP Servers ({len(servers)})", "bold bright_white")
@@ -305,19 +535,43 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
         mcp_table = Table.grid(padding=(0, 2))
         mcp_table.add_column(style="cyan bold", min_width=16)
         mcp_table.add_column(min_width=12)
+        mcp_table.add_column(min_width=10)
         mcp_table.add_column(style="code")
+        mcp_table.add_column(style="dim")
         for server in servers:
             is_connected = server["status"] == "connected"
-            status_style = "green bold" if is_connected else "red bold"
+            is_ready = server["status"] == "ready"
+            status_style = (
+                "green bold"
+                if is_connected
+                else "yellow"
+                if is_ready
+                else "red bold"
+            )
             mcp_table.add_row(
                 Text(server["name"], style="cyan bold"),
                 Text(f"● {server['status']}", style=status_style),
+                Text(
+                    "auto-start" if server.get("auto_connect") else "manual",
+                    style="code",
+                ),
                 Text(f"[{server['tools']} tools]", style="code"),
+                Text(
+                    str(server.get("detail") or server.get("last_error") or ""),
+                    style="dim",
+                ),
             )
         ctx.console.print()
         ctx.console.print(
             Panel(
-                mcp_table,
+                Group(
+                    mcp_table,
+                    Text(
+                        "\nUse /mcp start <server> to connect a configured MCP server, "
+                        "/mcp stop <server> to disconnect it.",
+                        style="dim",
+                    ),
+                ),
                 title=title,
                 title_align="left",
                 border_style="cyan",
@@ -325,6 +579,297 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
                 padding=(1, 2),
             )
         )
+
+
+async def _cmd_mcp_env(ctx: CommandContext, args: list[str]) -> None:
+    action = args[0].lower() if args else "list"
+    scope, remaining = _extract_scope_flag(args[1:] if args else [])
+    scope = scope or "global"
+
+    if action == "list":
+        server = remaining[0] if remaining else None
+        await _print_mcp_env_listing(ctx, scope=scope, server=server)
+        return
+
+    if action == "where":
+        if not remaining:
+            ctx.console.print("[error]Usage:[/error] [code]/mcp env where <server>[/code]")
+            return
+        await _print_mcp_env_where(ctx, remaining[0])
+        return
+
+    if action == "set":
+        if len(remaining) < 3:
+            ctx.console.print(
+                "[error]Usage:[/error] [code]/mcp env set <server> <KEY> <VALUE> [--scope global|workspace][/code]"
+            )
+            return
+        server, key, value = remaining[0], remaining[1], " ".join(remaining[2:])
+        path = save_mcp_env_var(cwd=ctx.config.cwd, scope=scope, server=server, key=key, value=value)
+        _reload_mcp_runtime_config(ctx)
+        ctx.console.print(
+            f"[success]Stored MCP env[/success] [cyan]{server}:{key}[/cyan] "
+            f"[dim]in {scope} secrets ({path})[/dim]"
+        )
+        return
+
+    if action == "import":
+        if len(remaining) < 2:
+            ctx.console.print(
+                "[error]Usage:[/error] [code]/mcp env import <server> <KEY> [PROCESS_ENV_NAME] [--scope global|workspace][/code]"
+            )
+            return
+        server, key = remaining[0], remaining[1]
+        process_env_name = remaining[2] if len(remaining) > 2 else key
+        import os
+
+        value = os.environ.get(process_env_name)
+        if value is None:
+            ctx.console.print(
+                f"[error]Process env not found:[/error] [code]{process_env_name}[/code]"
+            )
+            return
+        path = save_mcp_env_var(cwd=ctx.config.cwd, scope=scope, server=server, key=key, value=value)
+        _reload_mcp_runtime_config(ctx)
+        ctx.console.print(
+            f"[success]Imported MCP env[/success] [cyan]{server}:{key}[/cyan] "
+            f"[dim]from process env {process_env_name} into {scope} secrets ({path})[/dim]"
+        )
+        return
+
+    if action in {"unset", "remove", "rm"}:
+        if len(remaining) < 2:
+            ctx.console.print(
+                "[error]Usage:[/error] [code]/mcp env unset <server> <KEY> [--scope global|workspace][/code]"
+            )
+            return
+        server, key = remaining[0], remaining[1]
+        path = remove_mcp_env_var(cwd=ctx.config.cwd, scope=scope, server=server, key=key)
+        _reload_mcp_runtime_config(ctx)
+        ctx.console.print(
+            f"[success]Removed MCP env[/success] [cyan]{server}:{key}[/cyan] "
+            f"[dim]from {scope} secrets ({path})[/dim]"
+        )
+        return
+
+    ctx.console.print(
+        "[error]Usage:[/error] [code]/mcp env list [server][/code], "
+        "[code]/mcp env where <server>[/code], "
+        "[code]/mcp env set <server> <KEY> <VALUE>[/code], "
+        "[code]/mcp env import <server> <KEY> [PROCESS_ENV_NAME][/code], "
+        "[code]/mcp env unset <server> <KEY>[/code] "
+        "[dim](defaults to --scope global)[/dim]"
+    )
+
+
+async def _cmd_mcp_doctor(ctx: CommandContext, args: list[str]) -> None:
+    if not args:
+        ctx.console.print("[error]Usage:[/error] [code]/mcp doctor <server>[/code]")
+        return
+    server = args[0]
+    config = ctx.config.mcp_servers.get(server)
+    if config is None:
+        ctx.console.print(f"[error]Unknown MCP server:[/error] [code]{server}[/code]")
+        return
+
+    global_store = load_mcp_env_store(ctx.config.cwd, "global")
+    workspace_store = load_mcp_env_store(ctx.config.cwd, "workspace")
+    global_keys = sorted(global_store.get(server, {}).keys())
+    workspace_keys = sorted(workspace_store.get(server, {}).keys())
+    merged_keys = sorted((config.env or {}).keys())
+    missing = config.unresolved_env_vars()
+
+    lines = [
+        Text.assemble(("server ", "code"), (server, "bold cyan")),
+        Text.assemble(("transport ", "code"), (config.effective_transport, "bold cyan")),
+        Text.assemble(("auth ", "code"), (str(config.auth or "none"), "bold cyan")),
+        Text.assemble(("startup timeout ", "code"), (f"{config.startup_timeout_sec:g}s", "bold cyan")),
+        Text.assemble(("oauth timeout ", "code"), (f"{config.oauth_timeout_sec:g}s", "bold cyan")),
+        Text.assemble(("global env ", "code"), (", ".join(global_keys) if global_keys else "none", "bold cyan")),
+        Text.assemble(("workspace env ", "code"), (", ".join(workspace_keys) if workspace_keys else "none", "bold cyan")),
+        Text.assemble(("effective env ", "code"), (", ".join(merged_keys) if merged_keys else "none", "bold cyan")),
+    ]
+    if missing:
+        lines.append(Text.assemble(("missing env ", "code"), (", ".join(missing), "bold yellow")))
+    else:
+        lines.append(Text.assemble(("missing env ", "code"), ("none", "bold green")))
+
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Group(*lines),
+            title=Text(f"MCP Doctor · {server}", style="bold bright_white"),
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
+async def _print_mcp_env_listing(
+    ctx: CommandContext,
+    *,
+    scope: str,
+    server: str | None,
+) -> None:
+    if scope == "all":
+        stores = {
+            "global": load_mcp_env_store(ctx.config.cwd, "global"),
+            "workspace": load_mcp_env_store(ctx.config.cwd, "workspace"),
+        }
+    else:
+        stores = {scope: load_mcp_env_store(ctx.config.cwd, scope)}
+
+    blocks: list[object] = []
+    for label, store in stores.items():
+        if blocks:
+            blocks.append(Rule(style="grey35"))
+        blocks.append(Text(label, style="bold cyan"))
+        rows = []
+        server_names = [server] if server else sorted(store.keys())
+        for server_name in server_names:
+            values = store.get(server_name, {})
+            if not values:
+                continue
+            rows.append(Text.assemble((server_name, "bold bright_white"), ("  "), (f"{len(values)} vars", "dim")))
+            for key in sorted(values):
+                rows.append(
+                    Text.assemble(
+                        ("  ", ""),
+                        (key, "cyan"),
+                        (" = ", "dim"),
+                        (_mask_secret(values[key]), "dim"),
+                    )
+                )
+        if rows:
+            blocks.extend(rows)
+        else:
+            blocks.append(Text("No stored MCP env values.", style="dim"))
+
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Group(*blocks),
+            title=Text("MCP Env", style="bold bright_white"),
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
+async def _print_mcp_env_where(ctx: CommandContext, server: str) -> None:
+    global_store = load_mcp_env_store(ctx.config.cwd, "global")
+    workspace_store = load_mcp_env_store(ctx.config.cwd, "workspace")
+    config = ctx.config.mcp_servers.get(server)
+    if config is None:
+        ctx.console.print(f"[error]Unknown MCP server:[/error] [code]{server}[/code]")
+        return
+
+    lines = [
+        Text.assemble(("global store ", "code"), (str(get_system_secrets_path()), "bold cyan")),
+        Text.assemble(("workspace store ", "code"), (str(get_workspace_secrets_path(ctx.config.cwd)), "bold cyan")),
+        Text(""),
+        Text.assemble(("global keys ", "code"), (", ".join(sorted(global_store.get(server, {}).keys())) or "none", "bold cyan")),
+        Text.assemble(("workspace keys ", "code"), (", ".join(sorted(workspace_store.get(server, {}).keys())) or "none", "bold cyan")),
+        Text.assemble(("effective keys ", "code"), (", ".join(sorted((config.env or {}).keys())) or "none", "bold cyan")),
+    ]
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Group(*lines),
+            title=Text(f"MCP Env Where · {server}", style="bold bright_white"),
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
+def _extract_scope_flag(args: list[str]) -> tuple[str | None, list[str]]:
+    remaining: list[str] = []
+    scope: str | None = None
+    index = 0
+    while index < len(args):
+        item = args[index]
+        if item == "--scope" and index + 1 < len(args):
+            scope = args[index + 1].strip().lower()
+            index += 2
+            continue
+        if item.startswith("--scope="):
+            scope = item.split("=", 1)[1].strip().lower()
+            index += 1
+            continue
+        remaining.append(item)
+        index += 1
+    if scope not in {None, "global", "workspace", "all"}:
+        scope = "global"
+    return scope, remaining
+
+
+def _mask_secret(value: str) -> str:
+    if not value:
+        return "••••"
+    if len(value) <= 4:
+        return "•" * len(value)
+    return "•" * max(4, len(value) - 4) + value[-4:]
+
+
+def _format_mcp_status_line(name: str, status: str, detail: str | None) -> Text:
+    normalized = status.strip().lower()
+    if normalized == "connecting":
+        line = Text()
+        line.append(name, style="#edf1f7")
+        line.append("  connecting", style="#8c93a1")
+        if detail and detail not in {"Connecting.", "Connecting"}:
+            line.append("  ")
+            line.append(detail, style="#c9d3e0")
+        return line
+
+    if normalized == "connected":
+        line = Text()
+        line.append("● ", style="bold green")
+        line.append(name, style="#edf1f7")
+        line.append("  connected", style="#8fc7a2")
+        if detail:
+            line.append("  ")
+            line.append(detail, style="#8c93a1")
+        return line
+
+    if normalized == "error":
+        line = Text()
+        line.append("● ", style="bold yellow")
+        line.append(name, style="#edf1f7")
+        line.append("  error", style="#d5b07a")
+        if detail:
+            line.append("  ")
+            line.append(detail, style="#c9d3e0")
+        return line
+
+    line = Text()
+    line.append(name, style="#edf1f7")
+    line.append(f"  {normalized or 'status'}", style="#8c93a1")
+    if detail:
+        line.append("  ")
+        line.append(detail, style="#c9d3e0")
+    return line
+
+
+def _reload_mcp_runtime_config(ctx: CommandContext) -> None:
+    fresh = load_config(ctx.config.cwd)
+    ctx.config.mcp_servers = fresh.mcp_servers
+    if not ctx.agent or not ctx.agent.session:
+        return
+    manager = ctx.agent.session.mcp_manager
+    manager_config = getattr(manager, "config", None)
+    if manager_config is not None:
+        manager_config.mcp_servers = fresh.mcp_servers
+    for name, client in getattr(manager, "_clients", {}).items():
+        if name in fresh.mcp_servers:
+            client.config = fresh.mcp_servers[name]
 
 
 def _memory_records_table(title: str, records: list[dict], *, tone: str) -> Panel:
