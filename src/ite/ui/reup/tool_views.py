@@ -407,6 +407,96 @@ def looks_like_json(text: str) -> bool:
     )
 
 
+def parse_nested_json_payload(text: str) -> Any | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return None
+    if isinstance(parsed, str):
+        nested = parsed.strip()
+        if not nested:
+            return parsed
+        try:
+            return json.loads(nested)
+        except Exception:
+            return parsed
+    return parsed
+
+
+def summarize_mcp_success(
+    *,
+    server_name: str,
+    tool_name: str,
+    payload_text: str,
+) -> tuple[str, list[Any], bool]:
+    parsed = parse_nested_json_payload(payload_text)
+    label = server_name.capitalize() if server_name else "MCP"
+    blocks: list[Any] = []
+    was_truncated = False
+
+    if isinstance(parsed, list):
+        count = len(parsed)
+        summary = f"Loaded {count} result{'s' if count != 1 else ''} from {label}."
+        table = Table.grid(expand=True)
+        table.add_column(style="#dfe4ea", ratio=2)
+        table.add_column(style="#8c97ab", ratio=3)
+        shown = 0
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            primary = str(
+                item.get("name")
+                or item.get("title")
+                or item.get("slug")
+                or item.get("id")
+                or ""
+            ).strip()
+            if not primary:
+                continue
+            secondary = str(
+                item.get("site_id")
+                or item.get("primarySiteUrl")
+                or item.get("url")
+                or item.get("state")
+                or ""
+            ).strip()
+            table.add_row(primary, secondary)
+            shown += 1
+            if shown >= 4:
+                break
+        if shown:
+            blocks.append(table)
+        return summary, blocks, was_truncated
+
+    if isinstance(parsed, dict):
+        primary = str(
+            parsed.get("name")
+            or parsed.get("title")
+            or parsed.get("slug")
+            or parsed.get("id")
+            or ""
+        ).strip()
+        summary = f"{label} details loaded."
+        if primary:
+            summary = f"Loaded {primary} from {label}."
+        details = []
+        for key in ("site_id", "url", "state", "teamId"):
+            value = str(parsed.get(key) or "").strip()
+            if value:
+                details.append(f"{key}: {value}")
+        for line in details[:3]:
+            blocks.append(Text(line, style="#8c97ab"))
+        return summary, blocks, was_truncated
+
+    output_display, was_truncated = truncate_for_tool(tool_name, payload_text)
+    if output_display.strip():
+        blocks.append(render_text_payload(output_display, success=True))
+    return f"{label} data loaded.", blocks, was_truncated
+
+
 def render_todo_payload(
     *,
     output: str,

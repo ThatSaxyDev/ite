@@ -20,6 +20,14 @@ def activity_title(
     done = bool(success)
     redirect = is_policy_redirect(metadata)
     recoverable = bool(metadata.get("recoverable")) or redirect
+    mcp_server = str(metadata.get("mcp_server") or "").strip()
+    if mcp_server:
+        label = mcp_server.capitalize()
+        if running:
+            return f"Checking {label}"
+        if done:
+            return f"{label} updated"
+        return "Trying again" if recoverable else f"{label} failed"
     if redirect and not running and not done:
         return "Switching tools"
     if name == "read_file":
@@ -125,7 +133,7 @@ def activity_title(
         return "Creating commit" if running else ("Commit created" if done else "Commit failed")
     if name == "git_push":
         return "Publishing branch" if running else ("Publish complete" if done else "Publish failed")
-    return "Running tool" if running else ("Tool completed" if done else ("Tool needs retry" if recoverable else "Tool failed"))
+    return "Running tool" if running else ("Tool completed" if done else ("Trying again" if recoverable else "Tool failed"))
 
 
 def describe_tool_activity(

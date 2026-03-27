@@ -17,12 +17,16 @@ from ite.config.config import Config
 from ite.config.config import MCPServerConfig
 from ite.config.loader import load_config
 from ite.tools.base import ToolRiskLevel
+from ite.tools.base import ToolInvocation
 from ite.tools.mcp.client import MCPClient
 from ite.tools.mcp.client import MCPServerStatus
 from ite.tools.mcp.client import MCPToolInfo
 from ite.tools.mcp.mcp_manager import MCPManager
 from ite.tools.mcp.oauth import FileAsyncKeyValueStore
 from ite.tools.mcp.mcp_tool import MCPTool
+from ite.ui.tool_narrative import activity_title
+from ite.ui.reup.tool_views import parse_nested_json_payload
+from ite.ui.reup.tool_views import summarize_mcp_success
 
 
 class MCPClientTests(unittest.IsolatedAsyncioTestCase):
@@ -242,6 +246,97 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(tool.is_mutating({}))
             self.assertEqual(metadata.risk_level, ToolRiskLevel.HIGH)
             self.assertFalse(metadata.allowed_in_plan_mode)
+
+    async def test_mcp_validation_error_is_marked_recoverable_with_ui_summary(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock(
+                side_effect=RuntimeError(
+                    'MCP error -32602: Input validation error: Invalid arguments for tool netlify-deploy-services-reader: expected "get-deploy"'
+                )
+            )
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="netlify-deploy-services-reader",
+                    description="Read deploys",
+                    server_name="netlify",
+                ),
+                name="netlify__netlify-deploy-services-reader",
+            )
+
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata["recoverable"])
+            self.assertEqual(result.metadata["ui_summary"], "That Netlify call used the wrong input.")
+            self.assertEqual(
+                result.metadata["ui_detail"],
+                "Trying the `get-deploy` action instead.",
+            )
+
+    async def test_mcp_404_error_gets_calm_ui_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock(
+                return_value={
+                    "output": "MCP tool failed: Failed to fetch API: 404",
+                    "is_error": True,
+                }
+            )
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="netlify-project-services-reader",
+                    description="Read project",
+                    server_name="netlify",
+                ),
+                name="netlify__netlify-project-services-reader",
+            )
+
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata["recoverable"])
+            self.assertEqual(
+                result.metadata["ui_summary"],
+                "That Netlify item wasn't found.",
+            )
+
+
+class MCPUiRenderingTests(unittest.TestCase):
+    def test_activity_title_for_mcp_success_is_not_generic(self) -> None:
+        title = activity_title(
+            "netlify__netlify-project-services-reader",
+            stage="complete",
+            success=True,
+            metadata={"mcp_server": "netlify"},
+        )
+
+        self.assertEqual(title, "Netlify updated")
+
+    def test_parse_nested_json_payload_decodes_stringified_json(self) -> None:
+        parsed = parse_nested_json_payload(
+            '"[{\\"id\\":\\"1\\",\\"name\\":\\"ite\\",\\"site_id\\":\\"site-1\\"}]"'
+        )
+
+        self.assertIsInstance(parsed, list)
+        self.assertEqual(parsed[0]["name"], "ite")
+
+    def test_summarize_mcp_success_compacts_list_payload(self) -> None:
+        summary, blocks, truncated = summarize_mcp_success(
+            server_name="netlify",
+            tool_name="netlify__netlify-project-services-reader",
+            payload_text='"[{\\"id\\":\\"1\\",\\"name\\":\\"ite\\",\\"site_id\\":\\"site-1\\"}]"',
+        )
+
+        self.assertEqual(summary, "Loaded 1 result from Netlify.")
+        self.assertFalse(truncated)
+        self.assertTrue(blocks)
 
 
 class MCPManagerTests(unittest.TestCase):

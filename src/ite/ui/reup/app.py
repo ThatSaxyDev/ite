@@ -135,6 +135,7 @@ from .tool_views import (
     render_shell_result_payload,
     render_shell_running_card,
     render_terminal_snapshot_payload,
+    summarize_mcp_success,
     shell_session_state,
     render_text_payload,
     render_todo_payload,
@@ -5529,8 +5530,8 @@ class ReupApp(App):
 
         md = metadata if isinstance(metadata, dict) else {}
         policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
-        status = "done" if success else ("redirected" if policy_redirect else "failed")
         recoverable = bool(md.get("recoverable")) or policy_redirect
+        status = "done" if success else ("redirected" if policy_redirect else ("" if recoverable else "failed"))
         args = self._tool_args_by_call_id.get(call_id, {})
         narrative = describe_tool_activity(
             name,
@@ -5937,6 +5938,36 @@ class ReupApp(App):
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(subagent_blocks)
+        elif tool_kind == "mcp":
+            server_name = str(md.get("mcp_server") or "").strip()
+            mcp_tool_name = str(md.get("mcp_tool") or "").strip()
+            identity_bits = [part for part in [server_name, mcp_tool_name] if part]
+            if identity_bits:
+                blocks.append(Text(" • ".join(identity_bits), style="#8c97ab"))
+            if success:
+                if payload.strip():
+                    summary, mcp_blocks, was_truncated = summarize_mcp_success(
+                        server_name=server_name,
+                        tool_name=name,
+                        payload_text=payload,
+                    )
+                    local_truncated = local_truncated or was_truncated
+                    blocks.append(Text(summary, style="#8c97ab"))
+                    blocks.extend(mcp_blocks)
+                else:
+                    blocks.append(Text("Data loaded.", style="#8c97ab"))
+            else:
+                summary = str(md.get("ui_summary") or "The MCP request failed.").strip()
+                detail = str(md.get("ui_detail") or "").strip()
+                summary_style = "#e7c58a" if recoverable else "#f1b4b4"
+                blocks.append(Text(summary, style=summary_style))
+                if detail and detail != summary:
+                    blocks.append(Text(detail, style="#8c97ab"))
+                if self.config.debug:
+                    output_display, was_truncated = truncate_for_tool(name, payload)
+                    local_truncated = local_truncated or was_truncated
+                    if output_display.strip():
+                        blocks.append(render_text_payload(output_display, success=False))
         else:
             blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -5965,10 +5996,14 @@ class ReupApp(App):
             )
         else:
             header.append(title_text, style=title_style)
-        header.append(
-            "  " + status + (f" · exit {exit_code}" if exit_code is not None else ""),
-            style="#8c97ab",
-        )
+        suffix = status
+        if exit_code is not None:
+            suffix = f"{suffix} · exit {exit_code}" if suffix else f"exit {exit_code}"
+        if suffix:
+            header.append(
+                "  " + suffix,
+                style="#8c97ab",
+            )
 
         card.update(Group(header, *blocks))
         card.remove_class("running")

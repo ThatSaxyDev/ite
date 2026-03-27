@@ -1,4 +1,5 @@
 from typing import Any
+import re
 from ite.config.config import Config
 from ite.tools.base import (
     Tool,
@@ -74,8 +75,75 @@ class MCPTool(Tool):
             is_error = result.get("is_error", False)
 
             if is_error:
-                return ToolResult.error_result(output)
+                return ToolResult.error_result(
+                    output,
+                    metadata=self._error_metadata(str(output or "")),
+                )
 
             return ToolResult.success_result(output)
         except Exception as e:
-            return ToolResult.error_result(f"MCP tool failed: {e}")
+            raw = f"MCP tool failed: {e}"
+            return ToolResult.error_result(
+                raw,
+                metadata=self._error_metadata(raw),
+            )
+
+    def _error_metadata(self, raw_error: str) -> dict[str, Any]:
+        summary, detail, recoverable = self._classify_error(raw_error)
+        metadata: dict[str, Any] = {
+            "mcp_server": self._tool_info.server_name or self.name.split("__", 1)[0],
+            "mcp_tool": self._tool_info.name,
+            "ui_summary": summary,
+            "ui_detail": detail,
+        }
+        if recoverable:
+            metadata["recoverable"] = True
+        return metadata
+
+    def _classify_error(self, raw_error: str) -> tuple[str, str, bool]:
+        text = str(raw_error or "").strip()
+        compact = " ".join(text.split())
+        expected_operation = self._extract_expected_operation(text)
+
+        if (
+            "Input validation error" in text
+            or "Invalid arguments for tool" in text
+            or "invalid_union" in text
+            or "invalid_literal" in text
+        ):
+            summary = "That Netlify call used the wrong input."
+            detail = "Trying again with corrected arguments."
+            if expected_operation:
+                detail = f"Trying the `{expected_operation}` action instead."
+            return (summary, detail, True)
+
+        if "Failed to fetch API: 404" in text or re.search(r"\b404\b", compact):
+            return (
+                "That Netlify item wasn't found.",
+                "Trying a different site or deploy.",
+                True,
+            )
+
+        if "Failed to fetch API: 401" in text or "Failed to fetch API: 403" in text:
+            return (
+                "Netlify blocked this request.",
+                "Check workspace access or reconnect Netlify.",
+                False,
+            )
+
+        if "Connection closed" in text:
+            return (
+                "Netlify stopped responding.",
+                "Retrying or reconnecting usually fixes this.",
+                True,
+            )
+
+        first_line = compact.split(". ", 1)[0].strip() if compact else "The MCP request failed."
+        return ("The Netlify request failed.", first_line, False)
+
+    @staticmethod
+    def _extract_expected_operation(text: str) -> str | None:
+        match = re.search(r'expected\s+\\?"([^"\\]+)\\?"', text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return None
