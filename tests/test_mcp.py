@@ -307,6 +307,34 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
                 "That Netlify item wasn't found.",
             )
 
+    async def test_mcp_chrome_connect_error_gets_chrome_specific_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock(
+                side_effect=RuntimeError("MCP tool failed: Could not connect to Chrome")
+            )
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="navigate_page",
+                    description="Navigate page",
+                    server_name="chrome-devtools",
+                ),
+                name="chrome-devtools__navigate_page",
+            )
+
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata["recoverable"])
+            self.assertEqual(result.metadata["ui_summary"], "Chrome isn't ready yet.")
+            self.assertEqual(
+                result.metadata["ui_detail"],
+                "Open Chrome and allow the debugging session, then try again.",
+            )
+
 
 class MCPUiRenderingTests(unittest.TestCase):
     def test_activity_title_for_mcp_success_is_not_generic(self) -> None:
@@ -318,6 +346,16 @@ class MCPUiRenderingTests(unittest.TestCase):
         )
 
         self.assertEqual(title, "Netlify updated")
+
+    def test_activity_title_humanizes_mcp_server_name(self) -> None:
+        title = activity_title(
+            "chrome-devtools__navigate_page",
+            stage="complete",
+            success=False,
+            metadata={"mcp_server": "chrome-devtools"},
+        )
+
+        self.assertEqual(title, "Chrome Devtools failed")
 
     def test_parse_nested_json_payload_decodes_stringified_json(self) -> None:
         parsed = parse_nested_json_payload(

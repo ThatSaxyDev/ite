@@ -39,6 +39,16 @@ args = ["-y", "@netlify/mcp"]
 startup_timeout_sec = 45
 env = { NETLIFY_PERSONAL_ACCESS_TOKEN = "${NETLIFY_PERSONAL_ACCESS_TOKEN}" }
 
+[mcp_servers.chrome]
+enabled = true
+command = "npx"
+args = [
+    "-y",
+    "chrome-devtools-mcp@latest",
+    "--autoConnect",
+]
+startup_timeout_sec = 45
+
 # [mcp_servers.filesystem2]
 # enabled = true
 # command = "np"

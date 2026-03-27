@@ -89,9 +89,10 @@ class MCPTool(Tool):
             )
 
     def _error_metadata(self, raw_error: str) -> dict[str, Any]:
-        summary, detail, recoverable = self._classify_error(raw_error)
+        server_name = self._tool_info.server_name or self.name.split("__", 1)[0]
+        summary, detail, recoverable = self._classify_error(raw_error, server_name)
         metadata: dict[str, Any] = {
-            "mcp_server": self._tool_info.server_name or self.name.split("__", 1)[0],
+            "mcp_server": server_name,
             "mcp_tool": self._tool_info.name,
             "ui_summary": summary,
             "ui_detail": detail,
@@ -100,10 +101,11 @@ class MCPTool(Tool):
             metadata["recoverable"] = True
         return metadata
 
-    def _classify_error(self, raw_error: str) -> tuple[str, str, bool]:
+    def _classify_error(self, raw_error: str, server_name: str) -> tuple[str, str, bool]:
         text = str(raw_error or "").strip()
         compact = " ".join(text.split())
         expected_operation = self._extract_expected_operation(text)
+        server_label = self._server_label(server_name)
 
         if (
             "Input validation error" in text
@@ -111,35 +113,49 @@ class MCPTool(Tool):
             or "invalid_union" in text
             or "invalid_literal" in text
         ):
-            summary = "That Netlify call used the wrong input."
+            summary = f"That {server_label} call used the wrong input."
             detail = "Trying again with corrected arguments."
             if expected_operation:
                 detail = f"Trying the `{expected_operation}` action instead."
             return (summary, detail, True)
 
+        if "Could not connect to Chrome" in text:
+            return (
+                "Chrome isn't ready yet.",
+                "Open Chrome and allow the debugging session, then try again.",
+                True,
+            )
+
         if "Failed to fetch API: 404" in text or re.search(r"\b404\b", compact):
             return (
-                "That Netlify item wasn't found.",
-                "Trying a different site or deploy.",
+                f"That {server_label} item wasn't found.",
+                "Trying a different item or identifier.",
                 True,
             )
 
         if "Failed to fetch API: 401" in text or "Failed to fetch API: 403" in text:
             return (
-                "Netlify blocked this request.",
-                "Check workspace access or reconnect Netlify.",
+                f"{server_label} blocked this request.",
+                f"Check access or reconnect {server_label}.",
                 False,
             )
 
         if "Connection closed" in text:
             return (
-                "Netlify stopped responding.",
+                f"{server_label} stopped responding.",
                 "Retrying or reconnecting usually fixes this.",
                 True,
             )
 
         first_line = compact.split(". ", 1)[0].strip() if compact else "The MCP request failed."
-        return ("The Netlify request failed.", first_line, False)
+        return (f"The {server_label} request failed.", first_line, False)
+
+    @staticmethod
+    def _server_label(server_name: str) -> str:
+        words = [part for part in re.split(r"[-_]+", str(server_name or "").strip()) if part]
+        if not words:
+            return "MCP"
+        return " ".join(word.capitalize() for word in words)
 
     @staticmethod
     def _extract_expected_operation(text: str) -> str | None:

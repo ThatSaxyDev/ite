@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import re
 
 
 def is_policy_redirect(metadata: dict[str, Any] | None) -> bool:
@@ -22,7 +23,7 @@ def activity_title(
     recoverable = bool(metadata.get("recoverable")) or redirect
     mcp_server = str(metadata.get("mcp_server") or "").strip()
     if mcp_server:
-        label = mcp_server.capitalize()
+        label = _server_label(mcp_server)
         if running:
             return f"Checking {label}"
         if done:
@@ -134,6 +135,13 @@ def activity_title(
     if name == "git_push":
         return "Publishing branch" if running else ("Publish complete" if done else "Publish failed")
     return "Running tool" if running else ("Tool completed" if done else ("Trying again" if recoverable else "Tool failed"))
+
+
+def _server_label(server_name: str) -> str:
+    words = [part for part in re.split(r"[-_]+", str(server_name or "").strip()) if part]
+    if not words:
+        return "MCP"
+    return " ".join(word.capitalize() for word in words)
 
 
 def describe_tool_activity(
