@@ -117,6 +117,83 @@ class CLIModeRoutingTests(unittest.TestCase):
         self.assertIn("[mcp_servers.chrome-devtools]", written)
         self.assertIn('url = "https://127.0.0.1:9222/mcp"', written)
 
+    def test_mcp_add_accepts_explicit_url_and_transport_flags(self) -> None:
+        system_dir = self.cwd / "system2"
+        system_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+            result = self.runner.invoke(
+                main,
+                [
+                    "mcp",
+                    "add",
+                    "figma",
+                    "--url",
+                    "https://mcp.figma.com/mcp",
+                    "--transport",
+                    "streamable_http",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        written = (system_dir / "config.toml").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.figma]", written)
+        self.assertIn('url = "https://mcp.figma.com/mcp"', written)
+        self.assertIn('transport = "streamable_http"', written)
+
+    def test_mcp_add_accepts_explicit_command_and_arg_flags(self) -> None:
+        system_dir = self.cwd / "system3"
+        system_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+            result = self.runner.invoke(
+                main,
+                [
+                    "mcp",
+                    "add",
+                    "netlify",
+                    "--command",
+                    "npx",
+                    "--arg",
+                    "-y",
+                    "--arg",
+                    "@netlify/mcp",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        written = (system_dir / "config.toml").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.netlify]", written)
+        self.assertIn('command = "npx"', written)
+        self.assertIn('args = ["-y", "@netlify/mcp"]', written)
+
+    def test_mcp_add_normalizes_doc_style_http_transport_and_user_scope(self) -> None:
+        system_dir = self.cwd / "system4"
+        system_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+            result = self.runner.invoke(
+                main,
+                [
+                    "mcp",
+                    "add",
+                    "figma",
+                    "--scope",
+                    "user",
+                    "--transport",
+                    "http",
+                    "--url",
+                    "https://mcp.figma.com/mcp",
+                ],
+            )
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        written = (system_dir / "config.toml").read_text(encoding="utf-8")
+        self.assertIn("[mcp_servers.figma]", written)
+        self.assertIn('url = "https://mcp.figma.com/mcp"', written)
+        self.assertIn('transport = "streamable_http"', written)
+        self.assertNotIn('transport = "http"', written)
+
 
 if __name__ == "__main__":
     unittest.main()

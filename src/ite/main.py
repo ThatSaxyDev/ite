@@ -1339,11 +1339,15 @@ def mcp_group() -> None:
 
 @mcp_group.command("add", context_settings={"ignore_unknown_options": True})
 @click.argument("server")
-@click.argument("target")
+@click.argument("target", required=False)
 @click.argument("target_args", nargs=-1, type=str)
+@click.option("--url", "url_value", help="Remote MCP server URL.")
+@click.option("--command", "command_value", help="stdio command to launch the MCP server.")
+@click.option("--transport", help="Explicit MCP transport override.")
+@click.option("--arg", "command_args", multiple=True, help="Repeatable stdio argument.")
 @click.option(
     "--scope",
-    type=click.Choice(["global", "workspace"]),
+    type=click.Choice(["global", "workspace", "user", "local", "project"]),
     default="global",
     show_default=True,
 )
@@ -1351,25 +1355,48 @@ def mcp_group() -> None:
 def mcp_add(
     ctx: click.Context,
     server: str,
-    target: str,
+    target: str | None,
     target_args: tuple[str, ...],
+    url_value: str | None,
+    command_value: str | None,
+    transport: str | None,
+    command_args: tuple[str, ...],
     scope: str,
 ) -> None:
     workspace_dir = Path(ctx.obj.get("workspace_dir") or Path.cwd())
     ensure_workspace_layout(workspace_dir)
+    normalized_scope = _normalize_mcp_scope(scope)
 
-    payload: dict[str, Any]
-    if target.startswith(("http://", "https://")):
-        payload = {"url": target}
+    payload: dict[str, Any] = {}
+    inferred_args = list(command_args or ())
+
+    if url_value and command_value:
+        raise click.ClickException("Use either --url or --command, not both.")
+
+    if url_value:
+        payload["url"] = url_value
+    elif command_value:
+        payload["command"] = command_value
+    elif target:
+        if target.startswith(("http://", "https://")):
+            payload["url"] = target
+        else:
+            payload["command"] = target
+            inferred_args.extend(target_args)
     else:
-        payload = {"command": target}
-        if target_args:
-            payload["args"] = list(target_args)
+        raise click.ClickException("Provide a URL or command. Example: `ite mcp add figma https://mcp.figma.com/mcp`")
+
+    if "url" in payload and target_args:
+        raise click.ClickException("Unexpected extra arguments after URL target.")
+    if "command" in payload and inferred_args:
+        payload["args"] = inferred_args
+    if transport:
+        payload["transport"] = _normalize_mcp_transport(transport)
 
     try:
         path = save_mcp_server_config(
             cwd=workspace_dir,
-            scope=scope,
+            scope=normalized_scope,
             server=server,
             config=payload,
         )
@@ -1377,8 +1404,35 @@ def mcp_add(
         raise click.ClickException(f"Failed to save MCP server '{server}': {exc}") from exc
     console.print(
         f"[success]Saved MCP server[/success] [cyan]{server}[/cyan] "
-        f"[dim]to {scope} config ({path})[/dim]"
+        f"[dim]to {normalized_scope} config ({path})[/dim]"
     )
+
+
+def _normalize_mcp_transport(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "http": "streamable_http",
+        "https": "streamable_http",
+        "streamable-http": "streamable_http",
+        "streamable_http": "streamable_http",
+        "stdio": "stdio",
+        "sse": "sse",
+        "ws": "ws",
+        "websocket": "ws",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _normalize_mcp_scope(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "user": "global",
+        "global": "global",
+        "workspace": "workspace",
+        "local": "workspace",
+        "project": "workspace",
+    }
+    return aliases.get(normalized, normalized)
 
 
 if __name__ == "__main__":

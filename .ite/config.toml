@@ -15,15 +15,15 @@ trigger = "before_agent"
 command = "python3 ./scripts/test_tool.py"
 
 
-[mcp_servers.filesystem]
-enabled = true
-command = "npx"
-args = [
-    "-y",
-    "@modelcontextprotocol/server-filesystem",
-    "/Users/kiishidavid/Documents/Dev/Projects/ite",
-    "/tmp",
-]
+# [mcp_servers.filesystem]
+# enabled = true
+# command = "npx"
+# args = [
+#     "-y",
+#     "@modelcontextprotocol/server-filesystem",
+#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
+#     "/tmp",
+# ]
 
 [mcp_servers.vercel]
 enabled = true
