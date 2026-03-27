@@ -11,6 +11,33 @@ metadata:
 
 This skill provides guidance for creating effective skills.
 
+## Default Assumption
+
+This skill is project-first.
+
+When iTE uses `skill-creator`, assume the skill is being created for the current project unless the user explicitly says otherwise.
+
+That means:
+- the default destination is `.ite/skills`
+- the skill should reflect the project's real workflows, conventions, and constraints
+- the skill is expected to be reviewable, versioned, and shippable with the project
+
+Global or personal skill locations are valid, but they are the exception, not the default.
+
+There are three placement modes:
+- **Project-local skill**: create in `.ite/skills` by default
+- **Global/shared skill**: create in the user's global skill location when explicitly requested
+- **Bundled/core skill**: edit the canonical shipping skill location when the skill is part of iTE itself
+
+When placement is not already obvious from the request, ask one short question before creating the skill:
+
+`Should this skill stay in this project, or do you want all your projects to have access to it?`
+
+Map the answer like this:
+- **This project** -> `.ite/skills`
+- **All projects** -> global/shared skill location
+- **Bundled/core iTE skill** -> canonical shipping skill path
+
 ## About Skills
 
 Skills are modular, self-contained folders that extend iTE with
@@ -275,11 +302,94 @@ Example: When building a `big-query` skill to handle queries like "How many user
 
 To establish the skill's contents, analyze each concrete example to create a list of the reusable resources to include: scripts, references, and assets.
 
+### Special Case: Adapting a Skill from External Source Material
+
+Sometimes the user does not want a skill invented from scratch. They want an iTE-native skill derived from another skill pack, prompt bundle, or operating guide.
+
+In that case, treat the external material as **reference material**, not the final skill.
+
+#### Adaptation workflow
+
+1. **Read the actual source files**
+   Do not rely on summaries or memory. Inspect the real `SKILL.md` files, companion references, and helper resources.
+2. **Extract what is actually strong**
+   Identify:
+   - triggering language
+   - workflow structure
+   - quality gates
+   - reusable anti-patterns
+   - reference file organization
+   - preparation/checklist logic
+3. **Separate essence from baggage**
+   Keep the good instruction patterns. Drop source-specific names, file paths, brand assumptions, stale setup flows, and product-specific conventions that do not belong in iTE.
+4. **Rewrite natively**
+   The resulting skill should read like iTE wrote it, not like a copied pack with renamed folders.
+5. **Preserve the right level of detail**
+   Keep the main `SKILL.md` as the operational spine. Move doctrine, long examples, and specialized deep dives into `references/`.
+
+#### Critical rule
+
+Never cargo-cult source-pack conventions into the new skill.
+
+Examples of things that must usually be rewritten or removed:
+- source-pack config file names
+- source-pack helper skill names
+- source-pack-specific paths
+- instructions that assume a different harness, agent, or UI
+- references to folders that existed only during experimentation
+
+The goal is: **extract the quality, not the residue**.
+
+#### What to keep
+
+When the source material is strong, the most reusable parts are usually:
+- context-gathering order
+- quality bar and review heuristics
+- anti-pattern lists
+- reference-loading guidance
+- execution sequencing
+- concise, high-signal phrasing
+
+#### What to verify after adaptation
+
+After rewriting, explicitly grep for leftovers from the source material:
+- old product names
+- old path names
+- old helper skill names
+- outdated config files
+- references to packs, folders, or commands the new skill should not mention
+
+If any remain, the adaptation is incomplete.
+
+### Canonical vs Local Copies
+
+When the same skill exists in both a shipping location and a local/testing location, decide the source of truth before editing.
+
+Use this rule:
+- **bundled/project shipping path** = canonical skill
+- **local/testing copy** = mirror for active testing, unless the user says otherwise
+
+If you update both:
+- make the canonical skill first
+- then mirror the final content into the local/testing copy
+- avoid letting the two drift silently
+
+If you are unsure which path is canonical, ask before editing both.
+
 ### Step 3: Initializing the Skill
 
 At this point, it is time to actually create the skill.
 
 Skip this step only if the skill being developed already exists. In this case, continue to the next step.
+
+Default path rules:
+- For iTE project-local skills, place them in `.ite/skills`.
+- Treat `.ite/skills` as the default target unless the user explicitly asks for another location.
+- If the user explicitly wants the skill available across multiple projects, use the global/shared skill location instead.
+- If the skill is part of iTE itself, edit the canonical bundled/shipping skill path instead of `.ite/skills`.
+- If both a canonical shipping path and a local/testing path exist, update the canonical skill first and mirror only if needed.
+
+If the request does not already make the destination clear, ask the placement question before running `init_skill.py` or creating files.
 
 When creating a new skill from scratch, always run the `init_skill.py` script. The script conveniently generates a new template skill directory that automatically includes everything a skill requires, making the skill creation process much more efficient and reliable.
 
@@ -292,9 +402,9 @@ scripts/init_skill.py <skill-name> --path <output-directory> [--resources script
 Examples:
 
 ```bash
-scripts/init_skill.py my-skill --path skills/public
-scripts/init_skill.py my-skill --path skills/public --resources scripts,references
-scripts/init_skill.py my-skill --path skills/public --resources scripts --examples
+scripts/init_skill.py my-skill --path .ite/skills
+scripts/init_skill.py my-skill --path .ite/skills --resources scripts,references
+scripts/init_skill.py my-skill --path .ite/skills --resources scripts --examples
 ```
 
 The script:
@@ -347,6 +457,41 @@ Do not include any other fields in YAML frontmatter.
 
 Write instructions for using the skill and its bundled resources.
 
+For high-quality skills, prefer this body structure:
+
+1. **What the skill is for**
+   State the real job clearly.
+2. **Operating model**
+   Explain the order of work or decision sequence.
+3. **Preparation / context**
+   State what must be known before meaningful work starts.
+4. **Mode split**
+   Separate materially different workflows, for example:
+   - existing system vs new build
+   - review vs implement
+   - local patch vs shipping change
+5. **Reference loading guide**
+   Tell iTE which reference file to read for which type of problem.
+6. **Quality bar**
+   State what good output looks like and what failure smells like.
+7. **Output expectations**
+   Make it clear whether the result should be code, critique, files, or structured recommendations.
+
+This structure tends to produce stronger skills than a loose wall of advice.
+
+### Step 4.5: Source-Residue Check
+
+Before validation, do one explicit pass for residue from templates or borrowed source packs.
+
+Check for:
+- wrong product names
+- wrong paths
+- references to experiments or temporary folders
+- helper skills that do not exist in the target environment
+- duplicated or contradictory instructions
+
+If the skill was derived from another pack, this check is mandatory.
+
 ### Step 5: Validate the Skill
 
 Once development of the skill is complete, validate the skill folder to catch basic issues early:
@@ -367,3 +512,8 @@ After testing the skill, users may request improvements. Often this happens righ
 2. Notice struggles or inefficiencies
 3. Identify how SKILL.md or bundled resources should be updated
 4. Implement changes and test again
+
+For adapted skills, also ask:
+- Did we preserve the best parts of the source material?
+- Did we accidentally preserve source-specific baggage?
+- Does the skill now feel native to iTE?
