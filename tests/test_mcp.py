@@ -73,6 +73,36 @@ class MCPClientTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(client._client)
             self.assertEqual(client.tools, [])
 
+    async def test_stdio_connect_failure_includes_server_stderr(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MCPClient(
+                name="netlify",
+                config=MCPServerConfig(
+                    command="npx",
+                    args=["-y", "@netlify/mcp"],
+                ),
+                cwd=cwd,
+            )
+
+            entered_client = AsyncMock()
+            entered_client.__aenter__ = AsyncMock(return_value=entered_client)
+            entered_client.__aexit__ = AsyncMock(return_value=None)
+            entered_client.list_tools = AsyncMock(side_effect=RuntimeError("Connection closed"))
+
+            with patch("ite.tools.mcp.client.Client", return_value=entered_client), patch.object(
+                client,
+                "_read_stdio_log_tail",
+                return_value="Netlify MCP requires NETLIFY_PERSONAL_ACCESS_TOKEN",
+            ):
+                with self.assertRaisesRegex(RuntimeError, "Server stderr"):
+                    await client.connect()
+
+            self.assertEqual(
+                client.status_detail,
+                "Connection closed: Netlify MCP requires NETLIFY_PERSONAL_ACCESS_TOKEN",
+            )
+
     async def test_streamable_http_transport_uses_headers_and_auth(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -106,6 +136,25 @@ class MCPClientTests(unittest.IsolatedAsyncioTestCase):
             transport = client._create_transport()
 
             self.assertEqual(type(transport).__name__, "SSETransport")
+
+    async def test_stdio_transport_sets_private_npm_cache_for_npx_servers(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MCPClient(
+                name="netlify",
+                config=MCPServerConfig(
+                    command="npx",
+                    args=["-y", "@netlify/mcp"],
+                ),
+                cwd=cwd,
+            )
+
+            transport = client._create_transport()
+
+            self.assertEqual(type(transport).__name__, "StdioTransport")
+            self.assertIn("npm_config_cache", transport.env)
+            self.assertTrue(transport.env["npm_config_cache"])
+            self.assertEqual(transport.env["npm_config_update_notifier"], "false")
 
     async def test_oauth_auth_uses_oauth_provider(self) -> None:
         with tempfile.TemporaryDirectory() as td:

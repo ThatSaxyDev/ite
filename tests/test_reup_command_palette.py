@@ -191,7 +191,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_tick_top_indicator_advances_streaming_command_spinner_without_top_busy(self) -> None:
         app = self._app()
         widget = Static()
-        app._streaming_command_cards["/mcp"] = (widget, [], True, "")
+        app._streaming_command_cards["/mcp"] = (SimpleNamespace(), widget, [], True, "")
         app._top_busy = False
         app._aside_pending_widgets = {}
         before = app._top_spinner_index
@@ -199,6 +199,24 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._tick_top_indicator()
 
         self.assertEqual(app._top_spinner_index, before + 1)
+
+    def test_append_streaming_command_marks_card_as_error_on_failure(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            class DummyConversation:
+                async def mount(self, _card) -> None:
+                    return None
+
+            with patch.object(app, "query_one", return_value=DummyConversation()), patch.object(
+                app, "_pin_activity_indicator_to_end", AsyncMock()
+            ), patch.object(app, "_refresh_empty_state"):
+                await app._append_command_result_card("/mcp", "Failed to start MCP server 'netlify'")
+
+            card, _body, _lines, _pending_active, _pending_text = app._streaming_command_cards["/mcp"]
+            self.assertIn("command-error", card.classes)
+
+        asyncio.run(run_test())
 
     def test_run_command_routes_generic_output_to_command_card(self) -> None:
         app = self._app()

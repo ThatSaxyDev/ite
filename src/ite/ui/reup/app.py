@@ -358,7 +358,7 @@ class ReupApp(App):
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
-        self._streaming_command_cards: dict[str, tuple[Static, list[str], bool, str | None]] = {}
+        self._streaming_command_cards: dict[str, tuple[Container, Static, list[str], bool, str | None]] = {}
         self._composer_history: list[str] = []
         self._composer_history_index: int | None = None
         self._composer_history_draft: str = ""
@@ -2320,7 +2320,7 @@ class ReupApp(App):
     def _tick_top_indicator(self) -> None:
         has_pending_command_spinner = any(
             pending_active
-            for _body_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
+            for _card, _body_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
         )
         if not self._top_busy and not self._aside_pending_widgets and not has_pending_command_spinner:
             return
@@ -2335,7 +2335,7 @@ class ReupApp(App):
             pending_text = self._render_aside_pending_text()
             for widget in list(self._aside_pending_widgets.values()):
                 widget.update(pending_text)
-        for body_widget, lines, pending_active, pending_text in list(self._streaming_command_cards.values()):
+        for _card, body_widget, lines, pending_active, pending_text in list(self._streaming_command_cards.values()):
             if pending_active:
                 body_widget.update(
                     self._build_streaming_command_renderable(
@@ -4593,8 +4593,8 @@ class ReupApp(App):
     ) -> None:
         existing = self._streaming_command_cards.get(command)
         if existing is not None:
-            body_widget, lines, _old_pending_active, _old_pending = existing
-            self._streaming_command_cards[command] = (body_widget, lines, True, pending_text)
+            card, body_widget, lines, _old_pending_active, _old_pending = existing
+            self._streaming_command_cards[command] = (card, body_widget, lines, True, pending_text)
             body_widget.update(
                 self._build_streaming_command_renderable(
                     lines,
@@ -4622,7 +4622,7 @@ class ReupApp(App):
         )
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.mount(card)
-        self._streaming_command_cards[command] = (body_widget, [], True, pending_text)
+        self._streaming_command_cards[command] = (card, body_widget, [], True, pending_text)
         self._message_count += 1
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
@@ -4688,8 +4688,10 @@ class ReupApp(App):
             if existing is None:
                 return
 
-        body_widget, lines, _pending_active, pending_text = existing
+        card, body_widget, lines, _pending_active, pending_text = existing
         lines.append(text)
+        if self._looks_like_command_error(text):
+            card.add_class("command-error")
         body_widget.update(
             self._build_streaming_command_renderable(
                 lines,
@@ -4704,7 +4706,9 @@ class ReupApp(App):
         existing = self._streaming_command_cards.pop(command, None)
         if existing is None:
             return
-        body_widget, lines, _pending_active, _pending_text = existing
+        card, body_widget, lines, _pending_active, _pending_text = existing
+        if any(self._looks_like_command_error(line) for line in lines):
+            card.add_class("command-error")
         body_widget.update(
             self._build_streaming_command_renderable(
                 lines,
@@ -4772,6 +4776,11 @@ class ReupApp(App):
             else:
                 blocks.extend(self._build_command_result_renderable("\n".join(lines)).renderables)
         return Group(*blocks)
+
+    @staticmethod
+    def _looks_like_command_error(text: str) -> bool:
+        lowered = str(text or "").strip().lower()
+        return lowered.startswith("failed ") or lowered.startswith("error ") or " error " in lowered
 
     def _post_native_command_result(self, command: str, args: list[str]) -> bool:
         if not self.agent or not self.agent.session:

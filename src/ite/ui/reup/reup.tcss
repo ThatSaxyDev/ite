@@ -534,6 +534,10 @@ Screen {
     margin: 0 2 2 0;
 }
 
+.block.command.command-error {
+    background: #251c1b 94%;
+}
+
 .block.command .card-title {
     color: #8c93a1;
     text-style: none;
@@ -558,6 +562,11 @@ Screen {
     background: #24384a;
     color: #d9ecff;
     text-style: bold;
+}
+
+.block.command.command-error .command-kicker {
+    background: #4b2a25;
+    color: #ffe1d6;
 }
 
 .command-name {

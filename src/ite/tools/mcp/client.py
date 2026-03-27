@@ -3,6 +3,7 @@ from dataclasses import field
 from dataclasses import dataclass
 import os
 import shutil
+import tempfile
 from fastmcp.client.transports import (
     SSETransport,
     StdioTransport,
@@ -12,6 +13,7 @@ from fastmcp.client.transports import (
 from enum import Enum
 from pathlib import Path
 from ite.config.config import MCPServerConfig
+from ite.config.loader import get_data_dir
 from fastmcp import Client
 import logging
 from ite.tools.mcp.oauth import build_oauth_provider
@@ -59,6 +61,78 @@ class MCPClient:
         self._status_callback: MCPStatusCallback = None
 
         self._tools: dict[str, MCPToolInfo] = dict()
+        self._resolved_stdio_log_path: Path | None = None
+
+    def _prepare_runtime_dir(self, *parts: str) -> Path:
+        candidates = [
+            get_data_dir().joinpath(*parts),
+            self.cwd.joinpath(".ite", *parts),
+            Path(tempfile.gettempdir()).joinpath("ite", *parts),
+        ]
+        last_error: OSError | None = None
+        for path in candidates:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                return path
+            except OSError as exc:
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise last_error
+        raise OSError("Unable to prepare MCP runtime directory")
+
+    def _stdio_log_path(self) -> Path:
+        safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in self.name)
+        if self._resolved_stdio_log_path is not None:
+            return self._resolved_stdio_log_path
+        return get_data_dir() / "logs" / "mcp" / f"{safe_name}.stderr.log"
+
+    def _prepare_stdio_log_file(self) -> Path:
+        safe_name = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in self.name)
+        candidates = [
+            get_data_dir() / "logs" / "mcp" / f"{safe_name}.stderr.log",
+            self.cwd / ".ite" / "logs" / "mcp" / f"{safe_name}.stderr.log",
+            Path(tempfile.gettempdir()) / "ite" / "logs" / "mcp" / f"{safe_name}.stderr.log",
+        ]
+        last_error: OSError | None = None
+        for path in candidates:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("", encoding="utf-8")
+                self._resolved_stdio_log_path = path
+                return path
+            except OSError as exc:
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise last_error
+        raise OSError("Unable to create MCP stderr log file")
+
+    def _read_stdio_log_tail(self, max_chars: int = 2000) -> str | None:
+        if self.config.effective_transport != "stdio":
+            return None
+        path = self._stdio_log_path()
+        if not path.is_file():
+            return None
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            return None
+        if not content:
+            return None
+        if len(content) <= max_chars:
+            return content
+        return "..." + content[-max_chars:]
+
+    def _apply_npm_runtime_env(self, env: dict[str, str]) -> None:
+        command = str(self.config.command or "").strip().lower()
+        if command not in {"npx", "npm"}:
+            return
+        if env.get("npm_config_cache"):
+            return
+        cache_dir = self._prepare_runtime_dir("cache", "npm")
+        env["npm_config_cache"] = str(cache_dir)
+        env.setdefault("npm_config_update_notifier", "false")
 
     @property
     def tools(self) -> list[MCPToolInfo]:
@@ -72,13 +146,14 @@ class MCPClient:
         if transport == "stdio":
             env = os.environ.copy()
             env.update(self.config.env)
+            self._apply_npm_runtime_env(env)
             cwd = self.config.cwd if self.config.cwd is not None else self.cwd
             return StdioTransport(
                 command=self.config.command,
                 args=list(self.config.args),
                 env=env,
                 cwd=str(cwd),
-                log_file=Path(os.devnull),
+                log_file=self._prepare_stdio_log_file(),
             )
         if transport == "sse":
             return SSETransport(
@@ -194,13 +269,24 @@ class MCPClient:
             # All other connection errors — clean message, no traceback
             # Extract the root error message for clarity
             error_str = str(root) if root is not e else str(e)
+            stderr_tail = self._read_stdio_log_tail()
+            detail = error_str
+            if stderr_tail:
+                first_line = stderr_tail.splitlines()[0].strip()
+                if first_line:
+                    detail = f"{error_str}: {first_line}"
             msg = (
-                f"MCP server '{self.name}' failed to connect: {error_str}\n"
-                f"  → Check the configuration in [mcp_servers.{self.name}] "
-                f"in your .ite/config.toml"
+                f"MCP server '{self.name}' failed to connect: {error_str}"
             )
+            if stderr_tail:
+                msg += f"\n  → Server stderr:\n{stderr_tail}"
+            else:
+                msg += (
+                    f"\n  → Check the configuration in [mcp_servers.{self.name}] "
+                    f"in your .ite/config.toml"
+                )
             self.last_error = msg
-            await self._set_status(MCPServerStatus.ERROR, detail=error_str)
+            await self._set_status(MCPServerStatus.ERROR, detail=detail)
             logger.error(msg)
             raise RuntimeError(msg) from None
         finally:
