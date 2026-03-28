@@ -56,7 +56,7 @@ from ite.attachments import (
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import ApprovalPolicy, Config
-from ite.config.loader import save_global_approval_mode, save_system_config
+from ite.config.loader import save_cloud_settings, save_global_approval_mode, save_system_config
 from ite.git.branches import (
     checkout_branch,
     create_and_checkout,
@@ -78,6 +78,7 @@ from ite.git.working_tree import (
     unstage_path,
     working_tree_change_set,
 )
+from ite.cloud import CloudAuthError, clear_cloud_auth, ensure_cloud_auth, has_valid_cloud_auth
 from ite.memory import MemoryManager
 from ite.skills import build_skill_detail_renderable
 from ite.skills import build_skill_feedback_renderable
@@ -99,6 +100,7 @@ from .composer_views import (
     SlashCommandOption,
     build_command_palette_options,
     build_empty_state_renderable,
+    build_signed_out_state_renderable,
     build_turn_action_options,
     build_turn_payload,
     composer_meta_text,
@@ -389,6 +391,8 @@ class ReupApp(App):
         self._activity_resume_timer = None
         self._activity_version: int = 0
         self._empty_state_cached_thread_count: int = 0
+        self._cloud_signed_out: bool = False
+        self._cloud_auth_busy: bool = False
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -493,6 +497,13 @@ class ReupApp(App):
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
                         yield Static("", id="empty-state")
+                        with Container(id="signed-out-state"):
+                            with Vertical(id="signed-out-stack"):
+                                yield Static("", id="signed-out-copy")
+                                with Horizontal(id="signed-out-actions"):
+                                    yield Button("Sign in", id="cloud-sign-in", variant="primary")
+                                    yield Button("Exit", id="cloud-exit", variant="default")
+                                yield Static("", id="signed-out-status")
                     with Container(id="aside-panel"):
                         with Horizontal(id="aside-panel-header"):
                             yield Static("Aside", id="aside-panel-title")
@@ -516,6 +527,11 @@ class ReupApp(App):
         self._apply_change_review_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(1.0, self._poll_change_review_panel)
+        if self.config.cloud_auth_enabled:
+            has_cloud_session = await asyncio.to_thread(has_valid_cloud_auth, self.config)
+            if not has_cloud_session:
+                self._set_signed_out_state(True)
+                return
         if self.config.needs_setup:
             completed = await self._open_setup_modal(exit_on_cancel=True)
             if not completed:
@@ -717,6 +733,10 @@ class ReupApp(App):
         if version != self._session_tabs_version:
             return
         active_session_id = self._session_id(self.agent.session if self.agent else None)
+        if self._cloud_signed_out:
+            tabs.display = False
+            tabs_scroll.display = False
+            return
         tabs.display = len(self._open_session_order) > 1
         tabs_scroll.display = tabs.display
         if not tabs.display:
@@ -741,8 +761,12 @@ class ReupApp(App):
     def refresh_header(self) -> None:
         title = self.query_one("#title", Static)
         meta = self.query_one("#header-meta", Static)
-        title.update(self._current_session_title())
-        meta.update(f"Workspace: {self.config.cwd}")
+        if self._cloud_signed_out:
+            title.update("Sign in")
+            meta.update("iTE Cloud required")
+        else:
+            title.update(self._current_session_title())
+            meta.update(f"Workspace: {self.config.cwd}")
         composer_meta_line = self.query_one("#composer-meta-line", Static)
         composer_meta_line.update(self._composer_meta_text())
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
@@ -1347,6 +1371,9 @@ class ReupApp(App):
 
     def _refresh_empty_state(self) -> None:
         empty = self.query_one("#empty-state", Static)
+        if self._cloud_signed_out:
+            empty.display = False
+            return
         if self._message_count > 0 or self._is_turn_running:
             empty.display = False
             return
@@ -1376,16 +1403,98 @@ class ReupApp(App):
             prompt = self.query_one("#prompt", TextArea)
         except NoMatches:
             return
-        prompt.disabled = False
+        prompt.disabled = self._cloud_signed_out
         self._refresh_empty_state()
+
+    def _set_signed_out_state(self, enabled: bool) -> None:
+        self._cloud_signed_out = enabled
+        conversation = self.query_one("#conversation", VerticalScroll)
+        empty = self.query_one("#empty-state", Static)
+        signed_out = self.query_one("#signed-out-state", Container)
+        composer = self.query_one("#composer", Horizontal)
+        topbar = self.query_one("#topbar", Horizontal)
+        chat_body = self.query_one("#chat-body", Horizontal)
+        prompt = self.query_one("#prompt", TextArea)
+        session_tabs = self.query_one("#session-tabs-scroll", HorizontalScroll)
+        sign_in = self.query_one("#cloud-sign-in", Button)
+        footer = self.query_one(Footer)
+        header = self.query_one(Header)
+
+        signed_out.display = enabled
+        conversation.display = not enabled
+        empty.display = False if enabled else empty.display
+        composer.display = not enabled
+        topbar.display = not enabled
+        session_tabs.display = (not enabled) and len(self._open_session_order) > 1
+        footer.display = not enabled
+        header.display = not enabled
+        chat_body.styles.padding = (0, 0, 0, 0) if enabled else (0, 2, 0, 2)
+        prompt.disabled = enabled
+        sign_in.disabled = self._cloud_auth_busy
+        sign_in.label = "Sign in"
+        self.query_one("#signed-out-copy", Static).update(build_signed_out_state_renderable())
+        self.query_one("#signed-out-status", Static).update(self._signed_out_status_text())
+        self._apply_aside_panel_state()
+        self._apply_change_review_panel_state()
+        self.refresh_header()
+
+    def _signed_out_status_text(self) -> Text:
+        status = Text(justify="center")
+        if self._cloud_auth_busy:
+            frame = self._top_spinner_frames[
+                self._top_spinner_index % len(self._top_spinner_frames)
+            ]
+            status.append(f"{frame} Opening your browser", style="bold #cfd6e2")
+        else:
+            status.append(" ", style="#8c93a1")
+        return status
+
+    async def _run_cloud_login_flow(self) -> None:
+        if self._cloud_auth_busy:
+            return
+        if not self.config.cloud_auth_enabled:
+            self.config.cloud_auth_enabled = True
+            save_cloud_settings(enabled=True)
+        self._cloud_auth_busy = True
+        self._set_signed_out_state(True)
+        try:
+            await asyncio.to_thread(ensure_cloud_auth, None, self.config)
+        except CloudAuthError as exc:
+            self._cloud_auth_busy = False
+            self._set_signed_out_state(True)
+            self.query_one("#signed-out-status", Static).update(
+                Text(f"Sign-in failed: {exc}", style="bold #ffcf92", justify="center")
+            )
+            return
+
+        self._cloud_auth_busy = False
+        self._set_signed_out_state(False)
+        if self.config.needs_setup:
+            completed = await self._open_setup_modal(exit_on_cancel=True)
+            if not completed:
+                self._set_signed_out_state(True)
+                return
+        await self.ensure_agent()
+        conversation = self.query_one("#conversation", VerticalScroll)
+        await conversation.remove_children()
+        self._message_count = 0
+        self._reset_session_local_ui_state()
+        self._refresh_empty_state()
+        self.query_one("#prompt", TextArea).focus()
+
+    async def _run_cloud_logout_flow(self) -> None:
+        if self._is_turn_running:
+            await self.cancel_active_turn()
+        clear_cloud_auth()
+        self._set_signed_out_state(True)
 
     def _apply_aside_panel_state(self) -> None:
         panel = self.query_one("#aside-panel", Container)
         body = self.query_one("#aside-panel-body", VerticalScroll)
         has_content = bool(self._aside_entries)
-        panel.display = self._aside_panel_visible and has_content
+        panel.display = (not self._cloud_signed_out) and self._aside_panel_visible and has_content
         toggle = self.query_one("#aside-toggle", Button)
-        toggle.display = has_content
+        toggle.display = (not self._cloud_signed_out) and has_content
         toggle.label = "/aside" if not self._aside_panel_visible else "Close"
         body.display = has_content
 
@@ -1396,7 +1505,7 @@ class ReupApp(App):
             self._change_review_change_set
             and getattr(self._change_review_change_set, "changes", None)
         )
-        panel.display = self._change_review_visible and has_content
+        panel.display = (not self._cloud_signed_out) and self._change_review_visible and has_content
         has_outgoing = bool(
             self._git_outbound_state and self._git_outbound_state.needs_attention
         )
@@ -1404,8 +1513,10 @@ class ReupApp(App):
             self._git_outbound_state and self._git_outbound_state.needs_publish
         )
         toggle.display = (
-            has_content or has_outgoing
-        ) and not self._change_review_visible
+            (has_content or has_outgoing)
+            and not self._change_review_visible
+            and not self._cloud_signed_out
+        )
         if has_content:
             toggle.label = "/changes"
         elif wants_publish:
@@ -1946,6 +2057,14 @@ class ReupApp(App):
     def on_aside_toggle_pressed(self, _event: Button.Pressed) -> None:
         self._toggle_aside_panel()
 
+    @on(Button.Pressed, "#cloud-sign-in")
+    def on_cloud_sign_in_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._run_cloud_login_flow(), exclusive=False)
+
+    @on(Button.Pressed, "#cloud-exit")
+    def on_cloud_exit_pressed(self, _event: Button.Pressed) -> None:
+        self.exit()
+
     @on(Button.Pressed, "#changes-toggle")
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
         has_content = bool(
@@ -2340,7 +2459,12 @@ class ReupApp(App):
             pending_active
             for _card, _body_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
         )
-        if not self._top_busy and not self._aside_pending_widgets and not has_pending_command_spinner:
+        if (
+            not self._top_busy
+            and not self._aside_pending_widgets
+            and not has_pending_command_spinner
+            and not self._cloud_auth_busy
+        ):
             return
         self._top_spinner_index += 1
         if self._top_spinner_index % 3 == 0:
@@ -2349,6 +2473,13 @@ class ReupApp(App):
             self._activity_widget.update(
                 self._render_activity_indicator_text(self._top_state_text)
             )
+        if self._cloud_signed_out:
+            try:
+                self.query_one("#signed-out-status", Static).update(
+                    self._signed_out_status_text()
+                )
+            except NoMatches:
+                pass
         if self._aside_pending_widgets:
             pending_text = self._render_aside_pending_text()
             for widget in list(self._aside_pending_widgets.values()):
@@ -3484,6 +3615,31 @@ class ReupApp(App):
 
         if command == "/attach" and not args:
             await self._open_attach_picker_from_meta()
+            return
+
+        if command == "/cloud":
+            subcommand = args[0].lower() if args else "status"
+            if subcommand in {"status", "show"}:
+                if self._cloud_signed_out:
+                    self._set_signed_out_state(True)
+                else:
+                    self.post_notice("iTE Cloud", "Signed in.")
+                return
+            if subcommand == "login":
+                await self._run_cloud_login_flow()
+                return
+            if subcommand == "logout":
+                await self._run_cloud_logout_flow()
+                return
+            self.post_system(
+                "iTE Cloud",
+                "Use `/cloud status`, `/cloud login`, or `/cloud logout`.",
+                is_error=True,
+            )
+            return
+
+        if command == "/logout":
+            await self._run_cloud_logout_flow()
             return
 
         await self.ensure_agent()

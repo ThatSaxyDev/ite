@@ -223,7 +223,7 @@ class Config(BaseModel):
     # Credentials — loaded from config.toml, overridden by env vars / CLI flags
     api_key: str | None = None
     base_url: str | None = None
-    cloud_auth_enabled: bool = False
+    cloud_auth_enabled: bool = True
     cloud_api_url: str | None = DEFAULT_CLOUD_API_URL
     cloud_client_id: str = "ite-cli"
 

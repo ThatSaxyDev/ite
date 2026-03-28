@@ -1250,17 +1250,18 @@ def _run_main_app(
         base_url=base_url,
     )
 
-    try:
-        ensure_cloud_auth(console, config)
-    except CloudAuthError as exc:
-        console.print(f"[error]Cloud auth error: {exc}[/error]")
-        sys.exit(1)
+    if desktop or legacy:
+        try:
+            ensure_cloud_auth(console, config)
+        except CloudAuthError as exc:
+            console.print(f"[error]Cloud auth error: {exc}[/error]")
+            sys.exit(1)
 
     # Setup routing:
     # - Legacy TUI: keep terminal wizard behavior.
     # - GUI: launch GUI setup view instead of forcing terminal wizard first.
-    # - Reup (default): chat-first terminal app.
-    if not desktop and not legacy and config.needs_setup:
+    # - Reup (default): owns its own signed-out/setup states.
+    if legacy and config.needs_setup:
         from ite.config.setup import run_setup_wizard
 
         config = run_setup_wizard(console, config)

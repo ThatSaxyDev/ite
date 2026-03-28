@@ -314,6 +314,24 @@ def build_empty_state_renderable(
     )
 
 
+def build_signed_out_state_renderable(status: str | None = None) -> Any:
+    title = Text(justify="center")
+    title.append("Sign in to continue", style="bold #f7fafc")
+
+    body = Text(justify="center")
+    body.append("We will open your browser and resume here when sign-in is complete.", style="#8c93a1")
+
+    parts: list[Any] = [
+        build_empty_state_ascii(),
+        Text(""),
+        title,
+        Text(""),
+        body,
+    ]
+
+    return Align.center(Group(*parts), vertical="middle")
+
+
 def build_turn_payload(
     message: str,
     attachments: list[str],

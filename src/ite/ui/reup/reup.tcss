@@ -333,6 +333,86 @@ Screen {
     padding: 0 8 0 8;
 }
 
+#signed-out-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: #131315;
+    padding: 0;
+}
+
+#signed-out-stack {
+    width: auto;
+    height: auto;
+    align-horizontal: center;
+    align-vertical: middle;
+    padding: 0 8;
+}
+
+#signed-out-copy {
+    width: auto;
+    max-width: 76;
+    content-align: center middle;
+    text-align: center;
+}
+
+#signed-out-status {
+    width: auto;
+    height: 1;
+    margin-top: 2;
+    color: #8c93a1;
+    text-style: bold;
+    text-align: center;
+}
+
+#signed-out-actions {
+    width: auto;
+    height: auto;
+    align-horizontal: center;
+    align-vertical: middle;
+    margin-top: 2;
+}
+
+#cloud-sign-in,
+#cloud-exit {
+    width: 18;
+    min-width: 18;
+    height: 3;
+    margin: 0 1;
+    padding: 0 2;
+    border: none;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#cloud-sign-in {
+    background: #e9edf3;
+    color: #111317;
+}
+
+#cloud-sign-in:hover,
+#cloud-sign-in:focus {
+    background: #f4f7fb;
+    color: #0f1114;
+}
+
+#cloud-sign-in:disabled {
+    background: #3a3d43;
+    color: #9aa2af;
+}
+
+#cloud-exit {
+    background: #202226;
+    color: #d7deea;
+}
+
+#cloud-exit:hover,
+#cloud-exit:focus {
+    background: #2a2d31;
+    color: #edf1f7;
+}
+
 #composer {
     height: 8;
     border: none;

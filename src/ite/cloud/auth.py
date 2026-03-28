@@ -168,7 +168,19 @@ def _verify_cloud_session(session: CloudSession) -> bool:
     return refreshed is not None
 
 
-def ensure_cloud_auth(console: Console, config: Config) -> None:
+def has_valid_cloud_auth(config: Config) -> bool:
+    if not config.cloud_auth_enabled:
+        return True
+    cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
+    if not cloud_api_url:
+        return False
+    existing = _load_cloud_session()
+    if existing is None or existing.api_url != cloud_api_url:
+        return False
+    return _verify_cloud_session(existing)
+
+
+def ensure_cloud_auth(console: Console | None, config: Config) -> None:
     if not config.cloud_auth_enabled:
         return
 
@@ -196,11 +208,12 @@ def ensure_cloud_auth(console: Console, config: Config) -> None:
     poll_token = str(payload.get("pollToken") or "")
     expires_in = int(payload.get("expiresIn") or 0)
     interval = int(payload.get("interval") or 5)
-    console.print()
-    console.print("[bold bright_white]iTE Cloud sign-in required[/bold bright_white]")
-    console.print("[dim]Opening your browser to complete sign-in...[/dim]")
+    if console is not None:
+        console.print()
+        console.print("[bold bright_white]iTE Cloud sign-in required[/bold bright_white]")
+        console.print("[dim]Opening your browser to complete sign-in...[/dim]")
     opened = webbrowser.open(auth_url)
-    if not opened:
+    if not opened and console is not None:
         console.print(f"[dim]Browser did not open automatically. Open:[/dim] {auth_url}")
 
     deadline = time.time() + expires_in
@@ -222,7 +235,8 @@ def ensure_cloud_auth(console: Console, config: Config) -> None:
                 client_id=config.cloud_client_id,
             )
             _save_cloud_session(session)
-            console.print("[bold green]Cloud sign-in complete.[/bold green]")
+            if console is not None:
+                console.print("[bold green]Cloud sign-in complete.[/bold green]")
             return
 
         error = poll_payload.get("error") or {}
