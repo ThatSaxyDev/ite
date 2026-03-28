@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rich.console import Group
 from rich.cells import cell_len
+from rich.console import Group
 from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
@@ -41,22 +41,32 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 from ite.attachment_refs import (
     discover_attachable_files,
-    extract_inline_attachment_refs,
     extract_at_query,
+    extract_inline_attachment_refs,
     resolve_inline_attachment_refs,
     suggest_inline_attachment_paths,
 )
-from ite.attachments import MAX_ATTACHMENTS
 from ite.attachments import (
+    MAX_ATTACHMENTS,
     Attachment,
     AttachmentManager,
     build_user_model_content,
     build_user_text_with_manifest,
 )
+from ite.cloud import (
+    CloudAuthError,
+    clear_cloud_auth,
+    ensure_cloud_auth,
+    has_valid_cloud_auth,
+)
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import ApprovalPolicy, Config
-from ite.config.loader import save_cloud_settings, save_global_approval_mode, save_system_config
+from ite.config.loader import (
+    save_cloud_settings,
+    save_global_approval_mode,
+    save_system_config,
+)
 from ite.git.branches import (
     checkout_branch,
     create_and_checkout,
@@ -78,20 +88,21 @@ from ite.git.working_tree import (
     unstage_path,
     working_tree_change_set,
 )
-from ite.cloud import CloudAuthError, clear_cloud_auth, ensure_cloud_auth, has_valid_cloud_auth
 from ite.memory import MemoryManager
-from ite.skills import build_skill_detail_renderable
-from ite.skills import build_skill_feedback_renderable
-from ite.skills import build_skills_overview_renderable
+from ite.skills import (
+    build_skill_detail_renderable,
+    build_skill_feedback_renderable,
+    build_skills_overview_renderable,
+)
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import StreamingCommandOutput, build_command_context
 from .change_tree import ChangedFilesTree
 from .change_views import build_change_card_body, change_entry_label
 from .command_views import (
+    build_mcp_command_renderable,
     build_memory_command_renderable,
     build_memory_prompt_command_renderable,
-    build_mcp_command_renderable,
     build_stats_command_renderable,
     build_tools_command_renderable,
     build_workboard_command_renderable,
@@ -124,27 +135,27 @@ from .tool_views import (
     extract_read_file_code,
     format_mcp_identity,
     guess_language,
+    normalize_unified_diff_paths,
     render_args_table,
-    render_grep_output,
     render_git_log_output,
+    render_grep_output,
     render_list_dir_output,
     render_mcp_start_payload,
-    normalize_unified_diff_paths,
     render_numbered_unified_diff,
-    render_skills_payload,
-    summarize_subagent_goal,
-    render_subagent_metrics_payload,
-    render_subagent_payload,
-    render_subagent_runtime_payload,
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
+    render_skills_payload,
+    render_subagent_metrics_payload,
+    render_subagent_payload,
+    render_subagent_runtime_payload,
     render_terminal_snapshot_payload,
-    summarize_mcp_success,
-    shell_session_state,
     render_text_payload,
     render_todo_payload,
+    shell_session_state,
     summarize_diff_hunk_ranges,
+    summarize_mcp_success,
+    summarize_subagent_goal,
     todo_start_hint,
     truncate_for_tool,
 )
@@ -364,7 +375,9 @@ class ReupApp(App):
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
-        self._streaming_command_cards: dict[str, tuple[Container, Static, list[str], bool, str | None]] = {}
+        self._streaming_command_cards: dict[
+            str, tuple[Container, Static, list[str], bool, str | None]
+        ] = {}
         self._composer_history: list[str] = []
         self._composer_history_index: int | None = None
         self._composer_history_draft: str = ""
@@ -501,8 +514,12 @@ class ReupApp(App):
                             with Vertical(id="signed-out-stack"):
                                 yield Static("", id="signed-out-copy")
                                 with Horizontal(id="signed-out-actions"):
-                                    yield Button("Sign in", id="cloud-sign-in", variant="primary")
-                                    yield Button("Exit", id="cloud-exit", variant="default")
+                                    yield Button(
+                                        "Sign in", id="cloud-sign-in", variant="primary"
+                                    )
+                                    yield Button(
+                                        "Exit", id="cloud-exit", variant="default"
+                                    )
                                 yield Static("", id="signed-out-status")
                     with Container(id="aside-panel"):
                         with Horizontal(id="aside-panel-header"):
@@ -528,13 +545,11 @@ class ReupApp(App):
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(1.0, self._poll_change_review_panel)
         if self.config.cloud_auth_enabled:
-            has_cloud_session = await asyncio.to_thread(has_valid_cloud_auth, self.config)
+            has_cloud_session = await asyncio.to_thread(
+                has_valid_cloud_auth, self.config
+            )
             if not has_cloud_session:
                 self._set_signed_out_state(True)
-                return
-        if self.config.needs_setup:
-            completed = await self._open_setup_modal(exit_on_cancel=True)
-            if not completed:
                 return
         await self.ensure_agent()
         await self._refresh_change_review_source()
@@ -670,7 +685,9 @@ class ReupApp(App):
             return self._open_session_workspaces[session_id]
         return Path(self.config.cwd).resolve()
 
-    def _find_reusable_empty_session_id(self, *, exclude_session_id: str | None = None) -> str | None:
+    def _find_reusable_empty_session_id(
+        self, *, exclude_session_id: str | None = None
+    ) -> str | None:
         for session_id in self._open_session_order:
             if exclude_session_id and session_id == exclude_session_id:
                 continue
@@ -856,7 +873,9 @@ class ReupApp(App):
         content = Text()
         content.append(frame, style="bold #62f0b0")
         content.append(" ")
-        content.append((label or "Thinking").strip().title() or "Thinking", style="bold #ffffff")
+        content.append(
+            (label or "Thinking").strip().title() or "Thinking", style="bold #ffffff"
+        )
         content.append(suffix, style="bold #d7deea")
         return content
 
@@ -1139,9 +1158,11 @@ class ReupApp(App):
         insert_text = option.insert_text or option.name
         updated = re.sub(
             r"(?:^|[\s(\[{])@[^\s@]*$",
-            lambda match: match.group(0)[:1] + insert_text
-            if match.group(0)[:1].isspace() or match.group(0)[:1] in "([{"
-            else insert_text,
+            lambda match: (
+                match.group(0)[:1] + insert_text
+                if match.group(0)[:1].isspace() or match.group(0)[:1] in "([{"
+                else insert_text
+            ),
             text,
         )
         if updated == text:
@@ -1309,10 +1330,14 @@ class ReupApp(App):
         selected = await self._open_modal(AttachPickerModal(cwd, []))
         if selected is None:
             return
-        added = self._insert_attachment_refs_into_prompt(list(selected)[:MAX_ATTACHMENTS])
+        added = self._insert_attachment_refs_into_prompt(
+            list(selected)[:MAX_ATTACHMENTS]
+        )
         if added:
             noun = "reference" if added == 1 else "references"
-            self.post_attachment_note(f"Inserted {added} attachment {noun} into the composer.")
+            self.post_attachment_note(
+                f"Inserted {added} attachment {noun} into the composer."
+            )
 
     def _consume_dropped_path_text(self, message: str) -> bool:
         if not self.agent:
@@ -1351,7 +1376,9 @@ class ReupApp(App):
         added = self._insert_attachment_refs_into_prompt(paths[:MAX_ATTACHMENTS])
         if added > 0:
             noun = "reference" if added == 1 else "references"
-            self.post_attachment_note(f"Inserted {added} attachment {noun} into the composer.")
+            self.post_attachment_note(
+                f"Inserted {added} attachment {noun} into the composer."
+            )
         return True
 
     def _empty_state_thread_count(self) -> int:
@@ -1432,8 +1459,12 @@ class ReupApp(App):
         prompt.disabled = enabled
         sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
-        self.query_one("#signed-out-copy", Static).update(build_signed_out_state_renderable())
-        self.query_one("#signed-out-status", Static).update(self._signed_out_status_text())
+        self.query_one("#signed-out-copy", Static).update(
+            build_signed_out_state_renderable()
+        )
+        self.query_one("#signed-out-status", Static).update(
+            self._signed_out_status_text()
+        )
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self.refresh_header()
@@ -1469,11 +1500,6 @@ class ReupApp(App):
 
         self._cloud_auth_busy = False
         self._set_signed_out_state(False)
-        if self.config.needs_setup:
-            completed = await self._open_setup_modal(exit_on_cancel=True)
-            if not completed:
-                self._set_signed_out_state(True)
-                return
         await self.ensure_agent()
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
@@ -1492,7 +1518,9 @@ class ReupApp(App):
         panel = self.query_one("#aside-panel", Container)
         body = self.query_one("#aside-panel-body", VerticalScroll)
         has_content = bool(self._aside_entries)
-        panel.display = (not self._cloud_signed_out) and self._aside_panel_visible and has_content
+        panel.display = (
+            (not self._cloud_signed_out) and self._aside_panel_visible and has_content
+        )
         toggle = self.query_one("#aside-toggle", Button)
         toggle.display = (not self._cloud_signed_out) and has_content
         toggle.label = "/aside" if not self._aside_panel_visible else "Close"
@@ -1505,7 +1533,9 @@ class ReupApp(App):
             self._change_review_change_set
             and getattr(self._change_review_change_set, "changes", None)
         )
-        panel.display = (not self._cloud_signed_out) and self._change_review_visible and has_content
+        panel.display = (
+            (not self._cloud_signed_out) and self._change_review_visible and has_content
+        )
         has_outgoing = bool(
             self._git_outbound_state and self._git_outbound_state.needs_attention
         )
@@ -2441,9 +2471,7 @@ class ReupApp(App):
         self.config.model.name = result["model_name"]
         self.config.approval = ApprovalPolicy(result["approval"])
         self.refresh_header()
-        self.post_notice(
-            "Setup complete", "Saved credentials and defaults. Reup is ready."
-        )
+        self.post_notice("Setup complete", "Credentials saved and applied.")
 
     async def _open_setup_modal(self, *, exit_on_cancel: bool = False) -> bool:
         result = await self._open_modal(SetupModal(self.config))
@@ -2484,7 +2512,9 @@ class ReupApp(App):
             pending_text = self._render_aside_pending_text()
             for widget in list(self._aside_pending_widgets.values()):
                 widget.update(pending_text)
-        for _card, body_widget, lines, pending_active, pending_text in list(self._streaming_command_cards.values()):
+        for _card, body_widget, lines, pending_active, pending_text in list(
+            self._streaming_command_cards.values()
+        ):
             if pending_active:
                 body_widget.update(
                     self._build_streaming_command_renderable(
@@ -2555,6 +2585,7 @@ class ReupApp(App):
                         spinner_index=self._top_spinner_index,
                     )
                 )
+
     def _progress_state_label(
         self,
         *,
@@ -3235,7 +3266,9 @@ class ReupApp(App):
         if not staged:
             return None
         user_model_content = build_user_model_content(message, staged, self.config.cwd)
-        prepared_message = build_user_text_with_manifest(message, staged, self.config.cwd)
+        prepared_message = build_user_text_with_manifest(
+            message, staged, self.config.cwd
+        )
         return prepared_message, user_model_content, temp_turn_id, staged
 
     def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
@@ -3347,7 +3380,9 @@ class ReupApp(App):
         assisted = await self._apply_intent_assist(message)
         if assisted is None:
             return
-        await self.run_agent_message(assisted, display_message=display_message or message)
+        await self.run_agent_message(
+            assisted, display_message=display_message or message
+        )
 
     async def _list_resume_sessions(
         self, all_workspaces: bool = False
@@ -3504,10 +3539,20 @@ class ReupApp(App):
                 call_id = str(message.get("tool_call_id", "") or "")
                 tool_name = tool_call_names.get(call_id, "tool")
                 output = content if isinstance(content, str) else str(content)
-                tool_ui = message.get("tool_ui") if isinstance(message.get("tool_ui"), dict) else {}
+                tool_ui = (
+                    message.get("tool_ui")
+                    if isinstance(message.get("tool_ui"), dict)
+                    else {}
+                )
                 tool_name = str(tool_ui.get("name") or tool_name or "tool")
-                success = bool(tool_ui.get("success")) if "success" in tool_ui else not output.lstrip().startswith("Error:")
-                rendered_output = str(tool_ui.get("output") if "output" in tool_ui else output)
+                success = (
+                    bool(tool_ui.get("success"))
+                    if "success" in tool_ui
+                    else not output.lstrip().startswith("Error:")
+                )
+                rendered_output = str(
+                    tool_ui.get("output") if "output" in tool_ui else output
+                )
                 rendered_error = (
                     str(tool_ui.get("error"))
                     if tool_ui.get("error") is not None
@@ -3516,7 +3561,9 @@ class ReupApp(App):
                 if (
                     not success
                     and isinstance(rendered_error, str)
-                    and self._should_suppress_malformed_tool_card(tool_name, rendered_error)
+                    and self._should_suppress_malformed_tool_card(
+                        tool_name, rendered_error
+                    )
                 ):
                     continue
                 await self.update_tool_call(
@@ -3526,10 +3573,16 @@ class ReupApp(App):
                     success=success,
                     output=rendered_output,
                     error=rendered_error,
-                    metadata=tool_ui.get("metadata") if isinstance(tool_ui.get("metadata"), dict) else {},
-                    diff=str(tool_ui.get("diff")) if tool_ui.get("diff") is not None else None,
+                    metadata=tool_ui.get("metadata")
+                    if isinstance(tool_ui.get("metadata"), dict)
+                    else {},
+                    diff=str(tool_ui.get("diff"))
+                    if tool_ui.get("diff") is not None
+                    else None,
                     truncated=bool(tool_ui.get("truncated", False)),
-                    exit_code=int(tool_ui["exit_code"]) if isinstance(tool_ui.get("exit_code"), int) else None,
+                    exit_code=int(tool_ui["exit_code"])
+                    if isinstance(tool_ui.get("exit_code"), int)
+                    else None,
                 )
         self._refresh_empty_state()
 
@@ -3647,7 +3700,9 @@ class ReupApp(App):
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
-        live_stream_command = command == "/mcp" and bool(args) and args[0].lower() == "start"
+        live_stream_command = (
+            command == "/mcp" and bool(args) and args[0].lower() == "start"
+        )
         output = (
             StreamingCommandOutput(
                 on_line=lambda line: self.post_streaming_command_result(command, line)
@@ -3676,11 +3731,15 @@ class ReupApp(App):
         rendered = output.getvalue().strip()
         if command in {"/branch", "/attach", "/model", "/rename"}:
             self.refresh_header()
-        had_live_output = isinstance(output, StreamingCommandOutput) and output.had_live_output
+        had_live_output = (
+            isinstance(output, StreamingCommandOutput) and output.had_live_output
+        )
         if live_stream_command:
             self.finalize_streaming_command_result(command)
         if rendered and not had_live_output:
-            if command == "/skills" and self._post_skills_command_result(args, rendered):
+            if command == "/skills" and self._post_skills_command_result(
+                args, rendered
+            ):
                 return
             if self._post_native_command_result(command, args):
                 return
@@ -3729,7 +3788,9 @@ class ReupApp(App):
 
     async def _run_publish_command_native(self, args: list[str]) -> None:
         if not await asyncio.to_thread(is_git_repo, Path(self.config.cwd).resolve()):
-            self.post_system("Publish", "Not a git repository in current workspace.", is_error=True)
+            self.post_system(
+                "Publish", "Not a git repository in current workspace.", is_error=True
+            )
             return
         if not args:
             await self._run_publish_flow()
@@ -4024,7 +4085,9 @@ class ReupApp(App):
         run_state = self._run_state(session_id)
         self._last_rendered_plan_text = None
         run_state.turn_had_error = False
-        attachments = list(getattr(active_agent.session, "pending_attachment_paths", []))
+        attachments = list(
+            getattr(active_agent.session, "pending_attachment_paths", [])
+        )
         run_state.active_turn_id += 1
         turn_id = run_state.active_turn_id
         prepared = self._prepare_attachments_for_turn(
@@ -4034,7 +4097,9 @@ class ReupApp(App):
         )
         if prepared is None:
             return
-        prepared_message, user_model_content, temp_attachment_turn_id, _staged = prepared
+        prepared_message, user_model_content, temp_attachment_turn_id, _staged = (
+            prepared
+        )
         active_agent.session.pending_attachment_paths = []
         await self.add_user_message(display_message or message)
         run_state.active_turn_task = asyncio.create_task(
@@ -4100,7 +4165,9 @@ class ReupApp(App):
         attachment_turn_id: str | None = None,
     ) -> None:
         try:
-            async for event in agent.run(message, user_model_content=user_model_content):
+            async for event in agent.run(
+                message, user_model_content=user_model_content
+            ):
                 await self.handle_agent_event(event, session_id, turn_id)
         finally:
             if attachment_turn_id:
@@ -4264,10 +4331,9 @@ class ReupApp(App):
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
             error_text = str(event.data.get("error") or "")
-            if (
-                not event.data.get("success", False)
-                and self._should_suppress_malformed_tool_card(tool_name, error_text)
-            ):
+            if not event.data.get(
+                "success", False
+            ) and self._should_suppress_malformed_tool_card(tool_name, error_text):
                 self._set_loading_state(
                     self._progress_state_label(
                         tool_name=tool_name,
@@ -4682,7 +4748,7 @@ class ReupApp(App):
         cursor = 0
         for ref in refs:
             if ref.start > cursor:
-                text.append(message[cursor:ref.start], style="#e8edf5")
+                text.append(message[cursor : ref.start], style="#e8edf5")
             basename = Path(ref.value).name or ref.value
             text.append(basename, style="bold #8bd5ff")
             if ref.trailing:
@@ -4699,7 +4765,7 @@ class ReupApp(App):
             cursor = 0
             for ref in refs:
                 if ref.start > cursor:
-                    parts.append(message[cursor:ref.start])
+                    parts.append(message[cursor : ref.start])
                 parts.append(Path(ref.value).name or ref.value)
                 if ref.trailing:
                     parts.append(ref.trailing)
@@ -4710,8 +4776,12 @@ class ReupApp(App):
         else:
             display_text = message
 
-        lines = [line.strip() for line in display_text.splitlines()] or [display_text.strip()]
-        content_width = max(cell_len(line) for line in lines if line) if any(lines) else 0
+        lines = [line.strip() for line in display_text.splitlines()] or [
+            display_text.strip()
+        ]
+        content_width = (
+            max(cell_len(line) for line in lines if line) if any(lines) else 0
+        )
         return max(12, min(max_width, content_width + 2))
 
     async def add_user_message(self, message: str) -> None:
@@ -4769,7 +4839,13 @@ class ReupApp(App):
         existing = self._streaming_command_cards.get(command)
         if existing is not None:
             card, body_widget, lines, _old_pending_active, _old_pending = existing
-            self._streaming_command_cards[command] = (card, body_widget, lines, True, pending_text)
+            self._streaming_command_cards[command] = (
+                card,
+                body_widget,
+                lines,
+                True,
+                pending_text,
+            )
             body_widget.update(
                 self._build_streaming_command_renderable(
                     lines,
@@ -4797,7 +4873,13 @@ class ReupApp(App):
         )
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.mount(card)
-        self._streaming_command_cards[command] = (card, body_widget, [], True, pending_text)
+        self._streaming_command_cards[command] = (
+            card,
+            body_widget,
+            [],
+            True,
+            pending_text,
+        )
         self._message_count += 1
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
@@ -4946,16 +5028,24 @@ class ReupApp(App):
                 blocks.append(first_line)
                 if len(lines) > 1:
                     blocks.extend(
-                        self._build_command_result_renderable("\n".join(lines[1:])).renderables
+                        self._build_command_result_renderable(
+                            "\n".join(lines[1:])
+                        ).renderables
                     )
             else:
-                blocks.extend(self._build_command_result_renderable("\n".join(lines)).renderables)
+                blocks.extend(
+                    self._build_command_result_renderable("\n".join(lines)).renderables
+                )
         return Group(*blocks)
 
     @staticmethod
     def _looks_like_command_error(text: str) -> bool:
         lowered = str(text or "").strip().lower()
-        return lowered.startswith("failed ") or lowered.startswith("error ") or " error " in lowered
+        return (
+            lowered.startswith("failed ")
+            or lowered.startswith("error ")
+            or " error " in lowered
+        )
 
     def _post_native_command_result(self, command: str, args: list[str]) -> bool:
         if not self.agent or not self.agent.session:
@@ -5254,7 +5344,12 @@ class ReupApp(App):
             running_suffix = self._shell_status_suffix()
 
         blocks: list[Any] = []
-        command = md.get("last_input") or arguments.get("input") or arguments.get("command") or md.get("command")
+        command = (
+            md.get("last_input")
+            or arguments.get("input")
+            or arguments.get("command")
+            or md.get("command")
+        )
         if isinstance(command, str) and command.strip():
             blocks.append(
                 render_shell_command_line(
@@ -5263,7 +5358,15 @@ class ReupApp(App):
                     shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
                 )
             )
-        display_payload = payload if (name in {"shell", "shell_poll", "shell_stop"} or not success or md.get("running") is True) else ""
+        display_payload = (
+            payload
+            if (
+                name in {"shell", "shell_poll", "shell_stop"}
+                or not success
+                or md.get("running") is True
+            )
+            else ""
+        )
         summary = Text()
         session_id = str(md.get("session_id") or "").strip()
         if session_id:
@@ -5368,10 +5471,8 @@ class ReupApp(App):
         if isinstance(card, ShellToolCard):
             card.set_shell_content(header=header, body=body)
         else:
-            card.update(
-                Group(header, body)
-            )
-        
+            card.update(Group(header, body))
+
         self._set_loading_state("idle", busy=False)
 
     async def _move_card_to_bottom(self, card: Static) -> None:
@@ -5431,7 +5532,10 @@ class ReupApp(App):
         )
         return_when = str(args.get("return_when") or "all_completed").strip()
         header = Text()
-        header.append(f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ", style="bold #b7c8e1")
+        header.append(
+            f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
+            style="bold #b7c8e1",
+        )
         header.append("Waiting on specialists", style="bold #edf1f7")
         header.append("  running", style="#8c93a1")
 
@@ -5443,7 +5547,9 @@ class ReupApp(App):
         summary.append(return_when, style="#8c97ab")
         blocks.append(summary)
 
-        runtime = getattr(getattr(self.agent, "session", None), "subagent_runtime", None)
+        runtime = getattr(
+            getattr(self.agent, "session", None), "subagent_runtime", None
+        )
         if runtime is not None:
             runs = runtime.list_runs()
             if selected_ids:
@@ -5454,14 +5560,21 @@ class ReupApp(App):
                 table.add_column(style="#8c97ab", no_wrap=True)
                 table.add_column(style="#dfe4ea")
                 for run in runs[:12]:
-                    goal_label = summarize_subagent_goal(str(getattr(run, "goal", "") or "").strip())
+                    goal_label = summarize_subagent_goal(
+                        str(getattr(run, "goal", "") or "").strip()
+                    )
                     elapsed = ""
                     if isinstance(run.started_at, str) and run.started_at:
                         try:
                             started_at = datetime.fromisoformat(run.started_at)
                             elapsed_ms = max(
                                 0,
-                                int((datetime.now(started_at.tzinfo) - started_at).total_seconds() * 1000),
+                                int(
+                                    (
+                                        datetime.now(started_at.tzinfo) - started_at
+                                    ).total_seconds()
+                                    * 1000
+                                ),
                             )
                             elapsed = f"{elapsed_ms} ms"
                         except Exception:
@@ -5470,7 +5583,9 @@ class ReupApp(App):
                     freshness = age_label(getattr(run, "last_update_at", None))
                     status = str(getattr(run, "status", "")).strip()
                     if status in {"completed", "failed", "timeout", "cancelled"}:
-                        details = compact_result_line(run.summary or run.current_activity or run.goal or "")
+                        details = compact_result_line(
+                            run.summary or run.current_activity or run.goal or ""
+                        )
                     else:
                         details = live or run.summary or run.goal or ""
                     if elapsed:
@@ -5493,9 +5608,15 @@ class ReupApp(App):
                     table.add_row(run_label, status_text, details or "(no summary yet)")
                 blocks.append(table)
                 history_lines: list[Text] = []
-                active_runs = [run for run in runs if str(getattr(run, "status", "")).strip() in {"queued", "running"}]
+                active_runs = [
+                    run
+                    for run in runs
+                    if str(getattr(run, "status", "")).strip() in {"queued", "running"}
+                ]
                 for run in active_runs[:12]:
-                    goal_label = summarize_subagent_goal(str(getattr(run, "goal", "") or "").strip())
+                    goal_label = summarize_subagent_goal(
+                        str(getattr(run, "goal", "") or "").strip()
+                    )
                     history = getattr(run, "activity_history", None)
                     if not isinstance(history, list) or not history:
                         continue
@@ -5505,7 +5626,9 @@ class ReupApp(App):
                             continue
                         message = str(entry.get("message") or "").strip()
                         freshness = age_label(entry.get("at"))
-                        line = "  •  ".join(part for part in [freshness, message] if part)
+                        line = "  •  ".join(
+                            part for part in [freshness, message] if part
+                        )
                         if line:
                             recent.append(line)
                     if not recent:
@@ -5523,7 +5646,9 @@ class ReupApp(App):
                     blocks.append(Text(""))
                 blocks.extend(history_lines)
             else:
-                blocks.append(Text("No matching specialist runs found.", style="#8c97ab"))
+                blocks.append(
+                    Text("No matching specialist runs found.", style="#8c97ab")
+                )
         else:
             blocks.append(Text("Specialist runtime unavailable.", style="#8c97ab"))
 
@@ -5557,7 +5682,10 @@ class ReupApp(App):
             return f"{hours}h ago"
 
         header = Text()
-        header.append(f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ", style="bold #b7c8e1")
+        header.append(
+            f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
+            style="bold #b7c8e1",
+        )
         header.append("Asking specialist", style="bold #edf1f7")
         header.append("  running", style="#8c93a1")
 
@@ -5568,7 +5696,11 @@ class ReupApp(App):
 
         registry = getattr(getattr(self.agent, "session", None), "tool_registry", None)
         tool = registry.get(name) if registry is not None else None
-        live = tool.get_live_progress(call_id) if tool is not None and hasattr(tool, "get_live_progress") else None
+        live = (
+            tool.get_live_progress(call_id)
+            if tool is not None and hasattr(tool, "get_live_progress")
+            else None
+        )
 
         if isinstance(live, dict):
             activity = str(live.get("current_activity") or "").strip()
@@ -5578,7 +5710,9 @@ class ReupApp(App):
             if details:
                 blocks.append(Text(details, style="#8c97ab"))
             if child_session_id:
-                blocks.append(Text(f"child session {child_session_id}", style="#8c97ab"))
+                blocks.append(
+                    Text(f"child session {child_session_id}", style="#8c97ab")
+                )
             history = live.get("activity_history")
             if isinstance(history, list) and history:
                 blocks.append(Text("Recent activity", style="bold #d8ab74"))
@@ -5724,7 +5858,13 @@ class ReupApp(App):
         md = metadata if isinstance(metadata, dict) else {}
         policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
         recoverable = bool(md.get("recoverable")) or policy_redirect
-        status = "done" if success else ("redirected" if policy_redirect else ("" if recoverable else "failed"))
+        status = (
+            "done"
+            if success
+            else (
+                "redirected" if policy_redirect else ("" if recoverable else "failed")
+            )
+        )
         args = self._tool_args_by_call_id.get(call_id, {})
         narrative = describe_tool_activity(
             name,
@@ -5734,14 +5874,24 @@ class ReupApp(App):
             success=success,
         )
 
-        border_style = "#2f9e63" if success else ("#4d79c7" if policy_redirect else ("#a06b15" if recoverable else "#b23a3a"))
+        border_style = (
+            "#2f9e63"
+            if success
+            else (
+                "#4d79c7"
+                if policy_redirect
+                else ("#a06b15" if recoverable else "#b23a3a")
+            )
+        )
         icon, title_style = self._tool_completion_icon_and_style(
             name,
             success=success,
             policy_redirect=policy_redirect,
             recoverable=recoverable,
         )
-        title_text = activity_title(name, stage="complete", success=success, metadata=md)
+        title_text = activity_title(
+            name, stage="complete", success=success, metadata=md
+        )
         self._run_state().running_shell_call_ids.discard(call_id)
         self._live_shell_call_state.pop(call_id, None)
         self._run_state().running_subagent_call_ids.discard(call_id)
@@ -5780,7 +5930,9 @@ class ReupApp(App):
 
         if policy_redirect:
             if redirect_to:
-                blocks.append(Text(f"Continuing with `{redirect_to}`.", style="#d9dee8"))
+                blocks.append(
+                    Text(f"Continuing with `{redirect_to}`.", style="#d9dee8")
+                )
             payload = ""
 
         if name == "read_file" and success:
@@ -5808,7 +5960,19 @@ class ReupApp(App):
                 output_display, was_truncated = truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
                 blocks.append(render_text_payload(output_display, success=True))
-        elif name in {"write_file", "edit", "edit_json", "write_toml", "write_yaml", "write_env"} and success and diff:
+        elif (
+            name
+            in {
+                "write_file",
+                "edit",
+                "edit_json",
+                "write_toml",
+                "write_yaml",
+                "write_env",
+            }
+            and success
+            and diff
+        ):
             if primary_path:
                 blocks.append(
                     Text(
@@ -5862,7 +6026,9 @@ class ReupApp(App):
         elif name in {"run_tests", "run_linter", "run_typecheck", "http_request"}:
             blocks.append(Text(narrative, style="#8c97ab"))
             if name == "http_request":
-                method = str(md.get("method") or args.get("method") or "GET").strip().upper()
+                method = (
+                    str(md.get("method") or args.get("method") or "GET").strip().upper()
+                )
                 url = str(md.get("url") or args.get("url") or "").strip()
                 if url:
                     blocks.append(Text(f"{method} {url}", style="#8c97ab"))
@@ -5894,7 +6060,9 @@ class ReupApp(App):
                         "  •  ".join(
                             part
                             for part in [
-                                str(md.get("status_code")) if md.get("status_code") is not None else "",
+                                str(md.get("status_code"))
+                                if md.get("status_code") is not None
+                                else "",
                                 str(md.get("content_type") or "").strip(),
                             ]
                             if part
@@ -5914,13 +6082,21 @@ class ReupApp(App):
         elif name == "list_archive" and success:
             blocks.append(Text(narrative, style="#8c97ab"))
             if primary_path:
-                blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
+                blocks.append(
+                    Text(
+                        display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
+                    )
+                )
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_text_payload(output_display, success=True))
         elif name in {"read_pdf", "read_image"} and success:
             if primary_path:
-                blocks.append(Text(display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"))
+                blocks.append(
+                    Text(
+                        display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
+                    )
+                )
             summary_parts: list[str] = []
             if name == "read_pdf":
                 page_count = md.get("page_count")
@@ -5962,7 +6138,9 @@ class ReupApp(App):
                 language = "toml"
             elif name == "read_yaml":
                 language = "yaml"
-            blocks.append(render_text_payload(output_display, success=True, language=language))
+            blocks.append(
+                render_text_payload(output_display, success=True, language=language)
+            )
         elif name in {"shell", "shell_poll", "shell_stop"}:
             blocks.append(Text(narrative, style="#8c97ab"))
             command = args.get("command")
@@ -6081,9 +6259,7 @@ class ReupApp(App):
             ref = md.get("ref")
             summary_parts: list[str] = []
             if isinstance(count, int):
-                summary_parts.append(
-                    f"{count} commit{'s' if count != 1 else ''}"
-                )
+                summary_parts.append(f"{count} commit{'s' if count != 1 else ''}")
             if isinstance(ref, str) and ref.strip():
                 summary_parts.append(ref.strip())
             if summary_parts:
@@ -6110,7 +6286,13 @@ class ReupApp(App):
                     success=success,
                 )
             )
-        elif name in {"spawn_subagent", "spawn_subagents", "wait_subagent", "list_subagents", "cancel_subagent"}:
+        elif name in {
+            "spawn_subagent",
+            "spawn_subagents",
+            "wait_subagent",
+            "list_subagents",
+            "cancel_subagent",
+        }:
             blocks.append(Text(narrative, style="#8c97ab"))
             blocks.extend(
                 render_subagent_runtime_payload(
@@ -6164,7 +6346,9 @@ class ReupApp(App):
                     output_display, was_truncated = truncate_for_tool(name, payload)
                     local_truncated = local_truncated or was_truncated
                     if output_display.strip():
-                        blocks.append(render_text_payload(output_display, success=False))
+                        blocks.append(
+                            render_text_payload(output_display, success=False)
+                        )
         else:
             blocks.append(Text(narrative, style="#8c97ab"))
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -6331,7 +6515,9 @@ class ReupApp(App):
         body_lines = [f"Close `{title}`?"]
         if is_running:
             body_lines.append("The current run will be stopped first.")
-        body_lines.append("This thread will be closed completely and removed from the open tabs.")
+        body_lines.append(
+            "This thread will be closed completely and removed from the open tabs."
+        )
         confirmed = await self._open_modal(
             ConfirmModal(
                 title="Close current thread?",
@@ -6420,7 +6606,11 @@ class ReupApp(App):
                         "Prefer the current active work focus over the initial exploratory question if they differ. "
                         "Reply with ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n"
                         f"Initial user: {first_user}\n"
-                        + (f"Initial assistant: {first_assistant}\n" if first_assistant else "")
+                        + (
+                            f"Initial assistant: {first_assistant}\n"
+                            if first_assistant
+                            else ""
+                        )
                         + (f"Latest user: {latest_user}\n" if latest_user else "")
                         + (f"Active focus: {focus_hint}" if focus_hint else "")
                     ),

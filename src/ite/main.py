@@ -1269,10 +1269,7 @@ def _run_main_app(
     errors = config.validate()
     if errors:
         setup_missing_errors = {"missing_api_key", "missing_base_url", "missing_model"}
-        if desktop or chat:
-            real_errors = [e for e in errors if e not in setup_missing_errors]
-        else:
-            real_errors = [e for e in errors if e not in setup_missing_errors]
+        real_errors = [e for e in errors if e not in setup_missing_errors]
         if real_errors:
             for error in real_errors:
                 console.print(f"[error]{error}[/error]")

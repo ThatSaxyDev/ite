@@ -47,6 +47,7 @@ class CLIModeRoutingTests(unittest.TestCase):
         with (
             patch("ite.main.ensure_workspace_layout", return_value=None),
             patch("ite.main.load_config", return_value=self._config()),
+            patch("ite.main.ensure_cloud_auth", return_value=None),
             patch("ite.ui.gui.run_gui", return_value=None) as mock_run_gui,
         ):
             result = self.runner.invoke(main, ["--desktop"])
@@ -65,10 +66,24 @@ class CLIModeRoutingTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, msg=result.output)
         mock_run_reup.assert_called_once()
 
+    def test_default_routes_to_reup_when_byok_config_missing(self) -> None:
+        config = Config(cwd=self.cwd)
+
+        with (
+            patch("ite.main.ensure_workspace_layout", return_value=None),
+            patch("ite.main.load_config", return_value=config),
+            patch("ite.ui.reup.run_reup", return_value=None) as mock_run_reup,
+        ):
+            result = self.runner.invoke(main, [])
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        mock_run_reup.assert_called_once_with(config)
+
     def test_gui_precedence_over_reup(self) -> None:
         with (
             patch("ite.main.ensure_workspace_layout", return_value=None),
             patch("ite.main.load_config", return_value=self._config()),
+            patch("ite.main.ensure_cloud_auth", return_value=None),
             patch("ite.ui.gui.run_gui", return_value=None) as mock_run_gui,
             patch("ite.ui.reup.run_reup", return_value=None) as mock_run_reup,
         ):
