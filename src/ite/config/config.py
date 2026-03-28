@@ -222,6 +222,9 @@ class Config(BaseModel):
     # Credentials — loaded from config.toml, overridden by env vars / CLI flags
     api_key: str | None = None
     base_url: str | None = None
+    cloud_auth_enabled: bool = False
+    cloud_api_url: str | None = None
+    cloud_client_id: str = "ite-cli"
 
     @model_validator(mode="after")
     def resolve_credentials(self) -> "Config":
@@ -230,6 +233,17 @@ class Config(BaseModel):
             self.api_key = env_key
         if env_url := os.environ.get("BASE_URL"):
             self.base_url = env_url
+        if env_cloud_enabled := os.environ.get("ITE_CLOUD_AUTH_ENABLED"):
+            self.cloud_auth_enabled = env_cloud_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        if env_cloud_api := os.environ.get("ITE_CLOUD_API_URL"):
+            self.cloud_api_url = env_cloud_api
+        if env_cloud_client := os.environ.get("ITE_CLOUD_CLIENT_ID"):
+            self.cloud_client_id = env_cloud_client
         return self
 
     @property

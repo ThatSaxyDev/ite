@@ -42,3 +42,7 @@ venv.bak/
 data/
 logs/
 run/
+
+# Cloud repos (untracked sub-projects)
+ite-cloud-api/
+ite-cloud-web/

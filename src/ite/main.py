@@ -2,6 +2,7 @@ from ite.config.config import Config
 from pathlib import Path
 from typing import Any
 from ite.config.loader import load_config, ensure_workspace_layout
+from ite.cloud import ensure_cloud_auth, CloudAuthError
 import logging
 import sys
 import re
@@ -1249,6 +1250,12 @@ def _run_main_app(
         base_url=base_url,
     )
 
+    try:
+        ensure_cloud_auth(console, config)
+    except CloudAuthError as exc:
+        console.print(f"[error]Cloud auth error: {exc}[/error]")
+        sys.exit(1)
+
     # Setup routing:
     # - Legacy TUI: keep terminal wizard behavior.
     # - GUI: launch GUI setup view instead of forcing terminal wizard first.
@@ -1283,7 +1290,7 @@ def _run_main_app(
 
 
 @click.group(cls=IteGroup, invoke_without_command=True)
-@click.version_option(version="0.0.20", prog_name="ite")
+@click.version_option(version="0.0.21", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",
