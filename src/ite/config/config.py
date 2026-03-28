@@ -10,6 +10,7 @@ from enum import Enum
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_API_KEY = "ollama"
 DEFAULT_MODEL_NAME = "minimax-m2.5:cloud"
+DEFAULT_CLOUD_API_URL = "http://127.0.0.1:4000"
 
 
 class ModelConfig(BaseModel):
@@ -223,7 +224,7 @@ class Config(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     cloud_auth_enabled: bool = False
-    cloud_api_url: str | None = None
+    cloud_api_url: str | None = DEFAULT_CLOUD_API_URL
     cloud_client_id: str = "ite-cli"
 
     @model_validator(mode="after")

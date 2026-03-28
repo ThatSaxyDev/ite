@@ -175,7 +175,7 @@ def ensure_cloud_auth(console: Console, config: Config) -> None:
     cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
     if not cloud_api_url:
         raise CloudAuthError(
-            "Cloud auth is enabled but no cloud API URL is configured. Use `/cloud enable <api-url>`."
+            "Cloud auth is enabled but no cloud endpoint is configured."
         )
 
     existing = _load_cloud_session()

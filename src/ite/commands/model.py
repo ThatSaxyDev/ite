@@ -153,10 +153,6 @@ async def cmd_config(ctx: CommandContext, args: list[str]) -> None:
         Text("Cloud Auth", style="muted"),
         Text("enabled" if ctx.config.cloud_auth_enabled else "disabled", style="info"),
     )
-    config_table.add_row(
-        Text("Cloud API", style="muted"),
-        Text(ctx.config.cloud_api_url or "not set", style="info"),
-    )
 
     ctx.console.print()
     ctx.console.print(
