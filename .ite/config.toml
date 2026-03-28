@@ -49,6 +49,12 @@ args = [
 ]
 startup_timeout_sec = 45
 
+[mcp_servers.ios-simulator]
+enabled = true
+command = "npx"
+args = ["-y", "ios-simulator-mcp"]
+startup_timeout_sec = 90
+
 # [mcp_servers.filesystem2]
 # enabled = true
 # command = "np"
