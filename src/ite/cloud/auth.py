@@ -80,14 +80,14 @@ def clear_cloud_auth(*, revoke_remote: bool = True) -> bool:
     session = _load_cloud_session()
     cleared = False
     if session and revoke_remote:
-      try:
-          _post_json(
-              f"{session.api_url.rstrip('/')}/auth/logout-terminal",
-              {},
-              access_token=session.access_token,
-          )
-      except Exception:
-          pass
+        try:
+            _post_json(
+                f"{session.api_url.rstrip('/')}/auth/logout-terminal",
+                {},
+                access_token=session.access_token,
+            )
+        except Exception:
+            pass
     path = _cloud_session_path()
     if path.exists():
         path.unlink()
@@ -177,7 +177,10 @@ def has_valid_cloud_auth(config: Config) -> bool:
     existing = _load_cloud_session()
     if existing is None or existing.api_url != cloud_api_url:
         return False
-    return _verify_cloud_session(existing)
+    try:
+        return _verify_cloud_session(existing)
+    except CloudAuthError:
+        return False
 
 
 def ensure_cloud_auth(console: Console | None, config: Config) -> None:

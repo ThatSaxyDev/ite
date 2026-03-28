@@ -5,6 +5,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from ite.cloud.auth import CloudAuthError
+from ite.cloud.auth import has_valid_cloud_auth
 from ite.config.config import Config
 from ite.ui.reup.app import ReupApp
 
@@ -83,6 +85,55 @@ class ReupStartupTests(unittest.TestCase):
             open_setup_modal.assert_not_called()
             ensure_agent.assert_awaited_once()
             conversation.remove_children.assert_awaited_once()
+
+        asyncio.run(run_test())
+
+    def test_has_valid_cloud_auth_returns_false_when_session_check_fails(self) -> None:
+        config = Config(cwd=self.cwd)
+        session = SimpleNamespace(api_url="http://127.0.0.1:4000")
+
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=session),
+            patch(
+                "ite.cloud.auth._verify_cloud_session",
+                side_effect=CloudAuthError("network down"),
+            ),
+        ):
+            self.assertFalse(has_valid_cloud_auth(config))
+
+    def test_on_mount_treats_missing_cloud_session_as_signed_out(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            toggle = SimpleNamespace(display=True)
+
+            with (
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_resize_composer_for_prompt"),
+                patch.object(app, "_apply_aside_panel_state"),
+                patch.object(app, "_apply_change_review_panel_state"),
+                patch.object(app, "set_interval"),
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch.object(app, "_refresh_change_review_source", AsyncMock()) as refresh_change_review,
+                patch.object(app, "_sync_command_palette") as sync_command_palette,
+                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=False)),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#aside-toggle": toggle,
+                        "#changes-toggle": toggle,
+                    }[selector],
+                ),
+            ):
+                await app.on_mount()
+
+            set_signed_out_state.assert_called_once_with(True)
+            ensure_agent.assert_not_awaited()
+            refresh_change_review.assert_not_awaited()
+            sync_command_palette.assert_not_called()
 
         asyncio.run(run_test())
 
