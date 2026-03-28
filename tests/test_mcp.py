@@ -142,6 +142,22 @@ class MCPClientTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(type(transport).__name__, "SSETransport")
 
+    async def test_ws_transport_reports_clear_error_when_fastmcp_lacks_support(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MCPClient(
+                name="remote",
+                config=MCPServerConfig(
+                    url="wss://example.com/mcp",
+                    transport="ws",
+                ),
+                cwd=cwd,
+            )
+
+            with patch("ite.tools.mcp.client.WSTransport", None):
+                with self.assertRaisesRegex(RuntimeError, "does not provide WSTransport"):
+                    client._create_transport()
+
     async def test_stdio_transport_sets_private_npm_cache_for_npx_servers(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

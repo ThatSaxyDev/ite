@@ -2,6 +2,7 @@
 
 import sys
 from ite.commands import Command, CommandContext, CommandRegistry
+from ite.cloud import clear_cloud_auth
 from ite.memory import MemoryManager
 from rich.panel import Panel
 from rich.text import Text
@@ -159,6 +160,15 @@ async def cmd_close(ctx: CommandContext, args: list[str]) -> None:
     ctx.console.print("[error]/close is only available in multi-thread surfaces.[/error]")
 
 
+async def cmd_logout(ctx: CommandContext, args: list[str]) -> None:
+    cleared = clear_cloud_auth()
+    if cleared:
+        ctx.console.print("[bold green]Cloud session cleared.[/bold green]")
+        ctx.console.print("[dim]Run `ite` again or use `/cloud login` to start sign-in from scratch.[/dim]")
+        return
+    ctx.console.print("[dim]No local cloud session was present.[/dim]")
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/ite", description="Show welcome screen", handler=cmd_ite,
@@ -181,6 +191,10 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/close", description="Close the current thread/session",
         handler=cmd_close,
+    ))
+    registry.register(Command(
+        name="/logout", description="Log out of iTE Cloud for terminal auth testing",
+        handler=cmd_logout,
     ))
     registry.register(
         Command(

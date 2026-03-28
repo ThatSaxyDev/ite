@@ -227,25 +227,137 @@ def save_system_config(
     api_key: str,
     base_url: str,
     model_name: str,
+    *,
+    cloud_auth_enabled: bool | None = None,
+    cloud_api_url: str | None = None,
+    cloud_client_id: str | None = None,
 ) -> Path:
-    """Save credentials and model to the system-level config file."""
+    """Save credentials, model, and optional cloud settings to the system config."""
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = config_dir / CONFIG_FILE_NAME
 
-    # Build TOML content manually (no extra dependency needed)
-    lines = []
-    lines.append(f'api_key = "{api_key}"')
-    lines.append(f'base_url = "{base_url}"')
-    lines.append("")
-    lines.append("[model]")
-    lines.append(f'name = "{model_name}"')
-    lines.append("")
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
 
-    config_path.write_text("\n".join(lines), encoding="utf-8")
+    existing["api_key"] = api_key
+    existing["base_url"] = base_url
+    model_config = dict(existing.get("model", {}) or {})
+    model_config["name"] = model_name
+    existing["model"] = model_config
+
+    if cloud_auth_enabled is not None:
+        existing["cloud_auth_enabled"] = cloud_auth_enabled
+    if cloud_api_url is not None:
+        existing["cloud_api_url"] = cloud_api_url
+    if cloud_client_id is not None:
+        existing["cloud_client_id"] = cloud_client_id
+
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.chmod(config_path, 0o600)
     logger.info("Saved system config to %s", config_path)
     return config_path
+
+
+def save_cloud_settings(
+    *,
+    enabled: bool | None = None,
+    api_url: str | None = None,
+    client_id: str | None = None,
+) -> Path:
+    """Persist iTE Cloud settings in the system-level config file."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
+
+    if enabled is not None:
+        existing["cloud_auth_enabled"] = enabled
+    if api_url is not None:
+        existing["cloud_api_url"] = api_url
+    if client_id is not None:
+        existing["cloud_client_id"] = client_id
+
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
+    logger.info("Saved iTE Cloud settings to %s", config_path)
+    return config_path
+
+
+def _render_system_config(config: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    top_level_keys = [
+        "api_key",
+        "base_url",
+        "approval",
+        "cloud_auth_enabled",
+        "cloud_api_url",
+        "cloud_client_id",
+        "hooks_enabled",
+        "max_turns",
+        "debug",
+    ]
+    rendered_keys: set[str] = set()
+
+    for key in top_level_keys:
+        if key in config:
+            lines.append(f"{key} = {_toml_value(config[key])}")
+            rendered_keys.add(key)
+
+    for key, value in config.items():
+        if key in rendered_keys or isinstance(value, dict):
+            continue
+        lines.append(f"{key} = {_toml_value(value)}")
+
+    if "model" in config and isinstance(config["model"], dict):
+        if lines:
+            lines.append("")
+        lines.append("[model]")
+        for key, value in config["model"].items():
+            lines.append(f"{key} = {_toml_value(value)}")
+
+    for table_name in ("sandbox", "shell_environment"):
+        table = config.get(table_name)
+        if isinstance(table, dict):
+            if lines:
+                lines.append("")
+            lines.append(f"[{table_name}]")
+            for key, value in table.items():
+                lines.append(f"{key} = {_toml_value(value)}")
+
+    mcp_servers = config.get("mcp_servers")
+    if isinstance(mcp_servers, dict):
+        for server, server_config in mcp_servers.items():
+            if not isinstance(server_config, dict):
+                continue
+            if lines:
+                lines.append("")
+            lines.extend(_render_mcp_server_section(str(server), server_config).splitlines())
+
+    hooks = config.get("hooks")
+    if isinstance(hooks, list):
+        for hook in hooks:
+            if not isinstance(hook, dict):
+                continue
+            if lines:
+                lines.append("")
+            lines.append("[[hooks]]")
+            for key, value in hook.items():
+                lines.append(f"{key} = {_toml_value(value)}")
+
+    return lines
 
 
 def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:

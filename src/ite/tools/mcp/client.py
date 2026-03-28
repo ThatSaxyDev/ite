@@ -8,8 +8,11 @@ from fastmcp.client.transports import (
     SSETransport,
     StdioTransport,
     StreamableHttpTransport,
-    WSTransport,
 )
+try:
+    from fastmcp.client.transports import WSTransport
+except ImportError:
+    WSTransport = None
 from enum import Enum
 from pathlib import Path
 from ite.config.config import MCPServerConfig
@@ -140,7 +143,7 @@ class MCPClient:
 
     def _create_transport(
         self,
-    ) -> StdioTransport | SSETransport | StreamableHttpTransport | WSTransport:
+    ) -> Any:
         transport = self.config.effective_transport
         auth = self._resolve_auth()
         if transport == "stdio":
@@ -170,6 +173,12 @@ class MCPClient:
             }
             return StreamableHttpTransport(**kwargs)
         if transport == "ws":
+            if WSTransport is None:
+                raise RuntimeError(
+                    "Configured MCP server uses transport 'ws', but the installed "
+                    "fastmcp package does not provide WSTransport. Upgrade fastmcp "
+                    "or switch this server to 'streamable_http'."
+                )
             return WSTransport(url=self.config.url)
         raise ValueError(f"Unsupported MCP transport: {transport}")
 

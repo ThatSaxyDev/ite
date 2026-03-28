@@ -76,11 +76,38 @@ def _save_cloud_session(session: CloudSession) -> None:
     path.write_text(json.dumps(session.to_dict(), indent=2), encoding="utf-8")
 
 
-def _post_json(url: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+def clear_cloud_auth(*, revoke_remote: bool = True) -> bool:
+    session = _load_cloud_session()
+    cleared = False
+    if session and revoke_remote:
+      try:
+          _post_json(
+              f"{session.api_url.rstrip('/')}/auth/logout-terminal",
+              {},
+              access_token=session.access_token,
+          )
+      except Exception:
+          pass
+    path = _cloud_session_path()
+    if path.exists():
+        path.unlink()
+        cleared = True
+    return cleared
+
+
+def _post_json(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    access_token: str | None = None,
+) -> tuple[int, dict[str, Any]]:
+    headers: dict[str, str] = {"content-type": "application/json"}
+    if access_token:
+        headers["authorization"] = f"Bearer {access_token}"
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers=headers,
         method="POST",
     )
     try:
@@ -148,7 +175,7 @@ def ensure_cloud_auth(console: Console, config: Config) -> None:
     cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
     if not cloud_api_url:
         raise CloudAuthError(
-            "Cloud auth is enabled but no cloud API URL is configured. Set ITE_CLOUD_API_URL."
+            "Cloud auth is enabled but no cloud API URL is configured. Use `/cloud enable <api-url>`."
         )
 
     existing = _load_cloud_session()
@@ -169,16 +196,12 @@ def ensure_cloud_auth(console: Console, config: Config) -> None:
     poll_token = str(payload.get("pollToken") or "")
     expires_in = int(payload.get("expiresIn") or 0)
     interval = int(payload.get("interval") or 5)
-    fallback_code = str(payload.get("fallbackCode") or "")
-
     console.print()
     console.print("[bold bright_white]iTE Cloud sign-in required[/bold bright_white]")
     console.print("[dim]Opening your browser to complete sign-in...[/dim]")
     opened = webbrowser.open(auth_url)
     if not opened:
         console.print(f"[dim]Browser did not open automatically. Open:[/dim] {auth_url}")
-    if fallback_code:
-        console.print(f"[dim]Fallback code:[/dim] {fallback_code}")
 
     deadline = time.time() + expires_in
     while time.time() < deadline:

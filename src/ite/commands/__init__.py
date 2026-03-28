@@ -85,6 +85,7 @@ def build_registry() -> CommandRegistry:
     from ite.commands.subagent import register as register_subagent
     from ite.commands.sandbox import register as register_sandbox
     from ite.commands.attach import register as register_attach
+    from ite.commands.cloud import register as register_cloud
     from ite.commands.skills import register as register_skills
 
     registry = CommandRegistry()
@@ -101,5 +102,6 @@ def build_registry() -> CommandRegistry:
     register_subagent(registry)
     register_sandbox(registry)
     register_attach(registry)
+    register_cloud(registry)
     register_skills(registry)
     return registry
