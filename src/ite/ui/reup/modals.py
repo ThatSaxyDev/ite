@@ -842,7 +842,7 @@ class UsageSummaryModal(ModalScreen[None]):
         return f"Resets {dt.strftime('%B %-d at %-I:%M%p').lower()}"
 
     @staticmethod
-    def _build_bar(remaining_percent: int, width: int = 48) -> Text:
+    def _build_bar(remaining_percent: int, width: int = 92) -> Text:
         used_percent = max(0, min(100, 100 - remaining_percent))
         filled = max(0, min(width, round((used_percent / 100) * width)))
         empty = max(0, width - filled)
