@@ -1461,11 +1461,11 @@ class ReupApp(App):
 
     async def _open_activity_modal_from_meta(self) -> None:
         await self.ensure_agent()
-        events = get_activity(self.config)
-        if not events:
-            self.post_system("Activity", "Activity is not available right now.", is_error=True)
+        payload = get_activity(self.config)
+        if not payload:
+            self.post_system("Activity", "Usage analytics are not available right now.", is_error=True)
             return
-        await self._open_modal(ActivityModal(events))
+        await self._open_modal(ActivityModal(payload))
 
     async def _open_attach_picker_from_meta(self) -> None:
         await self.ensure_agent()
@@ -2461,6 +2461,11 @@ class ReupApp(App):
         return await self._open_modal(
             CommitModal(
                 config=self.config,
+                llm_client=(
+                    self.agent.session.client
+                    if self.agent and self.agent.session
+                    else None
+                ),
                 branch=branch,
                 file_count=len(changes),
                 additions=additions,

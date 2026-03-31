@@ -218,6 +218,15 @@ class LLMClient:
 
         safe_messages = self._sanitize_messages(messages)
         model_name = self._resolve_cloud_model_name()
+        request_payload: dict[str, Any] = {
+            "model": model_name,
+            "messages": safe_messages,
+            "maxTokens": 1200,
+            "temperature": self.config.temperature,
+        }
+        if tools:
+            request_payload["tools"] = self._build_tools(tools)
+            request_payload["toolChoice"] = "auto"
 
         try:
             async with httpx.AsyncClient(timeout=300.0) as client:
@@ -227,14 +236,7 @@ class LLMClient:
                         "authorization": f"Bearer {session.access_token}",
                         "content-type": "application/json",
                     },
-                    json={
-                        "model": model_name,
-                        "messages": safe_messages,
-                        "tools": self._build_tools(tools) if tools else None,
-                        "toolChoice": "auto" if tools else None,
-                        "maxTokens": 1200,
-                        "temperature": self.config.temperature,
-                    },
+                    json=request_payload,
                 )
         except httpx.HTTPError as exc:
             yield StreamEvent(

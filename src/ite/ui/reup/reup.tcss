@@ -1737,11 +1737,25 @@ UsageSummaryModal .usage-summary-panel {
     padding: 1 1;
 }
 
+ActivityModal .usage-summary-panel {
+    height: 1fr;
+    min-height: 14;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid #303236;
+    background: #151618;
+    padding: 1 1;
+}
+
 ActivityModal DataTable {
     height: 1fr;
 }
 
 UsageSummaryModal .usage-summary-body {
+    height: 1fr;
+}
+
+ActivityModal .usage-summary-body {
     height: 1fr;
 }
 

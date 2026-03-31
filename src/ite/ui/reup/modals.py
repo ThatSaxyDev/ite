@@ -341,6 +341,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self,
         *,
         config: Config,
+        llm_client: LLMClient | None = None,
         branch: str,
         file_count: int,
         additions: int,
@@ -351,6 +352,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     ) -> None:
         super().__init__()
         self._config = config
+        self._llm_client = llm_client
         self._branch = branch
         self._file_count = file_count
         self._additions = additions
@@ -362,6 +364,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._generating_commit_message = False
         self._ai_spinner_index = 0
         self._ai_spinner_timer = None
+        self._last_ai_error: str | None = None
 
     def _include_unstaged_text(self) -> Text:
         text = Text()
@@ -420,7 +423,9 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         return "chore: update related files"
 
     async def _generate_commit_message(self) -> str:
-        client = LLMClient(self._config)
+        client = self._llm_client or LLMClient(self._config)
+        owns_client = self._llm_client is None
+        self._last_ai_error = None
         try:
             generated_parts: list[str] = []
             messages = [
@@ -464,10 +469,15 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         content = event.text_delta.content.strip()
                     if content:
                         return self._normalize_commit_message(content)
+                    self._last_ai_error = (
+                        "Commit subject generation returned an empty response."
+                    )
                 elif event.type == StreamEventType.ERROR:
+                    self._last_ai_error = event.error or "Commit subject generation failed."
                     break
         finally:
-            await client.close()
+            if owns_client:
+                await client.close()
         return self._suggest_commit_message()
 
     @staticmethod
@@ -515,6 +525,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         id="commit-message",
                     )
                     yield Button("✦", id="commit-ai-fill", variant="default")
+                yield Static("", id="commit-ai-status", classes="push-review-warning")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
                 yield Button(
                     "Commit", id="commit-confirm", variant="primary", disabled=True
@@ -579,13 +590,22 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._generating_commit_message = True
         button = self.query_one("#commit-ai-fill", Button)
         input_widget = self.query_one("#commit-message", Input)
+        status_widget = self.query_one("#commit-ai-status", Static)
         original_label = button.label
         self._ai_spinner_index = 0
+        self._last_ai_error = None
+        status_widget.update("Generating commit subject...")
         button.label = self._AI_SPINNER_FRAMES[0]
         button.disabled = True
         self._ai_spinner_timer = self.set_interval(0.08, self._tick_ai_spinner)
         try:
             input_widget.value = await self._generate_commit_message()
+            if self._last_ai_error:
+                status_widget.update(
+                    f"AI unavailable, using fallback subject. {self._last_ai_error}"
+                )
+            else:
+                status_widget.update("")
             input_widget.focus()
         finally:
             if self._ai_spinner_timer is not None:
@@ -897,9 +917,11 @@ class UsageSummaryModal(ModalScreen[None]):
 class ActivityModal(ModalScreen[None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
-    def __init__(self, events: list[dict[str, Any]]) -> None:
+    def __init__(self, payload: dict[str, Any]) -> None:
         super().__init__()
-        self._events = events
+        self._payload = payload
+        self._events = payload.get("events") if isinstance(payload.get("events"), list) else []
+        self._analytics = payload.get("analytics") if isinstance(payload.get("analytics"), dict) else {}
 
     @staticmethod
     def _format_when(value: str) -> str:
@@ -949,6 +971,104 @@ class ActivityModal(ModalScreen[None]):
             return plan_key
         return source
 
+    @staticmethod
+    def _format_usd(cents: int) -> str:
+        return f"${(cents / 100):.2f}"
+
+    @staticmethod
+    def _format_ngn(cents: int) -> str:
+        amount = (cents / 100) * 1397.98
+        return f"₦{amount:,.0f}"
+
+    @staticmethod
+    def _format_period(start: str | None, end: str | None) -> str:
+        if not start or not end:
+            return "Current billing period"
+        try:
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00")).astimezone()
+            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return "Current billing period"
+        return f"{start_dt.strftime('%b %-d')} to {end_dt.strftime('%b %-d')}".lower()
+
+    def _build_summary(self) -> Group:
+        totals = self._analytics.get("totals")
+        if not isinstance(totals, dict):
+            return Group(Text("No bundled usage yet.", style="#8f949d"))
+
+        current_period = self._analytics.get("currentPeriod")
+        if not isinstance(current_period, dict):
+            current_period = {"start": None, "end": None}
+
+        top = Table.grid(expand=True)
+        top.add_column(ratio=1)
+        top.add_column(ratio=1)
+        top.add_column(ratio=1)
+        top.add_column(ratio=1)
+        top.add_row(
+            Text("Today", style="#8f949d"),
+            Text("7 days", style="#8f949d"),
+            Text("Billing period", style="#8f949d"),
+            Text("All time", style="#8f949d"),
+        )
+        top.add_row(
+            Text(self._format_usd(int(totals.get("todayUsdCents") or 0)), style="bold #f3f4f6"),
+            Text(self._format_usd(int(totals.get("sevenDayUsdCents") or 0)), style="bold #f3f4f6"),
+            Text(self._format_usd(int(totals.get("currentPeriodUsdCents") or 0)), style="bold #f3f4f6"),
+            Text(self._format_usd(int(totals.get("allTimeUsdCents") or 0)), style="bold #f3f4f6"),
+        )
+        top.add_row(
+            Text(self._format_ngn(int(totals.get("todayUsdCents") or 0)), style="#8f949d"),
+            Text(self._format_ngn(int(totals.get("sevenDayUsdCents") or 0)), style="#8f949d"),
+            Text(
+                self._format_period(
+                    current_period.get("start") if isinstance(current_period.get("start"), str) else None,
+                    current_period.get("end") if isinstance(current_period.get("end"), str) else None,
+                ),
+                style="#8f949d",
+            ),
+            Text(
+                f"{self._format_ngn(int(totals.get('allTimeUsdCents') or 0))}  ·  {int(totals.get('allTimeRequestCount') or 0)} requests",
+                style="#8f949d",
+            ),
+        )
+
+        by_model = self._analytics.get("byModel")
+        model_table = Table.grid(expand=True)
+        model_table.add_column(ratio=1)
+        model_table.add_column(justify="right", width=14)
+        model_table.add_column(justify="right", width=16)
+        if isinstance(by_model, list) and by_model:
+            model_table.add_row(
+                Text("Model", style="#8f949d"),
+                Text("Spend", style="#8f949d"),
+                Text("Share", style="#8f949d"),
+            )
+            for row in by_model[:3]:
+                if not isinstance(row, dict):
+                    continue
+                model_table.add_row(
+                    Text(self._model_label(str(row.get("modelKey") or "")), style="#f3f4f6"),
+                    Text(self._format_usd(int(row.get("usdCents") or 0)), style="#f3f4f6"),
+                    Text(
+                        f"{self._format_ngn(int(row.get('usdCents') or 0))}  ·  {int(row.get('sharePercent') or 0)}%",
+                        style="#8f949d",
+                    ),
+                )
+        else:
+            model_table.add_row(Text("No model spend yet.", style="#8f949d"), Text(""), Text(""))
+
+        return Group(top, Rule(style="#2a2d31"), Text("Top models", style="bold #f3f4f6"), model_table)
+
+    @staticmethod
+    def _model_label(model_key: str) -> str:
+        mapping = {
+            "kimi-k2.5": "Kimi K2.5",
+            "minimax-m2.7": "MiniMax M2.7",
+            "glm-5": "GLM-5",
+        }
+        return mapping.get(model_key, model_key)
+
     def _build_table(self) -> DataTable:
         table = DataTable(cursor_type="row")
         table.add_columns("Activity", "Details", "When")
@@ -962,11 +1082,11 @@ class ActivityModal(ModalScreen[None]):
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal activity-modal"):
-            yield Label("Activity", classes="modal-title")
-            yield Static("Recent account and bundled usage activity.", classes="modal-body")
-            with Container(classes="modal-list"):
-                yield self._build_table()
-            with Horizontal(classes="modal-actions"):
+            yield Label("Usage analytics", classes="modal-title")
+            yield Static("Bundled spend and model mix across your account.", classes="modal-body")
+            with Container(classes="usage-summary-panel"):
+                yield Static(self._build_summary(), classes="usage-summary-body")
+            with Horizontal(classes="modal-actions resume-actions"):
                 yield Button("Close", id="cancel", variant="default")
 
     @on(Button.Pressed, "#cancel")
