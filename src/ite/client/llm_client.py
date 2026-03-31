@@ -16,6 +16,7 @@ from openai import AsyncOpenAI
 from ite.utils.errors import format_provider_error
 from ite.cloud import get_cloud_session
 import httpx
+from datetime import datetime
 
 
 class LLMClient:
@@ -46,6 +47,52 @@ class LLMClient:
             "glm-5": "glm-5",
         }
         return aliases.get(model_name, model_name)
+
+    def _format_cloud_error(self, payload: dict[str, Any]) -> str:
+        error = payload.get("error") or {}
+        details = error.get("details") or {}
+        code = str(error.get("code") or "")
+        message = str(error.get("message") or "Bundled inference request failed.")
+        window = str(details.get("window") or "")
+        reset_at = str(details.get("resetAt") or "")
+
+        def _window_label(value: str) -> str:
+            return {
+                "five_hour": "5-hour window",
+                "seven_day": "7-day window",
+            }.get(value, "current usage window")
+
+        def _format_reset(value: str, window_name: str) -> str | None:
+            if not value:
+                return None
+            try:
+                dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+            except ValueError:
+                return None
+
+            if window_name == "five_hour":
+                return dt.strftime("%-I:%M%p").lower()
+            return dt.strftime("%B %-d at %-I:%M%p").lower()
+
+        if code == "quota_exhausted":
+            window_label = _window_label(window)
+            reset_label = _format_reset(reset_at, window)
+            if reset_label:
+                return (
+                    f"Bundled usage is unavailable right now. "
+                    f"Your {window_label} is full and resets {reset_label}. "
+                    f"Use your own key or a local model for now."
+                )
+            return (
+                f"Bundled usage is unavailable right now. "
+                f"Your {window_label} is full. Use your own key or a local model for now."
+            )
+
+        if window:
+            window_label = _window_label(window)
+            return f"{message} ({window_label})"
+
+        return message
 
     async def close(self) -> None:
         if self._client is not None:
@@ -202,11 +249,7 @@ class LLMClient:
             payload = {}
 
         if response.status_code != 200 or not payload.get("ok"):
-            error = payload.get("error") or {}
-            details = error.get("details") or {}
-            message = str(error.get("message") or "Bundled inference request failed.")
-            if details.get("window"):
-                message = f"{message} Window: {details['window']}."
+            message = self._format_cloud_error(payload)
             yield StreamEvent(type=StreamEventType.ERROR, error=message)
             return
 
