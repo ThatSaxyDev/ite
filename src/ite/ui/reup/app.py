@@ -552,7 +552,6 @@ class ReupApp(App):
         self._apply_change_review_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(1.0, self._poll_change_review_panel)
-        self.set_interval(20.0, self._schedule_usage_meta_refresh)
         if self.config.cloud_auth_enabled:
             has_cloud_session = await asyncio.to_thread(
                 has_valid_cloud_auth, self.config
@@ -918,6 +917,11 @@ class ReupApp(App):
         if self._usage_refresh_in_flight or self._cloud_signed_out:
             return
         self.run_worker(self._refresh_usage_meta(), exclusive=False)
+
+    def _schedule_usage_meta_refresh_for_cloud_model(self) -> None:
+        if not str(self.config.model_name or "").endswith(":cloud"):
+            return
+        self._schedule_usage_meta_refresh()
 
     async def _refresh_usage_meta(self) -> None:
         if self._usage_refresh_in_flight:
@@ -4315,6 +4319,7 @@ class ReupApp(App):
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             await self._post_turn_change_summary()
+            self._schedule_usage_meta_refresh_for_cloud_model()
             return
 
         if event.type == AgentEventType.TEXT_DELTA:
@@ -4370,6 +4375,7 @@ class ReupApp(App):
             self.post_system(
                 "Error", str(event.data.get("error", "Unknown error")), is_error=True
             )
+            self._schedule_usage_meta_refresh_for_cloud_model()
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
