@@ -427,6 +427,8 @@ class ReupApp(App):
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
         self._composer_usage_hitbox: tuple[int, int] = (0, 0)
+        self._usage_remaining_percent: int | None = None
+        self._usage_refresh_in_flight: bool = False
         self._command_palette_options = self._build_command_palette_options()
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
@@ -550,6 +552,7 @@ class ReupApp(App):
         self._apply_change_review_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(1.0, self._poll_change_review_panel)
+        self.set_interval(20.0, self._schedule_usage_meta_refresh)
         if self.config.cloud_auth_enabled:
             has_cloud_session = await asyncio.to_thread(
                 has_valid_cloud_auth, self.config
@@ -558,6 +561,7 @@ class ReupApp(App):
                 self._set_signed_out_state(True)
                 return
         await self.ensure_agent()
+        self._schedule_usage_meta_refresh()
         await self._refresh_change_review_source()
         self.query_one("#prompt", TextArea).focus()
         self._sync_command_palette("")
@@ -901,6 +905,7 @@ class ReupApp(App):
             model_name=self.config.model_name,
             plan_enabled=plan_enabled,
             branch_label=branch_label,
+            usage_remaining_percent=self._usage_remaining_percent,
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -908,6 +913,30 @@ class ReupApp(App):
         self._composer_plan_hitbox = plan_hitbox
         self._composer_usage_hitbox = usage_hitbox
         return text
+
+    def _schedule_usage_meta_refresh(self) -> None:
+        if self._usage_refresh_in_flight or self._cloud_signed_out:
+            return
+        self.run_worker(self._refresh_usage_meta(), exclusive=False)
+
+    async def _refresh_usage_meta(self) -> None:
+        if self._usage_refresh_in_flight:
+            return
+        self._usage_refresh_in_flight = True
+        try:
+            summary = await asyncio.to_thread(get_usage_summary, self.config)
+            remaining: int | None = None
+            if summary:
+                quotas = summary.get("quotas") or {}
+                five_hour = quotas.get("fiveHour") or {}
+                used = int(five_hour.get("usedUsdCents") or 0)
+                cap = max(1, int(five_hour.get("capUsdCents") or 1))
+                remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+            if remaining != self._usage_remaining_percent:
+                self._usage_remaining_percent = remaining
+                self.refresh_header()
+        finally:
+            self._usage_refresh_in_flight = False
 
     def _build_command_palette_options(self) -> list[SlashCommandOption]:
         return build_command_palette_options(self._command_registry)
@@ -1409,6 +1438,12 @@ class ReupApp(App):
         if not summary:
             self.post_system("Usage", "Usage is not available right now.", is_error=True)
             return
+        quotas = summary.get("quotas") or {}
+        five_hour = quotas.get("fiveHour") or {}
+        used = int(five_hour.get("usedUsdCents") or 0)
+        cap = max(1, int(five_hour.get("capUsdCents") or 1))
+        self._usage_remaining_percent = max(0, min(100, round(((cap - used) / cap) * 100)))
+        self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
 
     async def _open_attach_picker_from_meta(self) -> None:

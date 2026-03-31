@@ -24,6 +24,7 @@ def composer_meta_text(
     model_name: str,
     plan_enabled: bool,
     branch_label: str,
+    usage_remaining_percent: int | None = None,
 ) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
     status_text = "on" if plan_enabled else "off"
     status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
@@ -70,9 +71,31 @@ def composer_meta_text(
     text.append(spacer)
     cell_pos += cell_len(spacer)
     usage_start = cell_pos
-    usage_label = "usage"
-    text.append(usage_label, style="bold #d1d5db")
+    usage_label = "usage "
+    text.append(usage_label, style="bold #9ca3af")
     cell_pos += cell_len(usage_label)
+    usage_text = (
+        f"{usage_remaining_percent}%"
+        if usage_remaining_percent is not None
+        else "--"
+    )
+    text.append(usage_text, style="bold #d1d5db")
+    cell_pos += cell_len(usage_text)
+    text.append(" ")
+    cell_pos += 1
+    meter_width = 6
+    if usage_remaining_percent is None:
+        filled = 0
+    else:
+        used_percent = max(0, min(100, 100 - usage_remaining_percent))
+        filled = max(0, min(meter_width, round((used_percent / 100) * meter_width)))
+    empty = meter_width - filled
+    if filled:
+        text.append("━" * filled, style="bold #f3f4f6")
+        cell_pos += filled
+    if empty:
+        text.append("━" * empty, style="#34363a")
+        cell_pos += empty
     usage_end = cell_pos
     return (
         text,
