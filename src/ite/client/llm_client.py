@@ -14,6 +14,8 @@ from ite.client.response import TextDelta
 from typing import Any
 from openai import AsyncOpenAI
 from ite.utils.errors import format_provider_error
+from ite.cloud import get_cloud_session
+import httpx
 
 
 class LLMClient:
@@ -31,6 +33,19 @@ class LLMClient:
                 max_retries=0,  # we handle retries ourselves
             )
         return self._client
+
+    def _is_cloud_model(self) -> bool:
+        return self.config.model_name.endswith(":cloud")
+
+    def _resolve_cloud_model_name(self) -> str:
+        model_name = self.config.model_name.removesuffix(":cloud")
+        aliases = {
+            "minimax-m2.5": "minimax-m2.7",
+            "minimax-m2.7": "minimax-m2.7",
+            "kimi-k2.5": "kimi-k2.5",
+            "glm-5": "glm-5",
+        }
+        return aliases.get(model_name, model_name)
 
     async def close(self) -> None:
         if self._client is not None:
@@ -62,6 +77,11 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         stream: bool = True,
     ) -> AsyncGenerator[StreamEvent, None]:
+        if self._is_cloud_model():
+            async for event in self._cloud_chat_completion(messages, tools=tools):
+                yield event
+            return
+
         client = self.get_client()
         safe_messages = self._sanitize_messages(messages)
 
@@ -135,6 +155,93 @@ class LLMClient:
                     ),
                 )
                 return
+
+    async def _cloud_chat_completion(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        session = get_cloud_session(self.config)
+        if session is None:
+            yield StreamEvent(
+                type=StreamEventType.ERROR,
+                error="Cloud session is missing or expired. Run `/cloud login` and try again.",
+            )
+            return
+
+        safe_messages = self._sanitize_messages(messages)
+        model_name = self._resolve_cloud_model_name()
+
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(
+                    f"{session.api_url.rstrip('/')}/inference/chat",
+                    headers={
+                        "authorization": f"Bearer {session.access_token}",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": model_name,
+                        "messages": safe_messages,
+                        "tools": self._build_tools(tools) if tools else None,
+                        "toolChoice": "auto" if tools else None,
+                        "maxTokens": 1200,
+                        "temperature": self.config.temperature,
+                    },
+                )
+        except httpx.HTTPError as exc:
+            yield StreamEvent(
+                type=StreamEventType.ERROR,
+                error=f"Could not reach iTE bundled inference: {exc}",
+            )
+            return
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+
+        if response.status_code != 200 or not payload.get("ok"):
+            error = payload.get("error") or {}
+            details = error.get("details") or {}
+            message = str(error.get("message") or "Bundled inference request failed.")
+            if details.get("window"):
+                message = f"{message} Window: {details['window']}."
+            yield StreamEvent(type=StreamEventType.ERROR, error=message)
+            return
+
+        output = str(payload.get("output") or "")
+        if output:
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(content=output),
+            )
+
+        for tc in payload.get("toolCalls") or []:
+            if not isinstance(tc, dict):
+                continue
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id=str(tc.get("id") or ""),
+                    name=str(tc.get("name") or ""),
+                    arguments=parse_tool_call_arguments(str(tc.get("arguments") or "{}")),
+                ),
+            )
+
+        usage_payload = payload.get("usage") or {}
+        usage = TokenUsage(
+            prompt_tokens=int(usage_payload.get("promptTokens") or 0),
+            completion_tokens=int(usage_payload.get("completionTokens") or 0),
+            total_tokens=int(usage_payload.get("totalTokens") or 0),
+            cached_tokens=0,
+        )
+
+        yield StreamEvent(
+            type=StreamEventType.MESSAGE_COMPLETE,
+            finish_reason="stop",
+            usage=usage,
+        )
 
     def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize outbound messages so providers never receive null content."""

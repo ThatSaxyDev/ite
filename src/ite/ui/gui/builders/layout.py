@@ -700,11 +700,9 @@ class LayoutBuilderMixin:
 
     def build_composer(self) -> ft.Control:
         model_choices = [
-            # "gpt-4o-mini",
-            # "gpt-5",
-            # "gpt-5-mini",
-            # "claude-3.7-sonnet",
-            "minimax-m2.5:cloud",
+            "minimax-m2.7:cloud",
+            "kimi-k2.5:cloud",
+            "glm-5:cloud",
         ]
         if self.config.model_name not in model_choices:
             model_choices.insert(0, self.config.model_name)

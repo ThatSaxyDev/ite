@@ -183,6 +183,30 @@ def has_valid_cloud_auth(config: Config) -> bool:
         return False
 
 
+def get_cloud_session(config: Config) -> CloudSession | None:
+    if not config.cloud_auth_enabled:
+        return None
+
+    cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
+    if not cloud_api_url:
+        return None
+
+    existing = _load_cloud_session()
+    if existing is None or existing.api_url != cloud_api_url:
+        return None
+
+    if existing.is_access_valid:
+        status, payload = _get_json(
+            f"{existing.api_url.rstrip('/')}/auth/me",
+            access_token=existing.access_token,
+        )
+        if status == 200 and bool(payload.get("ok")):
+            return existing
+
+    refreshed = _refresh_cloud_session(existing)
+    return refreshed
+
+
 def ensure_cloud_auth(console: Console | None, config: Config) -> None:
     if not config.cloud_auth_enabled:
         return
