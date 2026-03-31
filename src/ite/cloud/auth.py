@@ -242,6 +242,20 @@ def get_bundled_models(config: Config) -> list[dict[str, str]]:
     return bundled
 
 
+def get_usage_summary(config: Config) -> dict[str, Any] | None:
+    session = get_cloud_session(config)
+    if session is None:
+        return None
+
+    status, payload = _get_json(
+        f"{session.api_url.rstrip('/')}/usage/summary",
+        access_token=session.access_token,
+    )
+    if status != 200 or not payload.get("ok"):
+        return None
+    return payload
+
+
 def ensure_cloud_auth(console: Console | None, config: Config) -> None:
     if not config.cloud_auth_enabled:
         return

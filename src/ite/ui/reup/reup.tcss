@@ -1124,6 +1124,7 @@ PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
 ModelPickerModal,
+UsageSummaryModal,
 AttachPickerModal,
 SetupModal {
     align: center middle;
@@ -1574,6 +1575,17 @@ ModelPickerModal .modal {
     overflow: hidden;
 }
 
+UsageSummaryModal .modal {
+    width: 108;
+    height: 24;
+    max-height: 80%;
+    min-height: 20;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
 AttachPickerModal .modal {
     width: 108;
     height: 36;
@@ -1612,6 +1624,7 @@ AttachPickerModal .modal-list {
 SessionResumeModal .modal-title,
 BranchPickerModal .modal-title,
 ModelPickerModal .modal-title,
+UsageSummaryModal .modal-title,
 AttachPickerModal .modal-title,
 RemoteSetupModal .modal-title,
 SetupModal .modal-title {
@@ -1625,6 +1638,7 @@ SetupModal .modal-title {
 SessionResumeModal .modal-body,
 BranchPickerModal .modal-body,
 ModelPickerModal .modal-body,
+UsageSummaryModal .modal-body,
 AttachPickerModal .modal-body,
 RemoteSetupModal .modal-body,
 SetupModal .modal-body {
@@ -1643,6 +1657,7 @@ SessionResumeModal .resume-warning {
 SessionResumeModal .modal-actions,
 BranchPickerModal .modal-actions,
 ModelPickerModal .modal-actions,
+UsageSummaryModal .modal-actions,
 AttachPickerModal .modal-actions,
 RemoteSetupModal .modal-actions,
 SetupModal .modal-actions {
@@ -1672,6 +1687,7 @@ SessionResumeModal #resume:hover {
 SessionResumeModal #cancel,
 BranchPickerModal #cancel,
 ModelPickerModal #cancel,
+UsageSummaryModal #cancel,
 AttachPickerModal #cancel,
 RemoteSetupModal #cancel,
 SetupModal #cancel {
@@ -1686,10 +1702,25 @@ SetupModal #cancel {
 SessionResumeModal #cancel:hover,
 BranchPickerModal #cancel:hover,
 ModelPickerModal #cancel:hover,
+UsageSummaryModal #cancel:hover,
 AttachPickerModal #cancel:hover,
 RemoteSetupModal #cancel:hover,
 SetupModal #cancel:hover {
     background: #313337;
+}
+
+UsageSummaryModal .usage-summary-panel {
+    height: 1fr;
+    min-height: 12;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid #303236;
+    background: #151618;
+    padding: 1 1;
+}
+
+UsageSummaryModal .usage-summary-body {
+    height: 1fr;
 }
 
 SetupModal #continue {

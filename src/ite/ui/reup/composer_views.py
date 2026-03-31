@@ -24,7 +24,7 @@ def composer_meta_text(
     model_name: str,
     plan_enabled: bool,
     branch_label: str,
-) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
+) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
     status_text = "on" if plan_enabled else "off"
     status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
     branch_style = "bold #d1d5db" if branch_label != "no-git" else "bold #9ca3af"
@@ -67,7 +67,21 @@ def composer_meta_text(
     text.append(branch_suffix, style="bold #9ca3af")
     cell_pos += cell_len(branch_suffix)
     branch_end = cell_pos
-    return text, (attach_start, attach_end), (model_start, model_end), (branch_start, branch_end), (plan_start, plan_end)
+    text.append(spacer)
+    cell_pos += cell_len(spacer)
+    usage_start = cell_pos
+    usage_label = "usage"
+    text.append(usage_label, style="bold #d1d5db")
+    cell_pos += cell_len(usage_label)
+    usage_end = cell_pos
+    return (
+        text,
+        (attach_start, attach_end),
+        (model_start, model_end),
+        (branch_start, branch_end),
+        (plan_start, plan_end),
+        (usage_start, usage_end),
+    )
 
 
 def build_command_palette_options(command_registry: Any) -> list[SlashCommandOption]:

@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from rich.console import Group
+from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
@@ -816,6 +819,75 @@ class ModelPickerModal(ModalScreen[str | None]):
         row = table.cursor_row
         if 0 <= row < len(self._model_names):
             self.dismiss(self._model_names[row])
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class UsageSummaryModal(ModalScreen[None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, summary: dict[str, Any]) -> None:
+        super().__init__()
+        self._summary = summary
+
+    def _format_reset(self, value: str, label: str) -> str:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return "Resets soon"
+        if label == "5h":
+            return f"Resets {dt.strftime('%-I:%M%p').lower()}"
+        return f"Resets {dt.strftime('%B %-d at %-I:%M%p').lower()}"
+
+    @staticmethod
+    def _build_bar(remaining_percent: int, width: int = 48) -> Text:
+        used_percent = max(0, min(100, 100 - remaining_percent))
+        filled = max(0, min(width, round((used_percent / 100) * width)))
+        empty = max(0, width - filled)
+        bar = Text()
+        if filled:
+            bar.append("━" * filled, style="bold #f3f4f6")
+        if empty:
+            bar.append("━" * empty, style="#34363a")
+        return bar
+
+    def _build_renderable(self) -> Group:
+        quotas = self._summary.get("quotas") or {}
+        sections: list[object] = []
+        for label, key in (("5h", "fiveHour"), ("Weekly", "sevenDay")):
+            quota = quotas.get(key) or {}
+            used = int(quota.get("usedUsdCents") or 0)
+            cap = max(1, int(quota.get("capUsdCents") or 1))
+            remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+
+            row = Table.grid(expand=True)
+            row.add_column(ratio=1)
+            row.add_column(justify="right", width=18)
+            row.add_row(
+                Text(label, style="bold #f3f4f6"),
+                Text(f"{remaining}% remaining", style="bold #f3f4f6"),
+            )
+            sections.append(row)
+            sections.append(
+                Text(
+                    self._format_reset(str(quota.get("nextResetAt") or ""), label),
+                    style="#8f949d",
+                )
+            )
+            sections.append(self._build_bar(remaining))
+            if key != "sevenDay":
+                sections.append(Rule(style="#2a2d31"))
+        return Group(*sections)
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal usage-modal"):
+            yield Label("Usage", classes="modal-title")
+            with Container(classes="usage-summary-panel"):
+                yield Static(self._build_renderable(), classes="usage-summary-body")
+            with Horizontal(classes="modal-actions"):
+                yield Button("Close", id="cancel", variant="default")
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:

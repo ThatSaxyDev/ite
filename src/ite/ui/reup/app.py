@@ -58,6 +58,7 @@ from ite.cloud import (
     clear_cloud_auth,
     ensure_cloud_auth,
     get_bundled_models,
+    get_usage_summary,
     has_valid_cloud_auth,
 )
 from ite.commands import build_registry
@@ -131,6 +132,7 @@ from .modals import (
     RemoteSetupModal,
     SessionResumeModal,
     SetupModal,
+    UsageSummaryModal,
 )
 from .tool_views import (
     display_path,
@@ -424,6 +426,7 @@ class ReupApp(App):
         self._composer_model_hitbox: tuple[int, int] = (0, 0)
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
+        self._composer_usage_hitbox: tuple[int, int] = (0, 0)
         self._command_palette_options = self._build_command_palette_options()
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
@@ -893,7 +896,7 @@ class ReupApp(App):
                 branch_label = current_branch(cwd)
         except Exception:
             pass
-        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox = composer_meta_text(
+        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=self.config.model_name,
             plan_enabled=plan_enabled,
@@ -903,6 +906,7 @@ class ReupApp(App):
         self._composer_model_hitbox = model_hitbox
         self._composer_branch_hitbox = branch_hitbox
         self._composer_plan_hitbox = plan_hitbox
+        self._composer_usage_hitbox = usage_hitbox
         return text
 
     def _build_command_palette_options(self) -> list[SlashCommandOption]:
@@ -1265,6 +1269,7 @@ class ReupApp(App):
         attach_start, attach_end = self._composer_attach_hitbox
         model_start, model_end = self._composer_model_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
+        usage_start, usage_end = self._composer_usage_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
             self.run_worker(self._open_attach_picker_from_meta(), exclusive=False)
@@ -1276,6 +1281,10 @@ class ReupApp(App):
             return
         if branch_start <= event.x < branch_end:
             self.run_worker(self._open_branch_picker_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if usage_start <= event.x < usage_end:
+            self.run_worker(self._open_usage_modal_from_meta(), exclusive=False)
             event.stop()
             return
         if start <= event.x < end:
@@ -1393,6 +1402,14 @@ class ReupApp(App):
         self.config.model.name = selected
         self.refresh_header()
         self.post_notice("Model", f"{old_model} → {selected}")
+
+    async def _open_usage_modal_from_meta(self) -> None:
+        await self.ensure_agent()
+        summary = get_usage_summary(self.config)
+        if not summary:
+            self.post_system("Usage", "Usage is not available right now.", is_error=True)
+            return
+        await self._open_modal(UsageSummaryModal(summary))
 
     async def _open_attach_picker_from_meta(self) -> None:
         await self.ensure_agent()
