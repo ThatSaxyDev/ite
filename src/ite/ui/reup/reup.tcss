@@ -1123,6 +1123,7 @@ RemoteSetupModal,
 PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
+ModelPickerModal,
 AttachPickerModal,
 SetupModal {
     align: center middle;
@@ -1562,6 +1563,17 @@ BranchPickerModal .modal {
     overflow: hidden;
 }
 
+ModelPickerModal .modal {
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
 AttachPickerModal .modal {
     width: 108;
     height: 36;
@@ -1584,6 +1596,7 @@ SetupModal .modal {
 
 SessionResumeModal .modal-list,
 BranchPickerModal .modal-list,
+ModelPickerModal .modal-list,
 AttachPickerModal .modal-list {
     height: 1fr;
     min-height: 12;
@@ -1598,6 +1611,7 @@ AttachPickerModal .modal-list {
 
 SessionResumeModal .modal-title,
 BranchPickerModal .modal-title,
+ModelPickerModal .modal-title,
 AttachPickerModal .modal-title,
 RemoteSetupModal .modal-title,
 SetupModal .modal-title {
@@ -1610,6 +1624,7 @@ SetupModal .modal-title {
 
 SessionResumeModal .modal-body,
 BranchPickerModal .modal-body,
+ModelPickerModal .modal-body,
 AttachPickerModal .modal-body,
 RemoteSetupModal .modal-body,
 SetupModal .modal-body {
@@ -1627,6 +1642,7 @@ SessionResumeModal .resume-warning {
 
 SessionResumeModal .modal-actions,
 BranchPickerModal .modal-actions,
+ModelPickerModal .modal-actions,
 AttachPickerModal .modal-actions,
 RemoteSetupModal .modal-actions,
 SetupModal .modal-actions {
@@ -1655,6 +1671,7 @@ SessionResumeModal #resume:hover {
 
 SessionResumeModal #cancel,
 BranchPickerModal #cancel,
+ModelPickerModal #cancel,
 AttachPickerModal #cancel,
 RemoteSetupModal #cancel,
 SetupModal #cancel {
@@ -1668,6 +1685,7 @@ SetupModal #cancel {
 
 SessionResumeModal #cancel:hover,
 BranchPickerModal #cancel:hover,
+ModelPickerModal #cancel:hover,
 AttachPickerModal #cancel:hover,
 RemoteSetupModal #cancel:hover,
 SetupModal #cancel:hover {
@@ -1730,6 +1748,7 @@ SetupModal #setup-api-key {
 
 SessionResumeModal .resume-table,
 BranchPickerModal .resume-table,
+ModelPickerModal .resume-table,
 AttachPickerModal .resume-table {
     height: 1fr;
 }
@@ -1817,6 +1836,20 @@ BranchPickerModal #create {
 
 BranchPickerModal #create:hover {
     background: #6ae7b5;
+}
+
+ModelPickerModal #select {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #b7c8e1;
+    color: #111821;
+    border: none;
+}
+
+ModelPickerModal #select:hover {
+    background: #cad6ea;
+    color: #111821;
 }
 
 BranchPickerModal #branch-name {

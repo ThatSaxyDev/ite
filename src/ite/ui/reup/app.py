@@ -57,6 +57,7 @@ from ite.cloud import (
     CloudAuthError,
     clear_cloud_auth,
     ensure_cloud_auth,
+    get_bundled_models,
     has_valid_cloud_auth,
 )
 from ite.commands import build_registry
@@ -124,6 +125,7 @@ from .modals import (
     BranchPickerModal,
     CommitModal,
     ConfirmModal,
+    ModelPickerModal,
     PlanQuestionModal,
     PushReviewModal,
     RemoteSetupModal,
@@ -419,6 +421,7 @@ class ReupApp(App):
         self._plan_question_status: Static | None = None
         self._plan_question_recommended_index: int | None = None
         self._composer_attach_hitbox: tuple[int, int] = (0, 0)
+        self._composer_model_hitbox: tuple[int, int] = (0, 0)
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
         self._command_palette_options = self._build_command_palette_options()
@@ -890,13 +893,14 @@ class ReupApp(App):
                 branch_label = current_branch(cwd)
         except Exception:
             pass
-        text, attach_hitbox, branch_hitbox, plan_hitbox = composer_meta_text(
+        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=self.config.model_name,
             plan_enabled=plan_enabled,
             branch_label=branch_label,
         )
         self._composer_attach_hitbox = attach_hitbox
+        self._composer_model_hitbox = model_hitbox
         self._composer_branch_hitbox = branch_hitbox
         self._composer_plan_hitbox = plan_hitbox
         return text
@@ -1259,10 +1263,15 @@ class ReupApp(App):
     @on(events.Click, "#composer-meta-line")
     def on_composer_meta_line_click(self, event: events.Click) -> None:
         attach_start, attach_end = self._composer_attach_hitbox
+        model_start, model_end = self._composer_model_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
             self.run_worker(self._open_attach_picker_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if model_start <= event.x < model_end:
+            self.run_worker(self._open_model_picker_from_meta(), exclusive=False)
             event.stop()
             return
         if branch_start <= event.x < branch_end:
@@ -1321,6 +1330,69 @@ class ReupApp(App):
         else:
             self.post_system("Git", branch_result.message, is_error=True)
         self.refresh_header()
+
+    async def _open_model_picker_from_meta(self) -> None:
+        await self.ensure_agent()
+        current_model = self.config.model_name
+        bundled_items = get_bundled_models(self.config)
+
+        model_options: list[dict[str, str]] = []
+        seen: set[str] = set()
+
+        def _append(model_name: str, label: str, provider: str) -> None:
+            normalized = str(model_name or "").strip()
+            if not normalized or normalized in seen:
+                return
+            seen.add(normalized)
+            model_options.append(
+                {
+                    "model_name": normalized,
+                    "label": label,
+                    "provider": provider,
+                }
+            )
+
+        if current_model and current_model not in {
+            item.get("model_name", "") for item in bundled_items
+        }:
+            _append(current_model, current_model, "Custom")
+
+        for item in bundled_items:
+            _append(
+                str(item.get("model_name") or ""),
+                str(item.get("label") or item.get("model_name") or ""),
+                str(item.get("provider") or "Bundled"),
+            )
+
+        if not model_options:
+            self.post_system(
+                "Model",
+                "No bundled models are available right now.",
+                is_error=True,
+            )
+            return
+
+        selected = await self._open_modal(ModelPickerModal(current_model, model_options))
+        if not selected or selected == current_model:
+            return
+
+        try:
+            save_system_config(
+                api_key=self.config.api_key or "",
+                base_url=self.config.base_url or "",
+                model_name=selected,
+                cloud_auth_enabled=self.config.cloud_auth_enabled,
+                cloud_api_url=self.config.cloud_api_url,
+                cloud_client_id=self.config.cloud_client_id,
+            )
+        except Exception as exc:
+            self.post_system("Model", str(exc), is_error=True)
+            return
+
+        old_model = self.config.model_name
+        self.config.model.name = selected
+        self.refresh_header()
+        self.post_notice("Model", f"{old_model} → {selected}")
 
     async def _open_attach_picker_from_meta(self) -> None:
         await self.ensure_agent()

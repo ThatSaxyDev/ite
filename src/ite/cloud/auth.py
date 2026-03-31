@@ -207,6 +207,41 @@ def get_cloud_session(config: Config) -> CloudSession | None:
     return refreshed
 
 
+def get_bundled_models(config: Config) -> list[dict[str, str]]:
+    session = get_cloud_session(config)
+    if session is None:
+        return []
+
+    status, payload = _get_json(
+        f"{session.api_url.rstrip('/')}/models/bundled",
+        access_token=session.access_token,
+    )
+    if status != 200 or not payload.get("ok"):
+        return []
+
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return []
+
+    bundled: list[dict[str, str]] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        model_name = str(item.get("modelName") or "").strip()
+        label = str(item.get("label") or model_name).strip()
+        provider = str(item.get("provider") or "Bundled").strip()
+        if not model_name:
+            continue
+        bundled.append(
+            {
+                "model_name": model_name,
+                "label": label,
+                "provider": provider,
+            }
+        )
+    return bundled
+
+
 def ensure_cloud_auth(console: Console | None, config: Config) -> None:
     if not config.cloud_auth_enabled:
         return

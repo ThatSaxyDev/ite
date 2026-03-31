@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
-import re
 from typing import Any
 from urllib.parse import urlparse
 
+from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
@@ -17,9 +18,13 @@ from textual.widgets.directory_tree import DirEntry
 from ite.attachments import MAX_ATTACHMENTS
 from ite.client.llm_client import LLMClient
 from ite.client.response import StreamEventType
-from ite.config.config import Config, DEFAULT_API_KEY, DEFAULT_BASE_URL, DEFAULT_MODEL_NAME
+from ite.config.config import (
+    DEFAULT_API_KEY,
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL_NAME,
+    Config,
+)
 from ite.git.branches import BranchInfo, is_valid_branch_name
-from rich.text import Text
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -119,7 +124,9 @@ class PushReviewModal(ModalScreen[bool]):
                     stats.append("↑", style="bold #79d8a4")
                     if self._behind_count > 0:
                         stats.append("    ")
-                        stats.append(f"{self._behind_count} behind", style="bold #f2b38f")
+                        stats.append(
+                            f"{self._behind_count} behind", style="bold #f2b38f"
+                        )
                     yield Static(stats, classes="push-review-value")
                 if self._behind_count > 0:
                     yield Static(
@@ -191,7 +198,9 @@ class RemoteSetupModal(ModalScreen[dict[str, str] | None]):
                     classes="remote-setup-help",
                 )
                 yield Static("", id="remote-setup-error", classes="push-review-warning")
-            with Horizontal(classes="modal-actions resume-actions remote-setup-actions"):
+            with Horizontal(
+                classes="modal-actions resume-actions remote-setup-actions"
+            ):
                 yield Button("Cancel", id="cancel", variant="default")
                 yield Button("Save and publish", id="confirm", variant="success")
 
@@ -210,14 +219,20 @@ class RemoteSetupModal(ModalScreen[dict[str, str] | None]):
     @staticmethod
     def _is_valid_remote_name(value: str) -> bool:
         text = value.strip()
-        return bool(text) and not text.startswith("-") and not any(ch.isspace() for ch in text)
+        return (
+            bool(text)
+            and not text.startswith("-")
+            and not any(ch.isspace() for ch in text)
+        )
 
     @staticmethod
     def _is_valid_remote_url(value: str) -> bool:
         text = value.strip()
         if not text or any(ch.isspace() for ch in text):
             return False
-        if re.match(r"^[^@\s:]+@[^:\s]+:.+$", text) or re.match(r"^[^:\s]+:[^/].+$", text):
+        if re.match(r"^[^@\s:]+@[^:\s]+:.+$", text) or re.match(
+            r"^[^:\s]+:[^/].+$", text
+        ):
             return True
         if text.startswith(("/", "./", "../", "~/")):
             return True
@@ -270,7 +285,9 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal plan-modal"):
-            yield Label(f"Asking questions {self._question_number}", classes="modal-title")
+            yield Label(
+                f"Asking questions {self._question_number}", classes="modal-title"
+            )
             yield Static(self._question, classes="modal-body")
             with Vertical(classes="modal-options"):
                 for idx, option in enumerate(self._options):
@@ -278,7 +295,9 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
                     yield Button(
                         f"{idx + 1}. {option}{rec}",
                         id=f"opt-{idx}",
-                        variant="primary" if self._recommended_index == idx else "default",
+                        variant="primary"
+                        if self._recommended_index == idx
+                        else "default",
                     )
             if self._allow_free_text:
                 yield Input(placeholder="Custom answer", id="custom-input")
@@ -361,7 +380,9 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         joined = " ".join(paths).lower()
         if "reup" in joined and "commit" in joined:
             return "feat(ui): refine commit modal flow"
-        if "reup" in joined and any(token in joined for token in {"modal", "modals", "tcss"}):
+        if "reup" in joined and any(
+            token in joined for token in {"modal", "modals", "tcss"}
+        ):
             return "style(ui): polish modal layout and spacing"
         if "working_tree" in joined and "reup" in joined:
             return "feat(ui): improve working tree review actions"
@@ -398,6 +419,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     async def _generate_commit_message(self) -> str:
         client = LLMClient(self._config)
         try:
+            generated_parts: list[str] = []
             messages = [
                 {
                     "role": "system",
@@ -427,10 +449,15 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                     ),
                 },
             ]
-            async for event in client.chat_completion(messages, tools=None, stream=False):
-                if event.type == StreamEventType.MESSAGE_COMPLETE:
-                    content = ""
+            async for event in client.chat_completion(
+                messages, tools=None, stream=False
+            ):
+                if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta and event.text_delta.content:
+                        generated_parts.append(event.text_delta.content)
+                elif event.type == StreamEventType.MESSAGE_COMPLETE:
+                    content = "".join(generated_parts).strip()
+                    if not content and event.text_delta and event.text_delta.content:
                         content = event.text_delta.content.strip()
                     if content:
                         return self._normalize_commit_message(content)
@@ -458,7 +485,11 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                 with Horizontal(classes="commit-summary-row"):
                     yield Static("Changes", classes="commit-label")
                     stats = Text()
-                    file_label = f"{self._file_count} file" if self._file_count == 1 else f"{self._file_count} files"
+                    file_label = (
+                        f"{self._file_count} file"
+                        if self._file_count == 1
+                        else f"{self._file_count} files"
+                    )
                     stats.append(file_label, style="bold #dfe8f8")
                     stats.append("  ")
                     stats.append(f"+{self._additions}", style="bold #79d8a4")
@@ -472,7 +503,9 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         id="commit-include-unstaged-choice",
                         classes="commit-toggle-choice",
                     )
-                yield Static("Commit message", classes="commit-label commit-message-label")
+                yield Static(
+                    "Commit message", classes="commit-label commit-message-label"
+                )
                 with Horizontal(classes="commit-message-row"):
                     yield Input(
                         placeholder="Type a commit message or use ✦ to generate one",
@@ -480,8 +513,12 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                     )
                     yield Button("✦", id="commit-ai-fill", variant="default")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
-                yield Button("Commit", id="commit-confirm", variant="primary", disabled=True)
-                yield Button(self._push_label, id="commit-push", variant="success", disabled=True)
+                yield Button(
+                    "Commit", id="commit-confirm", variant="primary", disabled=True
+                )
+                yield Button(
+                    self._push_label, id="commit-push", variant="success", disabled=True
+                )
                 yield Button("Cancel", id="cancel", variant="default")
 
     async def on_mount(self) -> None:
@@ -530,7 +567,9 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         if not self._generating_commit_message:
             return
         button = self.query_one("#commit-ai-fill", Button)
-        button.label = self._AI_SPINNER_FRAMES[self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)]
+        button.label = self._AI_SPINNER_FRAMES[
+            self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)
+        ]
         self._ai_spinner_index += 1
 
     async def _fill_commit_message_from_ai(self) -> None:
@@ -579,7 +618,9 @@ class SessionResumeModal(ModalScreen[str | None]):
             yield Label("Resume Session", classes="modal-title resume-title")
             yield Static("Pick a session to resume.", classes="modal-body resume-body")
             with Container(classes="modal-list resume-list"):
-                yield DataTable(id="sessions", classes="resume-table", cursor_type="row")
+                yield DataTable(
+                    id="sessions", classes="resume-table", cursor_type="row"
+                )
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button("Resume", id="resume", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
@@ -650,7 +691,9 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
                 classes="modal-body resume-body",
             )
             with Container(classes="modal-list resume-list"):
-                yield DataTable(id="branches", classes="resume-table", cursor_type="row")
+                yield DataTable(
+                    id="branches", classes="resume-table", cursor_type="row"
+                )
             yield Input(placeholder="feature/my-branch", id="branch-name")
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button("Create", id="create", variant="success", disabled=True)
@@ -679,7 +722,9 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
     @on(DataTable.RowSelected, "#branches")
     def on_row_selected(self, event: DataTable.RowSelected) -> None:
         if 0 <= event.cursor_row < len(self._branch_names):
-            self.dismiss({"action": "switch", "branch": self._branch_names[event.cursor_row]})
+            self.dismiss(
+                {"action": "switch", "branch": self._branch_names[event.cursor_row]}
+            )
 
     @on(Button.Pressed, "#switch")
     def on_switch_pressed(self, _event: Button.Pressed) -> None:
@@ -707,6 +752,70 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
             self.query_one("#branch-name", Input).focus()
             return
         self.dismiss({"action": "create", "branch": value})
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class ModelPickerModal(ModalScreen[str | None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, current: str, models: list[dict[str, str]]) -> None:
+        super().__init__()
+        self._current = current
+        self._models = models
+        self._model_names: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal"):
+            yield Label("Select model", classes="modal-title resume-title")
+            yield Static(
+                "Pick a bundled model, or keep your current custom provider model.",
+                classes="modal-body resume-body",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(id="models", classes="resume-table", cursor_type="row")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Select", id="select", variant="primary", disabled=True)
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#models", DataTable)
+        table.add_columns("Model", "Source", "Current")
+        self._model_names = []
+        for item in self._models:
+            model_name = str(item.get("model_name") or "").strip()
+            label = str(item.get("label") or model_name).strip()
+            provider = str(item.get("provider") or "").strip()
+            if not model_name:
+                continue
+            self._model_names.append(model_name)
+            table.add_row(label, provider, "✓" if model_name == self._current else "")
+        if self._model_names:
+            initial_row = (
+                self._model_names.index(self._current)
+                if self._current in self._model_names
+                else 0
+            )
+            table.move_cursor(row=initial_row, column=0)
+            self.query_one("#select", Button).disabled = False
+
+    @on(DataTable.RowHighlighted, "#models")
+    def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
+        self.query_one("#select", Button).disabled = False
+
+    @on(DataTable.RowSelected, "#models")
+    def on_row_selected(self, event: DataTable.RowSelected) -> None:
+        if 0 <= event.cursor_row < len(self._model_names):
+            self.dismiss(self._model_names[event.cursor_row])
+
+    @on(Button.Pressed, "#select")
+    def on_select_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#models", DataTable)
+        row = table.cursor_row
+        if 0 <= row < len(self._model_names):
+            self.dismiss(self._model_names[row])
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
@@ -743,7 +852,9 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
         return str(path.expanduser().absolute())
 
     @staticmethod
-    def _resolve_root_path(raw: str, *, cwd: Path, current_root: Path | None = None) -> Path:
+    def _resolve_root_path(
+        raw: str, *, cwd: Path, current_root: Path | None = None
+    ) -> Path:
         candidate = (raw or "").strip()
         base = current_root.resolve() if current_root is not None else cwd.resolve()
         if not candidate:
@@ -802,12 +913,19 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
         count = len(self._selected_paths)
         tone = "#4edea3" if count <= MAX_ATTACHMENTS else "#ffb95f"
         summary = self._selection_summary()
-        status.update(Text(f"Selected: {count}/{MAX_ATTACHMENTS}  •  {summary}", style=f"bold {tone}"))
+        status.update(
+            Text(
+                f"Selected: {count}/{MAX_ATTACHMENTS}  •  {summary}",
+                style=f"bold {tone}",
+            )
+        )
 
     def _refresh_preview(self) -> None:
         preview = self.query_one("#attach-preview", Static)
         if not self._highlighted_path:
-            preview.update(Text("Navigate the tree, press space to select files.", style="#8c97ab"))
+            preview.update(
+                Text("Navigate the tree, press space to select files.", style="#8c97ab")
+            )
             return
         path = Path(self._highlighted_path)
         kind = "directory" if path.is_dir() else "file"
@@ -898,9 +1016,13 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
     async def _apply_root_input(self) -> None:
         root_input = self.query_one("#attach-root", Input)
         try:
-            root = self._resolve_root_path(root_input.value, cwd=self._cwd, current_root=self._root)
+            root = self._resolve_root_path(
+                root_input.value, cwd=self._cwd, current_root=self._root
+            )
         except ValueError as exc:
-            self.query_one("#attach-preview", Static).update(Text(str(exc), style="#f1998e"))
+            self.query_one("#attach-preview", Static).update(
+                Text(str(exc), style="#f1998e")
+            )
             return
         await self._set_root_path(root)
 
@@ -945,7 +1067,12 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                     password=True,
                     id="setup-api-key",
                 )
-                yield Button("👁", id="setup-toggle-api-key", variant="default", classes="setup-eye")
+                yield Button(
+                    "👁",
+                    id="setup-toggle-api-key",
+                    variant="default",
+                    classes="setup-eye",
+                )
             yield Input(
                 value=self._config.model_name or DEFAULT_MODEL_NAME,
                 placeholder="Model",
@@ -983,8 +1110,12 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self.query_one("#setup-error", Static).update(message)
 
     def _submit(self) -> None:
-        base_url = self.query_one("#setup-base-url", Input).value.strip() or DEFAULT_BASE_URL
-        api_key = self.query_one("#setup-api-key", Input).value.strip() or DEFAULT_API_KEY
+        base_url = (
+            self.query_one("#setup-base-url", Input).value.strip() or DEFAULT_BASE_URL
+        )
+        api_key = (
+            self.query_one("#setup-api-key", Input).value.strip() or DEFAULT_API_KEY
+        )
         model_name = (
             self.query_one("#setup-model", Input).value.strip()
             or self._config.model_name
