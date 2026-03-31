@@ -256,6 +256,24 @@ def get_usage_summary(config: Config) -> dict[str, Any] | None:
     return payload
 
 
+def get_activity(config: Config) -> list[dict[str, Any]]:
+    session = get_cloud_session(config)
+    if session is None:
+        return []
+
+    status, payload = _get_json(
+        f"{session.api_url.rstrip('/')}/activity",
+        access_token=session.access_token,
+    )
+    if status != 200 or not payload.get("ok"):
+        return []
+
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return []
+    return [item for item in events if isinstance(item, dict)]
+
+
 def ensure_cloud_auth(console: Console | None, config: Config) -> None:
     if not config.cloud_auth_enabled:
         return

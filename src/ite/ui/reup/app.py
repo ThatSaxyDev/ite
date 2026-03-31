@@ -57,6 +57,7 @@ from ite.cloud import (
     CloudAuthError,
     clear_cloud_auth,
     ensure_cloud_auth,
+    get_activity,
     get_bundled_models,
     get_usage_summary,
     has_valid_cloud_auth,
@@ -132,6 +133,7 @@ from .modals import (
     RemoteSetupModal,
     SessionResumeModal,
     SetupModal,
+    ActivityModal,
     UsageSummaryModal,
 )
 from .tool_views import (
@@ -427,6 +429,7 @@ class ReupApp(App):
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
         self._composer_usage_hitbox: tuple[int, int] = (0, 0)
+        self._composer_activity_hitbox: tuple[int, int] = (0, 0)
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
         self._command_palette_options = self._build_command_palette_options()
@@ -899,7 +902,7 @@ class ReupApp(App):
                 branch_label = current_branch(cwd)
         except Exception:
             pass
-        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox = composer_meta_text(
+        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox, activity_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=self.config.model_name,
             plan_enabled=plan_enabled,
@@ -911,6 +914,7 @@ class ReupApp(App):
         self._composer_branch_hitbox = branch_hitbox
         self._composer_plan_hitbox = plan_hitbox
         self._composer_usage_hitbox = usage_hitbox
+        self._composer_activity_hitbox = activity_hitbox
         return text
 
     def _schedule_usage_meta_refresh(self) -> None:
@@ -1303,6 +1307,7 @@ class ReupApp(App):
         model_start, model_end = self._composer_model_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
         usage_start, usage_end = self._composer_usage_hitbox
+        activity_start, activity_end = self._composer_activity_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
             self.run_worker(self._open_attach_picker_from_meta(), exclusive=False)
@@ -1318,6 +1323,10 @@ class ReupApp(App):
             return
         if usage_start <= event.x < usage_end:
             self.run_worker(self._open_usage_modal_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if activity_start <= event.x < activity_end:
+            self.run_worker(self._open_activity_modal_from_meta(), exclusive=False)
             event.stop()
             return
         if start <= event.x < end:
@@ -1449,6 +1458,14 @@ class ReupApp(App):
         self._usage_remaining_percent = max(0, min(100, round(((cap - used) / cap) * 100)))
         self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
+
+    async def _open_activity_modal_from_meta(self) -> None:
+        await self.ensure_agent()
+        events = get_activity(self.config)
+        if not events:
+            self.post_system("Activity", "Activity is not available right now.", is_error=True)
+            return
+        await self._open_modal(ActivityModal(events))
 
     async def _open_attach_picker_from_meta(self) -> None:
         await self.ensure_agent()

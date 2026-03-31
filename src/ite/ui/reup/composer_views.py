@@ -25,7 +25,7 @@ def composer_meta_text(
     plan_enabled: bool,
     branch_label: str,
     usage_remaining_percent: int | None = None,
-) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
+) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
     status_text = "on" if plan_enabled else "off"
     status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
     branch_style = "bold #d1d5db" if branch_label != "no-git" else "bold #9ca3af"
@@ -97,6 +97,13 @@ def composer_meta_text(
         text.append("━" * empty, style="#34363a")
         cell_pos += empty
     usage_end = cell_pos
+    text.append(spacer)
+    cell_pos += cell_len(spacer)
+    activity_start = cell_pos
+    activity_label = "activity"
+    text.append(activity_label, style="bold #9ca3af")
+    cell_pos += cell_len(activity_label)
+    activity_end = cell_pos
     return (
         text,
         (attach_start, attach_end),
@@ -104,6 +111,7 @@ def composer_meta_text(
         (branch_start, branch_end),
         (plan_start, plan_end),
         (usage_start, usage_end),
+        (activity_start, activity_end),
     )
 
 

@@ -894,6 +894,86 @@ class UsageSummaryModal(ModalScreen[None]):
         self.dismiss(None)
 
 
+class ActivityModal(ModalScreen[None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, events: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self._events = events
+
+    @staticmethod
+    def _format_when(value: str) -> str:
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return value
+        return dt.strftime("%b %-d, %-I:%M%p").lower()
+
+    @staticmethod
+    def _title_for(event_type: str) -> str:
+        mapping = {
+            "billing.checkout_started": "Started checkout",
+            "billing.subscription_updated": "Subscription updated",
+            "billing.subscription_synced": "Billing synced",
+            "billing.portal_opened": "Opened billing portal",
+            "billing.plan_downgraded": "Moved to Free",
+            "auth.cli_approved": "Approved terminal sign-in",
+            "session.terminal_created": "Created terminal session",
+            "session.terminal_signed_out": "Signed out terminal session",
+            "session.revoked": "Revoked device session",
+            "auth.terminal_refreshed": "Refreshed terminal session",
+            "usage.request_succeeded": "Used bundled model",
+            "usage.request_blocked_quota": "Bundled usage blocked",
+            "usage.request_failed": "Bundled request failed",
+            "usage.request_unavailable": "Bundled model unavailable",
+        }
+        return mapping.get(event_type, event_type.replace(".", " "))
+
+    @staticmethod
+    def _detail_for(event: dict[str, Any]) -> str:
+        metadata = event.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        model = metadata.get("model")
+        window = metadata.get("window")
+        plan_key = metadata.get("planKey")
+        status = metadata.get("status")
+        source = str(event.get("source") or "").replace(".", " ")
+        if isinstance(model, str) and isinstance(window, str):
+            return f"{model} · {window}"
+        if isinstance(model, str):
+            return model
+        if isinstance(plan_key, str) and isinstance(status, str):
+            return f"{plan_key} · {status}"
+        if isinstance(plan_key, str):
+            return plan_key
+        return source
+
+    def _build_table(self) -> DataTable:
+        table = DataTable(cursor_type="row")
+        table.add_columns("Activity", "Details", "When")
+        for event in self._events[:50]:
+            table.add_row(
+                self._title_for(str(event.get("eventType") or "")),
+                self._detail_for(event),
+                self._format_when(str(event.get("createdAt") or "")),
+            )
+        return table
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal activity-modal"):
+            yield Label("Activity", classes="modal-title")
+            yield Static("Recent account and bundled usage activity.", classes="modal-body")
+            with Container(classes="modal-list"):
+                yield self._build_table()
+            with Horizontal(classes="modal-actions"):
+                yield Button("Close", id="cancel", variant="default")
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
 class AttachPickerModal(ModalScreen[list[str] | None]):
     BINDINGS = [
         ("escape", "dismiss", "Dismiss"),
