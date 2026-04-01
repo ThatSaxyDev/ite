@@ -200,8 +200,74 @@ class LLMClient:
                         model_name=self.config.model_name,
                         base_url=self.config.base_url,
                     ),
-                )
+                    )
                 return
+
+    async def complete_text(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> str:
+        if self._is_cloud_model():
+            return await self._cloud_complete_text(messages)
+
+        client = self.get_client()
+        safe_messages = self._sanitize_messages(messages)
+        kwargs = {
+            "model": self.config.model_name,
+            "messages": safe_messages,
+            "stream": False,
+        }
+
+        for attempt in range(self._max_retries + 1):
+            try:
+                event = await self._non_stream_response(client, kwargs)
+                text = (event.text_delta.content if event.text_delta else "").strip()
+                if text:
+                    return text
+                raise ValueError("Commit subject generation returned an empty response.")
+            except ValueError:
+                raise
+            except RateLimitError as e:
+                if attempt < self._max_retries:
+                    await asyncio.sleep(2**attempt)
+                    continue
+                raise RuntimeError(
+                    format_provider_error(
+                        kind="rate_limit",
+                        message=str(e),
+                        model_name=self.config.model_name,
+                        base_url=self.config.base_url,
+                    )
+                ) from e
+            except APIConnectionError as e:
+                if attempt < self._max_retries:
+                    await asyncio.sleep(2**attempt)
+                    continue
+                raise RuntimeError(
+                    format_provider_error(
+                        kind="connection",
+                        message=str(e),
+                        model_name=self.config.model_name,
+                        base_url=self.config.base_url,
+                    )
+                ) from e
+            except APIError as e:
+                status_code = getattr(e, "status_code", None)
+                is_server_error = isinstance(status_code, int) and status_code >= 500
+                if is_server_error and attempt < self._max_retries:
+                    await asyncio.sleep(2**attempt)
+                    continue
+                raise RuntimeError(
+                    format_provider_error(
+                        kind="api",
+                        message=str(e),
+                        status_code=status_code,
+                        model_name=self.config.model_name,
+                        base_url=self.config.base_url,
+                    )
+                ) from e
+
+        raise RuntimeError("Commit subject generation failed.")
 
     async def _cloud_chat_completion(
         self,
@@ -287,6 +353,48 @@ class LLMClient:
             finish_reason="stop",
             usage=usage,
         )
+
+    async def _cloud_complete_text(self, messages: list[dict[str, Any]]) -> str:
+        session = get_cloud_session(self.config)
+        if session is None:
+            raise RuntimeError(
+                "Cloud session is missing or expired. Run `/cloud login` and try again."
+            )
+
+        safe_messages = self._sanitize_messages(messages)
+        model_name = self._resolve_cloud_model_name()
+        request_payload: dict[str, Any] = {
+            "model": model_name,
+            "messages": safe_messages,
+            "maxTokens": 1200,
+            "temperature": self.config.temperature,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=300.0) as client:
+                response = await client.post(
+                    f"{session.api_url.rstrip('/')}/inference/chat",
+                    headers={
+                        "authorization": f"Bearer {session.access_token}",
+                        "content-type": "application/json",
+                    },
+                    json=request_payload,
+                )
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"Could not reach iTE bundled inference: {exc}") from exc
+
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+
+        if response.status_code != 200 or not payload.get("ok"):
+            raise RuntimeError(self._format_cloud_error(payload))
+
+        output = str(payload.get("output") or "").strip()
+        if not output:
+            raise ValueError("Commit subject generation returned an empty response.")
+        return output
 
     def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize outbound messages so providers never receive null content."""

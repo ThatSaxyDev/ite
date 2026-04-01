@@ -2,7 +2,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ite.client.response import StreamEvent, StreamEventType, TextDelta
 from ite.config.config import Config
 from ite.ui.reup.modals import AttachPickerModal
 from ite.ui.reup.modals import CommitModal
@@ -53,19 +52,41 @@ class AttachPickerModalTests(unittest.TestCase):
 
 
 class _FakeLLMClient:
-    def __init__(self, events: list[StreamEvent]) -> None:
-        self._events = events
+    def __init__(
+        self,
+        result: str | None = None,
+        error: Exception | None = None,
+        sequence: list[str | Exception] | None = None,
+    ) -> None:
+        self._result = result
+        self._error = error
+        self._sequence = list(sequence or [])
         self.closed = False
 
-    async def chat_completion(self, messages, tools=None, stream=True):
-        for event in self._events:
-            yield event
+    async def complete_text(self, messages):
+        if self._sequence:
+            item = self._sequence.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+        if self._error is not None:
+            raise self._error
+        return self._result or ""
 
     async def close(self) -> None:
         self.closed = True
 
 
 class CommitModalTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _config() -> Config:
+        return Config(model={"name": "local-test"})
+
+    def test_idle_status_text_exposes_ai_hint(self) -> None:
+        text = CommitModal._idle_status_text().plain
+
+        self.assertIn("draft with AI", text)
+
     def test_loading_copy_rotates_across_multiple_lines(self) -> None:
         modal = CommitModal(
             config=Config(),
@@ -82,18 +103,13 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotEqual(first, second)
         self.assertNotIn("Generating commit subject", first)
+        self.assertLessEqual(len(first.split()), 3)
+        self.assertLessEqual(len(second.split()), 3)
 
     async def test_generate_commit_message_uses_injected_client(self) -> None:
-        client = _FakeLLMClient(
-            [
-                StreamEvent(
-                    type=StreamEventType.MESSAGE_COMPLETE,
-                    text_delta=TextDelta(content="feat(ui): refine commit flow"),
-                )
-            ]
-        )
+        client = _FakeLLMClient(result="feat(ui): refine commit flow")
         modal = CommitModal(
-            config=Config(),
+            config=self._config(),
             llm_client=client,
             branch="main",
             file_count=1,
@@ -109,9 +125,9 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(client.closed)
 
     async def test_generate_commit_message_falls_back_when_client_errors(self) -> None:
-        client = _FakeLLMClient([StreamEvent(type=StreamEventType.ERROR, error="boom")])
+        client = _FakeLLMClient(error=RuntimeError("boom"))
         modal = CommitModal(
-            config=Config(),
+            config=self._config(),
             llm_client=client,
             branch="main",
             file_count=1,
@@ -127,9 +143,38 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(modal._last_ai_error, "boom")
 
     async def test_generate_commit_message_records_empty_response_error(self) -> None:
-        client = _FakeLLMClient([StreamEvent(type=StreamEventType.MESSAGE_COMPLETE)])
+        client = _FakeLLMClient(
+            sequence=[
+                ValueError("Commit subject generation returned an empty response."),
+                "feat(lib): tighten usage helpers",
+            ]
+        )
         modal = CommitModal(
-            config=Config(),
+            config=self._config(),
+            llm_client=client,
+            branch="main",
+            file_count=1,
+            additions=10,
+            deletions=2,
+            changed_paths=["src/lib/usage.ts"],
+            diff_context="updated usage helpers",
+        )
+
+        message = await modal._generate_commit_message()
+
+        self.assertEqual(message, "feat(lib): tighten usage helpers")
+        self.assertEqual(modal._last_ai_error, "Commit subject generation returned an empty response.")
+
+    async def test_generate_commit_message_falls_back_after_both_attempts_fail(self) -> None:
+        client = _FakeLLMClient(
+            sequence=[
+                ValueError("Commit subject generation returned an empty response."),
+                RuntimeError("boom"),
+                RuntimeError("boom"),
+            ]
+        )
+        modal = CommitModal(
+            config=self._config(),
             llm_client=client,
             branch="main",
             file_count=1,
@@ -142,10 +187,7 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
         message = await modal._generate_commit_message()
 
         self.assertEqual(message, "chore(lib): update usage")
-        self.assertEqual(
-            modal._last_ai_error,
-            "Commit subject generation returned an empty response.",
-        )
+        self.assertEqual(modal._last_ai_error, "boom")
 
 
 if __name__ == "__main__":

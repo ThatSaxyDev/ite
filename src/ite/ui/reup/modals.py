@@ -4,6 +4,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+import random
 from typing import Any
 from urllib.parse import urlparse
 
@@ -20,7 +21,6 @@ from textual.widgets.directory_tree import DirEntry
 
 from ite.attachments import MAX_ATTACHMENTS
 from ite.client.llm_client import LLMClient
-from ite.client.response import StreamEventType
 from ite.config.config import (
     DEFAULT_API_KEY,
     DEFAULT_BASE_URL,
@@ -337,15 +337,38 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [("escape", "cancel", "Cancel")]
     _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     _AI_LOADING_LINES = (
-        "Distilling the diff into a sharp subject",
-        "Hunting for the cleanest conventional-commit angle",
-        "Turning file churn into one confident line",
-        "Finding the story hidden inside this patch",
-        "Shaving the noise off the commit subject",
-        "Reading the tea leaves in your staged changes",
-        "Compressing intent, impact, and scope into one line",
-        "Looking for the change that users would actually notice",
+        "Reading diff",
+        "Finding scope",
+        "Shaping subject",
+        "Cutting noise",
+        "Tracing intent",
+        "Naming change",
+        "Polishing line",
+        "Weighing impact",
+        "Checking files",
+        "Finding signal",
+        "Sizing change",
+        "Scanning hunks",
+        "Tracking edits",
+        "Mapping scope",
+        "Reading context",
+        "Blending intent",
+        "Scoring options",
+        "Cleaning verbs",
+        "Tightening scope",
+        "Balancing tone",
+        "Filtering noise",
+        "Drafting subject",
+        "Trimming words",
+        "Checking punch",
+        "Refining line",
+        "Testing fit",
+        "Finding shape",
+        "Choosing angle",
+        "Sorting clues",
+        "Pinning impact",
     )
+    _AI_STATUS_DELAYS = (0.8, 1.1, 1.4, 1.8, 2.2, 2.8, 3.4)
 
     def __init__(
         self,
@@ -374,7 +397,12 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._generating_commit_message = False
         self._ai_spinner_index = 0
         self._ai_spinner_timer = None
+        self._ai_copy_timer = None
         self._last_ai_error: str | None = None
+        self._ai_loading_step = 0
+        self._rng = random.Random(
+            "|".join(self._changed_paths) or f"{self._branch}:{self._file_count}"
+        )
         self._ai_loading_seed = (
             sum(ord(char) for char in " ".join(self._changed_paths)) % len(self._AI_LOADING_LINES)
             if self._changed_paths
@@ -441,59 +469,79 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         client = self._llm_client or LLMClient(self._config)
         owns_client = self._llm_client is None
         self._last_ai_error = None
+        attempts = (
+            self._build_commit_messages(mode="rich"),
+            self._build_commit_messages(mode="simple"),
+            self._build_commit_messages(mode="minimal"),
+        )
         try:
-            generated_parts: list[str] = []
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "You write excellent git commit subjects. "
-                        "Return exactly one concise subject line, max 72 characters. "
-                        "Prefer conventional commit style like feat(scope):, fix(scope):, refactor(scope):, "
-                        "style(scope):, chore(scope): when it fits naturally. "
-                        "Summarize the intent and user-visible effect of the change, not the filenames. "
-                        "Use an imperative verb. Avoid vague messages like 'update files' or 'misc fixes'. "
-                        "Do not use quotes, bullets, code fences, or any explanation."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        "Based on this git information, write the best commit subject.\n\n"
-                        f"Branch: {self._branch}\n"
-                        f"Files changed: {self._file_count}\n"
-                        f"Additions: {self._additions}\n"
-                        f"Deletions: {self._deletions}\n"
-                        "Changed paths:\n- "
-                        + "\n- ".join(self._changed_paths[:12])
-                        + "\n\n"
-                        "Focused change summary:\n"
-                        f"{self._diff_context}"
-                    ),
-                },
-            ]
-            async for event in client.chat_completion(
-                messages, tools=None, stream=False
-            ):
-                if event.type == StreamEventType.TEXT_DELTA:
-                    if event.text_delta and event.text_delta.content:
-                        generated_parts.append(event.text_delta.content)
-                elif event.type == StreamEventType.MESSAGE_COMPLETE:
-                    content = "".join(generated_parts).strip()
-                    if not content and event.text_delta and event.text_delta.content:
-                        content = event.text_delta.content.strip()
-                    if content:
-                        return self._normalize_commit_message(content)
+            for messages in attempts:
+                try:
+                    content = await client.complete_text(messages)
+                    if not content.strip():
+                        raise ValueError(
+                            "Commit subject generation returned an empty response."
+                        )
+                    return self._normalize_commit_message(content)
+                except ValueError as exc:
+                    self._last_ai_error = str(exc)
+                    continue
+                except RuntimeError as exc:
                     self._last_ai_error = (
-                        "Commit subject generation returned an empty response."
+                        str(exc) or "Commit subject generation failed."
                     )
-                elif event.type == StreamEventType.ERROR:
-                    self._last_ai_error = event.error or "Commit subject generation failed."
-                    break
+                    continue
         finally:
             if owns_client:
                 await client.close()
         return self._suggest_commit_message()
+
+    def _build_commit_messages(self, *, mode: str) -> list[dict[str, str]]:
+        system = (
+            "You write excellent git commit subjects. "
+            "Return exactly one concise subject line, max 72 characters. "
+            "Prefer conventional commit style like feat(scope):, fix(scope):, refactor(scope):, "
+            "style(scope):, chore(scope): when it fits naturally. "
+            "Summarize the intent and user-visible effect of the change, not the filenames. "
+            "Use an imperative verb. Avoid vague messages like 'update files' or 'misc fixes'. "
+            "Do not use quotes, bullets, code fences, or any explanation."
+        )
+        if mode == "minimal":
+            user = (
+                "Write one git commit subject.\n\n"
+                f"Branch: {self._branch}\n"
+                "Paths: "
+                + ", ".join(self._changed_paths[:6])
+                + "\n"
+                f"Stats: +{self._additions} -{self._deletions}"
+            )
+        elif mode == "simple":
+            user = (
+                "Write one git commit subject for these changes.\n\n"
+                f"Branch: {self._branch}\n"
+                f"Stats: {self._file_count} files, +{self._additions}, -{self._deletions}\n"
+                "Paths: "
+                + ", ".join(self._changed_paths[:8])
+                + "\n"
+                f"Summary: {self._diff_context[:900]}"
+            )
+        else:
+            user = (
+                "Based on this git information, write the best commit subject.\n\n"
+                f"Branch: {self._branch}\n"
+                f"Files changed: {self._file_count}\n"
+                f"Additions: {self._additions}\n"
+                f"Deletions: {self._deletions}\n"
+                "Changed paths:\n- "
+                + "\n- ".join(self._changed_paths[:12])
+                + "\n\n"
+                "Focused change summary:\n"
+                f"{self._diff_context}"
+            )
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
 
     @staticmethod
     def _normalize_commit_message(content: str) -> str:
@@ -511,12 +559,28 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         frame = self._AI_SPINNER_FRAMES[
             self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)
         ]
-        message = self._loading_copy(self._ai_spinner_index // 4)
+        message = self._loading_copy(self._ai_loading_step)
         status = Text()
         status.append(f"{frame} ", style="bold #8fb7dc")
         status.append(message, style="italic #aeb7c6")
-        status.append("...", style="#7e8796")
         return status
+
+    @staticmethod
+    def _idle_status_text() -> Text:
+        status = Text()
+        status.append("✦ ", style="bold #8fb7dc")
+        status.append("draft with AI", style="#8c93a1")
+        return status
+
+    @staticmethod
+    def _success_status_text() -> Text:
+        status = Text()
+        status.append("✓ ", style="bold #79d8a4")
+        status.append("draft ready", style="#9fb4a8")
+        return status
+
+    def _set_ai_status_idle(self) -> None:
+        self.query_one("#commit-ai-status", Static).update(self._idle_status_text())
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal commit-modal"):
@@ -546,16 +610,21 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         id="commit-include-unstaged-choice",
                         classes="commit-toggle-choice",
                     )
-                yield Static(
-                    "Commit message", classes="commit-label commit-message-label"
-                )
+                with Horizontal(classes="commit-message-header"):
+                    yield Static(
+                        "Commit message", classes="commit-label commit-message-label"
+                    )
+                    yield Static(
+                        self._idle_status_text(),
+                        id="commit-ai-status",
+                        classes="commit-ai-status",
+                    )
                 with Horizontal(classes="commit-message-row"):
                     yield Input(
                         placeholder="Type a commit message or use ✦ to generate one",
                         id="commit-message",
                     )
                     yield Button("✦", id="commit-ai-fill", variant="default")
-                yield Static("", id="commit-ai-status", classes="commit-ai-status")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
                 yield Button(
                     "Commit", id="commit-confirm", variant="primary", disabled=True
@@ -568,6 +637,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     async def on_mount(self) -> None:
         self.query_one("#commit-message", Input).focus()
         self._update_commit_actions()
+        self._set_ai_status_idle()
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -618,6 +688,19 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         status_widget.update(self._loading_status_text())
         self._ai_spinner_index += 1
 
+    def _tick_ai_copy(self) -> None:
+        if not self._generating_commit_message:
+            return
+        self._ai_loading_step += 1
+        self.query_one("#commit-ai-status", Static).update(self._loading_status_text())
+        self._schedule_ai_status_tick()
+
+    def _schedule_ai_status_tick(self) -> None:
+        if not self._generating_commit_message:
+            return
+        delay = self._rng.choice(self._AI_STATUS_DELAYS)
+        self._ai_copy_timer = self.set_timer(delay, self._tick_ai_copy)
+
     async def _fill_commit_message_from_ai(self) -> None:
         self._generating_commit_message = True
         button = self.query_one("#commit-ai-fill", Button)
@@ -625,24 +708,27 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         status_widget = self.query_one("#commit-ai-status", Static)
         original_label = button.label
         self._ai_spinner_index = 0
+        self._ai_loading_step = 0
         self._last_ai_error = None
         status_widget.update(self._loading_status_text())
         button.label = self._AI_SPINNER_FRAMES[0]
         button.disabled = True
-        self._ai_spinner_timer = self.set_interval(0.08, self._tick_ai_spinner)
+        self._ai_spinner_timer = self.set_interval(0.12, self._tick_ai_spinner)
+        self._schedule_ai_status_tick()
         try:
             input_widget.value = await self._generate_commit_message()
             if self._last_ai_error:
-                status_widget.update(
-                    f"AI unavailable, using fallback subject. {self._last_ai_error}"
-                )
+                self._set_ai_status_idle()
             else:
-                status_widget.update("")
+                status_widget.update(self._success_status_text())
             input_widget.focus()
         finally:
             if self._ai_spinner_timer is not None:
                 self._ai_spinner_timer.stop()
                 self._ai_spinner_timer = None
+            if self._ai_copy_timer is not None:
+                self._ai_copy_timer.stop()
+                self._ai_copy_timer = None
             button.label = original_label
             button.disabled = False
             self._generating_commit_message = False
