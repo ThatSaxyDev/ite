@@ -88,6 +88,18 @@ class LLMClient:
                 f"Your {window_label} is full. Use your own key or a local model for now."
             )
 
+        if code == "provider_not_configured":
+            return (
+                "Bundled usage is not available yet for this model. "
+                "Use your own key or a local model for now."
+            )
+
+        if code in {"internal_error", "provider_request_failed"}:
+            return (
+                "Bundled usage is temporarily unavailable right now. "
+                "Try again in a moment, or use your own key or a local model for now."
+            )
+
         if window:
             window_label = _window_label(window)
             return f"{message} ({window_label})"
