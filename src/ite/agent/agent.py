@@ -728,6 +728,7 @@ class Agent:
         max_turns = self.config.max_turns
         overflow_compaction_attempted = False
         execution_progress_made = False
+        empty_reply_retries = 0
 
         for turn_num in range(max_turns):
             if self.session is not session:
@@ -891,6 +892,9 @@ class Agent:
                 latest_user_text,
                 response_text,
             )
+            has_visible_response = bool(controlled_response_text.strip())
+            if has_visible_response or tool_calls:
+                empty_reply_retries = 0
 
             session.context_manager.add_assistant_message(
                 controlled_response_text,
@@ -915,6 +919,18 @@ class Agent:
                     session.context_manager.add_usage(usage)
 
                 session.context_manager.prune_tool_outputs()
+                if not has_visible_response and not session.plan_mode_enabled:
+                    if empty_reply_retries < 2:
+                        empty_reply_retries += 1
+                        session.context_manager.add_system_message(
+                            "The previous assistant reply was empty. Continue the task now. "
+                            "Either call the next required tool or provide a concise completion summary."
+                        )
+                        continue
+                    yield AgentEvent.agent_error(
+                        "The model stopped without responding after tool execution."
+                    )
+                    return
                 if session.plan_mode_enabled:
                     if session.plan_phase != "executing":
                         target_questions = max(
