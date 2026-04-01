@@ -9,6 +9,7 @@ from ite.client.llm_client import LLMClient
 class ChatCompactor:
     def __init__(self, client: LLMClient):
         self.client = client
+        self.last_error: str | None = None
 
     def _format_history_for_compaction(self, messages: list[dict[str, Any]]) -> str:
         output = ["Here is the conversation that needs to be continued: \n"]
@@ -67,6 +68,7 @@ class ChatCompactor:
         str | None,
         TokenUsage | None,
     ]:
+        self.last_error = None
         messages = context_manager.get_messages()
 
         if len(messages) < 3:
@@ -90,15 +92,26 @@ class ChatCompactor:
                 compaction_messages,
                 stream=False,
             ):
+                if event.type == StreamEventType.TEXT_DELTA:
+                    if event.text_delta and event.text_delta.content:
+                        summary += event.text_delta.content
+                if event.type == StreamEventType.ERROR:
+                    self.last_error = str(event.error or "Compaction request failed.")
+                    return None, None
                 if event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
                     if event.text_delta and event.text_delta.content:
                         summary += event.text_delta.content
 
-            if not summary or not usage:
+            if not summary.strip() or not usage:
+                if not summary.strip():
+                    self.last_error = self.last_error or "Compaction response was empty."
+                elif not usage:
+                    self.last_error = self.last_error or "Compaction usage metadata was missing."
                 return None, None
 
-            return summary, usage
+            return summary.strip(), usage
 
-        except Exception:
+        except Exception as exc:
+            self.last_error = str(exc)
             return None, None

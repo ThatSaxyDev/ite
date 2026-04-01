@@ -3758,22 +3758,18 @@ class ReupApp(App):
             return
 
         # Native in-app session picker flow (replaces curses picker in old /sessions command).
-        if command == "/sessions" and "--list" not in args:
-            self._open_resume_flow(all_workspaces=("--all" in args))
-            return
-
-        if command == "/resume" and not args:
-            self._open_resume_flow(all_workspaces=False)
-            return
-
-        if command == "/resume" and args:
+        if command == "/sessions" and args and not args[0].startswith("-"):
             snapshot = SessionManager().load_session(args[0])
             if snapshot is None:
                 self.post_system(
-                    "Resume", f"Session not found: {args[0]}", is_error=True
+                    "Sessions", f"Session not found: {args[0]}", is_error=True
                 )
                 return
             await self._resume_snapshot(snapshot)
+            return
+
+        if command == "/sessions" and "--list" not in args:
+            self._open_resume_flow(all_workspaces=("--all" in args))
             return
 
         if command == "/plan":
@@ -3868,6 +3864,18 @@ class ReupApp(App):
             if live_stream_command
             else io.StringIO()
         )
+        is_manual_compact = command == "/compact" and (
+            not args or args[0].lower() != "status"
+        )
+        compact_before = None
+        if (
+            is_manual_compact
+            and self.agent
+            and self.agent.session
+            and self.agent.session.context_manager
+        ):
+            compact_before = self.agent.session.context_manager.compaction_count
+            self.post_notice("Context", "Compacting context")
         ctx = build_command_context(
             config=self.config,
             agent=self.agent,
@@ -3894,6 +3902,27 @@ class ReupApp(App):
         )
         if live_stream_command:
             self.finalize_streaming_command_result(command)
+        if (
+            is_manual_compact
+            and self.agent
+            and self.agent.session
+            and self.agent.session.context_manager
+            and compact_before is not None
+        ):
+            compact_after = self.agent.session.context_manager.compaction_count
+            if compact_after > compact_before:
+                latest_tokens = (
+                    self.agent.session.context_manager.latest_usage.prompt_tokens
+                )
+                context_window = self.config.model.context_window
+                used_pct = (
+                    (latest_tokens / context_window * 100) if context_window else 0
+                )
+                self.post_system(
+                    "Context automatically compacted",
+                    f"Compacted for testing. Current local estimate is {latest_tokens}/{context_window} tokens ({used_pct:.1f}% used).",
+                )
+                return
         if rendered and not had_live_output:
             if command == "/skills" and self._post_skills_command_result(
                 args, rendered

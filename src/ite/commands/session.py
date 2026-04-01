@@ -1,10 +1,11 @@
-"""Session commands: /sessions, /resume, /rename (checkpointing remains internal)."""
+"""Session commands: /sessions, /rename, /compact (checkpointing remains internal)."""
 
 import os
 import sys
 import json
 from datetime import datetime
 from pathlib import Path
+from ite.client.response import TokenUsage
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionSnapshot, SessionManager
@@ -212,6 +213,11 @@ async def cmd_save(ctx: CommandContext, args: list[str]) -> None:
 
 
 async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
+    direct_session_id = next((arg for arg in args if not arg.startswith("-")), None)
+    if direct_session_id:
+        await _resume_session_by_id(ctx, direct_session_id)
+        return
+
     session_manager = SessionManager()
     all_workspaces = "--all" in args
     sessions = session_manager.list_sessions(
@@ -244,7 +250,7 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
 
     selected_session_id = await _pick_session_to_resume(ctx, sessions)
     if selected_session_id:
-        await cmd_resume(ctx, [selected_session_id])
+        await _resume_session_by_id(ctx, selected_session_id)
         return
 
     # Fallback: show static listing and usage hint.
@@ -269,14 +275,7 @@ async def cmd_sessions(ctx: CommandContext, args: list[str]) -> None:
         )
 
 
-async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
-    if not args:
-        ctx.console.print(
-            "[error]Missing session ID.[/error]  [dim]Run [green]/sessions[/green] to list saved sessions, then use [green]/resume <session_id>[/green][/dim]"
-        )
-        return
-
-    session_id = args[0]
+async def _resume_session_by_id(ctx: CommandContext, session_id: str) -> None:
     session_manager = SessionManager()
     snapshot = session_manager.load_session(session_id)
 
@@ -351,6 +350,124 @@ async def cmd_resume(ctx: CommandContext, args: list[str]) -> None:
         )
     )
     _render_resumed_transcript(ctx, snapshot.messages)
+
+
+async def cmd_compact(ctx: CommandContext, args: list[str]) -> None:
+    if not ctx.agent or not ctx.agent.session:
+        ctx.console.print("[error]No active session.[/error]")
+        return
+
+    session = ctx.agent.session
+    context_manager = session.context_manager
+    if context_manager is None or context_manager.message_count == 0:
+        ctx.console.print("[dim]No conversation history to compact yet.[/dim]")
+        return
+
+    if args and args[0].lower() == "status":
+        status = context_manager.get_compaction_status()
+        title = Text.assemble(("🗜️  ", ""), ("Compaction status", "bold bright_white"))
+        body = Text.assemble(
+            ("Current tokens: ", "dim"),
+            (str(status["current_tokens"]), "bold cyan"),
+            (" / ", "dim"),
+            (str(status["context_limit"]), "cyan"),
+            ("\nTrigger at: ", "dim"),
+            (str(status["trigger_at"]), "bold cyan"),
+            (" tokens", "dim"),
+            ("\nMessages: ", "dim"),
+            (str(status["message_count"]), "bold cyan"),
+            (" / min ", "dim"),
+            (str(status["min_messages"]), "cyan"),
+            ("\nEligible now: ", "dim"),
+            ("yes" if status["needs_compression"] else "no", "bold green" if status["needs_compression"] else "yellow"),
+        )
+        ctx.console.print()
+        ctx.console.print(
+            Panel(
+                body,
+                title=title,
+                title_align="left",
+                border_style="cyan",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+        return
+
+    trigger_tokens = context_manager.estimate_current_context_tokens()
+    context_window = ctx.config.model.context_window
+    preserved_messages = context_manager.select_compaction_tail()
+    summary, usage = await session.chat_compactor.compact(context_manager)
+
+    if not summary:
+        detail = (getattr(session.chat_compactor, "last_error", None) or "").strip()
+        if detail:
+            ctx.console.print(
+                f"[error]Compaction failed:[/error] {detail}"
+            )
+        else:
+            ctx.console.print("[error]Compaction did not produce a summary.[/error]")
+        return
+
+    lifecycle_focus = session._derive_current_focus()
+    artifact_id = session.compact_artifact_manager.save_summary(summary)
+    context_manager.replace_with_summary(
+        summary,
+        boundary_metadata={
+            "trigger_reason": "manual",
+            "trigger_tokens": trigger_tokens,
+            "context_window": context_window,
+            "summary_chars": len(summary),
+            "summary_artifact_id": artifact_id,
+            "compaction_count": context_manager.compaction_count + 1,
+        },
+        preserved_messages=preserved_messages,
+    )
+    session.record_lifecycle_episode(
+        session.build_lifecycle_summary(
+            "Context compacted manually for testing",
+            focus_hint=lifecycle_focus,
+        ),
+        source="context_compaction_manual",
+    )
+
+    compacted_tokens = context_manager.estimate_current_context_tokens()
+    context_manager.set_latest_usage(
+        TokenUsage(
+            prompt_tokens=compacted_tokens,
+            completion_tokens=0,
+            total_tokens=compacted_tokens,
+            cached_tokens=0,
+        )
+    )
+    if usage:
+        context_manager.add_usage(usage)
+
+    title = Text.assemble(("🗜️  ", ""), ("Context compacted", "bold bright_white"))
+    body = Text.assemble(
+        ("Reason: ", "dim"),
+        ("manual", "bold cyan"),
+        ("\nBefore: ", "dim"),
+        (str(trigger_tokens), "bold cyan"),
+        (" tokens", "dim"),
+        ("\nAfter: ", "dim"),
+        (str(compacted_tokens), "bold cyan"),
+        (" tokens", "dim"),
+        ("\nSummary size: ", "dim"),
+        (str(len(summary)), "bold cyan"),
+        (" chars", "dim"),
+    )
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            body,
+            title=title,
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
 
 
 async def cmd_rename(ctx: CommandContext, args: list[str]) -> None:
@@ -541,8 +658,8 @@ def register(registry: CommandRegistry) -> None:
         handler=cmd_sessions,
     ))
     registry.register(Command(
-        name="/resume", description="Resume a saved session",
-        handler=cmd_resume,
+        name="/compact", description="Run context compaction now or show /compact status",
+        handler=cmd_compact,
     ))
     registry.register(Command(
         name="/rename", description="Rename the current session",

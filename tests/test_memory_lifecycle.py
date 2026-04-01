@@ -7,11 +7,13 @@ from unittest.mock import patch
 from rich.console import Console
 
 from ite.agent.agent import Agent
+from ite.agent.session import Session
 from ite.agent.events import AgentEventType
 from ite.client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage
 from ite.commands import CommandContext
-from ite.commands.session import cmd_save
+from ite.commands.session import cmd_compact, cmd_save
 from ite.config.config import Config
+from ite.memory.session_memory import SessionMemoryManager
 
 
 class _DummyTUI:
@@ -23,9 +25,21 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_dir.cleanup)
         self.base_path = Path(self.temp_dir.name)
-        patcher = patch("ite.memory.manager.get_data_dir", return_value=self.base_path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        patcher_memory = patch("ite.memory.manager.get_data_dir", return_value=self.base_path)
+        patcher_session_memory = patch(
+            "ite.memory.session_memory.get_data_dir",
+            return_value=self.base_path,
+        )
+        patcher_compact_artifacts = patch(
+            "ite.context.compact_artifacts.get_data_dir",
+            return_value=self.base_path,
+        )
+        patcher_memory.start()
+        patcher_session_memory.start()
+        patcher_compact_artifacts.start()
+        self.addCleanup(patcher_memory.stop)
+        self.addCleanup(patcher_session_memory.stop)
+        self.addCleanup(patcher_compact_artifacts.stop)
 
     async def test_cmd_save_records_workspace_scoped_episode(self) -> None:
         workspace = self.base_path / "ws-save"
@@ -166,6 +180,267 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         content = "\n".join(str(message.get("content", "")) for message in messages)
         self.assertIn("Do NOT perform git write actions", content)
         self.assertIn("wait for user confirmation instead", content)
+
+    async def test_snapshot_generation_writes_structured_session_memory(self) -> None:
+        workspace = self.base_path / "ws-session-memory"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+        session.set_manual_name("Memory foundation")
+        session.context_manager.add_user_message("Refactor context compaction to use boundaries.")
+        session.context_manager.add_assistant_message("I will inspect the context and persistence layers.")
+
+        snapshot = session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
+
+        self.assertEqual(snapshot["session_id"], session.session_id)
+        content = SessionMemoryManager(workspace, session_id=session.session_id).get_content()
+        assert content is not None
+        self.assertIn("# Session Title", content)
+        self.assertIn("Memory foundation", content)
+        self.assertIn("# Current State", content)
+        self.assertIn("# Task Specification", content)
+        self.assertIn("Refactor context compaction to use boundaries", content)
+
+    async def test_system_prompt_includes_session_memory_when_available(self) -> None:
+        workspace = self.base_path / "ws-session-memory-prompt"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+        session.set_manual_name("Prompt continuity")
+        session.context_manager.add_user_message("Audit the session continuity model.")
+        session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
+
+        messages = session.context_manager.get_messages()
+        system_prompt = messages[0]["content"]
+
+        self.assertIn("# Current Session Memory", system_prompt)
+        self.assertIn("Prompt continuity", system_prompt)
+        self.assertIn("Audit the session continuity model", system_prompt)
+
+    async def test_manual_compact_command_runs_compaction_pipeline(self) -> None:
+        workspace = self.base_path / "ws-manual-compact"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(4):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nmanual compact", TokenUsage(total_tokens=7)
+
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=_DummyTUI(),
+            console=Console(file=StringIO()),
+        )
+
+        await cmd_compact(ctx, [])
+
+        snapshot_messages = session.context_manager.get_snapshot_messages()
+        boundary = next(
+            (
+                item
+                for item in snapshot_messages
+                if item.get("role") == "system" and item.get("subtype") == "compact_boundary"
+            ),
+            None,
+        )
+        self.assertIsNotNone(boundary)
+        assert boundary is not None
+        self.assertEqual(boundary.get("metadata", {}).get("trigger_reason"), "manual")
+        self.assertTrue(
+            session.compact_artifact_manager.load_summary(
+                boundary.get("metadata", {}).get("summary_artifact_id")
+            )
+        )
+        live_messages = session.context_manager.get_messages()
+        self.assertTrue(
+            any(
+                msg.get("role") == "system"
+                and str(msg.get("content", "")).startswith(
+                    "Compaction summary artifact loaded for live continuation."
+                )
+                for msg in live_messages
+            )
+        )
+        self.assertFalse(
+            any(
+                str(msg.get("content", "")).startswith(
+                    "# Context Restoration (Previous Session Compacted)"
+                )
+                for msg in live_messages
+            )
+        )
+        episodes = session.memory_manager.list_episodes()
+        self.assertTrue(
+            any("Context compacted manually for testing" in ep["summary"] for ep in episodes)
+        )
+
+    async def test_compact_status_reports_thresholds(self) -> None:
+        workspace = self.base_path / "ws-compact-status"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+        session.context_manager.add_user_message("short test message")
+
+        output = StringIO()
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=_DummyTUI(),
+            console=Console(file=output),
+        )
+
+        await cmd_compact(ctx, ["status"])
+
+        rendered = output.getvalue()
+        self.assertIn("Compaction status", rendered)
+        self.assertIn("Current tokens", rendered)
+        self.assertIn("Trigger at", rendered)
+
+    async def test_manual_compact_command_works_after_resume(self) -> None:
+        workspace = self.base_path / "ws-manual-compact-resume"
+        workspace.mkdir()
+
+        original = Session(Config(cwd=workspace, api_key="test"))
+        await original.initialize()
+        original.context_manager.add_user_message("Resume this thread and compact it.")
+        original.context_manager.add_assistant_message("I will continue after restore.")
+
+        snapshot = original.snapshot_kwargs(workspace_path=str(workspace.resolve()))
+
+        resumed = Session(Config(cwd=workspace, api_key="test"))
+        resumed.set_session_id(snapshot["session_id"])
+        await resumed.initialize()
+        resumed.context_manager.set_messages(snapshot["messages"])
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nresume-aware compact", TokenUsage(total_tokens=9)
+
+        resumed.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        agent.session = resumed
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=_DummyTUI(),
+            console=Console(file=StringIO()),
+        )
+
+        await cmd_compact(ctx, [])
+
+        snapshot_messages = resumed.context_manager.get_snapshot_messages()
+        boundary = next(
+            (
+                item
+                for item in snapshot_messages
+                if item.get("role") == "system" and item.get("subtype") == "compact_boundary"
+            ),
+            None,
+        )
+        self.assertIsNotNone(boundary)
+        assert boundary is not None
+        self.assertEqual(boundary.get("metadata", {}).get("trigger_reason"), "manual")
+
+    async def test_compaction_preserves_recent_raw_tail_messages(self) -> None:
+        workspace = self.base_path / "ws-compaction-tail"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        session.context_manager.replace_with_summary(
+            "## ORIGINAL GOAL\ncontinue",
+            boundary_metadata={"trigger_reason": "threshold"},
+            preserved_messages=session.context_manager.select_compaction_tail(max_messages=4),
+        )
+
+        snapshot_messages = session.context_manager.get_snapshot_messages()
+        contents = [str(item.get("content", "")) for item in snapshot_messages]
+
+        self.assertTrue(any("assistant message 7" in content for content in contents))
+        self.assertTrue(any("user message 7" in content for content in contents))
+
+    async def test_restore_uses_compact_artifact_when_boundary_metadata_is_present(self) -> None:
+        workspace = self.base_path / "ws-compact-artifact"
+        workspace.mkdir()
+
+        session = Session(Config(cwd=workspace, api_key="test"))
+        await session.initialize()
+        artifact_id = session.compact_artifact_manager.save_summary(
+            "## ORIGINAL GOAL\nUse artifact-backed restoration."
+        )
+
+        snapshot_messages = [
+            {
+                "role": "system",
+                "content": "Context compacted; earlier history replaced with continuation summary.",
+                "subtype": "compact_boundary",
+                "metadata": {"summary_artifact_id": artifact_id},
+            },
+            {
+                "role": "user",
+                "content": "# Context Restoration (Previous Session Compacted)\n\nplaceholder",
+            },
+            {
+                "role": "assistant",
+                "content": "I've reviewed the context from the previous session. I understand:\n- placeholder",
+            },
+            {
+                "role": "user",
+                "content": "Continue with the REMAINING work only. Do NOT repeat any completed actions.",
+            },
+            {
+                "role": "user",
+                "content": "Latest request after compaction.",
+            },
+        ]
+
+        restored = Session(Config(cwd=workspace, api_key="test"))
+        await restored.initialize()
+        restored.context_manager.set_messages(snapshot_messages)
+        messages = restored.context_manager.get_messages()
+
+        self.assertTrue(
+            any(
+                msg.get("role") == "system"
+                and "artifact-backed restoration"
+                in str(msg.get("content", "")).lower()
+                for msg in messages
+            )
+        )
+        self.assertFalse(
+            any(
+                str(msg.get("content", "")).startswith(
+                    "# Context Restoration (Previous Session Compacted)"
+                )
+                for msg in messages
+            )
+        )
 
     async def test_low_value_exit_prompt_is_not_used_as_focus(self) -> None:
         workspace = self.base_path / "ws-low-value-focus"

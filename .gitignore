@@ -46,3 +46,5 @@ run/
 # Cloud repos (untracked sub-projects)
 ite-cloud-api/
 ite-cloud-web/
+claw-code/
+csrc/

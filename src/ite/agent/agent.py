@@ -743,13 +743,26 @@ class Agent:
             if session.context_manager.needs_compression():
                 trigger_tokens = session.context_manager.estimate_current_context_tokens()
                 context_window = self.config.model.context_window
+                preserved_messages = session.context_manager.select_compaction_tail()
                 summary, usage = await session.chat_compactor.compact(
                     session.context_manager
                 )
 
                 if summary:
                     lifecycle_focus = session._derive_current_focus()
-                    session.context_manager.replace_with_summary(summary)
+                    artifact_id = session.compact_artifact_manager.save_summary(summary)
+                    session.context_manager.replace_with_summary(
+                        summary,
+                        boundary_metadata={
+                            "trigger_reason": "threshold",
+                            "trigger_tokens": trigger_tokens,
+                            "context_window": context_window,
+                            "summary_chars": len(summary),
+                            "summary_artifact_id": artifact_id,
+                            "compaction_count": session.context_manager.compaction_count + 1,
+                        },
+                        preserved_messages=preserved_messages,
+                    )
                     session.record_lifecycle_episode(
                         session.build_lifecycle_summary(
                             f"Context compacted after {session.turn_count} turns",
@@ -820,12 +833,25 @@ class Agent:
                 if not overflow_compaction_attempted and is_context_overflow_error(stream_error):
                     trigger_tokens = session.context_manager.estimate_current_context_tokens()
                     context_window = self.config.model.context_window
+                    preserved_messages = session.context_manager.select_compaction_tail()
                     summary, compact_usage = await session.chat_compactor.compact(
                         session.context_manager
                     )
                     if summary:
                         lifecycle_focus = session._derive_current_focus()
-                        session.context_manager.replace_with_summary(summary)
+                        artifact_id = session.compact_artifact_manager.save_summary(summary)
+                        session.context_manager.replace_with_summary(
+                            summary,
+                            boundary_metadata={
+                                "trigger_reason": "overflow_retry",
+                                "trigger_tokens": trigger_tokens,
+                                "context_window": context_window,
+                                "summary_chars": len(summary),
+                                "summary_artifact_id": artifact_id,
+                                "compaction_count": session.context_manager.compaction_count + 1,
+                            },
+                            preserved_messages=preserved_messages,
+                        )
                         session.record_lifecycle_episode(
                             session.build_lifecycle_summary(
                                 f"Context compacted after overflow at turn {session.turn_count}",

@@ -1,4 +1,5 @@
 from typing import Any
+from ite.context.compact_artifacts import CompactArtifactManager
 from ite.context.loop_detector import LoopDetector
 from ite.safety.approval import ApprovalManager
 from ite.context.compaction import ChatCompactor
@@ -13,6 +14,7 @@ from ite.client.llm_client import LLMClient
 from ite.config.config import Config
 from ite.hooks.hook_system import HookSystem
 from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
+from ite.memory.session_memory import SessionMemoryManager
 from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.skills import SkillsTool
 from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
@@ -55,7 +57,12 @@ class Session:
         self.session_id = str(uuid.uuid4())
         self.tool_registry = create_default_registry(config)
         self.context_manager: ContextManager | None = None
+        self.compact_artifact_manager = CompactArtifactManager(self.session_id)
         self.memory_manager = MemoryManager(self.config.cwd, session_id=self.session_id)
+        self.session_memory_manager = SessionMemoryManager(
+            self.config.cwd,
+            session_id=self.session_id,
+        )
         self.skill_trust_manager = SkillTrustManager()
         self.skill_manager = SkillManager(self.config.cwd, trust_manager=self.skill_trust_manager)
         self.active_skill_refs: list[str] = []
@@ -161,6 +168,8 @@ class Session:
             user_memory=user_memory,
             tools=self.tool_registry.get_tools(),
             memory_provider=self._load_prompt_memory,
+            session_memory_provider=self._load_session_memory,
+            compact_artifact_provider=self._load_compact_artifact,
             skill_provider=self._load_skill_context,
         )
         self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
@@ -170,6 +179,12 @@ class Session:
 
     def _load_prompt_memory(self, current_user_text: str | None) -> dict | None:
         return self.memory_manager.load_prompt_memory(current_user_text)
+
+    def _load_session_memory(self) -> str | None:
+        return self.session_memory_manager.get_content()
+
+    def _load_compact_artifact(self, artifact_id: str | None) -> str | None:
+        return self.compact_artifact_manager.load_summary(artifact_id)
 
     def _load_skill_context(self) -> dict[str, Any]:
         remaining_reference_chars = 6000
@@ -203,7 +218,9 @@ class Session:
 
     def set_session_id(self, session_id: str) -> None:
         self.session_id = session_id
+        self.compact_artifact_manager.set_session_id(session_id)
         self.memory_manager.set_session_id(session_id)
+        self.session_memory_manager.set_session_id(session_id)
         self._sync_memory_tool_session()
         self._sync_skills_tool_session()
         self.subagent_runtime.session_id = session_id
@@ -343,6 +360,7 @@ class Session:
         }
 
     def snapshot_kwargs(self, *, workspace_path: str) -> dict[str, Any]:
+        self.session_memory_manager.refresh_from_session(self)
         return {
             "session_id": self.session_id,
             "name": self.name,

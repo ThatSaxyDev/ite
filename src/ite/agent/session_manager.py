@@ -215,7 +215,11 @@ class SessionManager:
                     pass
 
     def _quarantine_session_file(self, file_path: Path, reason: str) -> None:
-        corrupt_dir = self.sessions_dir / "corrupt"
+        self._quarantine_json_file(file_path, reason, label="session")
+
+    def _quarantine_json_file(self, file_path: Path, reason: str, *, label: str) -> None:
+        parent_dir = file_path.parent
+        corrupt_dir = parent_dir / "corrupt"
         corrupt_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(corrupt_dir, 0o700)
 
@@ -226,14 +230,16 @@ class SessionManager:
             os.replace(file_path, quarantine_path)
             os.chmod(quarantine_path, 0o600)
             logger.warning(
-                "Quarantined corrupt session file %s to %s: %s",
+                "Quarantined corrupt %s file %s to %s: %s",
+                label,
                 file_path,
                 quarantine_path,
                 reason,
             )
         except OSError as e:
             logger.warning(
-                "Failed to quarantine corrupt session file %s: %s",
+                "Failed to quarantine corrupt %s file %s: %s",
+                label,
                 file_path,
                 e,
             )
@@ -352,8 +358,20 @@ class SessionManager:
         if not file_path.exists():
             return None
 
-        with open(file_path, "r", encoding="utf-8") as fp:
-            data = json.load(fp)
+        try:
+            with open(file_path, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+        except (OSError, json.JSONDecodeError) as e:
+            self._quarantine_json_file(file_path, str(e), label="checkpoint")
+            return None
+
+        if not isinstance(data, dict):
+            self._quarantine_json_file(
+                file_path,
+                "JSON root must be an object",
+                label="checkpoint",
+            )
+            return None
 
         return SessionSnapshot.from_dict(data)
 
@@ -361,8 +379,20 @@ class SessionManager:
         """List all checkpoints for a given session ID."""
         checkpoints = []
         for file_path in self.checkpoints_dir.glob(f"{session_id}_*.json"):
-            with open(file_path, "r", encoding="utf-8") as fp:
-                data = json.load(fp)
+            try:
+                with open(file_path, "r", encoding="utf-8") as fp:
+                    data = json.load(fp)
+            except (OSError, json.JSONDecodeError) as e:
+                self._quarantine_json_file(file_path, str(e), label="checkpoint")
+                continue
+
+            if not isinstance(data, dict):
+                self._quarantine_json_file(
+                    file_path,
+                    "JSON root must be an object",
+                    label="checkpoint",
+                )
+                continue
 
             # Extract timestamp from the checkpoint filename
             checkpoint_id = file_path.stem

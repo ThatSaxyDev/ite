@@ -10,6 +10,7 @@ from ite.tools.base import Tool
 def get_system_prompt(
     config: Config,
     user_memory: dict | None = None,
+    session_memory: str | None = None,
     tools: list[Tool] | None = None,
     plan_mode_enabled: bool = False,
     plan_phase: str = "idle",
@@ -44,6 +45,10 @@ def get_system_prompt(
         memory_section = _get_memory_section(user_memory)
         if memory_section:
             parts.append(memory_section)
+    if session_memory:
+        session_memory_section = _get_session_memory_section(session_memory)
+        if session_memory_section:
+            parts.append(session_memory_section)
     if plan_mode_enabled:
         parts.append(_get_plan_mode_section(plan_phase))
     if skill_context:
@@ -425,6 +430,21 @@ def _get_memory_section(memory: dict) -> str:
 {body}
 
 Use this information to personalize your responses and maintain consistency."""
+
+
+def _get_session_memory_section(session_memory: str) -> str:
+    content = str(session_memory or "").strip()
+    if not content:
+        return ""
+    if len(content) > 12_000:
+        content = content[:11_997].rstrip() + "..."
+    return f"""# Current Session Memory
+
+This is structured working memory for the current conversation only.
+Use it to preserve continuity across long turns, compaction, and resume flows.
+Prefer it over reconstructing state from older transcript fragments.
+
+{content}"""
 
 
 def _get_controls_section(controls: dict) -> str:

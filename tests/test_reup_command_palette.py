@@ -359,6 +359,33 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
         post_command.assert_not_called()
 
+    def test_run_command_posts_compaction_notice_flow_for_manual_compact(self) -> None:
+        app = self._app()
+        context_manager = SimpleNamespace(
+            compaction_count=0,
+            latest_usage=SimpleNamespace(prompt_tokens=1234),
+        )
+        session = SimpleNamespace(context_manager=context_manager)
+        app.agent = SimpleNamespace(session=session)
+
+        async def fake_dispatch(_command, _args, ctx):
+            context_manager.compaction_count = 1
+            ctx.console.print("Compacted.")
+
+        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+            app._command_registry,
+            "dispatch",
+            AsyncMock(side_effect=fake_dispatch),
+        ), patch.object(app, "post_notice") as post_notice, patch.object(
+            app, "post_system"
+        ) as post_system, patch.object(app, "post_command_result") as post_command:
+            asyncio.run(app.run_command("/compact"))
+
+        post_notice.assert_called_once_with("Context", "Compacting context")
+        post_system.assert_called_once()
+        self.assertEqual(post_system.call_args.args[0], "Context automatically compacted")
+        post_command.assert_not_called()
+
     def test_render_skills_payload_formats_show_output_instead_of_raw_json(self) -> None:
         rendered = render_skills_payload(
             output="""

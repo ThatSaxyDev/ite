@@ -248,6 +248,38 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertEqual(recent_tool["content"], "tool output 13")
         self.assertEqual(recent_tool["tool_ui"]["name"], "shell")
 
+    def test_load_checkpoint_returns_none_for_corrupt_json(self) -> None:
+        corrupt_file = self.manager.checkpoints_dir / "checkpoint-bad.json"
+        corrupt_file.write_text("{", encoding="utf-8")
+
+        loaded = self.manager.load_checkpoint("checkpoint-bad")
+
+        self.assertIsNone(loaded)
+        self.assertFalse(corrupt_file.exists())
+        quarantined = list((self.manager.checkpoints_dir / "corrupt").glob("checkpoint-bad.*.json"))
+        self.assertTrue(quarantined)
+
+    def test_list_checkpoints_skips_and_quarantines_invalid_json(self) -> None:
+        valid = SessionSnapshot(
+            session_id="checkpoint-list",
+            name="Checkpoint Session",
+            created_at=datetime(2026, 3, 4, 11, 46, 7, 637365),
+            updated_at=datetime(2026, 3, 4, 11, 46, 52, 384048),
+            turn_count=1,
+            messages=[{"role": "user", "content": "hello"}],
+            total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        )
+        self.manager.save_checkpoint(valid)
+        bad_file = self.manager.checkpoints_dir / "checkpoint-list_broken.json"
+        bad_file.write_text("", encoding="utf-8")
+
+        checkpoints = self.manager.list_checkpoints("checkpoint-list")
+
+        self.assertEqual(len(checkpoints), 1)
+        self.assertFalse(bad_file.exists())
+        quarantined = list((self.manager.checkpoints_dir / "corrupt").glob("checkpoint-list_broken.*.json"))
+        self.assertTrue(quarantined)
+
 
 if __name__ == "__main__":
     unittest.main()

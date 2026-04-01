@@ -210,6 +210,37 @@ class MemoryManagerTests(unittest.TestCase):
         restored_snapshot = restored.get_snapshot_messages()
         self.assertEqual(restored_snapshot[-1]["tool_ui"]["name"], "read_json")
 
+    def test_compact_boundary_round_trips_in_snapshot_messages(self) -> None:
+        workspace = self.base_path / "ws-compact-boundary"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: None,
+        )
+        context_manager.replace_with_summary(
+            "## ORIGINAL GOAL\ncontinue",
+            boundary_metadata={
+                "trigger_reason": "threshold",
+                "trigger_tokens": 120000,
+                "context_window": 200000,
+                "summary_chars": 25,
+            },
+        )
+
+        snapshot_messages = context_manager.get_snapshot_messages()
+        self.assertEqual(snapshot_messages[0]["role"], "system")
+        self.assertEqual(snapshot_messages[0]["subtype"], "compact_boundary")
+        self.assertEqual(snapshot_messages[0]["metadata"]["trigger_reason"], "threshold")
+
+        restored = ContextManager(config=config, tools=[], memory_provider=lambda _text: None)
+        restored.set_messages(snapshot_messages)
+        restored_snapshot = restored.get_snapshot_messages()
+        self.assertEqual(restored_snapshot[0]["subtype"], "compact_boundary")
+        self.assertEqual(restored_snapshot[0]["metadata"]["context_window"], 200000)
+
     def test_newer_preference_controls_override_older_ones(self) -> None:
         workspace = self.base_path / "ws-controls"
         workspace.mkdir()

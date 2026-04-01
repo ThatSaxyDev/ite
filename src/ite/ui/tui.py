@@ -1641,7 +1641,7 @@ class TUI:
 - `/tools` - List available tools
 - `/mcp` - Show MCP server status
 - `/sessions` - List saved sessions
-- `/resume <session_id>` - Resume a saved session
+- `/sessions <session_id>` - Resume a saved session directly
 
 ## Tips
 
