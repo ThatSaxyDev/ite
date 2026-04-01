@@ -1067,13 +1067,6 @@ class ContextSummaryModal(ModalScreen[None]):
         used_pct = float(self._payload.get("context_used_pct") or 0.0)
         trigger_at = int(self._payload.get("trigger_at") or 0)
         trigger_pct = (trigger_at / context_window * 100) if context_window else 0.0
-        status = str(self._payload.get("status") or "").strip() or "ok"
-        compaction_count = int(self._payload.get("compaction_count") or 0)
-        last_compacted_at = self._format_compacted_at(
-            self._payload.get("last_compacted_at")
-            if isinstance(self._payload.get("last_compacted_at"), str)
-            else None
-        )
 
         summary = Table.grid(expand=True)
         summary.add_column(ratio=1)
@@ -1092,41 +1085,11 @@ class ContextSummaryModal(ModalScreen[None]):
                 style="#8f949d",
             ),
         )
-
-        stats = Table.grid(expand=True)
-        stats.add_column(width=18)
-        stats.add_column(ratio=1)
-        stats.add_row(
-            Text("Status", style="bold #9ca3af"),
-            Text(status.replace("_", " "), style="bold #d1d5db"),
-        )
-        stats.add_row(
-            Text("Trigger point", style="bold #9ca3af"),
-            Text(f"{trigger_at} tokens", style="#d1d5db"),
-        )
-        stats.add_row(
-            Text("Message count", style="bold #9ca3af"),
-            Text(str(int(self._payload.get("message_count") or 0)), style="#d1d5db"),
-        )
-        stats.add_row(
-            Text("Compactions", style="bold #9ca3af"),
-            Text(str(compaction_count), style="#d1d5db"),
-        )
-        stats.add_row(
-            Text("Last compacted", style="bold #9ca3af"),
-            Text(last_compacted_at, style="#d1d5db"),
-        )
-
-        helper = Text(
-            "This reflects the live prompt window. It updates as the active context grows and compactions move the boundary forward.",
-            style="#8f949d",
-        )
-
-        return Group(summary, self._build_bar(used_pct), Rule(style="#2a2d31"), stats, Rule(style="#2a2d31"), helper)
+        return Group(summary, self._build_bar(used_pct))
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal context-modal"):
-            yield Label("Context", classes="modal-title")
+            yield Label("Context window", classes="modal-title")
             yield Static(
                 "Live context window, compaction threshold, and recent boundary state.",
                 classes="modal-body",

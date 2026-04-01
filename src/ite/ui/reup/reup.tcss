@@ -1610,9 +1610,9 @@ UsageSummaryModal .modal {
 
 ContextSummaryModal .modal {
     width: 108;
-    height: 26;
-    max-height: 82%;
-    min-height: 22;
+    height: auto;
+    max-height: 70%;
+    min-height: 14;
     border: heavy #303236;
     background: #1c1b1d 96%;
     padding: 1 2;
@@ -1775,8 +1775,8 @@ UsageSummaryModal .usage-summary-panel {
 }
 
 ContextSummaryModal .usage-summary-panel {
-    height: 1fr;
-    min-height: 13;
+    height: auto;
+    min-height: 0;
     margin-top: 1;
     margin-bottom: 1;
     border: solid #303236;
@@ -1803,7 +1803,7 @@ UsageSummaryModal .usage-summary-body {
 }
 
 ContextSummaryModal .usage-summary-body {
-    height: 1fr;
+    height: auto;
 }
 
 ActivityModal .usage-summary-body {
