@@ -244,7 +244,10 @@ class SessionControllerMixin:
         resumed.plan_questions_asked = snapshot.plan_questions_asked
         resumed.plan_target_questions = snapshot.plan_target_questions
         resumed.set_plan_phase(snapshot.plan_phase)
-        resumed.context_manager.set_messages(snapshot.messages)
+        if snapshot.transcript_state:
+            resumed.context_manager.restore_transcript_state(snapshot.transcript_state)
+        else:
+            resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
         if hasattr(resumed, "restore_active_skills"):
             resumed.restore_active_skills(snapshot.active_skills)

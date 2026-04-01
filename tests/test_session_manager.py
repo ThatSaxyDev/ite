@@ -89,6 +89,16 @@ class SessionManagerCorruptionTests(unittest.TestCase):
             turn_count=1,
             messages=[{"role": "user", "content": "hello"}],
             total_usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            transcript_state={
+                "active_start": 0,
+                "events": [
+                    {
+                        "kind": "user_message",
+                        "created_at": "2026-03-04T11:46:07.637365",
+                        "message": {"role": "user", "content": "hello"},
+                    }
+                ],
+            },
             pending_plan_text="## Plan\n- step one",
             todos_state={
                 "version": 1,
@@ -112,6 +122,8 @@ class SessionManagerCorruptionTests(unittest.TestCase):
         self.assertIn("name_source", loaded)
         self.assertIn("name_locked", loaded)
         self.assertIn("name_last_generated_turn", loaded)
+        self.assertIn("transcript_state", loaded)
+        self.assertEqual(loaded["transcript_state"]["events"][0]["kind"], "user_message")
 
     def test_change_history_state_round_trips_in_snapshot(self) -> None:
         snapshot = SessionSnapshot(

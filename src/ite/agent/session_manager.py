@@ -114,6 +114,7 @@ class SessionSnapshot:
     turn_count: int
     messages: list[dict[str, Any]]
     total_usage: TokenUsage
+    transcript_state: dict[str, Any] | None = None
     name: str | None = None
     name_source: str | None = None
     name_locked: bool = False
@@ -143,6 +144,7 @@ class SessionSnapshot:
             "updated_at": self.updated_at.isoformat(),
             "turn_count": self.turn_count,
             "messages": _compact_messages_for_snapshot(self.messages),
+            "transcript_state": self.transcript_state,
             "total_usage": self.total_usage.__dict__,
             "plan_mode_enabled": self.plan_mode_enabled,
             "plan_phase": self.plan_phase,
@@ -170,6 +172,7 @@ class SessionSnapshot:
             updated_at=datetime.fromisoformat(data["updated_at"]),
             turn_count=data["turn_count"],
             messages=data["messages"],
+            transcript_state=data.get("transcript_state"),
             total_usage=TokenUsage(**data["total_usage"]),
             plan_mode_enabled=bool(data.get("plan_mode_enabled", False)),
             plan_phase=str(data.get("plan_phase", "idle")),

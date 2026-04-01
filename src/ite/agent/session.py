@@ -372,6 +372,7 @@ class Session:
             "updated_at": self.updated_at,
             "turn_count": self.turn_count,
             "messages": self.context_manager.get_snapshot_messages(),
+            "transcript_state": self.context_manager.export_transcript_state(),
             "total_usage": self.context_manager.total_usage,
             "plan_mode_enabled": self.plan_mode_enabled,
             "plan_phase": self.plan_phase,

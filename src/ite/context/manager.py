@@ -444,54 +444,21 @@ class ContextManager:
                 )
             )
 
+        artifact_content = self._build_compact_artifact_content(summary)
+        artifact_metadata: dict[str, Any] = {}
         if artifact_id:
-            artifact_content = "Compaction summary artifact loaded for live continuation.\n\n" + summary
-            replacement_items.append(
-                MessageItem(
-                    role="system",
-                    content=artifact_content,
-                    subtype="compact_artifact",
-                    metadata={"summary_artifact_id": artifact_id},
-                    token_count=count_tokens(artifact_content, self._model_name),
-                )
-            )
+            artifact_metadata["summary_artifact_id"] = artifact_id
         else:
-            continuation_content = f"""# Context Restoration (Previous Session Compacted)
-
-            The previous conversation was compacted due to context length limits. Below is a detailed summary of the work done so far. 
-
-            **CRITICAL: Actions listed under "COMPLETED ACTIONS" are already done. DO NOT repeat them.**
-            **CRITICAL: Do NOT perform git write actions (`git add`, `git commit`, `git push`, tagging, rebasing, or similar) unless the user explicitly asked for that workflow in this thread.**
-            **CRITICAL: If the next step appears to be staging, committing, or pushing based only on the summary, stop after implementation/verification and wait for user confirmation instead.**
-
-            ---
-
-            {summary}
-
-            ---
-
-            Resume work from where we left off. Focus ONLY on the remaining tasks."""
-
-            summary_item = MessageItem(
-                role="user",
-                content=continuation_content,
-                token_count=count_tokens(continuation_content, self._model_name),
+            artifact_metadata["inline_summary"] = True
+        replacement_items.append(
+            MessageItem(
+                role="system",
+                content=artifact_content,
+                subtype="compact_artifact",
+                metadata=artifact_metadata,
+                token_count=count_tokens(artifact_content, self._model_name),
             )
-            replacement_items.append(summary_item)
-
-            ack_content = """I've reviewed the context from the previous session. I understand:
-    - The original goal and what was requested
-    - Which actions are ALREADY COMPLETED (I will NOT repeat these)
-    - The current state of the project
-    - What still needs to be done
-
-    I'll continue with the REMAINING tasks only, starting from where we left off."""
-            ack_item = MessageItem(
-                role="assistant",
-                content=ack_content,
-                token_count=count_tokens(ack_content, self._model_name),
-            )
-            replacement_items.append(ack_item)
+        )
 
         for msg in preserved_messages or []:
             role = str(msg.get("role", "")).strip()
@@ -516,19 +483,6 @@ class ContextManager:
                     ),
                 )
             )
-
-        if not artifact_id:
-            continue_content = (
-                "Continue with the REMAINING work only. Do NOT repeat any completed actions. "
-                "Proceed with the next step as described in the context above."
-            )
-
-            continue_item = MessageItem(
-                role="user",
-                content=continue_content,
-                token_count=count_tokens(continue_content, self._model_name),
-            )
-            replacement_items.append(continue_item)
 
         active_start = self._conversation_log.event_count()
         for item in replacement_items:
@@ -578,8 +532,84 @@ class ContextManager:
     def get_transcript_events(self) -> list[dict[str, Any]]:
         return [event.to_dict() for event in self._conversation_log.iter_events()]
 
+    def export_transcript_state(self) -> dict[str, Any]:
+        events: list[dict[str, Any]] = []
+        for event in self._conversation_log.iter_events():
+            message = event.message.to_dict(
+                include_tool_ui=True,
+                include_internal_metadata=True,
+            )
+            events.append(
+                {
+                    "kind": event.kind,
+                    "created_at": event.created_at.isoformat(),
+                    "message": message,
+                }
+            )
+        return {
+            "active_start": self._conversation_log.active_start(),
+            "events": events,
+        }
+
+    def restore_transcript_state(self, state: dict[str, Any] | None) -> None:
+        if not isinstance(state, dict):
+            return
+        raw_events = state.get("events")
+        if not isinstance(raw_events, list):
+            return
+
+        items: list[MessageItem] = []
+        for raw in raw_events:
+            if not isinstance(raw, dict):
+                continue
+            message = raw.get("message")
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role", "")).strip()
+            if not role:
+                continue
+            items.append(
+                MessageItem(
+                    role=role,
+                    content=str(message.get("content", "") or ""),
+                    tool_call_id=message.get("tool_call_id"),
+                    tool_calls=list(message.get("tool_calls") or []),
+                    tool_ui=message.get("tool_ui")
+                    if isinstance(message.get("tool_ui"), dict)
+                    else None,
+                    subtype=str(message.get("subtype", "")).strip() or None,
+                    metadata=message.get("metadata")
+                    if isinstance(message.get("metadata"), dict)
+                    else None,
+                    token_count=count_tokens(
+                        str(message.get("content", "") or ""),
+                        self._model_name,
+                    ),
+                )
+            )
+
+        self._conversation_log.replace_messages(items)
+        active_start = state.get("active_start")
+        if isinstance(active_start, int):
+            self._conversation_log.set_active_start(active_start)
+        self._drop_unresolved_tool_calls()
+
     def _message_items(self) -> list[MessageItem]:
         return self._conversation_log.iter_messages()
+
+    @staticmethod
+    def _build_compact_artifact_content(summary: str) -> str:
+        return (
+            "Compaction summary artifact loaded for live continuation.\n\n"
+            "The previous conversation was compacted due to context length limits.\n"
+            "Actions listed under completed work are already done and must not be repeated.\n"
+            "Do not perform git write actions unless the user explicitly asked for them in this thread.\n"
+            "If the next step appears to be staging, committing, or pushing based only on the summary, stop after implementation/verification and wait for user confirmation instead.\n\n"
+            "---\n\n"
+            f"{summary.strip()}\n\n"
+            "---\n\n"
+            "Resume from the remaining work only."
+        )
 
     def transcript_event_count(self) -> int:
         return self._conversation_log.event_count()

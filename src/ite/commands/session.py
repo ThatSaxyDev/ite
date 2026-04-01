@@ -326,7 +326,10 @@ async def _resume_session_by_id(ctx: CommandContext, session_id: str) -> None:
     await ctx.agent.session.mcp_manager.shutdown()
     await session.initialize()
 
-    session.context_manager.set_messages(snapshot.messages)
+    if snapshot.transcript_state:
+        session.context_manager.restore_transcript_state(snapshot.transcript_state)
+    else:
+        session.context_manager.set_messages(snapshot.messages)
     session.context_manager.total_usage = snapshot.total_usage
     session.restore_active_skills(snapshot.active_skills)
     session.restore_todos_state(snapshot.todos_state)
@@ -625,7 +628,10 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
     await ctx.agent.session.mcp_manager.shutdown()
     await session.initialize()
 
-    session.context_manager.set_messages(snapshot.messages)
+    if snapshot.transcript_state:
+        session.context_manager.restore_transcript_state(snapshot.transcript_state)
+    else:
+        session.context_manager.set_messages(snapshot.messages)
     session.context_manager.total_usage = snapshot.total_usage
     session.restore_active_skills(snapshot.active_skills)
     session.restore_todos_state(snapshot.todos_state)

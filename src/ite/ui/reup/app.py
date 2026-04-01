@@ -3611,7 +3611,10 @@ class ReupApp(App):
         resumed_agent = self._build_session_agent(resumed)
         await resumed_agent.__aenter__()
 
-        resumed.context_manager.set_messages(snapshot.messages)
+        if snapshot.transcript_state:
+            resumed.context_manager.restore_transcript_state(snapshot.transcript_state)
+        else:
+            resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
         if hasattr(resumed, "restore_active_skills"):
             resumed.restore_active_skills(snapshot.active_skills)

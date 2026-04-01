@@ -176,9 +176,9 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         agent.session.context_manager.replace_with_summary("## ORIGINAL GOAL\ncontinue")
 
-        messages = agent.session.context_manager.get_snapshot_messages()
+        messages = agent.session.context_manager.get_messages()
         content = "\n".join(str(message.get("content", "")) for message in messages)
-        self.assertIn("Do NOT perform git write actions", content)
+        self.assertIn("Do not perform git write actions", content)
         self.assertIn("wait for user confirmation instead", content)
 
     async def test_snapshot_generation_writes_structured_session_memory(self) -> None:
@@ -329,7 +329,7 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         resumed = Session(Config(cwd=workspace, api_key="test"))
         resumed.set_session_id(snapshot["session_id"])
         await resumed.initialize()
-        resumed.context_manager.set_messages(snapshot["messages"])
+        resumed.context_manager.restore_transcript_state(snapshot["transcript_state"])
 
         async def fake_compact(_context_manager):
             return "## ORIGINAL GOAL\nresume-aware compact", TokenUsage(total_tokens=9)
@@ -359,6 +359,43 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(boundary)
         assert boundary is not None
         self.assertEqual(boundary.get("metadata", {}).get("trigger_reason"), "manual")
+
+    async def test_snapshot_transcript_state_preserves_compacted_history_on_restore(self) -> None:
+        workspace = self.base_path / "ws-transcript-restore"
+        workspace.mkdir()
+
+        original = Session(Config(cwd=workspace, api_key="test"))
+        await original.initialize()
+        original.context_manager.add_user_message("phase A instruction")
+        original.context_manager.add_assistant_message("phase A response")
+        original.context_manager.add_user_message("phase B instruction")
+        original.context_manager.add_assistant_message("phase B response")
+        original.context_manager.replace_with_summary(
+            "## ORIGINAL GOAL\ncontinue with phase B",
+            boundary_metadata={
+                "trigger_reason": "manual",
+                "summary_artifact_id": "artifact-restore",
+            },
+            preserved_messages=original.context_manager.select_compaction_tail(max_messages=2),
+        )
+
+        snapshot = original.snapshot_kwargs(workspace_path=str(workspace.resolve()))
+
+        restored = Session(Config(cwd=workspace, api_key="test"))
+        restored.set_session_id(snapshot["session_id"])
+        await restored.initialize()
+        restored.context_manager.restore_transcript_state(snapshot["transcript_state"])
+
+        transcript_events = restored.context_manager.get_transcript_events()
+        self.assertTrue(any(event["kind"] == "compact_boundary" for event in transcript_events))
+        self.assertTrue(any(event.get("role") == "user" for event in transcript_events))
+
+        active_contents = [
+            str(message.get("content", ""))
+            for message in restored.context_manager.get_messages()
+        ]
+        self.assertFalse(any("phase A instruction" in content for content in active_contents))
+        self.assertTrue(any("phase B response" in content for content in active_contents))
 
     async def test_compaction_preserves_recent_raw_tail_messages(self) -> None:
         workspace = self.base_path / "ws-compaction-tail"
