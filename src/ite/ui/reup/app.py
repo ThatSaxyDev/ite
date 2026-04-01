@@ -3845,6 +3845,14 @@ class ReupApp(App):
             await self._run_cloud_logout_flow()
             return
 
+        if command == "/usage":
+            await self._open_usage_modal_from_meta()
+            return
+
+        if command == "/activity":
+            await self._open_activity_modal_from_meta()
+            return
+
         await self.ensure_agent()
         if not self.agent:
             self.post_system("Error", "Agent is not initialized", is_error=True)
