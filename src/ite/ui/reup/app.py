@@ -127,6 +127,7 @@ from .modals import (
     BranchPickerModal,
     CommitModal,
     ConfirmModal,
+    ContextSummaryModal,
     ModelPickerModal,
     PlanQuestionModal,
     PushReviewModal,
@@ -429,6 +430,7 @@ class ReupApp(App):
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
         self._composer_usage_hitbox: tuple[int, int] = (0, 0)
+        self._composer_context_hitbox: tuple[int, int] = (0, 0)
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
@@ -895,6 +897,7 @@ class ReupApp(App):
         plan_enabled = bool(
             self.agent and self.agent.session and self.agent.session.plan_mode_enabled
         )
+        context_used_percent: int | None = None
         branch_label = "no-git"
         try:
             cwd = Path(self.config.cwd).resolve()
@@ -902,18 +905,27 @@ class ReupApp(App):
                 branch_label = current_branch(cwd)
         except Exception:
             pass
-        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox, activity_hitbox = composer_meta_text(
+        if self.agent and self.agent.session and self.agent.session.context_manager:
+            try:
+                context_used_percent = int(
+                    round(float(self.agent.session.get_stats().get("context_used_pct", 0.0)))
+                )
+            except Exception:
+                context_used_percent = None
+        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox, context_hitbox, activity_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=self.config.model_name,
             plan_enabled=plan_enabled,
             branch_label=branch_label,
             usage_remaining_percent=self._usage_remaining_percent,
+            context_used_percent=context_used_percent,
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
         self._composer_branch_hitbox = branch_hitbox
         self._composer_plan_hitbox = plan_hitbox
         self._composer_usage_hitbox = usage_hitbox
+        self._composer_context_hitbox = context_hitbox
         self._composer_activity_hitbox = activity_hitbox
         return text
 
@@ -1307,6 +1319,7 @@ class ReupApp(App):
         model_start, model_end = self._composer_model_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
         usage_start, usage_end = self._composer_usage_hitbox
+        context_start, context_end = self._composer_context_hitbox
         activity_start, activity_end = self._composer_activity_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
@@ -1323,6 +1336,10 @@ class ReupApp(App):
             return
         if usage_start <= event.x < usage_end:
             self.run_worker(self._open_usage_modal_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if context_start <= event.x < context_end:
+            self.run_worker(self._open_context_modal_from_meta(), exclusive=False)
             event.stop()
             return
         if activity_start <= event.x < activity_end:
@@ -1458,6 +1475,23 @@ class ReupApp(App):
         self._usage_remaining_percent = max(0, min(100, round(((cap - used) / cap) * 100)))
         self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
+
+    async def _open_context_modal_from_meta(self) -> None:
+        await self.ensure_agent()
+        if not self.agent or not self.agent.session or not self.agent.session.context_manager:
+            self.post_system("Context", "Context state is not available right now.", is_error=True)
+            return
+        session = self.agent.session
+        stats = session.get_stats()
+        compaction = session.context_manager.get_compaction_status()
+        payload = {**stats, **compaction}
+        payload["status"] = (
+            "compaction recommended"
+            if bool(compaction.get("needs_compression"))
+            else "healthy"
+        )
+        self.refresh_header()
+        await self._open_modal(ContextSummaryModal(payload))
 
     async def _open_activity_modal_from_meta(self) -> None:
         await self.ensure_agent()
@@ -4381,6 +4415,7 @@ class ReupApp(App):
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             await self._post_turn_change_summary()
+            self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
             return
 
@@ -4437,6 +4472,7 @@ class ReupApp(App):
             self.post_system(
                 "Error", str(event.data.get("error", "Unknown error")), is_error=True
             )
+            self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
             return
 
@@ -4453,6 +4489,7 @@ class ReupApp(App):
                     else f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
                 ),
             )
+            self.refresh_header()
             return
 
         if event.type == AgentEventType.TOOL_CALL_START:

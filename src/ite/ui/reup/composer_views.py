@@ -25,7 +25,8 @@ def composer_meta_text(
     plan_enabled: bool,
     branch_label: str,
     usage_remaining_percent: int | None = None,
-) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
+    context_used_percent: int | None = None,
+) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
     status_text = "on" if plan_enabled else "off"
     status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
     branch_style = "bold #d1d5db" if branch_label != "no-git" else "bold #9ca3af"
@@ -99,6 +100,37 @@ def composer_meta_text(
     usage_end = cell_pos
     text.append(spacer)
     cell_pos += cell_len(spacer)
+    context_start = cell_pos
+    context_label = "context "
+    text.append(context_label, style="bold #9ca3af")
+    cell_pos += cell_len(context_label)
+    context_text = (
+        f"{context_used_percent}%"
+        if context_used_percent is not None
+        else "--"
+    )
+    text.append(context_text, style="bold #d1d5db")
+    cell_pos += cell_len(context_text)
+    text.append(" ")
+    cell_pos += 1
+    context_meter_width = 6
+    if context_used_percent is None:
+        context_filled = 0
+    else:
+        context_filled = max(
+            0,
+            min(context_meter_width, round((context_used_percent / 100) * context_meter_width)),
+        )
+    context_empty = context_meter_width - context_filled
+    if context_filled:
+        text.append("━" * context_filled, style="bold #f3f4f6")
+        cell_pos += context_filled
+    if context_empty:
+        text.append("━" * context_empty, style="#34363a")
+        cell_pos += context_empty
+    context_end = cell_pos
+    text.append(spacer)
+    cell_pos += cell_len(spacer)
     activity_start = cell_pos
     activity_label = "activity"
     text.append(activity_label, style="bold #9ca3af")
@@ -111,6 +143,7 @@ def composer_meta_text(
         (branch_start, branch_end),
         (plan_start, plan_end),
         (usage_start, usage_end),
+        (context_start, context_end),
         (activity_start, activity_end),
     )
 

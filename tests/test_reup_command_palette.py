@@ -142,6 +142,39 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(len(renderables), 3)
         self.assertEqual(renderables[1].style, "#5f6975")
 
+    def test_composer_meta_text_includes_context_meter(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(
+            plan_mode_enabled=False,
+            context_manager=SimpleNamespace(),
+            get_stats=lambda: {"context_used_pct": 42.4},
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        rendered = app._composer_meta_text()
+
+        self.assertIn("context", rendered.plain)
+        self.assertNotEqual(app._composer_context_hitbox, (0, 0))
+
+    def test_composer_meta_click_opens_context_modal(self) -> None:
+        app = self._app()
+        app._composer_attach_hitbox = (0, 0)
+        app._composer_model_hitbox = (0, 0)
+        app._composer_branch_hitbox = (0, 0)
+        app._composer_usage_hitbox = (0, 0)
+        app._composer_context_hitbox = (10, 20)
+        app._composer_activity_hitbox = (0, 0)
+        app._composer_plan_hitbox = (0, 0)
+
+        event = SimpleNamespace(x=12, stop=lambda: None)
+
+        with patch.object(app, "run_worker") as run_worker, patch.object(
+            app, "_open_context_modal_from_meta", return_value=None
+        ):
+            app.on_composer_meta_line_click(event)
+
+        run_worker.assert_called_once()
+
     def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
         app = self._app()
 

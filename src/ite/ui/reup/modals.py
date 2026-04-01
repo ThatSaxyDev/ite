@@ -1032,6 +1032,115 @@ class UsageSummaryModal(ModalScreen[None]):
         self.dismiss(None)
 
 
+class ContextSummaryModal(ModalScreen[None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        super().__init__()
+        self._payload = payload
+
+    @staticmethod
+    def _build_bar(used_percent: float, width: int = 92) -> Text:
+        normalized = max(0, min(100, round(used_percent)))
+        filled = max(0, min(width, round((normalized / 100) * width)))
+        empty = max(0, width - filled)
+        bar = Text()
+        if filled:
+            bar.append("━" * filled, style="bold #f3f4f6")
+        if empty:
+            bar.append("━" * empty, style="#34363a")
+        return bar
+
+    @staticmethod
+    def _format_compacted_at(value: str | None) -> str:
+        if not value:
+            return "No compactions yet"
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+        except ValueError:
+            return value
+        return dt.strftime("%b %-d, %-I:%M%p").lower()
+
+    def _build_renderable(self) -> Group:
+        context_window = int(self._payload.get("context_window") or 0)
+        latest_tokens = int(self._payload.get("latest_tokens") or 0)
+        used_pct = float(self._payload.get("context_used_pct") or 0.0)
+        trigger_at = int(self._payload.get("trigger_at") or 0)
+        trigger_pct = (trigger_at / context_window * 100) if context_window else 0.0
+        status = str(self._payload.get("status") or "").strip() or "ok"
+        compaction_count = int(self._payload.get("compaction_count") or 0)
+        last_compacted_at = self._format_compacted_at(
+            self._payload.get("last_compacted_at")
+            if isinstance(self._payload.get("last_compacted_at"), str)
+            else None
+        )
+
+        summary = Table.grid(expand=True)
+        summary.add_column(ratio=1)
+        summary.add_column(justify="right", width=22)
+        summary.add_row(
+            Text("Current context", style="bold #f3f4f6"),
+            Text(f"{latest_tokens}/{context_window} tokens", style="bold #f3f4f6"),
+        )
+        summary.add_row(
+            Text(
+                f"{used_pct:.1f}% used",
+                style="bold #d1d5db",
+            ),
+            Text(
+                f"Auto-compact at {trigger_pct:.1f}%",
+                style="#8f949d",
+            ),
+        )
+
+        stats = Table.grid(expand=True)
+        stats.add_column(width=18)
+        stats.add_column(ratio=1)
+        stats.add_row(
+            Text("Status", style="bold #9ca3af"),
+            Text(status.replace("_", " "), style="bold #d1d5db"),
+        )
+        stats.add_row(
+            Text("Trigger point", style="bold #9ca3af"),
+            Text(f"{trigger_at} tokens", style="#d1d5db"),
+        )
+        stats.add_row(
+            Text("Message count", style="bold #9ca3af"),
+            Text(str(int(self._payload.get("message_count") or 0)), style="#d1d5db"),
+        )
+        stats.add_row(
+            Text("Compactions", style="bold #9ca3af"),
+            Text(str(compaction_count), style="#d1d5db"),
+        )
+        stats.add_row(
+            Text("Last compacted", style="bold #9ca3af"),
+            Text(last_compacted_at, style="#d1d5db"),
+        )
+
+        helper = Text(
+            "This reflects the live prompt window. It updates as the active context grows and compactions move the boundary forward.",
+            style="#8f949d",
+        )
+
+        return Group(summary, self._build_bar(used_pct), Rule(style="#2a2d31"), stats, Rule(style="#2a2d31"), helper)
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal context-modal"):
+            yield Label("Context", classes="modal-title")
+            yield Static(
+                "Live context window, compaction threshold, and recent boundary state.",
+                classes="modal-body",
+            )
+            with Container(classes="usage-summary-panel"):
+                yield Static(self._build_renderable(), classes="usage-summary-body")
+            with Horizontal(classes="modal-actions"):
+                yield Button("Close", id="cancel", variant="default")
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
 class ActivityModal(ModalScreen[None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 

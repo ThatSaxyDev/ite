@@ -1125,6 +1125,7 @@ SessionResumeModal,
 BranchPickerModal,
 ModelPickerModal,
 UsageSummaryModal,
+ContextSummaryModal,
 ActivityModal,
 AttachPickerModal,
 SetupModal {
@@ -1607,6 +1608,17 @@ UsageSummaryModal .modal {
     overflow: hidden;
 }
 
+ContextSummaryModal .modal {
+    width: 108;
+    height: 26;
+    max-height: 82%;
+    min-height: 22;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
 ActivityModal .modal {
     width: 108;
     height: 28;
@@ -1658,6 +1670,7 @@ SessionResumeModal .modal-title,
 BranchPickerModal .modal-title,
 ModelPickerModal .modal-title,
 UsageSummaryModal .modal-title,
+ContextSummaryModal .modal-title,
 ActivityModal .modal-title,
 AttachPickerModal .modal-title,
 RemoteSetupModal .modal-title,
@@ -1673,6 +1686,7 @@ SessionResumeModal .modal-body,
 BranchPickerModal .modal-body,
 ModelPickerModal .modal-body,
 UsageSummaryModal .modal-body,
+ContextSummaryModal .modal-body,
 ActivityModal .modal-body,
 AttachPickerModal .modal-body,
 RemoteSetupModal .modal-body,
@@ -1693,6 +1707,7 @@ SessionResumeModal .modal-actions,
 BranchPickerModal .modal-actions,
 ModelPickerModal .modal-actions,
 UsageSummaryModal .modal-actions,
+ContextSummaryModal .modal-actions,
 ActivityModal .modal-actions,
 AttachPickerModal .modal-actions,
 RemoteSetupModal .modal-actions,
@@ -1724,6 +1739,7 @@ SessionResumeModal #cancel,
 BranchPickerModal #cancel,
 ModelPickerModal #cancel,
 UsageSummaryModal #cancel,
+ContextSummaryModal #cancel,
 ActivityModal #cancel,
 AttachPickerModal #cancel,
 RemoteSetupModal #cancel,
@@ -1740,6 +1756,7 @@ SessionResumeModal #cancel:hover,
 BranchPickerModal #cancel:hover,
 ModelPickerModal #cancel:hover,
 UsageSummaryModal #cancel:hover,
+ContextSummaryModal #cancel:hover,
 ActivityModal #cancel:hover,
 AttachPickerModal #cancel:hover,
 RemoteSetupModal #cancel:hover,
@@ -1750,6 +1767,16 @@ SetupModal #cancel:hover {
 UsageSummaryModal .usage-summary-panel {
     height: 1fr;
     min-height: 12;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid #303236;
+    background: #151618;
+    padding: 1 1;
+}
+
+ContextSummaryModal .usage-summary-panel {
+    height: 1fr;
+    min-height: 13;
     margin-top: 1;
     margin-bottom: 1;
     border: solid #303236;
@@ -1772,6 +1799,10 @@ ActivityModal DataTable {
 }
 
 UsageSummaryModal .usage-summary-body {
+    height: 1fr;
+}
+
+ContextSummaryModal .usage-summary-body {
     height: 1fr;
 }
 
