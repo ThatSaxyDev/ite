@@ -165,6 +165,9 @@ class MemoryManagerTests(unittest.TestCase):
                 for msg in messages[1:]
             )
         )
+        transcript_events = context_manager.get_transcript_events()
+        self.assertEqual(transcript_events[0]["kind"], "user_message")
+        self.assertEqual(transcript_events[1]["kind"], "system_event")
 
     def test_context_manager_snapshot_messages_preserve_tool_ui_only_for_snapshot(self) -> None:
         workspace = self.base_path / "ws-tool-ui"
@@ -209,6 +212,9 @@ class MemoryManagerTests(unittest.TestCase):
         restored.set_messages(snapshot_messages)
         restored_snapshot = restored.get_snapshot_messages()
         self.assertEqual(restored_snapshot[-1]["tool_ui"]["name"], "read_json")
+        transcript_events = restored.get_transcript_events()
+        self.assertEqual(transcript_events[0]["kind"], "assistant_message")
+        self.assertEqual(transcript_events[1]["kind"], "tool_result")
 
     def test_compact_boundary_round_trips_in_snapshot_messages(self) -> None:
         workspace = self.base_path / "ws-compact-boundary"
@@ -240,6 +246,46 @@ class MemoryManagerTests(unittest.TestCase):
         restored_snapshot = restored.get_snapshot_messages()
         self.assertEqual(restored_snapshot[0]["subtype"], "compact_boundary")
         self.assertEqual(restored_snapshot[0]["metadata"]["context_window"], 200000)
+        transcript_events = restored.get_transcript_events()
+        self.assertEqual(transcript_events[0]["kind"], "compact_boundary")
+
+    def test_compaction_keeps_append_only_transcript_while_narrowing_active_view(self) -> None:
+        workspace = self.base_path / "ws-append-only-transcript"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: None,
+        )
+        context_manager.add_user_message("first user message")
+        context_manager.add_assistant_message("first assistant message")
+        context_manager.add_user_message("second user message")
+        context_manager.add_assistant_message("second assistant message")
+
+        before_count = context_manager.transcript_event_count()
+        preserved_tail = context_manager.select_compaction_tail(max_messages=2)
+        context_manager.replace_with_summary(
+            "## ORIGINAL GOAL\ncontinue",
+            boundary_metadata={
+                "trigger_reason": "manual",
+                "summary_artifact_id": "artifact-123",
+            },
+            preserved_messages=preserved_tail,
+        )
+
+        after_count = context_manager.transcript_event_count()
+        self.assertGreater(after_count, before_count)
+
+        active_messages = context_manager.get_messages()
+        active_contents = [str(item.get("content", "")) for item in active_messages]
+        self.assertFalse(any("first user message" in content for content in active_contents))
+        self.assertTrue(any("second assistant message" in content for content in active_contents))
+
+        transcript_events = context_manager.get_transcript_events()
+        self.assertTrue(any(event["kind"] == "compact_boundary" for event in transcript_events))
+        self.assertGreaterEqual(len(transcript_events), 6)
 
     def test_newer_preference_controls_override_older_ones(self) -> None:
         workspace = self.base_path / "ws-controls"

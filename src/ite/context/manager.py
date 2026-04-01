@@ -3,56 +3,11 @@ from datetime import datetime
 from ite.client.response import TokenUsage
 from ite.tools.base import Tool
 from ite.config.config import Config
-from dataclasses import field
 from typing import Any
 from ite.utils.text import count_tokens
 from ite.prompts.system import get_system_prompt
-from dataclasses import dataclass
 from typing import Callable
-
-
-@dataclass
-class MessageItem:
-    role: str
-    content: str
-    tool_call_id: str | None = None
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    tool_ui: dict[str, Any] | None = None
-    subtype: str | None = None
-    metadata: dict[str, Any] | None = None
-    token_count: int | None = None
-    pruned_at: datetime | None = None
-
-    def to_dict(
-        self,
-        *,
-        include_tool_ui: bool = False,
-        include_internal_metadata: bool = False,
-    ) -> dict[str, Any]:
-        result: dict[str, Any] = {"role": self.role}
-
-        if self.tool_call_id:
-            result["tool_call_id"] = self.tool_call_id
-
-        if self.tool_calls:
-            result["tool_calls"] = self.tool_calls
-
-        if self.role == "tool":
-            # API requires content on tool messages, even if empty
-            result["content"] = self.content or ""
-        elif self.content or self.tool_calls:
-            result["content"] = self.content or ""
-
-        if include_tool_ui and self.tool_ui and self.role == "tool":
-            result["tool_ui"] = self.tool_ui
-
-        if include_internal_metadata:
-            if self.subtype:
-                result["subtype"] = self.subtype
-            if self.metadata:
-                result["metadata"] = self.metadata
-
-        return result
+from ite.context.transcript import ConversationLog, MessageItem
 
 
 class ContextManager:
@@ -81,7 +36,7 @@ class ContextManager:
         self._compact_artifact_provider = compact_artifact_provider
         self._skill_provider = skill_provider
         self._model_name = self.config.model_name
-        self._messages: list(MessageItem) = []
+        self._conversation_log = ConversationLog()
         self._latest_usage = TokenUsage()
         self._total_usage = TokenUsage()
         self._compaction_count = 0
@@ -92,7 +47,7 @@ class ContextManager:
 
     @property
     def message_count(self) -> int:
-        return len(self._messages)
+        return len(self._message_items())
 
     @property
     def total_usage(self) -> TokenUsage:
@@ -120,7 +75,7 @@ class ContextManager:
 
     def set_messages(self, messages: list[dict]) -> None:
         """Restore messages from a saved session snapshot."""
-        self._messages = []
+        restored_items: list[MessageItem] = []
         skip_restore_triplet = False
         for msg in messages:
             if skip_restore_triplet:
@@ -144,11 +99,11 @@ class ContextManager:
                 and str(msg.get("content", "") or "").startswith(
                     "# Context Restoration (Previous Session Compacted)"
                 )
-                and self._messages
-                and self._messages[-1].role == "system"
-                and self._messages[-1].subtype == "compact_boundary"
+                and restored_items
+                and restored_items[-1].role == "system"
+                and restored_items[-1].subtype == "compact_boundary"
             ):
-                metadata = self._messages[-1].metadata or {}
+                metadata = restored_items[-1].metadata or {}
                 artifact_id = str(metadata.get("summary_artifact_id", "")).strip() or None
                 artifact_content = (
                     self._compact_artifact_provider(artifact_id)
@@ -156,7 +111,7 @@ class ContextManager:
                     else None
                 )
                 if artifact_content:
-                    self._messages.append(
+                    restored_items.append(
                         MessageItem(
                             role="system",
                             subtype="compact_artifact",
@@ -170,7 +125,7 @@ class ContextManager:
                     )
                     skip_restore_triplet = True
                     continue
-            self._messages.append(
+            restored_items.append(
                 MessageItem(
                     role=msg["role"],
                     content=msg.get("content", ""),
@@ -186,6 +141,7 @@ class ContextManager:
                     token_count=count_tokens(msg.get("content", ""), self._model_name),
                 )
             )
+        self._conversation_log.replace_messages(restored_items)
         self._drop_unresolved_tool_calls()
 
     def set_plan_state(self, enabled: bool, phase: str) -> None:
@@ -206,7 +162,7 @@ class ContextManager:
             ),
         )
 
-        self._messages.append(item)
+        self._conversation_log.append(item)
 
     def add_system_message(
         self,
@@ -225,19 +181,20 @@ class ContextManager:
                 self._model_name,
             ),
         )
-        self._messages.append(item)
+        self._conversation_log.append(item)
 
     def _drop_unresolved_tool_calls(self) -> int:
-        if not self._messages:
+        message_items = self._message_items()
+        if not message_items:
             return 0
 
         kept: list[MessageItem] = []
         dropped = 0
         i = 0
-        n = len(self._messages)
+        n = len(message_items)
 
         while i < n:
-            msg = self._messages[i]
+            msg = message_items[i]
             if msg.role != "assistant" or not msg.tool_calls:
                 kept.append(msg)
                 i += 1
@@ -251,8 +208,8 @@ class ContextManager:
 
             j = i + 1
             seen_ids: set[str] = set()
-            while j < n and self._messages[j].role == "tool":
-                tool_id = (self._messages[j].tool_call_id or "").strip()
+            while j < n and message_items[j].role == "tool":
+                tool_id = (message_items[j].tool_call_id or "").strip()
                 if tool_id:
                     seen_ids.add(tool_id)
                 j += 1
@@ -269,7 +226,7 @@ class ContextManager:
             i += 1
 
         if dropped:
-            self._messages = kept
+            self._conversation_log.replace_messages(kept)
         return dropped
 
     def add_assistant_message(
@@ -285,7 +242,7 @@ class ContextManager:
             tool_calls=tool_calls or [],
         )
 
-        self._messages.append(item)
+        self._conversation_log.append(item)
 
     def add_tool_result(
         self,
@@ -305,7 +262,7 @@ class ContextManager:
             ),
         )
 
-        self._messages.append(item)
+        self._conversation_log.append(item)
 
     def get_messages(self) -> list(dict[str, Any]):
         messages = []
@@ -335,14 +292,14 @@ class ContextManager:
                 }
             )
 
-        for item in self._messages:
+        for item in self._message_items():
             messages.append(item.to_dict())
 
         return messages
 
     def get_snapshot_messages(self) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
-        for item in self._messages:
+        for item in self._message_items():
             if item.role == "system" and item.subtype != "compact_boundary":
                 continue
             messages.append(
@@ -354,7 +311,7 @@ class ContextManager:
         return messages
 
     def _latest_user_message_text(self) -> str | None:
-        for item in reversed(self._messages):
+        for item in reversed(self._message_items()):
             if item.role == "user" and item.content.strip():
                 return item.content
         return None
@@ -406,7 +363,7 @@ class ContextManager:
         return total
 
     def select_compaction_tail(self, *, max_messages: int | None = None) -> list[dict[str, Any]]:
-        non_system = [item for item in self._messages if item.role != "system"]
+        non_system = [item for item in self._message_items() if item.role != "system"]
         if not non_system:
             return []
 
@@ -453,24 +410,50 @@ class ContextManager:
         boundary_metadata: dict[str, Any] | None = None,
         preserved_messages: list[dict[str, Any]] | None = None,
     ) -> None:
-        self._messages = []
+        pre_compaction_events = self._conversation_log.event_count()
+        replacement_items: list[MessageItem] = []
         self._compaction_count += 1
         self._last_compacted_at = datetime.now()
         artifact_id = None
 
         if boundary_metadata:
             artifact_id = str(boundary_metadata.get("summary_artifact_id", "")).strip() or None
-            self.add_system_message(
-                "Context compacted; earlier history replaced with continuation summary.",
-                subtype="compact_boundary",
-                metadata=boundary_metadata,
+            boundary_metadata = dict(boundary_metadata)
+            boundary_metadata.setdefault(
+                "preserved_tail_messages",
+                len(preserved_messages or []),
+            )
+            boundary_metadata.setdefault(
+                "compacted_at",
+                self._last_compacted_at.isoformat(),
+            )
+            boundary_metadata.setdefault(
+                "pre_compaction_event_count",
+                pre_compaction_events,
+            )
+            replacement_items.append(
+                MessageItem(
+                    role="system",
+                    content="Context compacted; earlier history replaced with continuation summary.",
+                    subtype="compact_boundary",
+                    metadata=boundary_metadata,
+                    token_count=count_tokens(
+                        "Context compacted; earlier history replaced with continuation summary.",
+                        self._model_name,
+                    ),
+                )
             )
 
         if artifact_id:
-            self.add_system_message(
-                "Compaction summary artifact loaded for live continuation.\n\n" + summary,
-                subtype="compact_artifact",
-                metadata={"summary_artifact_id": artifact_id},
+            artifact_content = "Compaction summary artifact loaded for live continuation.\n\n" + summary
+            replacement_items.append(
+                MessageItem(
+                    role="system",
+                    content=artifact_content,
+                    subtype="compact_artifact",
+                    metadata={"summary_artifact_id": artifact_id},
+                    token_count=count_tokens(artifact_content, self._model_name),
+                )
             )
         else:
             continuation_content = f"""# Context Restoration (Previous Session Compacted)
@@ -494,7 +477,7 @@ class ContextManager:
                 content=continuation_content,
                 token_count=count_tokens(continuation_content, self._model_name),
             )
-            self._messages.append(summary_item)
+            replacement_items.append(summary_item)
 
             ack_content = """I've reviewed the context from the previous session. I understand:
     - The original goal and what was requested
@@ -508,13 +491,13 @@ class ContextManager:
                 content=ack_content,
                 token_count=count_tokens(ack_content, self._model_name),
             )
-            self._messages.append(ack_item)
+            replacement_items.append(ack_item)
 
         for msg in preserved_messages or []:
             role = str(msg.get("role", "")).strip()
             if role not in {"user", "assistant", "tool"}:
                 continue
-            self._messages.append(
+            replacement_items.append(
                 MessageItem(
                     role=role,
                     content=str(msg.get("content", "") or ""),
@@ -545,10 +528,16 @@ class ContextManager:
                 content=continue_content,
                 token_count=count_tokens(continue_content, self._model_name),
             )
-            self._messages.append(continue_item)
+            replacement_items.append(continue_item)
+
+        active_start = self._conversation_log.event_count()
+        for item in replacement_items:
+            self._conversation_log.append(item)
+        self._conversation_log.set_active_start(active_start)
 
     def prune_tool_outputs(self) -> int:
-        user_message_count = sum(1 for msg in self._messages if msg.role == "user")
+        message_items = self._message_items()
+        user_message_count = sum(1 for msg in message_items if msg.role == "user")
 
         if user_message_count < 2:
             return 0
@@ -557,7 +546,7 @@ class ContextManager:
         pruned_tokens = 0
         to_prune: list[MessageItem] = []
 
-        for msg in reversed(self._messages):
+        for msg in reversed(message_items):
             if msg.role == "tool" and msg.tool_call_id:
                 if msg.pruned_at:
                     break
@@ -584,4 +573,13 @@ class ContextManager:
         return pruned_count
 
     def clear(self) -> None:
-        self._messages = []
+        self._conversation_log.clear()
+
+    def get_transcript_events(self) -> list[dict[str, Any]]:
+        return [event.to_dict() for event in self._conversation_log.iter_events()]
+
+    def _message_items(self) -> list[MessageItem]:
+        return self._conversation_log.iter_messages()
+
+    def transcript_event_count(self) -> int:
+        return self._conversation_log.event_count()
