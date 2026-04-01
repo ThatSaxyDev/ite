@@ -1231,13 +1231,14 @@ CommitModal .commit-toggle-choice {
 
 CommitModal .commit-message-label {
     margin-top: 1;
-    margin-bottom: 0;
+    margin-bottom: 1;
 }
 
 CommitModal .commit-message-row {
     height: auto;
     min-height: 3;
     align-vertical: middle;
+    margin-bottom: 0;
 }
 
 CommitModal #commit-message {
@@ -1266,6 +1267,14 @@ CommitModal #commit-ai-fill {
 CommitModal #commit-ai-fill:hover {
     background: #313d48;
     color: #d7e3f2;
+}
+
+CommitModal .commit-ai-status {
+    height: 1;
+    min-height: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: #aeb7c6;
 }
 
 CommitModal .commit-actions {

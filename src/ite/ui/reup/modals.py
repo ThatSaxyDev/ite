@@ -336,6 +336,16 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
 class CommitModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [("escape", "cancel", "Cancel")]
     _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    _AI_LOADING_LINES = (
+        "Distilling the diff into a sharp subject",
+        "Hunting for the cleanest conventional-commit angle",
+        "Turning file churn into one confident line",
+        "Finding the story hidden inside this patch",
+        "Shaving the noise off the commit subject",
+        "Reading the tea leaves in your staged changes",
+        "Compressing intent, impact, and scope into one line",
+        "Looking for the change that users would actually notice",
+    )
 
     def __init__(
         self,
@@ -365,6 +375,11 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._ai_spinner_index = 0
         self._ai_spinner_timer = None
         self._last_ai_error: str | None = None
+        self._ai_loading_seed = (
+            sum(ord(char) for char in " ".join(self._changed_paths)) % len(self._AI_LOADING_LINES)
+            if self._changed_paths
+            else 0
+        )
 
     def _include_unstaged_text(self) -> Text:
         text = Text()
@@ -488,6 +503,21 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         line = re.sub(r"^(commit message:|subject:)\s*", "", line, flags=re.IGNORECASE)
         return line[:72].rstrip() or "chore: update related files"
 
+    def _loading_copy(self, step: int) -> str:
+        index = (self._ai_loading_seed + max(0, step)) % len(self._AI_LOADING_LINES)
+        return self._AI_LOADING_LINES[index]
+
+    def _loading_status_text(self) -> Text:
+        frame = self._AI_SPINNER_FRAMES[
+            self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)
+        ]
+        message = self._loading_copy(self._ai_spinner_index // 4)
+        status = Text()
+        status.append(f"{frame} ", style="bold #8fb7dc")
+        status.append(message, style="italic #aeb7c6")
+        status.append("...", style="#7e8796")
+        return status
+
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal commit-modal"):
             yield Label("Commit your changes", classes="modal-title")
@@ -525,7 +555,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         id="commit-message",
                     )
                     yield Button("✦", id="commit-ai-fill", variant="default")
-                yield Static("", id="commit-ai-status", classes="push-review-warning")
+                yield Static("", id="commit-ai-status", classes="commit-ai-status")
             with Horizontal(classes="modal-actions resume-actions commit-actions"):
                 yield Button(
                     "Commit", id="commit-confirm", variant="primary", disabled=True
@@ -581,9 +611,11 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         if not self._generating_commit_message:
             return
         button = self.query_one("#commit-ai-fill", Button)
+        status_widget = self.query_one("#commit-ai-status", Static)
         button.label = self._AI_SPINNER_FRAMES[
             self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)
         ]
+        status_widget.update(self._loading_status_text())
         self._ai_spinner_index += 1
 
     async def _fill_commit_message_from_ai(self) -> None:
@@ -594,7 +626,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         original_label = button.label
         self._ai_spinner_index = 0
         self._last_ai_error = None
-        status_widget.update("Generating commit subject...")
+        status_widget.update(self._loading_status_text())
         button.label = self._AI_SPINNER_FRAMES[0]
         button.disabled = True
         self._ai_spinner_timer = self.set_interval(0.08, self._tick_ai_spinner)

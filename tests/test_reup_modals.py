@@ -66,6 +66,23 @@ class _FakeLLMClient:
 
 
 class CommitModalTests(unittest.IsolatedAsyncioTestCase):
+    def test_loading_copy_rotates_across_multiple_lines(self) -> None:
+        modal = CommitModal(
+            config=Config(),
+            branch="main",
+            file_count=2,
+            additions=10,
+            deletions=2,
+            changed_paths=["src/lib/usage.ts", "src/ite/ui/reup/modals.py"],
+            diff_context="updated commit modal and usage helpers",
+        )
+
+        first = modal._loading_copy(0)
+        second = modal._loading_copy(1)
+
+        self.assertNotEqual(first, second)
+        self.assertNotIn("Generating commit subject", first)
+
     async def test_generate_commit_message_uses_injected_client(self) -> None:
         client = _FakeLLMClient(
             [
