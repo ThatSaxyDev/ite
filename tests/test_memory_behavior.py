@@ -315,7 +315,11 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
             pass
 
     async def _fake_chat_completion(self, messages, tools=None, stream=True):
-        prompt = str(messages[0].get("content", "")) if messages else ""
+        prompt = "\n\n".join(
+            str(message.get("content", ""))
+            for message in messages
+            if message.get("role") == "system"
+        )
         latest_user = ""
         for msg in reversed(messages):
             if msg.get("role") == "user":

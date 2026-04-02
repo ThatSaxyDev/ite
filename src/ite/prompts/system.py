@@ -16,6 +16,28 @@ def get_system_prompt(
     plan_phase: str = "idle",
     skill_context: dict | None = None,
 ) -> str:
+    return "\n\n".join(
+        build_system_prompt_layers(
+            config,
+            user_memory=user_memory,
+            session_memory=session_memory,
+            tools=tools,
+            plan_mode_enabled=plan_mode_enabled,
+            plan_phase=plan_phase,
+            skill_context=skill_context,
+        )
+    )
+
+
+def build_system_prompt_layers(
+    config: Config,
+    user_memory: dict | None = None,
+    session_memory: str | None = None,
+    tools: list[Tool] | None = None,
+    plan_mode_enabled: bool = False,
+    plan_phase: str = "idle",
+    skill_context: dict | None = None,
+) -> list[str]:
     parts = []
 
     # Identity and role
@@ -58,7 +80,49 @@ def get_system_prompt(
     # Operational guidelines
     parts.append(_get_operational_section())
 
+    return parts
+
+
+def get_base_system_prompt(
+    config: Config,
+    *,
+    tools: list[Tool] | None = None,
+    plan_mode_enabled: bool = False,
+    plan_phase: str = "idle",
+    skill_context: dict | None = None,
+) -> str:
+    parts = [
+        _get_identity_section(),
+        _get_environment_section(config),
+    ]
+    if tools:
+        parts.append(_get_tool_guidelines_section(tools))
+    parts.append(_get_agents_md_section())
+    parts.append(_get_security_section())
+    if config.developer_instructions:
+        parts.append(_get_developer_instructions_section(config.developer_instructions))
+    if config.user_instructions:
+        parts.append(_get_user_instructions_section(config.user_instructions))
+    if plan_mode_enabled:
+        parts.append(_get_plan_mode_section(plan_phase))
+    if skill_context:
+        skills_section = _get_skills_section(skill_context)
+        if skills_section:
+            parts.append(skills_section)
+    parts.append(_get_operational_section())
     return "\n\n".join(parts)
+
+
+def get_controls_prompt(controls: dict | None) -> str:
+    return _get_controls_section(controls or {})
+
+
+def get_memory_prompt(memory: dict | None) -> str:
+    return _get_memory_section(memory or {})
+
+
+def get_session_memory_prompt(session_memory: str | None) -> str:
+    return _get_session_memory_section(session_memory or "")
 
 
 def _get_identity_section() -> str:

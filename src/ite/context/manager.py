@@ -5,7 +5,12 @@ from ite.tools.base import Tool
 from ite.config.config import Config
 from typing import Any
 from ite.utils.text import count_tokens
-from ite.prompts.system import get_system_prompt
+from ite.prompts.system import (
+    get_base_system_prompt,
+    get_controls_prompt,
+    get_memory_prompt,
+    get_session_memory_prompt,
+)
 from typing import Callable
 from ite.context.transcript import ConversationLog, MessageItem
 
@@ -264,36 +269,138 @@ class ContextManager:
 
         self._conversation_log.append(item)
 
-    def get_messages(self) -> list(dict[str, Any]):
-        messages = []
-
+    def _load_prompt_state(self, current_user_text: str | None = None) -> tuple[dict | None, str | None, dict[str, Any] | None]:
+        lookup_text = current_user_text if current_user_text is not None else self._latest_user_message_text()
         user_memory = self._user_memory
         if self._memory_provider:
-            user_memory = self._memory_provider(self._latest_user_message_text())
+            user_memory = self._memory_provider(lookup_text)
         session_memory = (
             self._session_memory_provider() if self._session_memory_provider else None
         )
         skill_context = self._skill_provider() if self._skill_provider else None
+        return user_memory, session_memory, skill_context
 
-        system_prompt = get_system_prompt(
+    def get_prompt_layers(self, current_user_text: str | None = None) -> list[dict[str, Any]]:
+        user_memory, session_memory, skill_context = self._load_prompt_state(current_user_text)
+        controls = user_memory.get("controls", {}) if isinstance(user_memory, dict) else {}
+        compact_state: list[dict[str, Any]] = []
+        transcript_tail: list[dict[str, Any]] = []
+
+        for item in self._message_items():
+            payload = item.to_dict(
+                include_internal_metadata=(item.role == "system"),
+            )
+            if item.role == "system":
+                compact_state.append(payload)
+            else:
+                transcript_tail.append(payload)
+
+        durable_memory: dict[str, Any] | None = None
+        if isinstance(user_memory, dict):
+            durable_memory = {
+                key: user_memory.get(key)
+                for key in ("long_term", "semantic", "episodic", "short_term")
+                if user_memory.get(key)
+            }
+
+        layers: list[dict[str, Any]] = []
+
+        base_system_prompt = get_base_system_prompt(
             self.config,
-            user_memory,
             tools=self._tools,
-            session_memory=session_memory,
             plan_mode_enabled=self._plan_mode_enabled,
             plan_phase=self._plan_phase,
             skill_context=skill_context,
         )
-        if system_prompt:
-            messages.append(
+        if base_system_prompt:
+            layers.append(
                 {
-                    "role": "system",
-                    "content": system_prompt,
+                    "name": "system_prompt",
+                    "messages": [{"role": "system", "content": base_system_prompt}],
                 }
             )
 
-        for item in self._message_items():
-            messages.append(item.to_dict())
+        controls_prompt = get_controls_prompt(controls if isinstance(controls, dict) else {})
+        if controls_prompt:
+            layers.append(
+                {
+                    "name": "response_controls",
+                    "messages": [{"role": "system", "content": controls_prompt}],
+                }
+            )
+
+        session_memory_prompt = get_session_memory_prompt(session_memory)
+        if session_memory_prompt:
+            layers.append(
+                {
+                    "name": "session_memory",
+                    "messages": [{"role": "system", "content": session_memory_prompt}],
+                }
+            )
+
+        if compact_state:
+            layers.append(
+                {
+                    "name": "compact_state",
+                    "messages": compact_state,
+                }
+            )
+
+        if transcript_tail:
+            layers.append(
+                {
+                    "name": "transcript_tail",
+                    "messages": transcript_tail,
+                }
+            )
+
+        durable_memory_prompt = get_memory_prompt(durable_memory)
+        if durable_memory_prompt:
+            layers.append(
+                {
+                    "name": "durable_memory",
+                    "messages": [{"role": "system", "content": durable_memory_prompt}],
+                }
+            )
+
+        return layers
+
+    def get_prompt_messages(self, current_user_text: str | None = None) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        for layer in self.get_prompt_layers(current_user_text):
+            messages.extend(layer["messages"])
+        return messages
+
+    def get_messages(self) -> list(dict[str, Any]):
+        layers = self.get_prompt_layers()
+        merged_system_parts: list[str] = []
+        messages: list[dict[str, Any]] = []
+
+        for layer in layers:
+            name = str(layer.get("name", "")).strip()
+            layer_messages = list(layer.get("messages") or [])
+            if name in {
+                "system_prompt",
+                "response_controls",
+                "session_memory",
+                "durable_memory",
+            }:
+                for message in layer_messages:
+                    if message.get("role") == "system":
+                        content = str(message.get("content", "") or "").strip()
+                        if content:
+                            merged_system_parts.append(content)
+                continue
+            messages.extend(layer_messages)
+
+        if merged_system_parts:
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": "\n\n".join(merged_system_parts),
+                },
+            )
 
         return messages
 
@@ -353,7 +460,7 @@ class ContextManager:
 
     def estimate_current_context_tokens(self) -> int:
         """Best-effort token count for the current message context sent to the model."""
-        messages = self.get_messages()
+        messages = self.get_prompt_messages()
         total = 0
         for msg in messages:
             total += count_tokens(

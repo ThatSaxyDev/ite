@@ -142,6 +142,57 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertIn("# Active Response Controls", system_prompt)
         self.assertIn("absolute file paths", system_prompt.lower())
 
+    def test_context_manager_exposes_prompt_layers_in_explicit_order(self) -> None:
+        workspace = self.base_path / "ws-prompt-layers"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: {
+                "controls": {"answer_length": "detailed"},
+                "semantic": {"tests": "Use pytest for tests"},
+                "long_term": {},
+                "episodic": [],
+                "short_term": {},
+            },
+            session_memory_provider=lambda: "# Session Title\nLayered prompt",
+        )
+        context_manager.add_user_message("Explain the architecture.")
+        context_manager.replace_with_summary(
+            "## ORIGINAL GOAL\ncontinue",
+            boundary_metadata={"trigger_reason": "manual"},
+            preserved_messages=context_manager.select_compaction_tail(max_messages=1),
+        )
+
+        layers = context_manager.get_prompt_layers()
+        self.assertEqual(
+            [layer["name"] for layer in layers],
+            [
+                "system_prompt",
+                "response_controls",
+                "session_memory",
+                "compact_state",
+                "transcript_tail",
+                "durable_memory",
+            ],
+        )
+        compact_messages = next(
+            layer["messages"] for layer in layers if layer["name"] == "compact_state"
+        )
+        self.assertTrue(
+            any(message.get("subtype") == "compact_boundary" for message in compact_messages)
+        )
+        self.assertIn(
+            "Use pytest for tests",
+            next(
+                layer["messages"][0]["content"]
+                for layer in layers
+                if layer["name"] == "durable_memory"
+            ),
+        )
+
     def test_context_manager_preserves_internal_system_messages(self) -> None:
         workspace = self.base_path / "ws-system-note"
         workspace.mkdir()

@@ -796,7 +796,9 @@ class Agent:
             usage: TokenUsage | None = None
             stream_error: str | None = None
 
-            outbound_messages = session.context_manager.get_messages()
+            outbound_messages = session.context_manager.get_prompt_messages(
+                latest_user_text
+            )
             if latest_user_model_content is not None:
                 for msg in reversed(outbound_messages):
                     if msg.get("role") == "user" and msg.get("content") == latest_user_text:

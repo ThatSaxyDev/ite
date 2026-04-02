@@ -21,7 +21,11 @@ class _EvalModel:
         self.system_prompts: list[str] = []
 
     async def chat_completion(self, messages, tools=None, stream=True):
-        system_prompt = str(messages[0].get("content", "")) if messages else ""
+        system_prompt = "\n\n".join(
+            str(message.get("content", ""))
+            for message in messages
+            if message.get("role") == "system"
+        )
         self.system_prompts.append(system_prompt)
 
         latest_user = ""
