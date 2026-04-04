@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
+import random
 import re
 from datetime import datetime
 from pathlib import Path
-import random
 from typing import Any
 from urllib.parse import urlparse
 
@@ -404,7 +404,8 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             "|".join(self._changed_paths) or f"{self._branch}:{self._file_count}"
         )
         self._ai_loading_seed = (
-            sum(ord(char) for char in " ".join(self._changed_paths)) % len(self._AI_LOADING_LINES)
+            sum(ord(char) for char in " ".join(self._changed_paths))
+            % len(self._AI_LOADING_LINES)
             if self._changed_paths
             else 0
         )
@@ -510,9 +511,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             user = (
                 "Write one git commit subject.\n\n"
                 f"Branch: {self._branch}\n"
-                "Paths: "
-                + ", ".join(self._changed_paths[:6])
-                + "\n"
+                "Paths: " + ", ".join(self._changed_paths[:6]) + "\n"
                 f"Stats: +{self._additions} -{self._deletions}"
             )
         elif mode == "simple":
@@ -520,9 +519,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                 "Write one git commit subject for these changes.\n\n"
                 f"Branch: {self._branch}\n"
                 f"Stats: {self._file_count} files, +{self._additions}, -{self._deletions}\n"
-                "Paths: "
-                + ", ".join(self._changed_paths[:8])
-                + "\n"
+                "Paths: " + ", ".join(self._changed_paths[:8]) + "\n"
                 f"Summary: {self._diff_context[:900]}"
             )
         else:
@@ -532,9 +529,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                 f"Files changed: {self._file_count}\n"
                 f"Additions: {self._additions}\n"
                 f"Deletions: {self._deletions}\n"
-                "Changed paths:\n- "
-                + "\n- ".join(self._changed_paths[:12])
-                + "\n\n"
+                "Changed paths:\n- " + "\n- ".join(self._changed_paths[:12]) + "\n\n"
                 "Focused change summary:\n"
                 f"{self._diff_context}"
             )
@@ -1091,7 +1086,7 @@ class ContextSummaryModal(ModalScreen[None]):
         with Container(classes="modal context-modal"):
             yield Label("Context window", classes="modal-title")
             yield Static(
-                "Live context window, compaction threshold, and recent boundary state.",
+                "iTE automatically manages your context window.",
                 classes="modal-body",
             )
             with Container(classes="usage-summary-panel"):
@@ -1110,8 +1105,14 @@ class ActivityModal(ModalScreen[None]):
     def __init__(self, payload: dict[str, Any]) -> None:
         super().__init__()
         self._payload = payload
-        self._events = payload.get("events") if isinstance(payload.get("events"), list) else []
-        self._analytics = payload.get("analytics") if isinstance(payload.get("analytics"), dict) else {}
+        self._events = (
+            payload.get("events") if isinstance(payload.get("events"), list) else []
+        )
+        self._analytics = (
+            payload.get("analytics")
+            if isinstance(payload.get("analytics"), dict)
+            else {}
+        )
 
     @staticmethod
     def _format_when(value: str) -> str:
@@ -1202,18 +1203,39 @@ class ActivityModal(ModalScreen[None]):
             Text("All time", style="#8f949d"),
         )
         top.add_row(
-            Text(self._format_usd(int(totals.get("todayUsdCents") or 0)), style="bold #f3f4f6"),
-            Text(self._format_usd(int(totals.get("sevenDayUsdCents") or 0)), style="bold #f3f4f6"),
-            Text(self._format_usd(int(totals.get("currentPeriodUsdCents") or 0)), style="bold #f3f4f6"),
-            Text(self._format_usd(int(totals.get("allTimeUsdCents") or 0)), style="bold #f3f4f6"),
+            Text(
+                self._format_usd(int(totals.get("todayUsdCents") or 0)),
+                style="bold #f3f4f6",
+            ),
+            Text(
+                self._format_usd(int(totals.get("sevenDayUsdCents") or 0)),
+                style="bold #f3f4f6",
+            ),
+            Text(
+                self._format_usd(int(totals.get("currentPeriodUsdCents") or 0)),
+                style="bold #f3f4f6",
+            ),
+            Text(
+                self._format_usd(int(totals.get("allTimeUsdCents") or 0)),
+                style="bold #f3f4f6",
+            ),
         )
         top.add_row(
-            Text(self._format_ngn(int(totals.get("todayUsdCents") or 0)), style="#8f949d"),
-            Text(self._format_ngn(int(totals.get("sevenDayUsdCents") or 0)), style="#8f949d"),
+            Text(
+                self._format_ngn(int(totals.get("todayUsdCents") or 0)), style="#8f949d"
+            ),
+            Text(
+                self._format_ngn(int(totals.get("sevenDayUsdCents") or 0)),
+                style="#8f949d",
+            ),
             Text(
                 self._format_period(
-                    current_period.get("start") if isinstance(current_period.get("start"), str) else None,
-                    current_period.get("end") if isinstance(current_period.get("end"), str) else None,
+                    current_period.get("start")
+                    if isinstance(current_period.get("start"), str)
+                    else None,
+                    current_period.get("end")
+                    if isinstance(current_period.get("end"), str)
+                    else None,
                 ),
                 style="#8f949d",
             ),
@@ -1238,17 +1260,29 @@ class ActivityModal(ModalScreen[None]):
                 if not isinstance(row, dict):
                     continue
                 model_table.add_row(
-                    Text(self._model_label(str(row.get("modelKey") or "")), style="#f3f4f6"),
-                    Text(self._format_usd(int(row.get("usdCents") or 0)), style="#f3f4f6"),
+                    Text(
+                        self._model_label(str(row.get("modelKey") or "")),
+                        style="#f3f4f6",
+                    ),
+                    Text(
+                        self._format_usd(int(row.get("usdCents") or 0)), style="#f3f4f6"
+                    ),
                     Text(
                         f"{self._format_ngn(int(row.get('usdCents') or 0))}  ·  {int(row.get('sharePercent') or 0)}%",
                         style="#8f949d",
                     ),
                 )
         else:
-            model_table.add_row(Text("No model spend yet.", style="#8f949d"), Text(""), Text(""))
+            model_table.add_row(
+                Text("No model spend yet.", style="#8f949d"), Text(""), Text("")
+            )
 
-        return Group(top, Rule(style="#2a2d31"), Text("Top models", style="bold #f3f4f6"), model_table)
+        return Group(
+            top,
+            Rule(style="#2a2d31"),
+            Text("Top models", style="bold #f3f4f6"),
+            model_table,
+        )
 
     @staticmethod
     def _model_label(model_key: str) -> str:
@@ -1273,7 +1307,9 @@ class ActivityModal(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Container(classes="modal activity-modal"):
             yield Label("Usage analytics", classes="modal-title")
-            yield Static("Bundled spend and model mix across your account.", classes="modal-body")
+            yield Static(
+                "Bundled spend and model mix across your account.", classes="modal-body"
+            )
             with Container(classes="usage-summary-panel"):
                 yield Static(self._build_summary(), classes="usage-summary-body")
             with Horizontal(classes="modal-actions resume-actions"):

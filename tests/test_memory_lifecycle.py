@@ -582,11 +582,11 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         session.context_manager.get_compaction_status = lambda: {  # type: ignore[method-assign]
             "message_count": session.context_manager.message_count,
             "min_messages": 8,
-            "current_tokens": 140000,
+            "current_tokens": 180000,
             "context_limit": 200000,
-            "ratio_trigger": 130000,
+            "ratio_trigger": 170000,
             "reserve_trigger": 188000,
-            "trigger_at": 130000,
+            "trigger_at": 170000,
             "eligible_by_messages": True,
             "needs_compression": False,
         }

@@ -229,7 +229,9 @@ class Agent:
         current_tokens = int(status.get("current_tokens", 0) or 0)
         trigger_at = int(status.get("trigger_at", 0) or 0)
         eligible_by_messages = bool(status.get("eligible_by_messages", False))
-        return bool(eligible_by_messages and trigger_at > 0 and current_tokens >= trigger_at)
+        return bool(
+            eligible_by_messages and trigger_at > 0 and current_tokens >= trigger_at
+        )
 
     def _explicit_memory_confirmation(self, instruction, *, count: int = 1) -> str:
         if count > 1 and instruction.store == "long_term":

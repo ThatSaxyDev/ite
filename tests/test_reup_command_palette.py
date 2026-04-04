@@ -566,7 +566,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             ) as finish_card, patch.object(app, "refresh_header"):
                 await app.handle_agent_event(
                     AgentEvent.context_compacted(
-                        trigger_tokens=130000,
+                        trigger_tokens=170000,
                         context_window=200000,
                         summary_chars=1200,
                         auto_resume_required=True,
