@@ -156,19 +156,15 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async for event in agent.run("trigger compaction boundary"):
             events.append(event)
 
-        self.assertEqual(call_turn_counts, [1])
-        self.assertEqual(session.turn_count, 1)
+        self.assertEqual(call_turn_counts, [])
+        self.assertEqual(session.turn_count, 0)
         compacted_index = next(
             idx
             for idx, event in enumerate(events)
             if event.type == AgentEventType.CONTEXT_COMPACTED
         )
-        text_complete_index = next(
-            idx
-            for idx, event in enumerate(events)
-            if event.type == AgentEventType.TEXT_COMPLETE
-        )
-        self.assertLess(compacted_index, text_complete_index)
+        self.assertTrue(events[compacted_index].data.get("auto_resume_required"))
+        self.assertFalse(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
 
     async def test_auto_compaction_waits_before_continuation(self) -> None:
         workspace = self.base_path / "ws-compact-delay"

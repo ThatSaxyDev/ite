@@ -169,6 +169,7 @@ class AgentEvent:
         context_window: int,
         summary_chars: int,
         trigger_reason: str = "threshold",
+        auto_resume_required: bool = False,
     ) -> AgentEvent:
         return cls(
             type=AgentEventType.CONTEXT_COMPACTED,
@@ -177,6 +178,7 @@ class AgentEvent:
                 "context_window": context_window,
                 "summary_chars": summary_chars,
                 "trigger_reason": trigger_reason,
+                "auto_resume_required": auto_resume_required,
             },
         )
 

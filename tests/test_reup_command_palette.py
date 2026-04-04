@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, PropertyMock, patch
 from types import SimpleNamespace
 
 from rich.console import Console
+from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.config.config import Config
 from ite.client.response import TokenUsage
@@ -543,6 +544,73 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertEqual(show_indicator.await_args.args[0], "compacting context")
 
         asyncio.run(run_test())
+
+    def test_context_compacted_auto_resume_queues_hidden_continue(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                )
+            )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            run_state.is_turn_running = True
+
+            with patch.object(app, "post_system"), patch.object(app, "refresh_header"), patch.object(
+                app, "_show_activity_indicator", new=AsyncMock()
+            ):
+                await app.handle_agent_event(
+                    AgentEvent.context_compacted(
+                        trigger_tokens=130000,
+                        context_window=200000,
+                        summary_chars=1200,
+                        auto_resume_required=True,
+                    ),
+                    "s1",
+                    1,
+                )
+
+            self.assertEqual(
+                run_state.auto_resume_payload,
+                {
+                    "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
+                    "display_message": "",
+                    "attachments": [],
+                    "suppress_user_echo": True,
+                },
+            )
+
+        asyncio.run(run_test())
+
+    def test_auto_resume_payload_dispatches_before_queued_payload(self) -> None:
+        app = self._app()
+        run_state = app._run_state("s1")
+        app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+        expected_payload = {
+            "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
+            "display_message": "",
+            "attachments": [],
+            "suppress_user_echo": True,
+        }
+        run_state.auto_resume_payload = dict(expected_payload)
+        run_state.queued_turn_payload = {
+            "message": "visible queued draft",
+            "display_message": "visible queued draft",
+            "attachments": [],
+        }
+
+        async def scenario() -> None:
+            with patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
+                app, "post_notice"
+            ) as post_notice:
+                await app._dispatch_queued_payload_if_ready()
+                dispatch.assert_awaited_once_with(expected_payload)
+                post_notice.assert_not_called()
+
+        asyncio.run(scenario())
 
     def test_render_skills_payload_formats_show_output_instead_of_raw_json(self) -> None:
         rendered = render_skills_payload(

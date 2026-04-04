@@ -1,35 +1,33 @@
 from __future__ import annotations
+
 import asyncio
 import json
+import re
 import uuid
-from ite.config.config import Config
-from ite.client.response import ToolResultMessage
-from ite.client.response import ToolCall
-from ite.agent.events import AgentEventType
-from ite.client.response import StreamEventType
-from ite.agent.events import AgentEvent
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Awaitable, Callable
+
+from ite.agent.change_history import file_diffs_from_tool_result
+from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
-from ite.client.response import TokenUsage
-from ite.tools.base import ToolConfirmation
-from ite.tools.base import ToolResult
-from typing import Awaitable, Callable
-from ite.prompts.system import create_loop_breaker_prompt
+from ite.client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage
+from ite.config.config import Config
 from ite.memory import (
     parse_exact_recall_probe,
     parse_explicit_memory_instruction,
     parse_explicit_memory_instructions,
     resolve_response_intent,
 )
-from ite.agent.change_history import file_diffs_from_tool_result
+from ite.prompts.system import create_loop_breaker_prompt
+from ite.tools.base import ToolConfirmation, ToolResult
 from ite.utils.errors import is_context_overflow_error
-import re
 
 
 class Agent:
     PLAN_MIN_QUESTIONS = 3
     PLAN_MAX_QUESTIONS = 5
-    PLAN_EXECUTE_PROMPT = "Implement the approved plan now. Execute the planned changes."
+    PLAN_EXECUTE_PROMPT = (
+        "Implement the approved plan now. Execute the planned changes."
+    )
     POST_COMPACTION_CONTINUATION_DELAY_SECONDS = 1.25
     POST_COMPACTION_MAX_RECOVERY_RETRIES = 2
     POST_COMPACTION_CONTINUE_PROMPT = (
@@ -55,7 +53,9 @@ class Agent:
         self.session.approval_manager.confirmation_callback = confirmation_callback
         self.plan_question_callback = plan_question_callback
 
-    async def run(self, message: str, user_model_content: str | list[dict] | None = None):
+    async def run(
+        self, message: str, user_model_content: str | list[dict] | None = None
+    ):
         session = self.session
         if session is None:
             yield AgentEvent.agent_error("Session is not available.")
@@ -75,7 +75,9 @@ class Agent:
                     metadata=instruction.metadata,
                 )
             session.context_manager.add_user_message(message)
-            confirmation = self._explicit_memory_confirmation(explicit_memory, count=len(explicit_instructions))
+            confirmation = self._explicit_memory_confirmation(
+                explicit_memory, count=len(explicit_instructions)
+            )
             session.context_manager.add_assistant_message(confirmation)
             await session.hook_system.trigger_after_agent(
                 user_message=message,
@@ -118,10 +120,14 @@ class Agent:
                 message
             )
             session.set_plan_phase("asking_questions")
-            async for seeded_event in self._seed_planning_todos_if_needed(session, message):
+            async for seeded_event in self._seed_planning_todos_if_needed(
+                session, message
+            ):
                 yield seeded_event
         elif not session.plan_mode_enabled and not is_execution_handoff:
-            async for seeded_event in self._seed_execution_todos_if_needed(session, message):
+            async for seeded_event in self._seed_execution_todos_if_needed(
+                session, message
+            ):
                 yield seeded_event
         final_response: str | None = None
 
@@ -145,7 +151,9 @@ class Agent:
 
         yield AgentEvent.agent_end(final_response)
 
-    def _apply_response_controls(self, session: Session, user_message: str, response_text: str) -> str:
+    def _apply_response_controls(
+        self, session: Session, user_message: str, response_text: str
+    ) -> str:
         text = (response_text or "").strip()
         if not text:
             return response_text
@@ -172,7 +180,9 @@ class Agent:
                 continue
 
             if bullet_parts:
-                flattened.append("; ".join(part.rstrip(".") for part in bullet_parts) + ".")
+                flattened.append(
+                    "; ".join(part.rstrip(".") for part in bullet_parts) + "."
+                )
                 bullet_parts = []
 
             flattened.append(line)
@@ -238,7 +248,11 @@ class Agent:
         controls = bundle.get("controls", {}) or {}
         if controls:
             return None
-        if bundle.get("short_term") or bundle.get("long_term") or bundle.get("episodic"):
+        if (
+            bundle.get("short_term")
+            or bundle.get("long_term")
+            or bundle.get("episodic")
+        ):
             return None
 
         semantic = bundle.get("semantic", {}) or {}
@@ -286,9 +300,15 @@ class Agent:
         )
         yield AgentEvent.tool_call_complete(call_id, "todos", result)
         if result.success:
-            changed_ids = result.metadata.get("changed_ids", []) if isinstance(result.metadata, dict) else []
+            changed_ids = (
+                result.metadata.get("changed_ids", [])
+                if isinstance(result.metadata, dict)
+                else []
+            )
             if isinstance(changed_ids, list):
-                session.planning_seed_ids = [str(i) for i in changed_ids if str(i).strip()]
+                session.planning_seed_ids = [
+                    str(i) for i in changed_ids if str(i).strip()
+                ]
 
     def _derive_planning_seed_items(self, message: str) -> list[str]:
         return [
@@ -307,7 +327,9 @@ class Agent:
 
         state = session.export_todos_state()
         execution_items = state.get("execution", []) if isinstance(state, dict) else []
-        if execution_items and not self._should_refresh_execution_todos(execution_items):
+        if execution_items and not self._should_refresh_execution_todos(
+            execution_items
+        ):
             return
 
         seed_items = self._derive_execution_seed_items(message)
@@ -331,14 +353,24 @@ class Agent:
         )
         yield AgentEvent.tool_call_complete(call_id, "todos", result)
         if result.success:
-            changed_ids = result.metadata.get("changed_ids", []) if isinstance(result.metadata, dict) else []
+            changed_ids = (
+                result.metadata.get("changed_ids", [])
+                if isinstance(result.metadata, dict)
+                else []
+            )
             if isinstance(changed_ids, list):
-                session.execution_seed_ids = [str(i) for i in changed_ids if str(i).strip()]
+                session.execution_seed_ids = [
+                    str(i) for i in changed_ids if str(i).strip()
+                ]
 
     def _should_refresh_execution_todos(self, execution_items: list[dict]) -> bool:
         if not isinstance(execution_items, list) or not execution_items:
             return True
-        if all(bool(item.get("completed", False)) for item in execution_items if isinstance(item, dict)):
+        if all(
+            bool(item.get("completed", False))
+            for item in execution_items
+            if isinstance(item, dict)
+        ):
             return True
         generic_markers = (
             "implement requested changes",
@@ -354,13 +386,24 @@ class Agent:
                 normalized.append(content)
         if not normalized:
             return True
-        return all(any(marker in content for marker in generic_markers) for content in normalized)
+        return all(
+            any(marker in content for marker in generic_markers)
+            for content in normalized
+        )
 
     def _should_seed_execution_todos(self, message: str) -> bool:
         text = (message or "").strip().lower()
         if len(text) < 24:
             return False
-        trivial_starts = ("what is", "show me", "where is", "explain", "summarize", "list ", "print ")
+        trivial_starts = (
+            "what is",
+            "show me",
+            "where is",
+            "explain",
+            "summarize",
+            "list ",
+            "print ",
+        )
         if any(text.startswith(marker) for marker in trivial_starts):
             return False
 
@@ -407,9 +450,13 @@ class Agent:
             if not part:
                 continue
             lowered = part.lower()
-            if not any(lowered.startswith(v + " ") or f" {v} " in lowered for v in verbs):
+            if not any(
+                lowered.startswith(v + " ") or f" {v} " in lowered for v in verbs
+            ):
                 continue
-            part = re.sub(r"^(please\s+)?(can you\s+)?", "", part, flags=re.IGNORECASE).strip()
+            part = re.sub(
+                r"^(please\s+)?(can you\s+)?", "", part, flags=re.IGNORECASE
+            ).strip()
             if part:
                 part = part[0].upper() + part[1:]
             if part and part not in tasks:
@@ -506,7 +553,9 @@ class Agent:
         }
         return set(validation_errors).issubset(required_errors.get(tool_name, set()))
 
-    def _is_planning_todo_already_completed(self, session: Session, todo_id: str) -> bool:
+    def _is_planning_todo_already_completed(
+        self, session: Session, todo_id: str
+    ) -> bool:
         state = session.export_todos_state()
         planning = state.get("planning", []) if isinstance(state, dict) else []
         if not isinstance(planning, list):
@@ -543,7 +592,9 @@ class Agent:
                 return value or None
         return None
 
-    def _is_execution_todo_already_completed(self, session: Session, todo_id: str) -> bool:
+    def _is_execution_todo_already_completed(
+        self, session: Session, todo_id: str
+    ) -> bool:
         state = session.export_todos_state()
         execution = state.get("execution", []) if isinstance(state, dict) else []
         if not isinstance(execution, list):
@@ -769,7 +820,9 @@ class Agent:
             execution_progress_eligible = False
 
             if session.context_manager.needs_compression():
-                trigger_tokens = session.context_manager.estimate_current_context_tokens()
+                trigger_tokens = (
+                    session.context_manager.estimate_current_context_tokens()
+                )
                 context_window = self.config.model.context_window
                 preserved_messages = session.context_manager.select_compaction_tail()
                 yield AgentEvent.context_compacting(trigger_reason="threshold")
@@ -788,7 +841,8 @@ class Agent:
                             "context_window": context_window,
                             "summary_chars": len(summary),
                             "summary_artifact_id": artifact_id,
-                            "compaction_count": session.context_manager.compaction_count + 1,
+                            "compaction_count": session.context_manager.compaction_count
+                            + 1,
                         },
                         preserved_messages=preserved_messages,
                     )
@@ -817,18 +871,9 @@ class Agent:
                         context_window=context_window,
                         summary_chars=len(summary),
                         trigger_reason="threshold",
+                        auto_resume_required=True,
                     )
-                    # Treat compaction as a real boundary. Start the continuation
-                    # request on a fresh pass instead of immediately hitting the
-                    # provider again in the same execution flow.
-                    if self._should_delay_after_compaction():
-                        await asyncio.sleep(
-                            self.POST_COMPACTION_CONTINUATION_DELAY_SECONDS
-                        )
-                    post_compaction_recovery_active = True
-                    post_compaction_continue_prompt_needed = True
-                    post_compaction_retry_attempts = 0
-                    continue
+                    return
 
             session.increment_turn()
             turn_num += 1
@@ -852,7 +897,10 @@ class Agent:
                 post_compaction_continue_prompt_needed = False
             if latest_user_model_content is not None:
                 for msg in reversed(outbound_messages):
-                    if msg.get("role") == "user" and msg.get("content") == latest_user_text:
+                    if (
+                        msg.get("role") == "user"
+                        and msg.get("content") == latest_user_text
+                    ):
                         msg["content"] = latest_user_model_content
                         break
 
@@ -883,17 +931,25 @@ class Agent:
                     usage = event.usage
 
             if stream_error:
-                if not overflow_compaction_attempted and is_context_overflow_error(stream_error):
-                    trigger_tokens = session.context_manager.estimate_current_context_tokens()
+                if not overflow_compaction_attempted and is_context_overflow_error(
+                    stream_error
+                ):
+                    trigger_tokens = (
+                        session.context_manager.estimate_current_context_tokens()
+                    )
                     context_window = self.config.model.context_window
-                    preserved_messages = session.context_manager.select_compaction_tail()
+                    preserved_messages = (
+                        session.context_manager.select_compaction_tail()
+                    )
                     yield AgentEvent.context_compacting(trigger_reason="overflow_retry")
                     summary, compact_usage = await session.chat_compactor.compact(
                         session.context_manager
                     )
                     if summary:
                         lifecycle_focus = session._derive_current_focus()
-                        artifact_id = session.compact_artifact_manager.save_summary(summary)
+                        artifact_id = session.compact_artifact_manager.save_summary(
+                            summary
+                        )
                         session.context_manager.replace_with_summary(
                             summary,
                             boundary_metadata={
@@ -902,7 +958,8 @@ class Agent:
                                 "context_window": context_window,
                                 "summary_chars": len(summary),
                                 "summary_artifact_id": artifact_id,
-                                "compaction_count": session.context_manager.compaction_count + 1,
+                                "compaction_count": session.context_manager.compaction_count
+                                + 1,
                             },
                             preserved_messages=preserved_messages,
                         )
@@ -931,16 +988,9 @@ class Agent:
                             context_window=context_window,
                             summary_chars=len(summary),
                             trigger_reason="overflow_retry",
+                            auto_resume_required=True,
                         )
-                        if self._should_delay_after_compaction():
-                            await asyncio.sleep(
-                                self.POST_COMPACTION_CONTINUATION_DELAY_SECONDS
-                            )
-                        post_compaction_recovery_active = True
-                        post_compaction_continue_prompt_needed = True
-                        post_compaction_retry_attempts = 0
-                        overflow_compaction_attempted = True
-                        continue
+                        return
                 if (
                     post_compaction_recovery_active
                     and post_compaction_retry_attempts
@@ -962,22 +1012,27 @@ class Agent:
                 plan_calls = [tc for tc in tool_calls if tc.name == "plan_question"]
                 if len(plan_calls) > 1:
                     first_call = plan_calls[0]
-                    non_plan_calls = [tc for tc in tool_calls if tc.name != "plan_question"]
+                    non_plan_calls = [
+                        tc for tc in tool_calls if tc.name != "plan_question"
+                    ]
                     tool_calls = non_plan_calls + [first_call]
                 target_questions = max(
                     self.PLAN_MIN_QUESTIONS,
                     min(
                         self.PLAN_MAX_QUESTIONS,
-                        int(getattr(session, "plan_target_questions", self.PLAN_MIN_QUESTIONS)),
+                        int(
+                            getattr(
+                                session,
+                                "plan_target_questions",
+                                self.PLAN_MIN_QUESTIONS,
+                            )
+                        ),
                     ),
                 )
                 session.plan_target_questions = target_questions
                 # Once enough questions are asked, transition to deterministic writing phase:
                 # no extra tool calls should run before final plan output.
-                if (
-                    session.plan_questions_asked >= target_questions
-                    and tool_calls
-                ):
+                if session.plan_questions_asked >= target_questions and tool_calls:
                     session.set_plan_phase("writing_plan")
                     session.context_manager.add_user_message(
                         "Question phase is complete. Do not call more tools now. "
@@ -1035,7 +1090,13 @@ class Agent:
                             self.PLAN_MIN_QUESTIONS,
                             min(
                                 self.PLAN_MAX_QUESTIONS,
-                                int(getattr(session, "plan_target_questions", self.PLAN_MIN_QUESTIONS)),
+                                int(
+                                    getattr(
+                                        session,
+                                        "plan_target_questions",
+                                        self.PLAN_MIN_QUESTIONS,
+                                    )
+                                ),
                             ),
                         )
                         if session.plan_questions_asked < target_questions:
@@ -1055,15 +1116,19 @@ class Agent:
                                 "sections. Do not ask more questions in this turn."
                             )
                             continue
-                        session.set_plan_phase(
-                            "awaiting_implementation_confirmation"
+                        session.set_plan_phase("awaiting_implementation_confirmation")
+                        plan_text = self._select_plan_text(
+                            session, controlled_response_text
                         )
-                        plan_text = self._select_plan_text(session, controlled_response_text)
                         if plan_text.strip():
                             session.set_pending_plan(plan_text)
-                            async for progress_event in self._complete_planning_seed_todo(session, 1):
+                            async for (
+                                progress_event
+                            ) in self._complete_planning_seed_todo(session, 1):
                                 yield progress_event
-                            async for progress_event in self._complete_planning_seed_todo(session, 2):
+                            async for (
+                                progress_event
+                            ) in self._complete_planning_seed_todo(session, 2):
                                 yield progress_event
                             yield AgentEvent.text_complete(plan_text)
                             session.loop_detector.record_action(
@@ -1073,7 +1138,9 @@ class Agent:
                     else:
                         if controlled_response_text:
                             if execution_progress_made:
-                                async for progress_event in self._complete_execution_stage_todo(
+                                async for (
+                                    progress_event
+                                ) in self._complete_execution_stage_todo(
                                     session,
                                     stage="summary",
                                 ):
@@ -1100,12 +1167,13 @@ class Agent:
 
             if controlled_response_text:
                 in_plan_questioning = (
-                    session.plan_mode_enabled
-                    and session.plan_phase != "executing"
+                    session.plan_mode_enabled and session.plan_phase != "executing"
                 )
-                if not in_plan_questioning and not tool_calls:
+                if not in_plan_questioning:
                     yield AgentEvent.text_complete(controlled_response_text)
-                session.loop_detector.record_action("response", text=controlled_response_text)
+                session.loop_detector.record_action(
+                    "response", text=controlled_response_text
+                )
 
             tool_call_results: list[tuple[str, ToolResultMessage, ToolResult]] = []
             skipped_plan_validation_errors: list[str] = []
@@ -1208,7 +1276,9 @@ class Agent:
 
                 while True:
                     try:
-                        update = await asyncio.wait_for(progress_queue.get(), timeout=0.05)
+                        update = await asyncio.wait_for(
+                            progress_queue.get(), timeout=0.05
+                        )
                     except asyncio.TimeoutError:
                         if invoke_task.done():
                             break
@@ -1259,14 +1329,24 @@ class Agent:
                         self.PLAN_MIN_QUESTIONS,
                         min(
                             self.PLAN_MAX_QUESTIONS,
-                            int(getattr(session, "plan_target_questions", self.PLAN_MIN_QUESTIONS)),
+                            int(
+                                getattr(
+                                    session,
+                                    "plan_target_questions",
+                                    self.PLAN_MIN_QUESTIONS,
+                                )
+                            ),
                         ),
                     )
                     if session.plan_questions_asked >= target_questions:
-                        async for progress_event in self._complete_planning_seed_todo(session, 0):
+                        async for progress_event in self._complete_planning_seed_todo(
+                            session, 0
+                        ):
                             yield progress_event
                 elif self._has_execution_todos(session):
-                    async for progress_event in self._auto_progress_execution_todos_on_tool(
+                    async for (
+                        progress_event
+                    ) in self._auto_progress_execution_todos_on_tool(
                         session,
                         tool_name=tool_call.name,
                         arguments=tool_call.arguments,

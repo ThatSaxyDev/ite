@@ -302,6 +302,7 @@ class SessionRunState:
     is_turn_running: bool = False
     turn_had_error: bool = False
     context_meter_floor_pct: int | None = None
+    auto_resume_payload: dict[str, Any] | None = None
     queued_turn_payload: dict[str, Any] | None = None
     last_turn_payload: dict[str, Any] | None = None
     retryable_turn_payload: dict[str, Any] | None = None
@@ -3541,6 +3542,7 @@ class ReupApp(App):
         display_message = str(
             payload.get("display_message", payload.get("message", ""))
         ).strip()
+        suppress_user_echo = bool(payload.get("suppress_user_echo", False))
         attachments = [
             str(path).strip()
             for path in list(payload.get("attachments") or [])
@@ -3564,6 +3566,7 @@ class ReupApp(App):
             self._handle_agent_send_with_intent(
                 message,
                 display_message=display_message or message,
+                suppress_user_echo=suppress_user_echo,
             ),
             exclusive=False,
         )
@@ -3574,6 +3577,12 @@ class ReupApp(App):
         return True
 
     async def _dispatch_queued_payload_if_ready(self) -> None:
+        run_state = self._run_state()
+        if run_state.auto_resume_payload is not None:
+            payload = run_state.auto_resume_payload
+            run_state.auto_resume_payload = None
+            await self._dispatch_payload(payload)
+            return
         if self._queued_turn_payload is None:
             return
         payload = self._queued_turn_payload
@@ -3627,12 +3636,15 @@ class ReupApp(App):
         message: str,
         *,
         display_message: str | None = None,
+        suppress_user_echo: bool = False,
     ) -> None:
         assisted = await self._apply_intent_assist(message)
         if assisted is None:
             return
         await self.run_agent_message(
-            assisted, display_message=display_message or message
+            assisted,
+            display_message=display_message or message,
+            suppress_user_echo=suppress_user_echo,
         )
 
     async def _list_resume_sessions(
@@ -4366,6 +4378,7 @@ class ReupApp(App):
         message: str,
         *,
         display_message: str | None = None,
+        suppress_user_echo: bool = False,
     ) -> None:
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
@@ -4382,6 +4395,8 @@ class ReupApp(App):
         run_state.turn_had_error = False
         run_state.last_error_message = None
         run_state.retryable_turn_payload = None
+        if not suppress_user_echo:
+            run_state.auto_resume_payload = None
         attachments = list(
             getattr(active_agent.session, "pending_attachment_paths", [])
         )
@@ -4414,7 +4429,8 @@ class ReupApp(App):
             prepared
         )
         active_agent.session.pending_attachment_paths = []
-        await self.add_user_message(display_message or message)
+        if not suppress_user_echo:
+            await self.add_user_message(display_message or message)
         run_state.active_turn_task = asyncio.create_task(
             self._agent_turn(
                 active_agent,
@@ -4588,8 +4604,16 @@ class ReupApp(App):
             trigger_tokens = int(event.data.get("trigger_tokens", 0))
             context_window = int(event.data.get("context_window", 0))
             trigger_reason = str(event.data.get("trigger_reason", "threshold"))
+            auto_resume_required = bool(event.data.get("auto_resume_required", False))
             used_pct = (trigger_tokens / context_window * 100) if context_window else 0
             run_state.context_meter_floor_pct = int(round(used_pct))
+            if auto_resume_required:
+                run_state.auto_resume_payload = {
+                    "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
+                    "display_message": "",
+                    "attachments": [],
+                    "suppress_user_echo": True,
+                }
             self.post_system(
                 "Context",
                 (
