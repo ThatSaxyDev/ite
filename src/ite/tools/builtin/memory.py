@@ -308,4 +308,5 @@ class MemoryTool(Tool):
             "long_term": {},
             "episodic": [],
             "semantic": {},
+            "durable": [],
         }

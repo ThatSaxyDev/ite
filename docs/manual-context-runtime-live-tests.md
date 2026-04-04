@@ -2,6 +2,10 @@
 
 This document is the live validation checklist for the upgraded context runtime.
 
+For the fuller operator-facing pass that covers durable retrieval, compaction, autosave, and restore together, also use:
+
+- [`docs/live-memory-and-context-eval-pass.md`](/Users/kiishidavid/Documents/Dev/Projects/ite/docs/live-memory-and-context-eval-pass.md)
+
 The current goal is to validate three things in the app itself:
 
 1. manual compaction behaves like a real runtime action

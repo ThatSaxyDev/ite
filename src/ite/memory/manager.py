@@ -20,6 +20,7 @@ from ite.memory.response_intent import resolve_response_intent
 
 VALID_STORES = ("short_term", "long_term", "episodic", "semantic")
 MAX_EPISODIC_ENTRIES = 50
+DURABLE_MEMORY_TYPES = ("user", "feedback", "project", "reference")
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +106,162 @@ def _query_profile(query: str) -> dict[str, bool]:
 def _updated_sort_key(record: dict[str, Any]) -> tuple[int, str]:
     updated_at = str(record.get("updated_at") or "")
     return (1 if updated_at else 0, updated_at)
+
+
+def _infer_memory_type(
+    store: str,
+    key: str,
+    value: str,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    if isinstance(metadata, dict):
+        explicit = str(metadata.get("memory_type", "")).strip().lower()
+        if explicit in DURABLE_MEMORY_TYPES:
+            return explicit
+
+    normalized_key = _normalize_text(key).lower()
+    normalized_value = _normalize_text(value).lower()
+    combined = f"{normalized_key} {normalized_value}"
+
+    if store == "long_term":
+        if extract_preference_controls(value) or "conditional_preferences" in (metadata or {}):
+            return "user"
+        feedback_markers = (
+            "when reviewing",
+            "when explaining",
+            "when debugging",
+            "when editing",
+            "when writing code",
+            "prefer that you",
+            "i prefer",
+        )
+        if any(marker in combined for marker in feedback_markers):
+            return "feedback"
+        return "user"
+
+    if store == "semantic":
+        reference_markers = (
+            "use ",
+            "command",
+            "cli",
+            "tests",
+            "lint",
+            "formatter",
+            "typecheck",
+            "api",
+            "schema",
+            "endpoint",
+            "protocol",
+            "tool",
+            "docs",
+        )
+        if normalized_key.startswith(("ref_", "reference_", "guide_", "command_", "tool_")):
+            return "reference"
+        if any(marker in combined for marker in reference_markers):
+            return "reference"
+        return "project"
+
+    return "project"
+
+
+def _infer_scope(store: str, memory_type: str) -> str:
+    if store == "long_term":
+        return "user"
+    if store == "semantic":
+        return "workspace"
+    if store == "short_term":
+        return "session"
+    if memory_type == "user":
+        return "user"
+    return "workspace"
+
+
+def _derive_title(key: str, value: str, *, limit: int = 72) -> str:
+    label = _normalize_text(key).replace("_", " ").replace("-", " ").strip()
+    if not label:
+        label = _make_summary(value, limit=limit)
+    if len(label) > limit:
+        label = label[: limit - 3].rstrip() + "..."
+    return label
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
+def _format_durable_record(record: dict[str, Any]) -> dict[str, Any]:
+    memory_type = str(record.get("memory_type", "")).strip() or "project"
+    return {
+        "key": str(record.get("key", "")).strip(),
+        "type": memory_type,
+        "scope": str(record.get("scope", "")).strip() or "workspace",
+        "title": str(record.get("title", "")).strip() or _derive_title(
+            str(record.get("key", "")).strip(),
+            str(record.get("value", "")).strip(),
+        ),
+        "summary": str(record.get("summary", "")).strip(),
+        "body": str(record.get("body") or record.get("value") or "").strip(),
+        "why": str(record.get("why", "")).strip(),
+        "how_to_apply": str(record.get("how_to_apply", "")).strip(),
+        "source": str(record.get("source", "")).strip(),
+        "confidence": float(record.get("confidence", 0.8) or 0.8),
+        "created_at": str(record.get("created_at", "")).strip(),
+        "updated_at": str(record.get("updated_at", "")).strip(),
+    }
+
+
+def _desired_durable_types(query: str) -> tuple[str, ...]:
+    text = _normalize_text(query).lower()
+    intent = resolve_response_intent(query)
+    desired: list[str] = []
+
+    if any(
+        token in text
+        for token in (
+            "test",
+            "tests",
+            "tool",
+            "tools",
+            "command",
+            "commands",
+            "run ",
+            "use ",
+            "how do we",
+            "what should we use",
+        )
+    ):
+        desired.append("reference")
+
+    if any(context in intent.contexts for context in ("architecture", "implementation", "explanation")):
+        desired.append("project")
+
+    if any(
+        token in text
+        for token in (
+            "preference",
+            "prefer",
+            "how should you answer",
+            "how do i like",
+            "style",
+        )
+    ):
+        desired.extend(["user", "feedback"])
+
+    if not desired:
+        desired.extend(["reference", "project"])
+
+    return tuple(dict.fromkeys(desired))
+
+
+def _durable_type_boost(memory_type: str, desired_types: tuple[str, ...]) -> float:
+    if memory_type not in DURABLE_MEMORY_TYPES:
+        return 0.0
+    if memory_type not in desired_types:
+        return 0.0
+    rank = desired_types.index(memory_type)
+    return max(0.0, 0.22 - (rank * 0.06))
 
 
 class MemoryManager:
@@ -250,21 +407,47 @@ class MemoryManager:
         default_source: str = "memory_tool",
     ) -> dict[str, Any]:
         if isinstance(value, str):
+            memory_type = _infer_memory_type(scope, key, value)
             record = {
                 "key": key,
                 "value": value,
+                "title": _derive_title(key, value),
                 "summary": _make_summary(value),
-                "scope": scope,
+                "body": _normalize_text(value),
+                "scope": _infer_scope(scope, memory_type),
+                "memory_type": memory_type,
+                "why": "",
+                "how_to_apply": "",
+                "confidence": 0.8,
+                "created_at": None,
                 "updated_at": None,
                 "access_count": 0,
                 "source": "legacy",
             }
         else:
             record = dict(value)
+            inferred_type = _infer_memory_type(
+                scope,
+                key,
+                str(record.get("value", "")),
+                record,
+            )
             record.setdefault("key", key)
             record.setdefault("value", str(record.get("value", "")))
+            record.setdefault(
+                "title",
+                _derive_title(key, str(record.get("value", ""))),
+            )
             record.setdefault("summary", _make_summary(str(record.get("value", ""))))
-            record.setdefault("scope", scope)
+            record.setdefault("body", _normalize_text(str(record.get("value", ""))))
+            record.setdefault("scope", _infer_scope(scope, inferred_type))
+            record.setdefault("memory_type", inferred_type)
+            record.setdefault("why", "")
+            record.setdefault("how_to_apply", "")
+            record.setdefault("confidence", 0.8)
+            record.setdefault("created_at", record.get("updated_at"))
+            if not _has_value(record.get("created_at")):
+                record["created_at"] = str(record.get("updated_at") or "")
             record.setdefault("updated_at", None)
             record.setdefault("access_count", 0)
             record.setdefault("source", default_source)
@@ -404,7 +587,13 @@ class MemoryManager:
         existing = entries.get(key, {})
         record = self._normalize_record(key, existing or value, scope=store, default_source=source)
         record["value"] = value
+        record["body"] = _normalize_text(value)
+        record["title"] = _derive_title(key, value)
         record["summary"] = _make_summary(value)
+        record["memory_type"] = _infer_memory_type(store, key, value, metadata)
+        record["scope"] = _infer_scope(store, str(record.get("memory_type", "")))
+        if not _has_value(record.get("created_at")):
+            record["created_at"] = _now_iso()
         record["updated_at"] = _now_iso()
         record["source"] = source
         if metadata:
@@ -551,6 +740,8 @@ class MemoryManager:
     def load_prompt_memory(self, current_user_text: str | None = None, *, limit: int = 5) -> dict[str, Any] | None:
         query = current_user_text or ""
         profile = _query_profile(query)
+        intent = resolve_response_intent(query)
+        desired_durable_types = _desired_durable_types(query)
         candidates: list[dict[str, Any]] = []
         controls = self._build_active_controls(query)
 
@@ -563,17 +754,27 @@ class MemoryManager:
                     int(record.get("access_count", 0) or 0),
                     str(record.get("updated_at") or ""),
                 )
+                memory_type = str(record.get("memory_type", "")).strip() or _infer_memory_type(
+                    store,
+                    str(record.get("key", "")),
+                    str(record.get("value", "")),
+                    record,
+                )
                 store_boost = {
                     "short_term": 0.25,
                     "semantic": 0.15,
                     "long_term": 0.08,
                 }[store]
+                type_boost = 0.0
+                if store in {"long_term", "semantic"}:
+                    type_boost = _durable_type_boost(memory_type, desired_durable_types)
                 candidates.append(
                     {
                         "store": store,
                         "record": record,
+                        "memory_type": memory_type,
                         "base_score": base,
-                        "score": base + hotness * 0.35 + store_boost,
+                        "score": base + hotness * 0.35 + store_boost + type_boost,
                     }
                 )
 
@@ -608,23 +809,37 @@ class MemoryManager:
         if candidates:
             candidates.sort(key=lambda item: item["score"], reverse=True)
             seen: set[str] = set()
-            long_term_selected = 0
+            lane_counts = {
+                "short_term": 0,
+                "episodic": 0,
+                "user": 0,
+                "feedback": 0,
+                "project": 0,
+                "reference": 0,
+            }
             for candidate in candidates:
                 record = candidate["record"]
                 store = str(candidate["store"])
                 base_score = float(candidate.get("base_score", 0.0) or 0.0)
+                memory_type = str(candidate.get("memory_type", "")).strip()
 
                 if profile["has_query"]:
-                    if store == "long_term":
-                        if long_term_selected >= 1:
+                    if store == "short_term":
+                        if lane_counts["short_term"] >= 2:
                             continue
-                    elif store == "short_term":
                         if base_score < 0.12 and not profile["wants_memory"]:
                             continue
-                    elif store == "semantic":
-                        if base_score < 0.1:
+                    elif store in {"semantic", "long_term"}:
+                        threshold = 0.08 if memory_type in desired_durable_types else 0.14
+                        if base_score < threshold and not profile["wants_memory"]:
+                            continue
+                        if memory_type in {"user", "feedback"} and lane_counts[memory_type] >= 1:
+                            continue
+                        if memory_type in {"project", "reference"} and lane_counts[memory_type] >= 2:
                             continue
                     elif store == "episodic":
+                        if lane_counts["episodic"] >= 2:
+                            continue
                         if base_score < 0.12 and not profile["wants_memory"]:
                             continue
 
@@ -634,8 +849,12 @@ class MemoryManager:
                     continue
                 seen.add(dedupe_key)
                 selected.append(candidate)
-                if store == "long_term":
-                    long_term_selected += 1
+                if store == "short_term":
+                    lane_counts["short_term"] += 1
+                elif store == "episodic":
+                    lane_counts["episodic"] += 1
+                elif memory_type in lane_counts:
+                    lane_counts[memory_type] += 1
                 if len(selected) >= limit:
                     break
 
@@ -645,6 +864,7 @@ class MemoryManager:
             "long_term": {},
             "episodic": [],
             "semantic": {},
+            "durable": [],
         }
 
         touched_entry_keys: dict[str, list[str]] = {"short_term": [], "long_term": [], "semantic": []}
@@ -670,6 +890,8 @@ class MemoryManager:
 
             key = str(record.get("key", "")).strip()
             bundle[store][key] = str(record.get("summary") or record.get("value") or "")
+            if store in {"long_term", "semantic"}:
+                bundle["durable"].append(_format_durable_record(record))
             if key:
                 touched_entry_keys[store].append(key)
 
@@ -697,6 +919,7 @@ class MemoryManager:
             or any(bundle["long_term"])
             or any(bundle["semantic"])
             or bool(bundle["episodic"])
+            or bool(bundle["durable"])
         )
         return bundle if has_data else None
 
@@ -779,6 +1002,7 @@ class MemoryManager:
             "long_term": {},
             "episodic": [],
             "semantic": {},
+            "durable": [],
         }
 
 

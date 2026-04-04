@@ -55,6 +55,10 @@ class LLMClient:
         message = str(error.get("message") or "Bundled inference request failed.")
         window = str(details.get("window") or "")
         reset_at = str(details.get("resetAt") or "")
+        provider = str(details.get("provider") or "")
+        provider_status = details.get("providerStatus")
+        provider_ref = str(details.get("providerRef") or "")
+        provider_message = str(details.get("providerMessage") or "")
 
         def _window_label(value: str) -> str:
             return {
@@ -94,7 +98,21 @@ class LLMClient:
                 "Use your own key or a local model for now."
             )
 
-        if code in {"internal_error", "provider_request_failed"}:
+        if code == "provider_request_failed":
+            parts = ["Bundled inference provider failed"]
+            if provider:
+                parts.append(f"({provider})")
+            if provider_status:
+                parts.append(f"with status {provider_status}")
+            message_text = " ".join(parts) + "."
+            if provider_ref:
+                message_text += f" Ref: {provider_ref}."
+            if provider_message:
+                message_text += f" {provider_message}"
+            message_text += " Try again in a moment, or use your own key or a local model for now."
+            return message_text
+
+        if code == "internal_error":
             return (
                 "Bundled usage is temporarily unavailable right now. "
                 "Try again in a moment, or use your own key or a local model for now."

@@ -299,7 +299,7 @@ class ContextManager:
         if isinstance(user_memory, dict):
             durable_memory = {
                 key: user_memory.get(key)
-                for key in ("long_term", "semantic", "episodic", "short_term")
+                for key in ("long_term", "semantic", "episodic", "short_term", "durable")
                 if user_memory.get(key)
             }
 

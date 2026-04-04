@@ -94,6 +94,29 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("tools", payload)
         self.assertNotIn("toolChoice", payload)
 
+    def test_format_cloud_error_surfaces_provider_failure_details(self) -> None:
+        client = LLMClient(self._config())
+
+        message = client._format_cloud_error(
+            {
+                "error": {
+                    "code": "provider_request_failed",
+                    "message": "Bundled inference provider request failed.",
+                    "details": {
+                        "provider": "minimax",
+                        "providerStatus": 500,
+                        "providerRef": "abc-123",
+                        "providerMessage": "Provider request failed (500): Internal Server Error",
+                    },
+                }
+            }
+        )
+
+        self.assertIn("provider failed", message.lower())
+        self.assertIn("minimax", message.lower())
+        self.assertIn("500", message)
+        self.assertIn("abc-123", message)
+
 
 if __name__ == "__main__":
     unittest.main()

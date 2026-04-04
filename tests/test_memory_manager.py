@@ -115,6 +115,96 @@ class MemoryManagerTests(unittest.TestCase):
             + len(bundle["episodic"]),
             5,
         )
+        self.assertEqual(bundle["durable"][0]["type"], "reference")
+
+    def test_durable_memory_records_gain_typed_schema(self) -> None:
+        workspace = self.base_path / "ws-durable-schema"
+        workspace.mkdir()
+
+        manager = MemoryManager(workspace, session_id="session-a")
+        manager.set_entry(
+            "long_term",
+            "pref_paths",
+            "Use absolute file paths in explanations",
+            source="test",
+        )
+        manager.set_entry(
+            "semantic",
+            "tests",
+            "Use pytest for tests",
+            source="test",
+        )
+
+        long_term = manager.get_entry("long_term", "pref_paths", increment_access=False)
+        semantic = manager.get_entry("semantic", "tests", increment_access=False)
+        assert long_term is not None
+        assert semantic is not None
+        self.assertEqual(long_term["memory_type"], "user")
+        self.assertEqual(long_term["scope"], "user")
+        self.assertTrue(long_term["title"])
+        self.assertTrue(long_term["body"])
+        self.assertEqual(semantic["memory_type"], "reference")
+        self.assertEqual(semantic["scope"], "workspace")
+        self.assertTrue(semantic["created_at"])
+
+    def test_prompt_memory_exposes_typed_durable_entries(self) -> None:
+        workspace = self.base_path / "ws-durable-bundle"
+        workspace.mkdir()
+
+        manager = MemoryManager(workspace, session_id="session-a")
+        manager.set_entry(
+            "semantic",
+            "tests",
+            "Use pytest for tests",
+            source="test",
+        )
+        manager.set_entry(
+            "long_term",
+            "pref_short",
+            "Keep answers short and avoid bullet lists",
+            source="test",
+        )
+
+        bundle = manager.load_prompt_memory("What test tool should we use here?")
+        assert bundle is not None
+        durable = bundle["durable"]
+        self.assertTrue(any(entry["type"] == "reference" for entry in durable))
+        self.assertTrue(all(entry["scope"] in {"user", "workspace"} for entry in durable))
+
+    def test_prompt_memory_prefers_reference_for_tool_queries_and_project_for_architecture(self) -> None:
+        workspace = self.base_path / "ws-typed-retrieval"
+        workspace.mkdir()
+
+        manager = MemoryManager(workspace, session_id="session-a")
+        manager.set_entry(
+            "semantic",
+            "tests",
+            "Use pytest for tests",
+            source="test",
+        )
+        manager.set_entry(
+            "semantic",
+            "architecture",
+            "The runtime is layered around sessions, tools, context, and UI orchestration",
+            source="test",
+            metadata={"memory_type": "project"},
+        )
+
+        tool_bundle = manager.load_prompt_memory("What test tool should we use here?")
+        architecture_bundle = manager.load_prompt_memory("Explain the architecture of this repo.")
+
+        assert tool_bundle is not None
+        assert architecture_bundle is not None
+        tool_types = [entry["type"] for entry in tool_bundle["durable"]]
+        architecture_types = [entry["type"] for entry in architecture_bundle["durable"]]
+
+        self.assertIn("reference", tool_types)
+        self.assertNotIn(
+            "The runtime is layered around sessions, tools, context, and UI orchestration",
+            "\n".join(tool_bundle["semantic"].values()),
+        )
+        self.assertIn("project", architecture_types)
+        self.assertIn("architecture", architecture_bundle["semantic"])
 
     def test_context_manager_reads_memory_live_each_turn(self) -> None:
         workspace = self.base_path / "ws"

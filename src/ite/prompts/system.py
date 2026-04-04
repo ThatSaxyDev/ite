@@ -452,6 +452,25 @@ def _get_memory_section(memory: dict) -> str:
     """Generate user memory section from structured multi-store memory."""
     sections = []
 
+    durable = memory.get("durable", [])
+    if isinstance(durable, list) and durable:
+        lines = ["## Durable Memory"]
+        for record in durable[:6]:
+            if not isinstance(record, dict):
+                continue
+            title = str(record.get("title", "")).strip() or str(record.get("key", "")).strip()
+            summary = str(record.get("summary", "")).strip() or str(record.get("body", "")).strip()
+            memory_type = str(record.get("type", "")).strip() or "project"
+            scope = str(record.get("scope", "")).strip() or "workspace"
+            why = str(record.get("why", "")).strip()
+            how_to_apply = str(record.get("how_to_apply", "")).strip()
+            lines.append(f"- **{title}** ({memory_type}, {scope}): {summary}")
+            if why:
+                lines.append(f"  Why: {why}")
+            if how_to_apply:
+                lines.append(f"  Apply: {how_to_apply}")
+        sections.append("\n".join(lines))
+
     # Long-term: persistent user preferences
     long_term = memory.get("long_term", {})
     if long_term:
