@@ -301,7 +301,11 @@ class SessionRunState:
     active_turn_id: int = 0
     is_turn_running: bool = False
     turn_had_error: bool = False
+    context_meter_floor_pct: int | None = None
     queued_turn_payload: dict[str, Any] | None = None
+    last_turn_payload: dict[str, Any] | None = None
+    retryable_turn_payload: dict[str, Any] | None = None
+    last_error_message: str | None = None
     running_shell_call_ids: set[str] = field(default_factory=set)
     running_subagent_call_ids: set[str] = field(default_factory=set)
     running_wait_subagent_call_ids: set[str] = field(default_factory=set)
@@ -556,6 +560,7 @@ class ReupApp(App):
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
+        self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(1.0, self._poll_change_review_panel)
         if self.config.cloud_auth_enabled:
             has_cloud_session = await asyncio.to_thread(
@@ -798,10 +803,21 @@ class ReupApp(App):
         else:
             title.update(self._current_session_title())
             meta.update(f"Workspace: {self.config.cwd}")
-        composer_meta_line = self.query_one("#composer-meta-line", Static)
-        composer_meta_line.update(self._composer_meta_text())
+        self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         self._queue_session_tabs_refresh()
+
+    def _update_composer_meta_line(self) -> None:
+        try:
+            composer_meta_line = self.query_one("#composer-meta-line", Static)
+        except Exception:
+            return
+        composer_meta_line.update(self._composer_meta_text())
+
+    def _tick_live_context_meter(self) -> None:
+        if not self.is_mounted or not self._is_turn_running:
+            return
+        self._update_composer_meta_line()
 
     async def _show_activity_indicator(
         self, label: str, version: int | None = None
@@ -912,6 +928,9 @@ class ReupApp(App):
                 )
             except Exception:
                 context_used_percent = None
+        floor_pct = self._run_state().context_meter_floor_pct
+        if context_used_percent is not None and floor_pct is not None:
+            context_used_percent = max(context_used_percent, floor_pct)
         text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox, context_hitbox, activity_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=self.config.model_name,
@@ -3408,6 +3427,49 @@ class ReupApp(App):
             display_message=message,
         )
 
+    @staticmethod
+    def _is_retryable_bundled_inference_error(message: str) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        return (
+            "bundled inference provider failed" in text
+            or "bundled usage is temporarily unavailable right now" in text
+            or "bundled inference request failed" in text
+        )
+
+    def _mark_retryable_turn_failure(self, session_id: str, error_message: str) -> None:
+        run_state = self._run_state(session_id)
+        run_state.last_error_message = error_message
+        if (
+            self._is_retryable_bundled_inference_error(error_message)
+            and run_state.last_turn_payload is not None
+        ):
+            run_state.retryable_turn_payload = dict(run_state.last_turn_payload)
+        else:
+            run_state.retryable_turn_payload = None
+
+    async def _retry_last_turn(self) -> None:
+        session_id = self._active_session_id()
+        if not session_id:
+            self.post_system("Retry", "No active thread.", is_error=True)
+            return
+        run_state = self._run_state(session_id)
+        if self._is_turn_running:
+            self.post_system("Retry", "Wait for the current turn to finish first.", is_error=True)
+            return
+        payload = run_state.retryable_turn_payload
+        if payload is None:
+            self.post_system(
+                "Retry",
+                "No retryable turn is available in this thread.",
+                is_error=True,
+            )
+            return
+        self.post_notice("Retry", "Retrying last turn.")
+        run_state.retryable_turn_payload = None
+        await self._dispatch_payload(dict(payload))
+
     def _resolve_inline_attachment_payload(
         self,
         *,
@@ -3479,10 +3541,15 @@ class ReupApp(App):
         display_message = str(
             payload.get("display_message", payload.get("message", ""))
         ).strip()
+        attachments = [
+            str(path).strip()
+            for path in list(payload.get("attachments") or [])
+            if str(path).strip()
+        ]
         if not message:
             return
         if self.agent and self.agent.session:
-            self.agent.session.pending_attachment_paths = []
+            self.agent.session.pending_attachment_paths = list(attachments)
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:
@@ -3884,6 +3951,10 @@ class ReupApp(App):
 
         if command == "/activity":
             await self._open_activity_modal_from_meta()
+            return
+
+        if command == "/retry":
+            await self._retry_last_turn()
             return
 
         await self.ensure_agent()
@@ -4309,11 +4380,29 @@ class ReupApp(App):
         run_state = self._run_state(session_id)
         self._last_rendered_plan_text = None
         run_state.turn_had_error = False
+        run_state.last_error_message = None
+        run_state.retryable_turn_payload = None
         attachments = list(
             getattr(active_agent.session, "pending_attachment_paths", [])
         )
         run_state.active_turn_id += 1
         turn_id = run_state.active_turn_id
+        try:
+            baseline_context_pct = int(
+                round(
+                    float(
+                        active_agent.session.get_stats().get("context_used_pct", 0.0)
+                    )
+                )
+            )
+        except Exception:
+            baseline_context_pct = None
+        run_state.context_meter_floor_pct = baseline_context_pct
+        run_state.last_turn_payload = {
+            "message": message,
+            "display_message": display_message or message,
+            "attachments": list(attachments),
+        }
         prepared = self._prepare_attachments_for_turn(
             message=message,
             attachments=attachments,
@@ -4345,6 +4434,7 @@ class ReupApp(App):
             await run_state.active_turn_task
             run_state.active_turn_task = None
             run_state.is_turn_running = False
+            run_state.context_meter_floor_pct = None
             self.refresh_header()
             if self._active_session_id() == session_id:
                 self._set_loading_state("idle", busy=False)
@@ -4363,12 +4453,15 @@ class ReupApp(App):
                 self.post_notice("Interrupted", "Stopped current run.")
                 run_state.active_turn_task = None
                 run_state.is_turn_running = False
+                run_state.context_meter_floor_pct = None
                 self.refresh_header()
                 self._set_loading_state("idle", busy=False)
                 await self.auto_save()
         finally:
             run_state.active_turn_task = None
             run_state.is_turn_running = False
+            if run_state.context_meter_floor_pct is not None and not completed_normally:
+                run_state.context_meter_floor_pct = None
             self.refresh_header()
             if self._active_session_id() == session_id:
                 self._set_loading_state("idle", busy=False)
@@ -4469,11 +4562,26 @@ class ReupApp(App):
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             run_state.turn_had_error = True
-            self.post_system(
-                "Error", str(event.data.get("error", "Unknown error")), is_error=True
-            )
+            run_state.context_meter_floor_pct = None
+            error_message = str(event.data.get("error", "Unknown error"))
+            self._mark_retryable_turn_failure(session_id, error_message)
+            self.post_system("Error", error_message, is_error=True)
+            if run_state.retryable_turn_payload is not None:
+                self.post_notice(
+                    "Retry",
+                    "Transient bundled inference failure detected. Run /retry to resend the last turn.",
+                )
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
+            return
+
+        if event.type == AgentEventType.CONTEXT_COMPACTING:
+            self._cancel_activity_resume_timer()
+            self._activity_version += 1
+            await self._show_activity_indicator(
+                "compacting context",
+                self._activity_version,
+            )
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
@@ -4481,6 +4589,7 @@ class ReupApp(App):
             context_window = int(event.data.get("context_window", 0))
             trigger_reason = str(event.data.get("trigger_reason", "threshold"))
             used_pct = (trigger_tokens / context_window * 100) if context_window else 0
+            run_state.context_meter_floor_pct = int(round(used_pct))
             self.post_system(
                 "Context",
                 (
@@ -4489,6 +4598,12 @@ class ReupApp(App):
                     else f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
                 ),
             )
+            if self._is_turn_running:
+                self._activity_version += 1
+                await self._show_activity_indicator(
+                    self._progress_state_label(),
+                    self._activity_version,
+                )
             self.refresh_header()
             return
 

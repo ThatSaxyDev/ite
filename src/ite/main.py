@@ -1146,6 +1146,10 @@ class CLI:
                     self.tui.stop_spinner()
                     self.tui.start_spinner("Recovering...")
 
+                elif event.type == AgentEventType.CONTEXT_COMPACTING:
+                    self.tui.stop_spinner()
+                    self.tui.start_spinner("Compacting context...")
+
                 elif event.type == AgentEventType.CONTEXT_COMPACTED:
                     self.tui.stop_spinner()
                     trigger_tokens = int(event.data.get("trigger_tokens", 0))

@@ -304,7 +304,11 @@ class AgentEventControllerMixin:
                     is_error=True,
                 )
 
+        elif event.type == AgentEventType.CONTEXT_COMPACTING:
+            self._show_thinking_indicator("Compacting context...")
+
         elif event.type == AgentEventType.CONTEXT_COMPACTED:
+            self._show_thinking_indicator(self._progress_indicator_label())
             trigger_tokens = int(event.data.get("trigger_tokens", 0))
             context_window = int(event.data.get("context_window", 0))
             trigger_reason = str(event.data.get("trigger_reason", "threshold"))

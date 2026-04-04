@@ -30,6 +30,14 @@ class Agent:
     PLAN_MIN_QUESTIONS = 3
     PLAN_MAX_QUESTIONS = 5
     PLAN_EXECUTE_PROMPT = "Implement the approved plan now. Execute the planned changes."
+    POST_COMPACTION_CONTINUATION_DELAY_SECONDS = 1.25
+    POST_COMPACTION_MAX_RECOVERY_RETRIES = 2
+    POST_COMPACTION_CONTINUE_PROMPT = (
+        "Continue from the compacted context and finish the current task. "
+        "Treat compaction as a boundary, not a failure. "
+        "Use any preserved tool results or recent messages, do not repeat completed work, "
+        "and continue with the next concrete step."
+    )
 
     def __init__(
         self,
@@ -175,6 +183,24 @@ class Agent:
         compacted = "\n".join(part for part in flattened if part.strip())
         compacted = re.sub(r"\n{3,}", "\n\n", compacted)
         return compacted.strip()
+
+    def _should_delay_after_compaction(self) -> bool:
+        return True
+
+    def _is_transient_post_compaction_error(self, error: str) -> bool:
+        text = str(error or "").strip().lower()
+        if not text:
+            return False
+        transient_markers = (
+            "bundled inference provider failed",
+            "bundled usage is temporarily unavailable right now",
+            "could not reach ite bundled inference",
+            "service temporarily unavailable",
+            "status 502",
+            "status 503",
+            "status 504",
+        )
+        return any(marker in text for marker in transient_markers)
 
     def _explicit_memory_confirmation(self, instruction, *, count: int = 1) -> str:
         if count > 1 and instruction.store == "long_term":
@@ -729,13 +755,15 @@ class Agent:
         overflow_compaction_attempted = False
         execution_progress_made = False
         empty_reply_retries = 0
+        post_compaction_recovery_active = False
+        post_compaction_continue_prompt_needed = False
+        post_compaction_retry_attempts = 0
+        turn_num = 0
 
-        for turn_num in range(max_turns):
+        while turn_num < max_turns:
             if self.session is not session:
                 yield AgentEvent.agent_error("Session changed while turn was running.")
                 return
-
-            session.increment_turn()
 
             response_text = ""
             execution_progress_eligible = False
@@ -744,6 +772,7 @@ class Agent:
                 trigger_tokens = session.context_manager.estimate_current_context_tokens()
                 context_window = self.config.model.context_window
                 preserved_messages = session.context_manager.select_compaction_tail()
+                yield AgentEvent.context_compacting(trigger_reason="threshold")
                 summary, usage = await session.chat_compactor.compact(
                     session.context_manager
                 )
@@ -789,6 +818,20 @@ class Agent:
                         summary_chars=len(summary),
                         trigger_reason="threshold",
                     )
+                    # Treat compaction as a real boundary. Start the continuation
+                    # request on a fresh pass instead of immediately hitting the
+                    # provider again in the same execution flow.
+                    if self._should_delay_after_compaction():
+                        await asyncio.sleep(
+                            self.POST_COMPACTION_CONTINUATION_DELAY_SECONDS
+                        )
+                    post_compaction_recovery_active = True
+                    post_compaction_continue_prompt_needed = True
+                    post_compaction_retry_attempts = 0
+                    continue
+
+            session.increment_turn()
+            turn_num += 1
 
             tool_schemas = session.tool_registry.get_schemas()
 
@@ -799,6 +842,14 @@ class Agent:
             outbound_messages = session.context_manager.get_prompt_messages(
                 latest_user_text
             )
+            if post_compaction_continue_prompt_needed:
+                outbound_messages.append(
+                    {
+                        "role": "user",
+                        "content": self.POST_COMPACTION_CONTINUE_PROMPT,
+                    }
+                )
+                post_compaction_continue_prompt_needed = False
             if latest_user_model_content is not None:
                 for msg in reversed(outbound_messages):
                     if msg.get("role") == "user" and msg.get("content") == latest_user_text:
@@ -836,6 +887,7 @@ class Agent:
                     trigger_tokens = session.context_manager.estimate_current_context_tokens()
                     context_window = self.config.model.context_window
                     preserved_messages = session.context_manager.select_compaction_tail()
+                    yield AgentEvent.context_compacting(trigger_reason="overflow_retry")
                     summary, compact_usage = await session.chat_compactor.compact(
                         session.context_manager
                     )
@@ -880,8 +932,26 @@ class Agent:
                             summary_chars=len(summary),
                             trigger_reason="overflow_retry",
                         )
+                        if self._should_delay_after_compaction():
+                            await asyncio.sleep(
+                                self.POST_COMPACTION_CONTINUATION_DELAY_SECONDS
+                            )
+                        post_compaction_recovery_active = True
+                        post_compaction_continue_prompt_needed = True
+                        post_compaction_retry_attempts = 0
                         overflow_compaction_attempted = True
                         continue
+                if (
+                    post_compaction_recovery_active
+                    and post_compaction_retry_attempts
+                    < self.POST_COMPACTION_MAX_RECOVERY_RETRIES
+                    and self._is_transient_post_compaction_error(stream_error)
+                ):
+                    post_compaction_retry_attempts += 1
+                    await asyncio.sleep(float(post_compaction_retry_attempts))
+                    continue
+                post_compaction_recovery_active = False
+                post_compaction_continue_prompt_needed = False
                 yield AgentEvent.agent_error(stream_error)
                 # Fail this turn immediately instead of looping and repeating
                 # the same upstream/provider error up to max_turns.
@@ -1024,6 +1094,8 @@ class Agent:
                     session.loop_detector.record_action(
                         "response", text=controlled_response_text
                     )
+                post_compaction_recovery_active = False
+                post_compaction_continue_prompt_needed = False
                 return
 
             if controlled_response_text:

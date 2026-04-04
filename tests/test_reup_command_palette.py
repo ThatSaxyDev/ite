@@ -156,6 +156,20 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("context", rendered.plain)
         self.assertNotEqual(app._composer_context_hitbox, (0, 0))
 
+    def test_composer_meta_text_clamps_context_drop_during_active_turn(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(
+            plan_mode_enabled=False,
+            context_manager=SimpleNamespace(),
+            get_stats=lambda: {"context_used_pct": 22.0},
+        )
+        app.agent = SimpleNamespace(session=session)
+        app._run_state().context_meter_floor_pct = 62
+
+        rendered = app._composer_meta_text()
+
+        self.assertIn("context 62%", rendered.plain)
+
     def test_composer_meta_click_opens_context_modal(self) -> None:
         app = self._app()
         app._composer_attach_hitbox = (0, 0)
@@ -174,6 +188,20 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app.on_composer_meta_line_click(event)
 
         run_worker.assert_called_once()
+
+    def test_live_context_meter_tick_updates_only_while_turn_running(self) -> None:
+        app = self._app()
+
+        with patch.object(app, "_update_composer_meta_line") as update_meta, patch.object(
+            ReupApp, "is_mounted", new_callable=PropertyMock, return_value=True
+        ):
+            app._is_turn_running = False
+            app._tick_live_context_meter()
+            update_meta.assert_not_called()
+
+            app._is_turn_running = True
+            app._tick_live_context_meter()
+            update_meta.assert_called_once()
 
     def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
         app = self._app()
@@ -418,6 +446,103 @@ class ReupCommandPaletteTests(unittest.TestCase):
         post_system.assert_called_once()
         self.assertEqual(post_system.call_args.args[0], "Context automatically compacted")
         post_command.assert_not_called()
+
+    def test_run_command_retry_dispatches_saved_retryable_payload(self) -> None:
+        app = self._app()
+        run_state = app._run_state("s1")
+        run_state.retryable_turn_payload = {
+            "message": "Explain repository architecture.",
+            "display_message": "Explain repository architecture.",
+            "attachments": [],
+        }
+        app.agent = SimpleNamespace(session=SimpleNamespace())
+        app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+
+        with patch.object(app, "_dispatch_payload", AsyncMock()) as dispatch, patch.object(
+            app, "post_notice"
+        ) as post_notice:
+            asyncio.run(app.run_command("/retry"))
+
+        dispatch.assert_awaited_once()
+        post_notice.assert_called_once_with("Retry", "Retrying last turn.")
+        self.assertIsNone(run_state.retryable_turn_payload)
+
+    def test_agent_error_marks_retryable_bundled_failure_and_posts_notice(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                )
+            )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            run_state.last_turn_payload = {
+                "message": "Explain repository architecture.",
+                "display_message": "Explain repository architecture.",
+                "attachments": [],
+            }
+
+            with patch.object(app, "post_system") as post_system, patch.object(
+                app, "post_notice"
+            ) as post_notice, patch.object(app, "refresh_header"), patch.object(
+                app, "_schedule_usage_meta_refresh_for_cloud_model"
+            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
+                app, "_hide_activity_indicator", AsyncMock()
+            ):
+                await app.handle_agent_event(
+                    AgentEvent.agent_error(
+                        "Bundled inference provider failed (minimax) with status 500. Ref: abc-123."
+                    ),
+                    "s1",
+                    1,
+                )
+
+            self.assertEqual(
+                run_state.retryable_turn_payload,
+                {
+                    "message": "Explain repository architecture.",
+                    "display_message": "Explain repository architecture.",
+                    "attachments": [],
+                },
+            )
+            post_system.assert_called_once()
+            post_notice.assert_called_once_with(
+                "Retry",
+                "Transient bundled inference failure detected. Run /retry to resend the last turn.",
+            )
+
+        asyncio.run(run_test())
+
+    def test_context_compacting_shows_activity_indicator(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                )
+            )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            run_state.is_turn_running = True
+
+            with patch.object(app, "_cancel_activity_resume_timer"), patch.object(
+                app, "_show_activity_indicator", new=AsyncMock()
+            ) as show_indicator:
+                await app.handle_agent_event(
+                    AgentEvent(type=AgentEventType.CONTEXT_COMPACTING, data={}),
+                    "s1",
+                    1,
+                )
+
+            show_indicator.assert_awaited_once()
+            self.assertEqual(show_indicator.await_args.args[0], "compacting context")
+
+        asyncio.run(run_test())
 
     def test_render_skills_payload_formats_show_output_instead_of_raw_json(self) -> None:
         rendered = render_skills_payload(

@@ -1,19 +1,22 @@
+import asyncio
 import tempfile
 import unittest
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from rich.console import Console
 
 from ite.agent.agent import Agent
 from ite.agent.session import Session
 from ite.agent.events import AgentEventType
-from ite.client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage
+from ite.client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage, ToolCall
 from ite.commands import CommandContext
 from ite.commands.session import cmd_compact, cmd_save
 from ite.config.config import Config
 from ite.memory.session_memory import SessionMemoryManager
+from ite.tools.base import ToolResult
 
 
 class _DummyTUI:
@@ -112,6 +115,318 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 for ep in episodes
             )
         )
+
+    async def test_auto_compaction_starts_fresh_turn_after_boundary(self) -> None:
+        workspace = self.base_path / "ws-auto-compact-boundary"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        needs_sequence = iter([True, False])
+        call_turn_counts: list[int] = []
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            call_turn_counts.append(session.turn_count)
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Continued after compaction."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nkeep going", TokenUsage(total_tokens=10)
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+        session.context_manager.needs_compression = (  # type: ignore[method-assign]
+            lambda: next(needs_sequence, False)
+        )
+
+        events = []
+        async for event in agent.run("trigger compaction boundary"):
+            events.append(event)
+
+        self.assertEqual(call_turn_counts, [1])
+        self.assertEqual(session.turn_count, 1)
+        compacted_index = next(
+            idx
+            for idx, event in enumerate(events)
+            if event.type == AgentEventType.CONTEXT_COMPACTED
+        )
+        text_complete_index = next(
+            idx
+            for idx, event in enumerate(events)
+            if event.type == AgentEventType.TEXT_COMPLETE
+        )
+        self.assertLess(compacted_index, text_complete_index)
+
+    async def test_auto_compaction_waits_before_continuation(self) -> None:
+        workspace = self.base_path / "ws-compact-delay"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        needs_sequence = iter([True, False])
+        call_turn_counts: list[int] = []
+        sleep_calls: list[float] = []
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            call_turn_counts.append(session.turn_count)
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Continued after delay."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nkeep going", TokenUsage(total_tokens=10)
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+        session.context_manager.needs_compression = (  # type: ignore[method-assign]
+            lambda: next(needs_sequence, False)
+        )
+
+        with patch("ite.agent.agent.asyncio.sleep", side_effect=fake_sleep):
+            events = []
+            async for event in agent.run("trigger delayed compaction boundary"):
+                events.append(event)
+
+        self.assertEqual(call_turn_counts, [1])
+        self.assertEqual(len(sleep_calls), 1)
+        self.assertEqual(
+            sleep_calls[0],
+            Agent.POST_COMPACTION_CONTINUATION_DELAY_SECONDS,
+        )
+        self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+
+    async def test_post_compaction_transient_failure_recovers_in_place(self) -> None:
+        workspace = self.base_path / "ws-post-compact-retry"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        needs_sequence = iter([True, False, False])
+        call_count = 0
+        sleep_calls: list[float] = []
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.ERROR,
+                    error=(
+                        "Bundled inference provider failed (ollama-dev) with status 503. "
+                        'Provider request failed (503): {"error":"Service Temporarily Unavailable"}'
+                    ),
+                )
+                return
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Recovered after compaction."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nkeep going", TokenUsage(total_tokens=10)
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+        session.context_manager.needs_compression = (  # type: ignore[method-assign]
+            lambda: next(needs_sequence, False)
+        )
+
+        with patch("ite.agent.agent.asyncio.sleep", side_effect=fake_sleep):
+            events = []
+            async for event in agent.run("trigger post-compact recovery"):
+                events.append(event)
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(
+            sleep_calls,
+            [Agent.POST_COMPACTION_CONTINUATION_DELAY_SECONDS, 1.0],
+        )
+        self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
+
+    async def test_post_compaction_continuation_injects_continue_prompt(self) -> None:
+        workspace = self.base_path / "ws-post-compact-continue-prompt"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        needs_sequence = iter([True, False])
+        outbound_payloads: list[list[dict]] = []
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            outbound_payloads.append(messages)
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Resumed."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nkeep going", TokenUsage(total_tokens=10)
+
+        async def fake_sleep(delay: float) -> None:
+            return None
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+        session.context_manager.needs_compression = (  # type: ignore[method-assign]
+            lambda: next(needs_sequence, False)
+        )
+
+        with patch("ite.agent.agent.asyncio.sleep", side_effect=fake_sleep):
+            async for _event in agent.run("trigger continue prompt"):
+                pass
+
+        self.assertEqual(len(outbound_payloads), 1)
+        self.assertEqual(
+            outbound_payloads[0][-1],
+            {
+                "role": "user",
+                "content": Agent.POST_COMPACTION_CONTINUE_PROMPT,
+            },
+        )
+
+    async def test_post_compaction_recovery_stays_active_across_tool_loop(self) -> None:
+        workspace = self.base_path / "ws-post-compact-tool-loop"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(f"assistant message {idx}")
+
+        needs_sequence = iter([True, False, False, False])
+        call_count = 0
+        sleep_calls: list[float] = []
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text_delta=TextDelta("Let me continue by reading the implementation."),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.TOOL_CALL_COMPLETE,
+                    tool_call=ToolCall(
+                        call_id="call_1",
+                        name="read_file",
+                        arguments={"path": "src/ite/context/manager.py"},
+                    ),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.MESSAGE_COMPLETE,
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                )
+                return
+            if call_count == 2:
+                yield StreamEvent(
+                    type=StreamEventType.ERROR,
+                    error=(
+                        "Bundled inference provider failed (ollama-dev) with status 503. "
+                        'Provider request failed (503): {"error":"Service Temporarily Unavailable"}'
+                    ),
+                )
+                return
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Recovered after tool loop."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\nkeep going", TokenUsage(total_tokens=10)
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        async def fake_invoke(*args, **kwargs):
+            return ToolResult.success_result("Read complete.")
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+        session.context_manager.needs_compression = (  # type: ignore[method-assign]
+            lambda: next(needs_sequence, False)
+        )
+        session.tool_registry.get = lambda _name: SimpleNamespace(  # type: ignore[method-assign]
+            validate_params=lambda _params: []
+        )
+        session.tool_registry.invoke = fake_invoke  # type: ignore[method-assign]
+
+        with patch("ite.agent.agent.asyncio.sleep", side_effect=fake_sleep):
+            events = []
+            async for event in agent.run("trigger post-compact tool recovery"):
+                events.append(event)
+
+        self.assertEqual(call_count, 3)
+        self.assertEqual(
+            sleep_calls,
+            [Agent.POST_COMPACTION_CONTINUATION_DELAY_SECONDS, 1.0],
+        )
+        self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
     async def test_context_overflow_retries_after_compaction(self) -> None:
         workspace = self.base_path / "ws-overflow-retry"

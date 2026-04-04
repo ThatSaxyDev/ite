@@ -24,6 +24,7 @@ class AgentEventType(str, Enum):
 
     # loop detection
     LOOP_DETECTED = "loop_detected"
+    CONTEXT_COMPACTING = "context_compacting"
     CONTEXT_COMPACTED = "context_compacted"
     PLAN_READY = "plan_ready"
 
@@ -147,6 +148,18 @@ class AgentEvent:
         return cls(
             type=AgentEventType.LOOP_DETECTED,
             data={"message": message},
+        )
+
+    @classmethod
+    def context_compacting(
+        cls,
+        trigger_reason: str = "threshold",
+    ) -> AgentEvent:
+        return cls(
+            type=AgentEventType.CONTEXT_COMPACTING,
+            data={
+                "trigger_reason": trigger_reason,
+            },
         )
 
     @classmethod
