@@ -212,6 +212,25 @@ class Agent:
         )
         return any(marker in text for marker in transient_markers)
 
+    def _should_attempt_overflow_recovery(
+        self,
+        session: Session,
+        error: str,
+        *,
+        overflow_compaction_attempted: bool,
+    ) -> bool:
+        if overflow_compaction_attempted:
+            return False
+        if is_context_overflow_error(error):
+            return True
+        if not self._is_transient_post_compaction_error(error):
+            return False
+        status = session.context_manager.get_compaction_status()
+        current_tokens = int(status.get("current_tokens", 0) or 0)
+        trigger_at = int(status.get("trigger_at", 0) or 0)
+        eligible_by_messages = bool(status.get("eligible_by_messages", False))
+        return bool(eligible_by_messages and trigger_at > 0 and current_tokens >= trigger_at)
+
     def _explicit_memory_confirmation(self, instruction, *, count: int = 1) -> str:
         if count > 1 and instruction.store == "long_term":
             return f"Got it - stored {count} conditional preferences."
@@ -931,9 +950,12 @@ class Agent:
                     usage = event.usage
 
             if stream_error:
-                if not overflow_compaction_attempted and is_context_overflow_error(
-                    stream_error
+                if self._should_attempt_overflow_recovery(
+                    session,
+                    stream_error,
+                    overflow_compaction_attempted=overflow_compaction_attempted,
                 ):
+                    overflow_compaction_attempted = True
                     trigger_tokens = (
                         session.context_manager.estimate_current_context_tokens()
                     )

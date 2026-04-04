@@ -532,11 +532,76 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async for event in agent.run("trigger overflow retry"):
             events.append(event)
 
-        self.assertEqual(call_count, 2)
+        self.assertEqual(call_count, 1)
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
         compacted_event = next(event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED)
         self.assertEqual(compacted_event.data.get("trigger_reason"), "overflow_retry")
-        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
+
+    async def test_transient_503_above_trigger_uses_overflow_recovery(self) -> None:
+        workspace = self.base_path / "ws-overflow-transient-503"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx} " + ("x" * 4000))
+            session.context_manager.add_assistant_message(f"assistant message {idx} " + ("y" * 4000))
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.ERROR,
+                    error=(
+                        "Bundled inference provider failed (ollama-dev) with status 503. "
+                        'Provider request failed (503): {"error":"Service Temporarily Unavailable"}'
+                    ),
+                )
+                return
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Recovered from transient provider failure."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_compact(_context_manager):
+            return "## ORIGINAL GOAL\ncontinue", TokenUsage(total_tokens=10)
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.chat_compactor.compact = fake_compact  # type: ignore[method-assign]
+        session.context_manager.get_compaction_status = lambda: {  # type: ignore[method-assign]
+            "message_count": session.context_manager.message_count,
+            "min_messages": 8,
+            "current_tokens": 140000,
+            "context_limit": 200000,
+            "ratio_trigger": 130000,
+            "reserve_trigger": 188000,
+            "trigger_at": 130000,
+            "eligible_by_messages": True,
+            "needs_compression": False,
+        }
+
+        events = []
+        async for event in agent.run("trigger transient 503 overflow recovery"):
+            events.append(event)
+
+        self.assertEqual(call_count, 1)
+        self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+        compacted_event = next(
+            event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED
+        )
+        self.assertEqual(compacted_event.data.get("trigger_reason"), "overflow_retry")
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
     async def test_context_restore_summary_warns_against_git_write_actions(self) -> None:
         workspace = self.base_path / "ws-restore-summary"

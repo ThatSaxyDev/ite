@@ -608,8 +608,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         async def scenario() -> None:
             with patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
                 app, "post_notice"
-            ) as post_notice:
+            ) as post_notice, patch.object(app, "_set_loading_state") as set_loading:
                 await app._dispatch_queued_payload_if_ready()
+                set_loading.assert_called_once_with("resuming after compaction", busy=True)
                 dispatch.assert_awaited_once_with(expected_payload)
                 post_notice.assert_not_called()
 

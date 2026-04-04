@@ -3639,6 +3639,7 @@ class ReupApp(App):
         if run_state.auto_resume_payload is not None:
             payload = run_state.auto_resume_payload
             run_state.auto_resume_payload = None
+            self._set_loading_state("resuming after compaction", busy=True)
             await self._dispatch_payload(payload)
             return
         if self._queued_turn_payload is None:
@@ -4510,7 +4511,10 @@ class ReupApp(App):
             run_state.is_turn_running = False
             run_state.context_meter_floor_pct = None
             self.refresh_header()
-            if self._active_session_id() == session_id:
+            if (
+                self._active_session_id() == session_id
+                and run_state.auto_resume_payload is None
+            ):
                 self._set_loading_state("idle", busy=False)
             if self._active_session_id() == session_id:
                 await self.auto_save()
@@ -4537,7 +4541,10 @@ class ReupApp(App):
             if run_state.context_meter_floor_pct is not None and not completed_normally:
                 run_state.context_meter_floor_pct = None
             self.refresh_header()
-            if self._active_session_id() == session_id:
+            if (
+                self._active_session_id() == session_id
+                and run_state.auto_resume_payload is None
+            ):
                 self._set_loading_state("idle", busy=False)
 
         if completed_normally and self._active_session_id() == session_id:
