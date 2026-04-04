@@ -517,7 +517,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_context_compacting_shows_activity_indicator(self) -> None:
+    def test_context_compacting_starts_live_context_card(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.agent = SimpleNamespace(
@@ -532,16 +532,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state.is_turn_running = True
 
             with patch.object(app, "_cancel_activity_resume_timer"), patch.object(
-                app, "_show_activity_indicator", new=AsyncMock()
-            ) as show_indicator:
+                app, "_hide_activity_indicator", new=AsyncMock()
+            ) as hide_indicator, patch.object(
+                app, "_start_live_compaction_card", new=AsyncMock()
+            ) as start_card:
                 await app.handle_agent_event(
                     AgentEvent(type=AgentEventType.CONTEXT_COMPACTING, data={}),
                     "s1",
                     1,
                 )
 
-            show_indicator.assert_awaited_once()
-            self.assertEqual(show_indicator.await_args.args[0], "compacting context")
+            hide_indicator.assert_awaited_once()
+            start_card.assert_awaited_once_with("Compacting context")
 
         asyncio.run(run_test())
 
@@ -559,9 +561,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state.active_turn_id = 1
             run_state.is_turn_running = True
 
-            with patch.object(app, "post_system"), patch.object(app, "refresh_header"), patch.object(
-                app, "_show_activity_indicator", new=AsyncMock()
-            ):
+            with patch.object(
+                app, "_finish_live_compaction_card", new=AsyncMock()
+            ) as finish_card, patch.object(app, "refresh_header"):
                 await app.handle_agent_event(
                     AgentEvent.context_compacted(
                         trigger_tokens=130000,
@@ -573,6 +575,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     1,
                 )
 
+            finish_card.assert_awaited_once()
             self.assertEqual(
                 run_state.auto_resume_payload,
                 {

@@ -413,6 +413,9 @@ class ReupApp(App):
         self._activity_suffix_index: int = 0
         self._top_state_text: str = ""
         self._activity_widget: Static | None = None
+        self._live_compaction_card: Container | None = None
+        self._live_compaction_body: Static | None = None
+        self._live_compaction_active: bool = False
         self._activity_resume_timer = None
         self._activity_version: int = 0
         self._empty_state_cached_thread_count: int = 0
@@ -863,6 +866,54 @@ class ReupApp(App):
         self._activity_widget = None
         self._message_count = max(0, self._message_count - 1)
         self._refresh_empty_state()
+
+    def _render_live_compaction_body(self, message: str, *, active: bool) -> Text:
+        content = Text()
+        if active:
+            frame = self._top_spinner_frames[
+                self._top_spinner_index % len(self._top_spinner_frames)
+            ]
+            suffix = self._activity_suffix_frames[
+                self._activity_suffix_index % len(self._activity_suffix_frames)
+            ]
+            content.append(frame, style="bold #62f0b0")
+            content.append(" ")
+            content.append(message.strip() or "Compacting context", style="#edf1f7")
+            content.append(suffix, style="bold #d7deea")
+            return content
+        content.append(message.strip(), style="#edf1f7")
+        return content
+
+    async def _start_live_compaction_card(self, message: str = "Compacting context") -> None:
+        conversation = self.query_one("#conversation", VerticalScroll)
+        if self._live_compaction_body is None or self._live_compaction_card is None:
+            title_widget = Static("Context", classes="card-title note-title")
+            body_widget = Static(classes="card-body note-body")
+            card = Container(
+                title_widget,
+                body_widget,
+                classes="block note",
+            )
+            await conversation.mount(card)
+            self._live_compaction_card = card
+            self._live_compaction_body = body_widget
+            self._message_count += 1
+            self._refresh_empty_state()
+        self._live_compaction_active = True
+        self._live_compaction_body.update(
+            self._render_live_compaction_body(message, active=True)
+        )
+        await self._pin_activity_indicator_to_end()
+
+    async def _finish_live_compaction_card(self, message: str) -> None:
+        if self._live_compaction_body is None or self._live_compaction_card is None:
+            await self._start_live_compaction_card()
+        self._live_compaction_active = False
+        if self._live_compaction_body is not None:
+            self._live_compaction_body.update(
+                self._render_live_compaction_body(message, active=False)
+            )
+        await self._pin_activity_indicator_to_end()
 
     def _cancel_activity_resume_timer(self) -> None:
         timer = self._activity_resume_timer
@@ -2704,6 +2755,13 @@ class ReupApp(App):
         if self._activity_widget is not None and self._top_busy:
             self._activity_widget.update(
                 self._render_activity_indicator_text(self._top_state_text)
+            )
+        if self._live_compaction_active and self._live_compaction_body is not None:
+            self._live_compaction_body.update(
+                self._render_live_compaction_body(
+                    "Compacting context",
+                    active=True,
+                )
             )
         if self._cloud_signed_out:
             try:
@@ -4594,10 +4652,8 @@ class ReupApp(App):
         if event.type == AgentEventType.CONTEXT_COMPACTING:
             self._cancel_activity_resume_timer()
             self._activity_version += 1
-            await self._show_activity_indicator(
-                "compacting context",
-                self._activity_version,
-            )
+            await self._hide_activity_indicator(self._activity_version)
+            await self._start_live_compaction_card("Compacting context")
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
@@ -4614,20 +4670,13 @@ class ReupApp(App):
                     "attachments": [],
                     "suppress_user_echo": True,
                 }
-            self.post_system(
-                "Context",
+            await self._finish_live_compaction_card(
                 (
                     f"Compacted after overflow retry. Local estimate was {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
                     if trigger_reason == "overflow_retry"
                     else f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
-                ),
-            )
-            if self._is_turn_running:
-                self._activity_version += 1
-                await self._show_activity_indicator(
-                    self._progress_state_label(),
-                    self._activity_version,
                 )
+            )
             self.refresh_header()
             return
 
