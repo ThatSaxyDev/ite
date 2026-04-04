@@ -428,6 +428,67 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
+    async def test_tool_bound_prelude_is_not_rendered_as_final_message(self) -> None:
+        workspace = self.base_path / "ws-tool-bound-prelude"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text_delta=TextDelta("Let me verify each claim systematically by reading the actual implementation files."),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.TOOL_CALL_COMPLETE,
+                    tool_call=ToolCall(
+                        call_id="call_1",
+                        name="read_file",
+                        arguments={"path": "src/ite/context/manager.py"},
+                    ),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.MESSAGE_COMPLETE,
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                )
+                return
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Here is the complete comparison."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        async def fake_invoke(*args, **kwargs):
+            return ToolResult.success_result("Read complete.")
+
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+        session.tool_registry.get = lambda _name: SimpleNamespace(  # type: ignore[method-assign]
+            validate_params=lambda _params: []
+        )
+        session.tool_registry.invoke = fake_invoke  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("compare iTE and csrc"):
+            events.append(event)
+
+        completed_texts = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+        self.assertEqual(completed_texts, ["Here is the complete comparison."])
+
     async def test_context_overflow_retries_after_compaction(self) -> None:
         workspace = self.base_path / "ws-overflow-retry"
         workspace.mkdir()

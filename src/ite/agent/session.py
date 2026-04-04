@@ -341,14 +341,26 @@ class Session:
         first_assistant = ""
         latest_user = ""
         if self.context_manager:
-            for msg in self.context_manager.get_messages():
-                if msg.get("role") == "user":
+            transcript_state = self.context_manager.export_transcript_state()
+            transcript_events = (
+                transcript_state.get("events", [])
+                if isinstance(transcript_state, dict)
+                else []
+            )
+            transcript_messages = [
+                event.get("message", {})
+                for event in transcript_events
+                if isinstance(event, dict) and isinstance(event.get("message"), dict)
+            ]
+            for msg in transcript_messages:
+                role = str(msg.get("role", "") or "").strip()
+                if role == "user":
                     content = str(msg.get("content", "") or "").strip()
                     if content and not first_user:
                         first_user = content[:200]
                     if content:
                         latest_user = content[:200]
-                elif msg.get("role") == "assistant" and first_user and not first_assistant:
+                elif role == "assistant" and first_user and not first_assistant:
                     content = str(msg.get("content", "") or "").strip()
                     if content:
                         first_assistant = content[:200]

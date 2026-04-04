@@ -1,4 +1,5 @@
 import unittest
+import asyncio
 from pathlib import Path
 
 from ite.agent.session import Session
@@ -28,3 +29,25 @@ class SessionNamingTests(unittest.TestCase):
         self.session.set_auto_name("Better Title")
         self.assertFalse(self.session.should_refresh_auto_name())
         self.assertEqual(self.session.name, "Better Title")
+
+    def test_name_generation_context_uses_full_transcript_after_compaction(self) -> None:
+        asyncio.run(self.session.initialize())
+        assert self.session.context_manager is not None
+
+        self.session.context_manager.add_user_message("Audit the context runtime architecture.")
+        self.session.context_manager.add_assistant_message("I will inspect the runtime and compare it.")
+        self.session.context_manager.add_user_message("Now map the gaps against csrc.")
+        self.session.context_manager.add_assistant_message("I will compare the systems.")
+        self.session.context_manager.replace_with_summary(
+            "## ORIGINAL GOAL\nContinue the architecture comparison.",
+            boundary_metadata={"trigger_reason": "threshold"},
+            preserved_messages=self.session.context_manager.select_compaction_tail(max_messages=2),
+        )
+
+        context = self.session.name_generation_context()
+
+        self.assertEqual(
+            context["first_user"],
+            "Audit the context runtime architecture."[:200],
+        )
+        self.assertIn("Now map the gaps against csrc.", context["latest_user"])

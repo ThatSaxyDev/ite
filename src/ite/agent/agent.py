@@ -1103,7 +1103,7 @@ class Agent:
                     session.plan_mode_enabled
                     and session.plan_phase != "executing"
                 )
-                if not in_plan_questioning:
+                if not in_plan_questioning and not tool_calls:
                     yield AgentEvent.text_complete(controlled_response_text)
                 session.loop_detector.record_action("response", text=controlled_response_text)
 
