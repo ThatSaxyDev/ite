@@ -31,8 +31,6 @@ class Agent:
     POST_COMPACTION_CONTINUATION_DELAY_SECONDS = 1.25
     POST_COMPACTION_MAX_RECOVERY_RETRIES = 2
     INCOMPLETE_RESPONSE_MAX_RETRIES = 2
-    TOOL_ONLY_TURN_LIMIT = 6
-    TOOL_ONLY_FORCED_SUMMARY_MAX_RETRIES = 2
     POST_COMPACTION_CONTINUE_PROMPT = (
         "Continue from the compacted context and finish the current task. "
         "Treat compaction as a boundary, not a failure. "
@@ -970,8 +968,6 @@ class Agent:
         post_compaction_retry_attempts = 0
         incomplete_response_retries = 0
         incomplete_response_prefix = ""
-        consecutive_tool_only_turns = 0
-        tool_only_forced_summary_attempts = 0
         turn_num = 0
 
         while turn_num < max_turns:
@@ -1220,12 +1216,6 @@ class Agent:
             has_visible_response = bool(controlled_response_text.strip())
             if has_visible_response or tool_calls:
                 empty_reply_retries = 0
-            if has_visible_response:
-                consecutive_tool_only_turns = 0
-                tool_only_forced_summary_attempts = 0
-            elif tool_calls:
-                consecutive_tool_only_turns += 1
-
             session.context_manager.add_assistant_message(
                 controlled_response_text,
                 [
@@ -1609,27 +1599,6 @@ class Agent:
 
             session.context_manager.microcompact_tool_outputs()
             session.context_manager.prune_tool_outputs()
-
-            if (
-                not session.plan_mode_enabled
-                and consecutive_tool_only_turns >= self.TOOL_ONLY_TURN_LIMIT
-            ):
-                if (
-                    tool_only_forced_summary_attempts
-                    < self.TOOL_ONLY_FORCED_SUMMARY_MAX_RETRIES
-                ):
-                    tool_only_forced_summary_attempts += 1
-                    session.context_manager.add_system_message(
-                        "You have already completed several tool-only steps without giving the user a visible answer. "
-                        "Stop and synthesize now. Reuse the information already gathered, summarize the current findings, "
-                        "and name the single most important unresolved question. Do not call more tools unless one final "
-                        "targeted lookup is absolutely required."
-                    )
-                    continue
-                yield AgentEvent.agent_error(
-                    "The model kept using tools without producing a user-facing response."
-                )
-                return
 
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 

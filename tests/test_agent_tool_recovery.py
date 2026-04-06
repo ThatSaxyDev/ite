@@ -74,7 +74,7 @@ class _ToolOnlyLoopClient:
             for message in messages
             if isinstance(message, dict) and str(message.get("role") or "") == "system"
         )
-        if "Stop and synthesize now" in system_text:
+        if "[SYSTEM NOTICE: Loop Detected]" in system_text:
             yield StreamEvent(
                 type=StreamEventType.TEXT_DELTA,
                 text_delta=TextDelta(
@@ -255,7 +255,7 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
 
         events = [event async for event in self.agent.run("audit the runtime deeply and keep going")]
 
-        self.assertGreaterEqual(fake_client.calls, self.agent.TOOL_ONLY_TURN_LIMIT)
+        self.assertGreaterEqual(fake_client.calls, 4)
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
         self.assertTrue(
             any(
