@@ -1,13 +1,21 @@
+from __future__ import annotations
+
+from functools import lru_cache
+
 import tiktoken
 
 
+@lru_cache(maxsize=32)
 def get_tokenizer(model: str):
     try:
-        encoding = tiktoken.get_encoding_for_model(model)
+        encoding = tiktoken.encoding_for_model(model)
         return encoding.encode
     except Exception:
-        encoding = tiktoken.get_encoding("cl100k_base")
-        return encoding.encode
+        try:
+            encoding = tiktoken.get_encoding("cl100k_base")
+            return encoding.encode
+        except Exception:
+            return None
 
 
 def count_tokens(text: str, model: str = "gpt-4") -> int:

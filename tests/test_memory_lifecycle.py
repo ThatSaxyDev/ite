@@ -166,7 +166,7 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(events[compacted_index].data.get("auto_resume_required"))
         self.assertFalse(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
 
-    async def test_auto_compaction_waits_before_continuation(self) -> None:
+    async def test_auto_compaction_defers_continuation_to_surface(self) -> None:
         workspace = self.base_path / "ws-compact-delay"
         workspace.mkdir()
 
@@ -211,15 +211,11 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger delayed compaction boundary"):
                 events.append(event)
 
-        self.assertEqual(call_turn_counts, [1])
-        self.assertEqual(len(sleep_calls), 1)
-        self.assertEqual(
-            sleep_calls[0],
-            Agent.POST_COMPACTION_CONTINUATION_DELAY_SECONDS,
-        )
+        self.assertEqual(call_turn_counts, [])
+        self.assertEqual(sleep_calls, [])
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
 
-    async def test_post_compaction_transient_failure_recovers_in_place(self) -> None:
+    async def test_post_compaction_boundary_does_not_continue_in_agent_loop(self) -> None:
         workspace = self.base_path / "ws-post-compact-retry"
         workspace.mkdir()
 
@@ -274,16 +270,12 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger post-compact recovery"):
                 events.append(event)
 
-        self.assertEqual(call_count, 2)
-        self.assertEqual(
-            sleep_calls,
-            [Agent.POST_COMPACTION_CONTINUATION_DELAY_SECONDS, 1.0],
-        )
+        self.assertEqual(call_count, 0)
+        self.assertEqual(sleep_calls, [])
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
-        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
-    async def test_post_compaction_continuation_injects_continue_prompt(self) -> None:
+    async def test_post_compaction_continue_prompt_is_deferred_to_surface(self) -> None:
         workspace = self.base_path / "ws-post-compact-continue-prompt"
         workspace.mkdir()
 
@@ -323,19 +315,17 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("ite.agent.agent.asyncio.sleep", side_effect=fake_sleep):
-            async for _event in agent.run("trigger continue prompt"):
-                pass
+            events = []
+            async for event in agent.run("trigger continue prompt"):
+                events.append(event)
 
-        self.assertEqual(len(outbound_payloads), 1)
-        self.assertEqual(
-            outbound_payloads[0][-1],
-            {
-                "role": "user",
-                "content": Agent.POST_COMPACTION_CONTINUE_PROMPT,
-            },
+        self.assertEqual(outbound_payloads, [])
+        compacted_event = next(
+            event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED
         )
+        self.assertTrue(compacted_event.data.get("auto_resume_required"))
 
-    async def test_post_compaction_recovery_stays_active_across_tool_loop(self) -> None:
+    async def test_post_compaction_tool_loop_continuation_is_deferred_to_surface(self) -> None:
         workspace = self.base_path / "ws-post-compact-tool-loop"
         workspace.mkdir()
 
@@ -415,13 +405,9 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger post-compact tool recovery"):
                 events.append(event)
 
-        self.assertEqual(call_count, 3)
-        self.assertEqual(
-            sleep_calls,
-            [Agent.POST_COMPACTION_CONTINUATION_DELAY_SECONDS, 1.0],
-        )
+        self.assertEqual(call_count, 0)
+        self.assertEqual(sleep_calls, [])
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
-        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
     async def test_tool_bound_prelude_is_not_rendered_as_final_message(self) -> None:
@@ -537,6 +523,84 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         compacted_event = next(event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED)
         self.assertEqual(compacted_event.data.get("trigger_reason"), "overflow_retry")
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
+
+    async def test_microcompact_prunes_old_tool_results_before_full_compaction(self) -> None:
+        workspace = self.base_path / "ws-microcompact"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+        session = agent.session
+
+        for idx in range(8):
+            session.context_manager.add_user_message(f"user message {idx}")
+            session.context_manager.add_assistant_message(
+                f"assistant message {idx}",
+                tool_calls=[
+                    {
+                        "id": f"call_{idx}",
+                        "function": {
+                            "name": "shell",
+                            "arguments": "{}",
+                        },
+                    }
+                ],
+            )
+            session.context_manager.add_tool_result(
+                f"call_{idx}",
+                "x" * 100000,
+                tool_ui={"name": "shell", "success": True, "output": "x" * 120},
+            )
+
+        def fake_status():
+            current_tokens = 49000 if session.context_manager.pruned_tool_msgs == 0 else 41000
+            trigger_at = 45000
+            return {
+                "message_count": session.context_manager.message_count,
+                "min_messages": 8,
+                "current_tokens": current_tokens,
+                "context_limit": 200000,
+                "ratio_trigger": trigger_at,
+                "reserve_trigger": 188000,
+                "trigger_at": trigger_at,
+                "eligible_by_messages": True,
+                "needs_compression": current_tokens >= trigger_at,
+            }
+
+        async def fail_if_compact(_context_manager):
+            raise AssertionError("full compaction should be avoided when microcompact is enough")
+
+        async def fake_chat_completion(messages, tools=None, stream=True):
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("Continued without full compaction."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        session.context_manager.get_compaction_status = fake_status  # type: ignore[method-assign]
+        session.chat_compactor.compact = fail_if_compact  # type: ignore[method-assign]
+        session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("continue after tool-heavy analysis"):
+            events.append(event)
+
+        tool_messages = [
+            msg for msg in session.context_manager.get_snapshot_messages() if msg.get("role") == "tool"
+        ]
+        self.assertGreaterEqual(session.context_manager.pruned_tool_msgs, 1)
+        self.assertTrue(
+            any(
+                str(msg.get("content", "")) == "[Old tool result content cleared]"
+                for msg in tool_messages
+            )
+        )
+        self.assertFalse(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
+        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
 
     async def test_transient_503_above_trigger_uses_overflow_recovery(self) -> None:
         workspace = self.base_path / "ws-overflow-transient-503"

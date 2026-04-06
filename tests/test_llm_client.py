@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import AsyncMock
 from unittest.mock import patch
+import httpx
 
 from ite.client.response import StreamEvent
 from ite.client.response import StreamEventType
@@ -12,13 +13,18 @@ from ite.config.config import Config
 class _FakeResponse:
     status_code = 200
 
+    def __init__(self, *, status_code: int = 200, payload: dict | None = None) -> None:
+        self.status_code = status_code
+        self._payload = payload or {"ok": True, "output": "hi", "usage": {}}
+
     def json(self):
-        return {"ok": True, "output": "hi", "usage": {}}
+        return self._payload
 
 
 class _FakeAsyncClient:
-    def __init__(self, *, capture: list[dict]) -> None:
+    def __init__(self, *, capture: list[dict], responses: list[object] | None = None) -> None:
         self._capture = capture
+        self._responses = responses or []
 
     async def __aenter__(self):
         return self
@@ -28,6 +34,11 @@ class _FakeAsyncClient:
 
     async def post(self, url, headers=None, json=None):
         self._capture.append({"url": url, "headers": headers or {}, "json": json or {}})
+        if self._responses:
+            response = self._responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
         return _FakeResponse()
 
 
@@ -116,6 +127,78 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("minimax", message.lower())
         self.assertIn("500", message)
         self.assertIn("abc-123", message)
+
+    async def test_cloud_chat_completion_retries_transient_provider_failure(self) -> None:
+        captured: list[dict] = []
+        config = Config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        responses: list[object] = [
+            _FakeResponse(
+                status_code=502,
+                payload={
+                    "ok": False,
+                    "error": {
+                        "code": "provider_request_failed",
+                        "details": {
+                            "provider": "ollama-dev",
+                            "providerStatus": 500,
+                            "providerMessage": "Internal Server Error",
+                        },
+                    },
+                },
+            ),
+            _FakeResponse(),
+        ]
+
+        def _fake_async_client(*args, **kwargs):
+            return _FakeAsyncClient(capture=captured, responses=responses)
+
+        with (
+            patch("ite.client.llm_client.get_cloud_session", return_value=session),
+            patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client),
+            patch("ite.client.llm_client.asyncio.sleep", new=AsyncMock()),
+        ):
+            events = []
+            async for event in client._cloud_chat_completion(
+                [{"role": "user", "content": "hello"}],
+                tools=None,
+            ):
+                events.append(event)
+
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+
+    async def test_cloud_complete_text_retries_transient_connection_error(self) -> None:
+        captured: list[dict] = []
+        config = Config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        responses: list[object] = [
+            httpx.ConnectError("connection reset"),
+            _FakeResponse(payload={"ok": True, "output": "continued", "usage": {}}),
+        ]
+
+        def _fake_async_client(*args, **kwargs):
+            return _FakeAsyncClient(capture=captured, responses=responses)
+
+        with (
+            patch("ite.client.llm_client.get_cloud_session", return_value=session),
+            patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client),
+            patch("ite.client.llm_client.asyncio.sleep", new=AsyncMock()),
+        ):
+            text = await client._cloud_complete_text([{"role": "user", "content": "hello"}])
+
+        self.assertEqual(text, "continued")
+        self.assertEqual(len(captured), 2)
 
 
 if __name__ == "__main__":

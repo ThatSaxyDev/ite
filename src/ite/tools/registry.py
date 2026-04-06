@@ -470,6 +470,20 @@ class ToolRegistry:
                 normalized["dry_run"] = bool(normalized.get("preview"))
             return normalized
 
+        if tool_name == "todos":
+            adopt("content", "task", "todo", "item", "text", "message")
+            if normalized.get("items") in (None, ""):
+                for alias in ("tasks", "todos", "checklist", "entries"):
+                    value = normalized.get(alias)
+                    if isinstance(value, list) and value:
+                        normalized["items"] = value
+                        break
+            content = normalized.get("content")
+            if isinstance(content, list) and content and normalized.get("items") in (None, ""):
+                normalized["items"] = content
+                normalized.pop("content", None)
+            return normalized
+
         if tool_name == "spawn_subagent":
             adopt(
                 "subagent",

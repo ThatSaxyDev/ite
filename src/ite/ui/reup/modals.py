@@ -897,18 +897,21 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
 class ModelPickerModal(ModalScreen[str | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
-    def __init__(self, current: str, models: list[dict[str, str]]) -> None:
+    def __init__(self, current: str, models: list[dict[str, Any]]) -> None:
         super().__init__()
         self._current = current
         self._models = models
         self._model_names: list[str] = []
+        self._model_available: list[bool] = []
+        self._model_unavailable_reasons: list[str] = []
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
             yield Label("Select model", classes="modal-title resume-title")
             yield Static(
-                "Pick a bundled model, or keep your current custom provider model.",
+                "Pick an available bundled model, or keep your current custom provider model.",
                 classes="modal-body resume-body",
+                id="model-picker-help",
             )
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="models", classes="resume-table", cursor_type="row")
@@ -918,16 +921,27 @@ class ModelPickerModal(ModalScreen[str | None]):
 
     async def on_mount(self) -> None:
         table = self.query_one("#models", DataTable)
-        table.add_columns("Model", "Source", "Current")
+        table.add_columns("Model", "Source", "Status", "Current")
         self._model_names = []
+        self._model_available = []
+        self._model_unavailable_reasons = []
         for item in self._models:
             model_name = str(item.get("model_name") or "").strip()
             label = str(item.get("label") or model_name).strip()
             provider = str(item.get("provider") or "").strip()
+            available = bool(item.get("available", True))
+            unavailable_reason = str(item.get("unavailable_reason") or "").strip()
             if not model_name:
                 continue
             self._model_names.append(model_name)
-            table.add_row(label, provider, "✓" if model_name == self._current else "")
+            self._model_available.append(available)
+            self._model_unavailable_reasons.append(unavailable_reason)
+            table.add_row(
+                label,
+                provider,
+                "Available" if available else "Unavailable",
+                "✓" if model_name == self._current else "",
+            )
         if self._model_names:
             initial_row = (
                 self._model_names.index(self._current)
@@ -935,22 +949,46 @@ class ModelPickerModal(ModalScreen[str | None]):
                 else 0
             )
             table.move_cursor(row=initial_row, column=0)
-            self.query_one("#select", Button).disabled = False
+            self._refresh_selection_state(initial_row)
+
+    def _refresh_selection_state(self, row: int) -> None:
+        select_button = self.query_one("#select", Button)
+        help_text = self.query_one("#model-picker-help", Static)
+        if not (0 <= row < len(self._model_names)):
+            select_button.disabled = True
+            help_text.update(
+                "Pick an available bundled model, or keep your current custom provider model."
+            )
+            return
+
+        available = self._model_available[row]
+        select_button.disabled = not available
+        if available:
+            help_text.update(
+                "Pick an available bundled model, or keep your current custom provider model."
+            )
+            return
+
+        reason = self._model_unavailable_reasons[row]
+        if reason:
+            help_text.update(f"This model is unavailable right now. {reason}")
+        else:
+            help_text.update("This model is unavailable right now.")
 
     @on(DataTable.RowHighlighted, "#models")
-    def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
-        self.query_one("#select", Button).disabled = False
+    def on_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        self._refresh_selection_state(event.cursor_row)
 
     @on(DataTable.RowSelected, "#models")
     def on_row_selected(self, event: DataTable.RowSelected) -> None:
-        if 0 <= event.cursor_row < len(self._model_names):
+        if 0 <= event.cursor_row < len(self._model_names) and self._model_available[event.cursor_row]:
             self.dismiss(self._model_names[event.cursor_row])
 
     @on(Button.Pressed, "#select")
     def on_select_pressed(self, _event: Button.Pressed) -> None:
         table = self.query_one("#models", DataTable)
         row = table.cursor_row
-        if 0 <= row < len(self._model_names):
+        if 0 <= row < len(self._model_names) and self._model_available[row]:
             self.dismiss(self._model_names[row])
 
     @on(Button.Pressed, "#cancel")

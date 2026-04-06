@@ -195,27 +195,33 @@ def get_cloud_session(config: Config) -> CloudSession | None:
     if existing is None or existing.api_url != cloud_api_url:
         return None
 
-    if existing.is_access_valid:
+    try:
+        if existing.is_access_valid:
+            status, payload = _get_json(
+                f"{existing.api_url.rstrip('/')}/auth/me",
+                access_token=existing.access_token,
+            )
+            if status == 200 and bool(payload.get("ok")):
+                return existing
+
+        refreshed = _refresh_cloud_session(existing)
+        return refreshed
+    except CloudAuthError:
+        return None
+
+
+def get_bundled_models(config: Config) -> list[dict[str, Any]]:
+    try:
+        session = get_cloud_session(config)
+        if session is None:
+            return []
+
         status, payload = _get_json(
-            f"{existing.api_url.rstrip('/')}/auth/me",
-            access_token=existing.access_token,
+            f"{session.api_url.rstrip('/')}/models/bundled",
+            access_token=session.access_token,
         )
-        if status == 200 and bool(payload.get("ok")):
-            return existing
-
-    refreshed = _refresh_cloud_session(existing)
-    return refreshed
-
-
-def get_bundled_models(config: Config) -> list[dict[str, str]]:
-    session = get_cloud_session(config)
-    if session is None:
+    except CloudAuthError:
         return []
-
-    status, payload = _get_json(
-        f"{session.api_url.rstrip('/')}/models/bundled",
-        access_token=session.access_token,
-    )
     if status != 200 or not payload.get("ok"):
         return []
 
@@ -223,13 +229,15 @@ def get_bundled_models(config: Config) -> list[dict[str, str]]:
     if not isinstance(models, list):
         return []
 
-    bundled: list[dict[str, str]] = []
+    bundled: list[dict[str, Any]] = []
     for item in models:
         if not isinstance(item, dict):
             continue
         model_name = str(item.get("modelName") or "").strip()
         label = str(item.get("label") or model_name).strip()
         provider = str(item.get("provider") or "Bundled").strip()
+        available = bool(item.get("available", True))
+        unavailable_reason = str(item.get("unavailableReason") or "").strip()
         if not model_name:
             continue
         bundled.append(
@@ -237,34 +245,42 @@ def get_bundled_models(config: Config) -> list[dict[str, str]]:
                 "model_name": model_name,
                 "label": label,
                 "provider": provider,
+                "available": available,
+                "unavailable_reason": unavailable_reason,
             }
         )
     return bundled
 
 
 def get_usage_summary(config: Config) -> dict[str, Any] | None:
-    session = get_cloud_session(config)
-    if session is None:
-        return None
+    try:
+        session = get_cloud_session(config)
+        if session is None:
+            return None
 
-    status, payload = _get_json(
-        f"{session.api_url.rstrip('/')}/usage/summary",
-        access_token=session.access_token,
-    )
+        status, payload = _get_json(
+            f"{session.api_url.rstrip('/')}/usage/summary",
+            access_token=session.access_token,
+        )
+    except CloudAuthError:
+        return None
     if status != 200 or not payload.get("ok"):
         return None
     return payload
 
 
 def get_activity(config: Config) -> dict[str, Any] | None:
-    session = get_cloud_session(config)
-    if session is None:
-        return None
+    try:
+        session = get_cloud_session(config)
+        if session is None:
+            return None
 
-    status, payload = _get_json(
-        f"{session.api_url.rstrip('/')}/activity",
-        access_token=session.access_token,
-    )
+        status, payload = _get_json(
+            f"{session.api_url.rstrip('/')}/activity",
+            access_token=session.access_token,
+        )
+    except CloudAuthError:
+        return None
     if status != 200 or not payload.get("ok"):
         return None
     return payload

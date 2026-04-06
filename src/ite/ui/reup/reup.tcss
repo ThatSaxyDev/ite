@@ -607,6 +607,26 @@ Screen {
     padding: 0 1 0 1;
 }
 
+.block.recovery {
+    border: round #4d4234;
+    background: #201c19 90%;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.recovery .card-title {
+    color: #f2d2b8;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.recovery .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+    color: #e7ded6;
+}
+
 .block.command {
     border: none;
     background: #151a21 94%;

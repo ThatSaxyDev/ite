@@ -18,6 +18,8 @@ from ite.context.transcript import ConversationLog, MessageItem
 class ContextManager:
     PRUNE_PROTECT_TOKENS = 40_000
     PRUNE_MINIMUM_TOKENS = 10_000
+    MICROCOMPACT_TRIGGER_BUFFER_TOKENS = 8_000
+    MICROCOMPACT_MIN_PRUNE_TOKENS = 4_000
     COMPACTION_MIN_MESSAGES = 8
     COMPACTION_TRIGGER_RATIO = 0.85
     COMPACTION_MIN_RESERVE_TOKENS = 12_000
@@ -596,16 +598,35 @@ class ContextManager:
             self._conversation_log.append(item)
         self._conversation_log.set_active_start(active_start)
 
-    def prune_tool_outputs(self) -> int:
+    def microcompact_tool_outputs(self) -> int:
+        status = self.get_compaction_status()
+        trigger_at = int(status.get("trigger_at", 0) or 0)
+        current_tokens = int(status.get("current_tokens", 0) or 0)
+        if trigger_at <= 0 or current_tokens <= 0:
+            return 0
+
+        soft_limit = max(0, trigger_at - self.MICROCOMPACT_TRIGGER_BUFFER_TOKENS)
+        if current_tokens < soft_limit:
+            return 0
+
+        target_reduction = max(
+            self.MICROCOMPACT_MIN_PRUNE_TOKENS,
+            current_tokens - soft_limit,
+        )
+        return self.prune_tool_outputs(
+            minimum_tokens=self.MICROCOMPACT_MIN_PRUNE_TOKENS,
+            target_tokens=target_reduction,
+        )
+
+    def _collect_prunable_tool_messages(self) -> list[tuple[MessageItem, int]]:
         message_items = self._message_items()
         user_message_count = sum(1 for msg in message_items if msg.role == "user")
 
         if user_message_count < 2:
-            return 0
+            return []
 
         total_tokens = 0
-        pruned_tokens = 0
-        to_prune: list[MessageItem] = []
+        to_prune: list[tuple[MessageItem, int]] = []
 
         for msg in reversed(message_items):
             if msg.role == "tool" and msg.tool_call_id:
@@ -616,15 +637,42 @@ class ContextManager:
                 total_tokens += tokens
 
                 if total_tokens > self.PRUNE_PROTECT_TOKENS:
-                    pruned_tokens += tokens
-                    to_prune.append(msg)
+                    to_prune.append((msg, tokens))
 
-        if pruned_tokens < self.PRUNE_MINIMUM_TOKENS:
+        return to_prune
+
+    def prune_tool_outputs(
+        self,
+        *,
+        minimum_tokens: int | None = None,
+        target_tokens: int | None = None,
+    ) -> int:
+        candidates = self._collect_prunable_tool_messages()
+        if not candidates:
             return 0
+
+        minimum = self.PRUNE_MINIMUM_TOKENS if minimum_tokens is None else minimum_tokens
+        available_tokens = sum(tokens for _msg, tokens in candidates)
+        if available_tokens < minimum:
+            return 0
+
+        selected: list[tuple[MessageItem, int]]
+        if target_tokens and target_tokens > 0:
+            selected = []
+            selected_tokens = 0
+            for msg, tokens in reversed(candidates):
+                selected.append((msg, tokens))
+                selected_tokens += tokens
+                if selected_tokens >= target_tokens:
+                    break
+            if selected_tokens < minimum:
+                return 0
+        else:
+            selected = candidates
 
         pruned_count = 0
 
-        for msg in to_prune:
+        for msg, _tokens in selected:
             msg.content = "[Old tool result content cleared]"
             msg.token_count = count_tokens(msg.content, self._model_name)
             msg.pruned_at = datetime.now()

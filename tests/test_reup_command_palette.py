@@ -204,6 +204,48 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app._tick_live_context_meter()
             update_meta.assert_called_once()
 
+    def test_open_model_picker_passes_availability_metadata_and_warns_when_current_bundled_model_is_down(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax-m2.7:cloud"
+
+            async def fake_open_modal(modal):
+                self.assertEqual(modal._models[0]["model_name"], "minimax-m2.7:cloud")
+                self.assertFalse(modal._models[0]["available"])
+                self.assertEqual(
+                    modal._models[0]["unavailable_reason"],
+                    "Local bundled provider returned 500.",
+                )
+                self.assertTrue(modal._models[1]["available"])
+                return None
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.get_bundled_models",
+                return_value=[
+                    {
+                        "model_name": "minimax-m2.7:cloud",
+                        "label": "MiniMax M2.7",
+                        "provider": "Bundled",
+                        "available": False,
+                        "unavailable_reason": "Local bundled provider returned 500.",
+                    },
+                    {
+                        "model_name": "glm-5:cloud",
+                        "label": "GLM-5",
+                        "provider": "Bundled",
+                        "available": True,
+                        "unavailable_reason": "",
+                    },
+                ],
+            ), patch.object(app, "_open_modal", AsyncMock(side_effect=fake_open_modal)), patch.object(
+                app, "post_system"
+            ) as post_system:
+                await app._open_model_picker_from_meta()
+
+            post_system.assert_not_called()
+
+        asyncio.run(run_test())
+
     def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
         app = self._app()
 
@@ -250,6 +292,16 @@ class ReupCommandPaletteTests(unittest.TestCase):
         second_text = "".join(getattr(part, "plain", str(part)) for part in second.renderables)
         self.assertIn("⠋", first_text)
         self.assertIn("⠙", second_text)
+
+    def test_suppresses_empty_todos_add_failure_card(self) -> None:
+        app = self._app()
+
+        self.assertTrue(
+            app._should_suppress_malformed_tool_card(
+                "todos",
+                "'content' or 'items' is required for 'add' action",
+            )
+        )
 
     def test_tick_top_indicator_advances_streaming_command_spinner_without_top_busy(self) -> None:
         app = self._app()
@@ -488,7 +540,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
             with patch.object(app, "post_system") as post_system, patch.object(
                 app, "post_notice"
-            ) as post_notice, patch.object(app, "refresh_header"), patch.object(
+            ) as post_notice, patch.object(
+                app, "post_recovery_status"
+            ) as post_recovery, patch.object(app, "refresh_header"), patch.object(
                 app, "_schedule_usage_meta_refresh_for_cloud_model"
             ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
                 app, "_hide_activity_indicator", AsyncMock()
@@ -509,10 +563,73 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     "attachments": [],
                 },
             )
-            post_system.assert_called_once()
-            post_notice.assert_called_once_with(
-                "Retry",
-                "Transient bundled inference failure detected. Run /retry to resend the last turn.",
+            self.assertIsNone(run_state.failure_recovery_payload)
+            post_system.assert_not_called()
+            post_notice.assert_not_called()
+            post_recovery.assert_called_once_with(
+                error_message="Bundled inference provider failed (minimax) with status 500. Ref: abc-123.",
+                recovering=False,
+                retry_available=True,
+            )
+
+        asyncio.run(run_test())
+
+    def test_agent_error_after_progress_queues_hidden_followup_recovery(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                )
+            )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            run_state.last_turn_payload = {
+                "message": "Audit the repo.",
+                "display_message": "Audit the repo.",
+                "attachments": [],
+            }
+            run_state.turn_made_progress = True
+
+            with patch.object(app, "post_system") as post_system, patch.object(
+                app, "post_notice"
+            ) as post_notice, patch.object(
+                app, "post_recovery_status"
+            ) as post_recovery, patch.object(app, "refresh_header"), patch.object(
+                app, "_schedule_usage_meta_refresh_for_cloud_model"
+            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
+                app, "_hide_activity_indicator", AsyncMock()
+            ):
+                await app.handle_agent_event(
+                    AgentEvent.agent_error(
+                        "Bundled inference provider failed (ollama-dev) with status 500. Ref: abc-123."
+                    ),
+                    "s1",
+                    1,
+                )
+
+            self.assertEqual(run_state.failure_recovery_attempts, 1)
+            self.assertEqual(
+                run_state.failure_recovery_payload,
+                {
+                    "message": (
+                        "Continue from the last successful step only. "
+                        "Do not repeat completed tool work, repeated file reads, or already-finished analysis. "
+                        "Use the existing results already in the conversation and finish the interrupted task."
+                    ),
+                    "display_message": "",
+                    "attachments": [],
+                    "suppress_user_echo": True,
+                },
+            )
+            post_system.assert_not_called()
+            post_notice.assert_not_called()
+            post_recovery.assert_called_once_with(
+                error_message="Bundled inference provider failed (ollama-dev) with status 500. Ref: abc-123.",
+                recovering=True,
+                retry_available=False,
             )
 
         asyncio.run(run_test())
@@ -611,6 +728,36 @@ class ReupCommandPaletteTests(unittest.TestCase):
             ) as post_notice, patch.object(app, "_set_loading_state") as set_loading:
                 await app._dispatch_queued_payload_if_ready()
                 set_loading.assert_called_once_with("resuming after compaction", busy=True)
+                dispatch.assert_awaited_once_with(expected_payload)
+                post_notice.assert_not_called()
+
+        asyncio.run(scenario())
+
+    def test_failure_recovery_payload_dispatches_before_queued_payload(self) -> None:
+        app = self._app()
+        run_state = app._run_state("s1")
+        app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+        expected_payload = {
+            "message": "Continue from the last successful step only.",
+            "display_message": "",
+            "attachments": [],
+            "suppress_user_echo": True,
+        }
+        run_state.failure_recovery_payload = dict(expected_payload)
+        run_state.queued_turn_payload = {
+            "message": "visible queued draft",
+            "display_message": "visible queued draft",
+            "attachments": [],
+        }
+
+        async def scenario() -> None:
+            with patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
+                app, "post_notice"
+            ) as post_notice, patch.object(app, "_set_loading_state") as set_loading:
+                await app._dispatch_queued_payload_if_ready()
+                set_loading.assert_called_once_with(
+                    "continuing after transient failure", busy=True
+                )
                 dispatch.assert_awaited_once_with(expected_payload)
                 post_notice.assert_not_called()
 

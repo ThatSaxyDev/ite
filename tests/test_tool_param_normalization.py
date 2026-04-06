@@ -93,6 +93,35 @@ class ToolParamNormalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success, msg=result.error)
         self.assertEqual(target.read_text(encoding="utf-8"), "world\n")
 
+    async def test_todos_accepts_task_alias_for_content(self) -> None:
+        result = await self.registry.invoke(
+            "todos",
+            {"action": "add", "scope": "execution", "task": "Implement recovery path"},
+            self.cwd,
+            self.hook_system,
+        )
+
+        self.assertTrue(result.success, msg=result.error)
+        self.assertEqual(result.metadata.get("scope"), "execution")
+        self.assertIn("Implement recovery path", result.output)
+
+    async def test_todos_accepts_tasks_alias_for_items(self) -> None:
+        result = await self.registry.invoke(
+            "todos",
+            {
+                "action": "add",
+                "scope": "planning",
+                "tasks": ["Inspect runtime path", "Patch retry handling"],
+            },
+            self.cwd,
+            self.hook_system,
+        )
+
+        self.assertTrue(result.success, msg=result.error)
+        self.assertEqual(result.metadata.get("scope"), "planning")
+        self.assertIn("Inspect runtime path", result.output)
+        self.assertIn("Patch retry handling", result.output)
+
     def test_shell_schema_accepts_cmd_alias_during_validation(self) -> None:
         params = ShellParams(cmd="printf 'ok'")
         self.assertEqual(params.command, "printf 'ok'")

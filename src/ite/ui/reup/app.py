@@ -301,8 +301,11 @@ class SessionRunState:
     active_turn_id: int = 0
     is_turn_running: bool = False
     turn_had_error: bool = False
+    turn_made_progress: bool = False
     context_meter_floor_pct: int | None = None
     auto_resume_payload: dict[str, Any] | None = None
+    failure_recovery_payload: dict[str, Any] | None = None
+    failure_recovery_attempts: int = 0
     queued_turn_payload: dict[str, Any] | None = None
     last_turn_payload: dict[str, Any] | None = None
     retryable_turn_payload: dict[str, Any] | None = None
@@ -1475,10 +1478,17 @@ class ReupApp(App):
         current_model = self.config.model_name
         bundled_items = get_bundled_models(self.config)
 
-        model_options: list[dict[str, str]] = []
+        model_options: list[dict[str, Any]] = []
         seen: set[str] = set()
 
-        def _append(model_name: str, label: str, provider: str) -> None:
+        def _append(
+            model_name: str,
+            label: str,
+            provider: str,
+            *,
+            available: bool = True,
+            unavailable_reason: str = "",
+        ) -> None:
             normalized = str(model_name or "").strip()
             if not normalized or normalized in seen:
                 return
@@ -1488,6 +1498,8 @@ class ReupApp(App):
                     "model_name": normalized,
                     "label": label,
                     "provider": provider,
+                    "available": available,
+                    "unavailable_reason": unavailable_reason,
                 }
             )
 
@@ -1501,6 +1513,8 @@ class ReupApp(App):
                 str(item.get("model_name") or ""),
                 str(item.get("label") or item.get("model_name") or ""),
                 str(item.get("provider") or "Bundled"),
+                available=bool(item.get("available", True)),
+                unavailable_reason=str(item.get("unavailable_reason") or ""),
             )
 
         if not model_options:
@@ -1510,6 +1524,22 @@ class ReupApp(App):
                 is_error=True,
             )
             return
+
+        available_options = [
+            item for item in model_options if bool(item.get("available", True))
+        ]
+        if not available_options and current_model and any(
+            item.get("model_name") == current_model for item in model_options
+        ):
+            reason = ""
+            for item in model_options:
+                if item.get("model_name") == current_model:
+                    reason = str(item.get("unavailable_reason") or "").strip()
+                    break
+            message = "Bundled models are unavailable right now."
+            if reason:
+                message = f"{message} {reason}"
+            self.post_system("Model", message, is_error=True)
 
         selected = await self._open_modal(ModelPickerModal(current_model, model_options))
         if not selected or selected == current_model:
@@ -3508,6 +3538,21 @@ class ReupApp(App):
         else:
             run_state.retryable_turn_payload = None
 
+    def _build_followup_recovery_payload(self, session_id: str) -> dict[str, Any] | None:
+        run_state = self._run_state(session_id)
+        if not run_state.last_turn_payload:
+            return None
+        return {
+            "message": (
+                "Continue from the last successful step only. "
+                "Do not repeat completed tool work, repeated file reads, or already-finished analysis. "
+                "Use the existing results already in the conversation and finish the interrupted task."
+            ),
+            "display_message": "",
+            "attachments": [],
+            "suppress_user_echo": True,
+        }
+
     async def _retry_last_turn(self) -> None:
         session_id = self._active_session_id()
         if not session_id:
@@ -3640,6 +3685,12 @@ class ReupApp(App):
             payload = run_state.auto_resume_payload
             run_state.auto_resume_payload = None
             self._set_loading_state("resuming after compaction", busy=True)
+            await self._dispatch_payload(payload)
+            return
+        if run_state.failure_recovery_payload is not None:
+            payload = run_state.failure_recovery_payload
+            run_state.failure_recovery_payload = None
+            self._set_loading_state("continuing after transient failure", busy=True)
             await self._dispatch_payload(payload)
             return
         if self._queued_turn_payload is None:
@@ -4452,8 +4503,12 @@ class ReupApp(App):
         run_state = self._run_state(session_id)
         self._last_rendered_plan_text = None
         run_state.turn_had_error = False
+        run_state.turn_made_progress = False
         run_state.last_error_message = None
         run_state.retryable_turn_payload = None
+        if not suppress_user_echo:
+            run_state.failure_recovery_attempts = 0
+        run_state.failure_recovery_payload = None
         if not suppress_user_echo:
             run_state.auto_resume_payload = None
         attachments = list(
@@ -4549,6 +4604,11 @@ class ReupApp(App):
 
         if completed_normally and self._active_session_id() == session_id:
             await self._dispatch_queued_payload_if_ready()
+        elif (
+            self._active_session_id() == session_id
+            and run_state.failure_recovery_payload is not None
+        ):
+            await self._dispatch_queued_payload_if_ready()
         elif self._active_session_id() == session_id:
             self._restore_queued_payload_after_unsuccessful_turn()
 
@@ -4596,6 +4656,7 @@ class ReupApp(App):
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
+                run_state.turn_made_progress = True
                 self._cancel_activity_resume_timer()
                 self._activity_version += 1
                 await self._hide_activity_indicator(self._activity_version)
@@ -4605,6 +4666,8 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
+            if content:
+                run_state.turn_made_progress = True
             self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
@@ -4646,12 +4709,32 @@ class ReupApp(App):
             run_state.context_meter_floor_pct = None
             error_message = str(event.data.get("error", "Unknown error"))
             self._mark_retryable_turn_failure(session_id, error_message)
-            self.post_system("Error", error_message, is_error=True)
-            if run_state.retryable_turn_payload is not None:
-                self.post_notice(
-                    "Retry",
-                    "Transient bundled inference failure detected. Run /retry to resend the last turn.",
-                )
+            should_attempt_recovery = (
+                run_state.retryable_turn_payload is not None
+                and run_state.turn_made_progress
+                and run_state.failure_recovery_attempts < 1
+            )
+            if should_attempt_recovery:
+                recovery_payload = self._build_followup_recovery_payload(session_id)
+                if recovery_payload is not None:
+                    run_state.failure_recovery_payload = recovery_payload
+                    run_state.failure_recovery_attempts += 1
+                    self.post_recovery_status(
+                        error_message=error_message,
+                        recovering=True,
+                        retry_available=False,
+                    )
+                else:
+                    self.post_system("Error", error_message, is_error=True)
+            else:
+                if run_state.retryable_turn_payload is not None:
+                    self.post_recovery_status(
+                        error_message=error_message,
+                        recovering=False,
+                        retry_available=True,
+                    )
+                else:
+                    self.post_system("Error", error_message, is_error=True)
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
             return
@@ -4754,6 +4837,7 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
+            run_state.turn_made_progress = True
             error_text = str(event.data.get("error") or "")
             if not event.data.get(
                 "success", False
@@ -5241,6 +5325,52 @@ class ReupApp(App):
             exclusive=False,
         )
 
+    def post_recovery_status(
+        self,
+        *,
+        error_message: str,
+        recovering: bool,
+        retry_available: bool,
+    ) -> None:
+        title = "Recovering" if recovering else "Inference Interrupted"
+        body = Text()
+        if recovering:
+            body.append(
+                "Bundled inference stalled after partial progress. Continuing automatically.\n\n",
+                style="#dfe8f3",
+            )
+        else:
+            body.append(
+                "Bundled inference is temporarily unavailable.\n\n",
+                style="#dfe8f3",
+            )
+
+        if error_message:
+            body.append("Details\n", style="bold #f3c7af")
+            body.append(f"{error_message}\n", style="#f1c3ae")
+
+        body.append("\nAction\n", style="bold #b7c8e1")
+        if recovering:
+            body.append(
+                "Waiting for one automatic continuation attempt.",
+                style="#9bcbb7",
+            )
+        elif retry_available:
+            body.append(
+                "Run /retry to resend the last turn, or switch models if the provider stays unstable.",
+                style="#d7deea",
+            )
+        else:
+            body.append(
+                "Try again in a moment, or switch models if the provider stays unstable.",
+                style="#d7deea",
+            )
+
+        self.run_worker(
+            self.add_assistant_card(title, body, css_class="recovery"),
+            exclusive=False,
+        )
+
     def post_command_result(self, command: str, message: str) -> None:
         self.run_worker(
             self.add_assistant_card(
@@ -5724,11 +5854,17 @@ class ReupApp(App):
             "edit",
             "apply_patch",
             "memory",
+            "todos",
         }:
             return False
         normalized = validation_error.strip()
         if normalized.startswith("Error: "):
             normalized = normalized.removeprefix("Error: ").strip()
+        if (
+            tool_name == "todos"
+            and "'content' or 'items' is required for 'add' action" in normalized
+        ):
+            return True
         if not normalized.startswith("Invalid parameters: "):
             return False
         detail = normalized.removeprefix("Invalid parameters: ").strip()
@@ -5747,6 +5883,7 @@ class ReupApp(App):
             },
             "apply_patch": {"Parameter 'patch': Field required"},
             "memory": {"Parameter 'action': Field required"},
+            "todos": set(),
         }
         return detail in required_errors.get(tool_name, set())
 

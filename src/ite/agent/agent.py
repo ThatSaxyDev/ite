@@ -30,6 +30,7 @@ class Agent:
     )
     POST_COMPACTION_CONTINUATION_DELAY_SECONDS = 1.25
     POST_COMPACTION_MAX_RECOVERY_RETRIES = 2
+    INCOMPLETE_RESPONSE_MAX_RETRIES = 2
     POST_COMPACTION_CONTINUE_PROMPT = (
         "Continue from the compacted context and finish the current task. "
         "Treat compaction as a boundary, not a failure. "
@@ -196,6 +197,33 @@ class Agent:
 
     def _should_delay_after_compaction(self) -> bool:
         return True
+
+    def _looks_incomplete_response(self, text: str) -> bool:
+        stripped = str(text or "").strip()
+        if not stripped:
+            return False
+
+        if stripped.count("```") % 2 == 1:
+            return True
+
+        lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return False
+
+        last_line = lines[-1].strip()
+        if not last_line:
+            return False
+
+        if last_line.endswith(":"):
+            return True
+
+        if re.match(r"^P\d+\s+[–-]\s+.+:$", last_line):
+            return True
+
+        if re.match(r"^(#{1,6}\s+.+|[A-Z][A-Za-z0-9 /_-]{2,60}):$", last_line):
+            return True
+
+        return False
 
     def _is_transient_post_compaction_error(self, error: str) -> bool:
         text = str(error or "").strip().lower()
@@ -830,6 +858,8 @@ class Agent:
         post_compaction_recovery_active = False
         post_compaction_continue_prompt_needed = False
         post_compaction_retry_attempts = 0
+        incomplete_response_retries = 0
+        incomplete_response_prefix = ""
         turn_num = 0
 
         while turn_num < max_turns:
@@ -840,6 +870,7 @@ class Agent:
             response_text = ""
             execution_progress_eligible = False
 
+            session.context_manager.microcompact_tool_outputs()
             if session.context_manager.needs_compression():
                 trigger_tokens = (
                     session.context_manager.estimate_current_context_tokens()
@@ -1069,6 +1100,11 @@ class Agent:
                 latest_user_text,
                 response_text,
             )
+            if incomplete_response_prefix and controlled_response_text and not tool_calls:
+                controlled_response_text = (
+                    incomplete_response_prefix + controlled_response_text
+                )
+                incomplete_response_prefix = ""
             has_visible_response = bool(controlled_response_text.strip())
             if has_visible_response or tool_calls:
                 empty_reply_retries = 0
@@ -1095,6 +1131,7 @@ class Agent:
                     session.context_manager.set_latest_usage(usage)
                     session.context_manager.add_usage(usage)
 
+                session.context_manager.microcompact_tool_outputs()
                 session.context_manager.prune_tool_outputs()
                 if not has_visible_response and not session.plan_mode_enabled:
                     if empty_reply_retries < 2:
@@ -1175,6 +1212,19 @@ class Agent:
                             )
                         session.set_plan_phase("idle")
                 elif controlled_response_text:
+                    if (
+                        incomplete_response_retries
+                        < self.INCOMPLETE_RESPONSE_MAX_RETRIES
+                        and self._looks_incomplete_response(controlled_response_text)
+                    ):
+                        incomplete_response_retries += 1
+                        incomplete_response_prefix = controlled_response_text
+                        session.context_manager.add_system_message(
+                            "The previous assistant response appears incomplete. "
+                            "Continue exactly where you left off, finish the structure, "
+                            "and do not repeat already written content."
+                        )
+                        continue
                     if execution_progress_made:
                         async for progress_event in self._complete_execution_stage_todo(
                             session,
@@ -1187,9 +1237,10 @@ class Agent:
                     )
                 post_compaction_recovery_active = False
                 post_compaction_continue_prompt_needed = False
+                incomplete_response_prefix = ""
                 return
 
-            if controlled_response_text:
+            if controlled_response_text and not tool_calls:
                 in_plan_questioning = (
                     session.plan_mode_enabled and session.plan_phase != "executing"
                 )
@@ -1429,6 +1480,7 @@ class Agent:
                 session.context_manager.set_latest_usage(usage)
                 session.context_manager.add_usage(usage)
 
+            session.context_manager.microcompact_tool_outputs()
             session.context_manager.prune_tool_outputs()
 
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")

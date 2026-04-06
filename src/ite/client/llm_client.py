@@ -124,6 +124,90 @@ class LLMClient:
 
         return message
 
+    def _is_retryable_cloud_failure(
+        self,
+        *,
+        response_status: int | None = None,
+        payload: dict[str, Any] | None = None,
+        error: Exception | None = None,
+    ) -> bool:
+        if error is not None:
+            return isinstance(
+                error,
+                (
+                    httpx.ConnectError,
+                    httpx.ReadTimeout,
+                    httpx.WriteTimeout,
+                    httpx.RemoteProtocolError,
+                    httpx.PoolTimeout,
+                ),
+            )
+
+        payload = payload or {}
+        error_payload = payload.get("error") or {}
+        details = error_payload.get("details") or {}
+        code = str(error_payload.get("code") or "").strip().lower()
+        provider_status = details.get("providerStatus")
+        provider_message = str(details.get("providerMessage") or "").lower()
+
+        if code in {"provider_request_failed", "internal_error", "provider_unavailable"}:
+            if isinstance(provider_status, int) and provider_status in {500, 502, 503, 504}:
+                return True
+            if response_status in {500, 502, 503, 504}:
+                return True
+            if any(marker in provider_message for marker in ("temporarily unavailable", "timeout", "connection", "try again")):
+                return True
+
+        return False
+
+    async def _post_cloud_inference(
+        self,
+        session: Any,
+        request_payload: dict[str, Any],
+    ) -> tuple[int, dict[str, Any]]:
+        max_attempts = min(self._max_retries + 1, 3)
+        last_error: Exception | None = None
+
+        for attempt in range(max_attempts):
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    response = await client.post(
+                        f"{session.api_url.rstrip('/')}/inference/chat",
+                        headers={
+                            "authorization": f"Bearer {session.access_token}",
+                            "content-type": "application/json",
+                        },
+                        json=request_payload,
+                    )
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt < (max_attempts - 1) and self._is_retryable_cloud_failure(error=exc):
+                    await asyncio.sleep(2**attempt)
+                    continue
+                raise
+
+            try:
+                payload = response.json()
+            except ValueError:
+                payload = {}
+
+            if (
+                (response.status_code != 200 or not payload.get("ok"))
+                and attempt < (max_attempts - 1)
+                and self._is_retryable_cloud_failure(
+                    response_status=response.status_code,
+                    payload=payload,
+                )
+            ):
+                await asyncio.sleep(2**attempt)
+                continue
+
+            return response.status_code, payload
+
+        if last_error is not None:
+            raise last_error
+        return 502, {}
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.close()
@@ -325,15 +409,9 @@ class LLMClient:
             request_payload["toolChoice"] = "auto"
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(
-                    f"{session.api_url.rstrip('/')}/inference/chat",
-                    headers={
-                        "authorization": f"Bearer {session.access_token}",
-                        "content-type": "application/json",
-                    },
-                    json=request_payload,
-                )
+            status_code, payload = await self._post_cloud_inference(
+                session, request_payload
+            )
         except httpx.HTTPError as exc:
             yield StreamEvent(
                 type=StreamEventType.ERROR,
@@ -341,12 +419,7 @@ class LLMClient:
             )
             return
 
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-
-        if response.status_code != 200 or not payload.get("ok"):
+        if status_code != 200 or not payload.get("ok"):
             message = self._format_cloud_error(payload)
             yield StreamEvent(type=StreamEventType.ERROR, error=message)
             return
@@ -401,24 +474,13 @@ class LLMClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(
-                    f"{session.api_url.rstrip('/')}/inference/chat",
-                    headers={
-                        "authorization": f"Bearer {session.access_token}",
-                        "content-type": "application/json",
-                    },
-                    json=request_payload,
-                )
+            status_code, payload = await self._post_cloud_inference(
+                session, request_payload
+            )
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Could not reach iTE bundled inference: {exc}") from exc
 
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-
-        if response.status_code != 200 or not payload.get("ok"):
+        if status_code != 200 or not payload.get("ok"):
             raise RuntimeError(self._format_cloud_error(payload))
 
         output = str(payload.get("output") or "").strip()
