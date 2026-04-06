@@ -303,6 +303,64 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
         )
 
+    def test_tool_start_splits_streaming_assistant_segment(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                    tool_registry=SimpleNamespace(get=lambda _name: None),
+                )
+            )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            app._run_state("s1").active_turn_id = 1
+
+            class DummyConversation:
+                def __init__(self) -> None:
+                    self.mounted: list[object] = []
+
+                async def mount(self, widget) -> None:
+                    self.mounted.append(widget)
+
+            conversation = DummyConversation()
+
+            def fake_query_one(selector, *_args, **_kwargs):
+                if selector == "#conversation":
+                    return conversation
+                raise AssertionError(f"Unexpected selector: {selector}")
+
+            with patch.object(app, "query_one", side_effect=fake_query_one), patch.object(
+                app, "_pin_activity_indicator_to_end", AsyncMock()
+            ), patch.object(app, "_refresh_empty_state"), patch.object(
+                app, "get_tool_kind", return_value=None
+            ), patch.object(app, "_hide_activity_indicator", AsyncMock()), patch.object(
+                app, "_cancel_activity_resume_timer"
+            ), patch.object(app, "_set_loading_state"), patch.object(
+                app, "_progress_state_label", return_value="Reading file"
+            ):
+                await app.stream_assistant_delta("First segment.")
+                first_widget = app._streaming_widget
+                await app.handle_agent_event(
+                    AgentEvent.tool_call_start(
+                        "call_read_1",
+                        "read_file",
+                        {"path": "src/ite/ui/reup/app.py"},
+                    ),
+                    "s1",
+                    1,
+                )
+                self.assertIsNone(app._streaming_widget)
+                await app.stream_assistant_delta("Second segment.")
+                second_widget = app._streaming_widget
+
+            self.assertIsNotNone(first_widget)
+            self.assertIsNotNone(second_widget)
+            self.assertIsNot(first_widget, second_widget)
+            self.assertEqual(len(conversation.mounted), 3)
+
+        asyncio.run(run_test())
+
     def test_tick_top_indicator_advances_streaming_command_spinner_without_top_busy(self) -> None:
         app = self._app()
         widget = Static()

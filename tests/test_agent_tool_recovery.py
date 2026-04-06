@@ -60,6 +60,41 @@ class _SequenceClient:
         yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
 
 
+class _ToolOnlyLoopClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        system_text = " ".join(
+            str(message.get("content") or "")
+            for message in messages
+            if isinstance(message, dict) and str(message.get("role") or "") == "system"
+        )
+        if "Stop and synthesize now" in system_text:
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    content="Here is the current state and the next unresolved question."
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+
+        yield StreamEvent(
+            type=StreamEventType.TOOL_CALL_COMPLETE,
+            tool_call=ToolCall(
+                call_id=f"call_fake_loop_{self.calls}",
+                name="fake_tool",
+                arguments={"value": "x"},
+            ),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
 class AgentToolRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -132,6 +167,60 @@ class AgentToolRecoveryTests(unittest.TestCase):
             )
         )
 
+    def test_rewrites_todo_add_to_list_when_scope_already_seeded(self) -> None:
+        self.agent.session.restore_todos_state(
+            {
+                "version": 1,
+                "planning": [],
+                "execution": [
+                    {"id": "todo1", "content": "Implement retry logic", "completed": False}
+                ],
+            }
+        )
+
+        rewritten, note = self.agent._rewrite_todo_tool_call(
+            self.agent.session,
+            {"action": "add", "scope": "execution", "content": "Create another checklist"},
+        )
+
+        self.assertEqual(
+            rewritten,
+            {
+                "action": "list",
+                "scope": "execution",
+                "_suppress_ui": True,
+                "_runtime_reused_checklist": True,
+            },
+        )
+        self.assertIn("already exists", note or "")
+
+    def test_rewrites_todo_complete_without_id_to_list_when_scope_exists(self) -> None:
+        self.agent.session.restore_todos_state(
+            {
+                "version": 1,
+                "planning": [
+                    {"id": "todo2", "content": "Clarify requirements", "completed": False}
+                ],
+                "execution": [],
+            }
+        )
+
+        rewritten, note = self.agent._rewrite_todo_tool_call(
+            self.agent.session,
+            {"action": "complete", "scope": "planning"},
+        )
+
+        self.assertEqual(
+            rewritten,
+            {
+                "action": "list",
+                "scope": "planning",
+                "_suppress_ui": True,
+                "_runtime_reused_checklist": True,
+            },
+        )
+        self.assertIn("missing", note or "")
+
 
 class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -155,6 +244,23 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
             any(
                 event.type == AgentEventType.TEXT_COMPLETE
                 and event.data.get("content") == "Finished the task."
+                for event in events
+            )
+        )
+
+    async def test_forces_summary_after_repeated_tool_only_turns(self) -> None:
+        fake_client = _ToolOnlyLoopClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeTool(self.config))
+
+        events = [event async for event in self.agent.run("audit the runtime deeply and keep going")]
+
+        self.assertGreaterEqual(fake_client.calls, self.agent.TOOL_ONLY_TURN_LIMIT)
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
+        self.assertTrue(
+            any(
+                event.type == AgentEventType.TEXT_COMPLETE
+                and "current state" in str(event.data.get("content", "")).lower()
                 for event in events
             )
         )

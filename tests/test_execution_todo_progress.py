@@ -39,3 +39,28 @@ class ExecutionTodoProgressTests(unittest.TestCase):
         ]
 
         self.assertFalse(self.agent._should_refresh_execution_todos(items))
+
+    def test_analysis_requests_are_detected_as_read_only(self) -> None:
+        self.assertTrue(
+            self.agent._is_analysis_request(
+                "Audit how iTE handles session continuity across compaction, restore, and transient inference failures. Inspect the relevant runtime files and build a concrete gap analysis."
+            )
+        )
+        self.assertFalse(
+            self.agent._is_analysis_request(
+                "Implement the first safe slice and verify it with tests."
+            )
+        )
+
+    def test_derive_execution_seed_items_uses_analysis_checklist_for_audit_prompt(self) -> None:
+        items = self.agent._derive_execution_seed_items(
+            "Audit how iTE handles session continuity across compaction, restore, and transient inference failures. Inspect the relevant runtime files and build a concrete gap analysis."
+        )
+
+        self.assertIn("Inspect relevant runtime files", items[0])
+        self.assertIn("Build a concrete gap analysis", items[1])
+        self.assertNotIn(
+            "Run verification checks (tests/lint/build as applicable)",
+            items,
+        )
+        self.assertNotIn("Summarize outcome and changed files", items)

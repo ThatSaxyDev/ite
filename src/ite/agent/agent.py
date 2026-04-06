@@ -31,6 +31,8 @@ class Agent:
     POST_COMPACTION_CONTINUATION_DELAY_SECONDS = 1.25
     POST_COMPACTION_MAX_RECOVERY_RETRIES = 2
     INCOMPLETE_RESPONSE_MAX_RETRIES = 2
+    TOOL_ONLY_TURN_LIMIT = 6
+    TOOL_ONLY_FORCED_SUMMARY_MAX_RETRIES = 2
     POST_COMPACTION_CONTINUE_PROMPT = (
         "Continue from the compacted context and finish the current task. "
         "Treat compaction as a boundary, not a failure. "
@@ -473,7 +475,59 @@ class Agent:
         has_files_hint = any(marker in text for marker in files_markers)
         return marker_hits >= 2 or (marker_hits >= 1 and has_files_hint)
 
+    def _is_analysis_request(self, message: str) -> bool:
+        text = (message or "").strip().lower()
+        if not text:
+            return False
+        analysis_markers = (
+            "audit",
+            "analyze",
+            "analysis",
+            "inspect",
+            "trace",
+            "review how",
+            "review the",
+            "compare",
+            "gap analysis",
+            "challenge your own conclusions",
+            "stay in analysis mode",
+            "read-only",
+            "without proposing code changes",
+        )
+        write_markers = (
+            "implement",
+            "fix",
+            "write code",
+            "patch",
+            "edit",
+            "update files",
+            "make changes",
+            "run tests",
+            "verify with tests",
+            "apply",
+            "refactor",
+        )
+        has_analysis = any(marker in text for marker in analysis_markers)
+        has_write = any(marker in text for marker in write_markers)
+        return has_analysis and not has_write
+
+    def _derive_analysis_seed_items(self, message: str) -> list[str]:
+        first_line = ((message or "").strip().splitlines() or [""])[0].strip()
+        text = re.sub(r"\s+", " ", first_line or "analysis request")
+        items = [
+            "Inspect relevant runtime files",
+            "Build a concrete gap analysis",
+            "Summarize current findings and next questions",
+        ]
+        if "compare" in text.lower():
+            items[1] = "Compare the current implementation against the reference behavior"
+        if "trace" in text.lower():
+            items[0] = "Trace the runtime path through the relevant files"
+        return items
+
     def _derive_execution_seed_items(self, message: str) -> list[str]:
+        if self._is_analysis_request(message):
+            return self._derive_analysis_seed_items(message)
         first_line = ((message or "").strip().splitlines() or [""])[0].strip()
         text = re.sub(r"\s+", " ", first_line or "user request")
         parts = re.split(r"\b(?:and then|then|and)\b|,|;", text, flags=re.IGNORECASE)
@@ -601,6 +655,62 @@ class Agent:
             "memory": {"Parameter 'action': Field required"},
         }
         return set(validation_errors).issubset(required_errors.get(tool_name, set()))
+
+    def _todo_items_for_scope(self, session: Session, scope: str) -> list[dict[str, Any]]:
+        state = session.export_todos_state()
+        items = state.get(scope, []) if isinstance(state, dict) else []
+        return items if isinstance(items, list) else []
+
+    def _rewrite_todo_tool_call(
+        self,
+        session: Session,
+        params: dict[str, Any],
+    ) -> tuple[dict[str, Any], str | None]:
+        normalized = dict(params)
+        action = str(normalized.get("action") or "").strip().lower()
+        scope = str(normalized.get("scope") or "execution").strip().lower() or "execution"
+        if not action:
+            return normalized, None
+
+        existing_items = self._todo_items_for_scope(session, scope)
+        has_existing_items = bool(existing_items)
+        item_values = normalized.get("items")
+        has_items = isinstance(item_values, list) and any(
+            str(item).strip() for item in item_values
+        )
+        content_value = normalized.get("content")
+        has_content = isinstance(content_value, str) and bool(content_value.strip())
+        has_id = bool(str(normalized.get("id") or "").strip())
+
+        if action == "add" and has_existing_items:
+            return (
+                {
+                    "action": "list",
+                    "scope": scope,
+                    "_suppress_ui": True,
+                    "_runtime_reused_checklist": True,
+                },
+                "Runtime-owned checklist already exists; listing current items instead of creating a second checklist.",
+            )
+
+        if action in {"complete", "update", "remove", "reopen"} and has_existing_items and not has_id:
+            return (
+                {
+                    "action": "list",
+                    "scope": scope,
+                    "_suppress_ui": True,
+                    "_runtime_reused_checklist": True,
+                },
+                "Checklist item reference was missing; listing current items so the agent can reuse existing todo IDs.",
+            )
+
+        if action == "add" and not has_existing_items and not (has_items or has_content):
+            return (
+                normalized,
+                "Checklist creation omitted todo content.",
+            )
+
+        return normalized, None
 
     def _is_planning_todo_already_completed(
         self, session: Session, todo_id: str
@@ -860,6 +970,8 @@ class Agent:
         post_compaction_retry_attempts = 0
         incomplete_response_retries = 0
         incomplete_response_prefix = ""
+        consecutive_tool_only_turns = 0
+        tool_only_forced_summary_attempts = 0
         turn_num = 0
 
         while turn_num < max_turns:
@@ -1108,6 +1220,11 @@ class Agent:
             has_visible_response = bool(controlled_response_text.strip())
             if has_visible_response or tool_calls:
                 empty_reply_retries = 0
+            if has_visible_response:
+                consecutive_tool_only_turns = 0
+                tool_only_forced_summary_attempts = 0
+            elif tool_calls:
+                consecutive_tool_only_turns += 1
 
             session.context_manager.add_assistant_message(
                 controlled_response_text,
@@ -1255,15 +1372,21 @@ class Agent:
 
             for tool_call in tool_calls:
                 tool = session.tool_registry.get(tool_call.name)
-                normalized_args = tool_call.arguments
+                effective_args = dict(tool_call.arguments)
+                normalized_args = effective_args
                 validation_errors: list[str] = []
                 if tool is not None:
                     normalized_args = session.tool_registry.normalize_params(
                         tool_name=tool_call.name,
-                        params=tool_call.arguments,
+                        params=effective_args,
                         plan_mode_enabled=session.plan_mode_enabled,
                         plan_phase=session.plan_phase,
                     )
+                    if tool_call.name == "todos":
+                        normalized_args, _todo_note = self._rewrite_todo_tool_call(
+                            session, normalized_args
+                        )
+                    effective_args = normalized_args
                     validation_errors = tool.validate_params(normalized_args)
 
                 if (
@@ -1314,13 +1437,13 @@ class Agent:
                 yield AgentEvent.tool_call_start(
                     tool_call.call_id,
                     tool_call.name,
-                    tool_call.arguments,
+                    effective_args,
                 )
 
                 session.loop_detector.record_action(
                     "tool_call",
                     tool_name=tool_call.name,
-                    args=tool_call.arguments,
+                    args=effective_args,
                 )
 
                 if asyncio.current_task() and asyncio.current_task().cancelling():
@@ -1334,7 +1457,7 @@ class Agent:
                 invoke_task = asyncio.create_task(
                     session.tool_registry.invoke(
                         tool_call.name,
-                        tool_call.arguments,
+                        effective_args,
                         self.config.cwd,
                         session.hook_system,
                         session.approval_manager,
@@ -1385,6 +1508,10 @@ class Agent:
                     )
 
                 result = await invoke_task
+                if tool_call.name == "todos" and effective_args.get("_suppress_ui"):
+                    result.metadata = result.metadata or {}
+                    result.metadata["suppressed"] = True
+                    result.metadata["runtime_reused_checklist"] = True
 
                 if asyncio.current_task() and asyncio.current_task().cancelling():
                     raise asyncio.CancelledError
@@ -1482,6 +1609,27 @@ class Agent:
 
             session.context_manager.microcompact_tool_outputs()
             session.context_manager.prune_tool_outputs()
+
+            if (
+                not session.plan_mode_enabled
+                and consecutive_tool_only_turns >= self.TOOL_ONLY_TURN_LIMIT
+            ):
+                if (
+                    tool_only_forced_summary_attempts
+                    < self.TOOL_ONLY_FORCED_SUMMARY_MAX_RETRIES
+                ):
+                    tool_only_forced_summary_attempts += 1
+                    session.context_manager.add_system_message(
+                        "You have already completed several tool-only steps without giving the user a visible answer. "
+                        "Stop and synthesize now. Reuse the information already gathered, summarize the current findings, "
+                        "and name the single most important unresolved question. Do not call more tools unless one final "
+                        "targeted lookup is absolutely required."
+                    )
+                    continue
+                yield AgentEvent.agent_error(
+                    "The model kept using tools without producing a user-facing response."
+                )
+                return
 
         yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 

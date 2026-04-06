@@ -4608,8 +4608,10 @@ class ReupApp(App):
             self._active_session_id() == session_id
             and run_state.failure_recovery_payload is not None
         ):
+            await self._clear_inflight_turn_ui()
             await self._dispatch_queued_payload_if_ready()
         elif self._active_session_id() == session_id:
+            await self._clear_inflight_turn_ui()
             self._restore_queued_payload_after_unsuccessful_turn()
 
     async def _agent_turn(
@@ -4772,25 +4774,37 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TOOL_CALL_START:
             self._cancel_activity_resume_timer()
+            if self._streaming_widget is not None:
+                await self.finalize_streaming_message()
             tool_name = event.data.get("name", "tool")
+            arguments = event.data.get("arguments", {}) or {}
             if tool_name == "todos":
+                if bool(arguments.get("_suppress_ui")):
+                    self._set_loading_state(
+                        self._progress_state_label(
+                            tool_name=tool_name,
+                            arguments=arguments,
+                        ),
+                        busy=True,
+                    )
+                    return
                 if self._is_internal_todo_event(event.data.get("call_id")):
                     self._set_loading_state(
                         self._progress_state_label(
                             tool_name=tool_name,
-                            arguments=event.data.get("arguments", {}),
+                            arguments=arguments,
                         ),
                         busy=True,
                     )
                     return
                 scope = self._resolve_todo_scope_for_event(
-                    arguments=event.data.get("arguments")
+                    arguments=arguments
                 )
                 if self._should_hide_todo_scope(scope):
                     self._set_loading_state(
                         self._progress_state_label(
                             tool_name=tool_name,
-                            arguments=event.data.get("arguments", {}),
+                            arguments=arguments,
                         ),
                         busy=True,
                     )
@@ -4799,7 +4813,7 @@ class ReupApp(App):
                 self._set_loading_state(
                     self._progress_state_label(
                         tool_name=tool_name,
-                        arguments=event.data.get("arguments", {}),
+                        arguments=arguments,
                     ),
                     busy=True,
                 )
@@ -4812,7 +4826,7 @@ class ReupApp(App):
                 self._set_loading_state(
                     self._progress_state_label(
                         tool_name=tool_name,
-                        arguments=event.data.get("arguments", {}),
+                        arguments=arguments,
                     ),
                     busy=True,
                 )
@@ -4823,7 +4837,7 @@ class ReupApp(App):
             self._set_loading_state(
                 self._progress_state_label(
                     tool_name=tool_name,
-                    arguments=event.data.get("arguments", {}),
+                    arguments=arguments,
                 ),
                 busy=True,
             )
@@ -4831,7 +4845,7 @@ class ReupApp(App):
                 call_id=event.data.get("call_id", ""),
                 name=tool_name,
                 tool_kind=tool_kind,
-                arguments=event.data.get("arguments", {}),
+                arguments=arguments,
             )
             return
 
@@ -4839,6 +4853,22 @@ class ReupApp(App):
             tool_name = event.data.get("name", "tool")
             run_state.turn_made_progress = True
             error_text = str(event.data.get("error") or "")
+            metadata = event.data.get("metadata")
+            if (
+                tool_name == "todos"
+                and isinstance(metadata, dict)
+                and bool(metadata.get("suppressed"))
+                and bool(metadata.get("runtime_reused_checklist"))
+            ):
+                self._set_loading_state(
+                    self._progress_state_label(
+                        tool_name=tool_name,
+                        metadata=metadata,
+                        phase="post_tool",
+                    ),
+                    busy=True,
+                )
+                return
             if not event.data.get(
                 "success", False
             ) and self._should_suppress_malformed_tool_card(tool_name, error_text):
