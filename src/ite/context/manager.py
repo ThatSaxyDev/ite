@@ -627,7 +627,6 @@ class ContextManager:
 
         total_tokens = 0
         to_prune: list[tuple[MessageItem, int]] = []
-
         for msg in reversed(message_items):
             if msg.role == "tool" and msg.tool_call_id:
                 if msg.pruned_at:
@@ -635,7 +634,6 @@ class ContextManager:
 
                 tokens = msg.token_count or count_tokens(msg.content, self._model_name)
                 total_tokens += tokens
-
                 if total_tokens > self.PRUNE_PROTECT_TOKENS:
                     to_prune.append((msg, tokens))
 

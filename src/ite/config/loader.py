@@ -473,6 +473,7 @@ def _render_mcp_server_section(server: str, config: dict[str, Any]) -> str:
         "enabled",
         "auto_connect",
         "startup_timeout_sec",
+        "context_resolution",
         "command",
         "args",
         "env",

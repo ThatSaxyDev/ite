@@ -1907,6 +1907,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_resume_snapshot_replaces_empty_active_thread_tab(self) -> None:
         app = self._app()
         conversation = AsyncMock()
+        restored_messages = [{"role": "user", "content": "restored from runtime"}]
         current = SimpleNamespace(
             session_id="current",
             turn_count=0,
@@ -1923,6 +1924,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             turn_count=2,
             context_manager=SimpleNamespace(
                 set_messages=lambda messages: None,
+                get_snapshot_messages=lambda: restored_messages,
                 total_usage=TokenUsage(),
             ),
             restore_todos_state=lambda state: None,
@@ -1947,12 +1949,13 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", new=AsyncMock()),
                 patch.object(app, "_build_session_agent", return_value=resumed_agent),
                 patch.object(app, "refresh_header"),
-                patch.object(app, "_hydrate_chat_from_snapshot", new=AsyncMock()),
+                patch.object(app, "_hydrate_chat_from_snapshot", new=AsyncMock()) as hydrate,
                 patch.object(app, "_remove_cards_by_title", new=AsyncMock()),
                 patch.object(app, "query_one", return_value=conversation),
                 patch("ite.ui.reup.app.Session", return_value=resumed),
             ):
                 await app._resume_snapshot(snapshot)
+                hydrate.assert_awaited_once_with(restored_messages)
 
         asyncio.run(scenario())
 
@@ -1960,6 +1963,64 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertNotIn("current", app._open_sessions)
         self.assertIs(app.agent, resumed_agent)
         current_agent.__aexit__.assert_awaited_once()
+
+    def test_resume_snapshot_prefers_restored_transcript_messages_for_hydration(self) -> None:
+        app = self._app()
+        conversation = AsyncMock()
+        restored_messages = [{"role": "assistant", "content": "runtime truth"}]
+        snapshot_messages = [{"role": "assistant", "content": "snapshot fallback"}]
+        current = SimpleNamespace(
+            session_id="current",
+            turn_count=1,
+            client=SimpleNamespace(close=AsyncMock()),
+            mcp_manager=SimpleNamespace(shutdown=AsyncMock()),
+        )
+        current_agent = SimpleNamespace(session=current)
+        resumed_context = SimpleNamespace(
+            restore_transcript_state=unittest.mock.Mock(),
+            get_snapshot_messages=lambda: restored_messages,
+            total_usage=TokenUsage(),
+        )
+        resumed = SimpleNamespace(
+            session_id="saved",
+            name="Saved",
+            turn_count=2,
+            context_manager=resumed_context,
+            restore_todos_state=lambda state: None,
+            restore_change_history_state=lambda state: None,
+        )
+        resumed_agent = SimpleNamespace(__aenter__=AsyncMock(), __aexit__=AsyncMock())
+        app.agent = current_agent
+        app._remember_open_session(current, workspace=self.cwd, agent=current_agent)
+        snapshot = SessionSnapshot(
+            session_id="saved",
+            name="Saved",
+            workspace_path=str((self.cwd / "saved").resolve()),
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            turn_count=2,
+            messages=snapshot_messages,
+            transcript_state={"active_start": 0, "events": []},
+            total_usage=TokenUsage(),
+        )
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "_build_session_agent", return_value=resumed_agent),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_hydrate_chat_from_snapshot", new=AsyncMock()) as hydrate,
+                patch.object(app, "_remove_cards_by_title", new=AsyncMock()),
+                patch.object(app, "query_one", return_value=conversation),
+                patch("ite.ui.reup.app.Session", return_value=resumed),
+            ):
+                await app._resume_snapshot(snapshot)
+                hydrate.assert_awaited_once_with(restored_messages)
+
+        asyncio.run(scenario())
+        resumed_context.restore_transcript_state.assert_called_once_with(
+            snapshot.transcript_state
+        )
 
 
 if __name__ == "__main__":

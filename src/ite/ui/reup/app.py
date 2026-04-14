@@ -19,7 +19,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from textual import events, on, work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import (
     Container,
@@ -1677,7 +1677,10 @@ class ReupApp(App):
             return 0
 
     def _refresh_empty_state(self) -> None:
-        empty = self.query_one("#empty-state", Static)
+        try:
+            empty = self.query_one("#empty-state", Static)
+        except (NoMatches, ScreenStackError):
+            return
         if self._cloud_signed_out:
             empty.display = False
             return
@@ -3839,6 +3842,7 @@ class ReupApp(App):
         else:
             resumed.context_manager.set_messages(snapshot.messages)
         resumed.context_manager.total_usage = snapshot.total_usage
+        restored_messages = resumed.context_manager.get_snapshot_messages()
         if hasattr(resumed, "restore_active_skills"):
             resumed.restore_active_skills(snapshot.active_skills)
         resumed.restore_todos_state(snapshot.todos_state)
@@ -3862,7 +3866,7 @@ class ReupApp(App):
         )
         self.agent = resumed_agent
         self.refresh_header()
-        await self._hydrate_chat_from_snapshot(snapshot.messages)
+        await self._hydrate_chat_from_snapshot(restored_messages)
         await self._remove_cards_by_title({"Session Loaded"})
         if dropped_agent is not None:
             try:
@@ -5881,6 +5885,7 @@ class ReupApp(App):
             "read_pdf",
             "read_image",
             "grep",
+            "write_file",
             "edit",
             "apply_patch",
             "memory",
@@ -5906,6 +5911,11 @@ class ReupApp(App):
             "read_pdf": {"Parameter 'path': Field required"},
             "read_image": {"Parameter 'path': Field required"},
             "grep": {"Parameter 'pattern': Field required"},
+            "write_file": {
+                "Parameter 'path': Field required",
+                "Parameter 'content': Field required",
+                "Parameter 'path': Field required; Parameter 'content': Field required",
+            },
             "edit": {
                 "Parameter 'path': Field required",
                 "Parameter 'new_string': Field required",

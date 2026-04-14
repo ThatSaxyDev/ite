@@ -34,6 +34,7 @@ class ResponseIntent:
     query: str
     contexts: tuple[str, ...]
     requested_controls: dict[str, str]
+    task_mode: str = "general"
     explicitly_wants_bullets: bool = False
 
 
@@ -176,18 +177,43 @@ _BULLET_PHRASES: tuple[str, ...] = (
     "list them",
 )
 
+_EXECUTION_PHRASES: tuple[str, ...] = (
+    "make the change",
+    "write the code",
+    "implement this",
+    "fix this",
+    "patch this",
+    "update the code",
+    "edit the file",
+    "change the code",
+    "build this",
+)
+
+_READ_ONLY_PHRASES: tuple[str, ...] = (
+    "read this",
+    "tell me what is in",
+    "tell me what's in",
+    "what is in the codebase",
+    "what's in the codebase",
+    "summarize this file",
+    "explain this file",
+    "review this md file",
+)
+
 
 def resolve_response_intent(query: str | None) -> ResponseIntent:
     normalized = _normalize_text(query)
     tokens = [_stem(token) for token in _tokenize(normalized)]
     contexts = _resolve_contexts(normalized, tokens)
     requested_controls = _resolve_requested_controls(normalized, tokens, contexts)
+    task_mode = _resolve_task_mode(normalized, tokens, contexts)
 
     explicitly_wants_bullets = any(phrase in normalized for phrase in _BULLET_PHRASES)
     return ResponseIntent(
         query=normalized,
         contexts=contexts,
         requested_controls=requested_controls,
+        task_mode=task_mode,
         explicitly_wants_bullets=explicitly_wants_bullets,
     )
 
@@ -242,3 +268,38 @@ def _resolve_requested_controls(
         requested["bullet_style"] = "helpful"
 
     return requested
+
+
+def _resolve_task_mode(
+    text: str,
+    tokens: list[str],
+    contexts: tuple[str, ...],
+) -> str:
+    context_set = set(contexts)
+
+    if any(phrase in text for phrase in _READ_ONLY_PHRASES):
+        return "read_only"
+
+    if any(phrase in text for phrase in _EXECUTION_PHRASES):
+        return "execute"
+
+    if "debugging" in context_set:
+        return "execute"
+
+    if "implementation" in context_set and not (
+        "architecture" in context_set or "explanation" in context_set
+    ):
+        return "execute"
+
+    if "architecture" in context_set or "explanation" in context_set:
+        return "read_only"
+
+    imperative_execution_tokens = {"fix", "implement", "edit", "update", "change", "build", "add", "remove", "refactor", "patch"}
+    if any(token in imperative_execution_tokens for token in tokens):
+        return "execute"
+
+    read_only_tokens = {"read", "explain", "describe", "summarize", "overview", "understand"}
+    if any(token in read_only_tokens for token in tokens):
+        return "read_only"
+
+    return "general"

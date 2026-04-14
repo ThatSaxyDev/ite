@@ -55,6 +55,20 @@ command = "npx"
 args = ["-y", "ios-simulator-mcp"]
 startup_timeout_sec = 90
 
+[mcp_servers.aivara]
+enabled = true
+auto_connect = false
+startup_timeout_sec = 45
+context_resolution = { patientId = ["ListPatients", "SearchPatients"], documentId = ["GetDocuments"], encounterId = ["GetEncounters"] }
+url = "https://aivara-tools.up.railway.app/mcp"
+transport = "streamable_http"
+
+[mcp_servers.aivara.headers]
+"Content-Type" = "application/json"
+"Accept" = "application/json, text/event-stream"
+"x-fhir-server-url" = "https://app.promptopinion.ai/api/workspaces/019ce299-a68e-79ce-a4ae-2bd8b4d5a683/fhir"
+"X-Aivara-Key" = "${AIVARA_MCP_KEY}"
+
 # [mcp_servers.filesystem2]
 # enabled = true
 # command = "np"

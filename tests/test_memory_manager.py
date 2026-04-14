@@ -428,6 +428,45 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertTrue(any(event["kind"] == "compact_boundary" for event in transcript_events))
         self.assertGreaterEqual(len(transcript_events), 6)
 
+    def test_snapshot_messages_normalize_path_objects_in_tool_metadata(self) -> None:
+        workspace = self.base_path / "ws-path-metadata"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: None,
+        )
+        context_manager.add_user_message("Save the session state.")
+        context_manager.add_assistant_message(
+            "",
+            tool_calls=[
+                {
+                    "id": "call-read",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        )
+        context_manager.add_tool_result(
+            "call-read",
+            "result",
+            tool_ui={
+                "name": "read_file",
+                "success": True,
+                "output": "result",
+                "metadata": {"path": workspace / "lib" / "shared" / "models"},
+            },
+        )
+
+        snapshot_messages = context_manager.get_snapshot_messages()
+        tool_message = next(msg for msg in snapshot_messages if msg.get("role") == "tool")
+        metadata = ((tool_message.get("tool_ui") or {}).get("metadata") or {})
+
+        self.assertIsInstance(metadata.get("path"), str)
+        self.assertEqual(metadata.get("path"), str(workspace / "lib" / "shared" / "models"))
+
     def test_newer_preference_controls_override_older_ones(self) -> None:
         workspace = self.base_path / "ws-controls"
         workspace.mkdir()
@@ -577,6 +616,20 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertIn("architecture", proper_intent.contexts)
         self.assertIn("architecture", overview_intent.contexts)
         self.assertEqual(overview_intent.requested_controls["answer_length"], "detailed")
+        self.assertEqual(debug_intent.task_mode, "execute")
+        self.assertEqual(architecture_intent.task_mode, "read_only")
+        self.assertEqual(overview_intent.task_mode, "read_only")
+
+    def test_response_intent_distinguishes_read_only_from_execution_requests(self) -> None:
+        read_only_intent = resolve_response_intent(
+            "Read FOR_AGENT.md and tell me what is in the codebase."
+        )
+        execution_intent = resolve_response_intent(
+            "Implement the fix and update the code."
+        )
+
+        self.assertEqual(read_only_intent.task_mode, "read_only")
+        self.assertEqual(execution_intent.task_mode, "execute")
 
     def test_prompt_memory_ignores_polluted_episodic_memory_prompts(self) -> None:
         workspace = self.base_path / "ws-episodic"

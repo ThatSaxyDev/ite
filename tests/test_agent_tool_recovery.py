@@ -95,6 +95,45 @@ class _ToolOnlyLoopClient:
         yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
 
 
+class _StatusThenWriteClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    content="The providers directory exists but is empty. Starting with the provider files."
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+        if self.calls == 2:
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_write_1",
+                    name="write_file",
+                    arguments={
+                        "path": "lib/features/editor/providers/project_provider.dart",
+                        "content": "final projectProvider = Object();\n",
+                    },
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(content="Added the missing provider files."),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
 class AgentToolRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -263,4 +302,44 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 and "current state" in str(event.data.get("content", "")).lower()
                 for event in events
             )
+        )
+
+    async def test_pending_execution_work_blocks_status_only_completion(self) -> None:
+        fake_client = _StatusThenWriteClient()
+        self.agent.session.client = fake_client
+        self.agent.session.restore_todos_state(
+            {
+                "version": 1,
+                "planning": [],
+                "execution": [
+                    {
+                        "id": "todo-1",
+                        "content": "Create provider files",
+                        "completed": False,
+                    },
+                    {
+                        "id": "todo-2",
+                        "content": "Summarize outcome and changed files",
+                        "completed": False,
+                    },
+                ],
+            }
+        )
+
+        events = [event async for event in self.agent.run("finish the provider setup")]
+
+        completed = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(fake_client.calls, 3)
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
+        self.assertEqual(completed, ["Added the missing provider files."])
+        self.assertTrue(
+            (
+                Path(self.temp_dir.name)
+                / "lib/features/editor/providers/project_provider.dart"
+            ).exists()
         )

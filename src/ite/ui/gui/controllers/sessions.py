@@ -180,12 +180,13 @@ class SessionControllerMixin:
                 self._clear_pending_attachments()
             self._set_current_session_title(snapshot.name)
             self._clear_chat_controls()
+            resumed_messages = self.agent.session.context_manager.get_snapshot_messages()
             render_limit = self.GUI_SESSION_RENDER_LIMIT
-            hidden_count = max(0, len(snapshot.messages) - render_limit)
+            hidden_count = max(0, len(resumed_messages) - render_limit)
             rendered_messages = (
-                snapshot.messages[-render_limit:]
+                resumed_messages[-render_limit:]
                 if hidden_count > 0
-                else snapshot.messages
+                else resumed_messages
             )
             self.gui_state.session_loaded(
                 session_id=snapshot.session_id,

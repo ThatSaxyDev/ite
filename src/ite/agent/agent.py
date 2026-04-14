@@ -37,7 +37,6 @@ class Agent:
         "Use any preserved tool results or recent messages, do not repeat completed work, "
         "and continue with the next concrete step."
     )
-
     def __init__(
         self,
         config: Config,
@@ -223,6 +222,59 @@ class Agent:
         if re.match(r"^(#{1,6}\s+.+|[A-Z][A-Za-z0-9 /_-]{2,60}):$", last_line):
             return True
 
+        return False
+
+    def _has_pending_execution_work(self, session: Session) -> bool:
+        pending = self._execution_pending_items(session)
+        if not pending:
+            return False
+
+        verification_keywords = (
+            "test",
+            "tests",
+            "lint",
+            "build",
+            "check",
+            "verification",
+            "validate",
+            "validation",
+            "qa",
+        )
+        summary_keywords = (
+            "summary",
+            "summarize",
+            "outcome",
+            "changed file",
+            "changed files",
+            "report",
+            "final response",
+            "finalize",
+        )
+
+        for item in pending:
+            content = str(item.get("content", "")).strip().lower()
+            if not content:
+                continue
+            if any(k in content for k in verification_keywords):
+                continue
+            if any(k in content for k in summary_keywords):
+                continue
+            return True
+        return False
+
+    def _should_force_execution_followthrough(
+        self,
+        session: Session,
+        user_message: str,
+    ) -> bool:
+        if not self._has_pending_execution_work(session):
+            return False
+
+        intent = resolve_response_intent(user_message)
+        if intent.task_mode == "read_only":
+            return False
+        if intent.task_mode == "execute":
+            return True
         return False
 
     def _is_transient_post_compaction_error(self, error: str) -> bool:
@@ -915,6 +967,19 @@ class Agent:
         )
         return any(marker in cmd for marker in markers)
 
+    def _is_implementation_progress_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict,
+    ) -> bool:
+        if tool_name in {"write_file", "edit", "apply_patch"}:
+            return True
+        if tool_name == "shell":
+            command = str(arguments.get("command", "")).strip()
+            return not self._is_verification_command(command)
+        return False
+
     async def _auto_progress_execution_todos_on_tool(
         self,
         session: Session,
@@ -962,6 +1027,7 @@ class Agent:
         max_turns = self.config.max_turns
         overflow_compaction_attempted = False
         execution_progress_made = False
+        implementation_progress_made = False
         empty_reply_retries = 0
         post_compaction_recovery_active = False
         post_compaction_continue_prompt_needed = False
@@ -1216,6 +1282,23 @@ class Agent:
             has_visible_response = bool(controlled_response_text.strip())
             if has_visible_response or tool_calls:
                 empty_reply_retries = 0
+
+            if (
+                not tool_calls
+                and has_visible_response
+                and not session.plan_mode_enabled
+                and self._should_force_execution_followthrough(
+                    session,
+                    latest_user_text,
+                )
+                and not implementation_progress_made
+            ):
+                session.context_manager.add_system_message(
+                    "Execution checklist still has unfinished implementation work. "
+                    "Do not stop with a status update only. Perform the next required tool call or file edit now."
+                )
+                continue
+
             session.context_manager.add_assistant_message(
                 controlled_response_text,
                 [
@@ -1237,7 +1320,6 @@ class Agent:
                 if usage:
                     session.context_manager.set_latest_usage(usage)
                     session.context_manager.add_usage(usage)
-
                 session.context_manager.microcompact_tool_outputs()
                 session.context_manager.prune_tool_outputs()
                 if not has_visible_response and not session.plan_mode_enabled:
@@ -1359,7 +1441,6 @@ class Agent:
 
             tool_call_results: list[tuple[str, ToolResultMessage, ToolResult]] = []
             skipped_plan_validation_errors: list[str] = []
-
             for tool_call in tool_calls:
                 tool = session.tool_registry.get(tool_call.name)
                 effective_args = dict(tool_call.arguments)
@@ -1509,6 +1590,11 @@ class Agent:
                 if result.success and tool_call.name not in {"todos", "plan_question"}:
                     execution_progress_eligible = True
                     execution_progress_made = True
+                    if self._is_implementation_progress_tool(
+                        tool_name=tool_call.name,
+                        arguments=tool_call.arguments,
+                    ):
+                        implementation_progress_made = True
                     if tool_call.name in {"write_file", "edit", "apply_patch"}:
                         diffs = file_diffs_from_tool_result(result)
                         if diffs:
@@ -1563,7 +1649,6 @@ class Agent:
                         result,
                     )
                 )
-
             for tool_name, tool_result, result in tool_call_results:
                 session.context_manager.add_tool_result(
                     tool_result.tool_call_id,

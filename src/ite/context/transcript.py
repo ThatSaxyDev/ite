@@ -2,9 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
- 
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 @dataclass
 class MessageItem:
     role: str
@@ -29,7 +42,7 @@ class MessageItem:
             result["tool_call_id"] = self.tool_call_id
 
         if self.tool_calls:
-            result["tool_calls"] = self.tool_calls
+            result["tool_calls"] = _json_safe(self.tool_calls)
 
         if self.role == "tool":
             result["content"] = self.content or ""
@@ -37,13 +50,13 @@ class MessageItem:
             result["content"] = self.content or ""
 
         if include_tool_ui and self.tool_ui and self.role == "tool":
-            result["tool_ui"] = self.tool_ui
+            result["tool_ui"] = _json_safe(self.tool_ui)
 
         if include_internal_metadata:
             if self.subtype:
                 result["subtype"] = self.subtype
             if self.metadata:
-                result["metadata"] = self.metadata
+                result["metadata"] = _json_safe(self.metadata)
 
         return result
 
@@ -62,7 +75,7 @@ class TranscriptEvent:
         if self.message.subtype:
             result["subtype"] = self.message.subtype
         if self.message.metadata:
-            result["metadata"] = self.message.metadata
+            result["metadata"] = _json_safe(self.message.metadata)
         return result
 
 

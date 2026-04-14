@@ -294,6 +294,162 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
                 "Trying the `get-deploy` action instead.",
             )
 
+    async def test_mcp_preflight_blocks_missing_required_identifier_context(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock()
+            client.tools = [
+                MCPToolInfo(name="ListPatients", description="List patients"),
+                MCPToolInfo(name="SearchPatients", description="Search patients"),
+            ]
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="GetConditions",
+                    description="Get conditions",
+                    server_name="aivara",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "patientId": {"type": "string"},
+                        },
+                        "required": ["patientId"],
+                    },
+                ),
+                name="aivara__GetConditions",
+            )
+
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata["recoverable"])
+            self.assertEqual(result.metadata["missing_context"], ["patientId"])
+            self.assertEqual(result.metadata["ui_summary"], "Required context is missing.")
+            self.assertIn("`ListPatients` or `SearchPatients` first", result.metadata["ui_detail"])
+            client.call_tool.assert_not_awaited()
+
+    async def test_mcp_preflight_prefers_configured_context_resolution_map(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock()
+            client.tools = [
+                MCPToolInfo(name="SearchPatients", description="Search patients"),
+                MCPToolInfo(name="ListPatients", description="List patients"),
+            ]
+            config = Config(
+                cwd=cwd,
+                api_key="test",
+                mcp_servers={
+                    "aivara": MCPServerConfig(
+                        url="https://example.com/mcp",
+                        context_resolution={"patientId": ["ResolvePatient", "SearchPatients"]},
+                    )
+                },
+            )
+            tool = MCPTool(
+                config=config,
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="GetConditions",
+                    description="Get conditions",
+                    server_name="aivara",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "patientId": {"type": "string"},
+                        },
+                        "required": ["patientId"],
+                    },
+                ),
+                name="aivara__GetConditions",
+            )
+            client.config = config.mcp_servers["aivara"]
+
+            result = await tool.execute(ToolInvocation(params={}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertIn("`ResolvePatient` or `SearchPatients` first", result.metadata["ui_detail"])
+            client.call_tool.assert_not_awaited()
+
+    async def test_mcp_preflight_blocks_missing_likely_identifier_for_detail_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock()
+            client.tools = [MCPToolInfo(name="ListPatients", description="List patients")]
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="GetConditions",
+                    description="Get conditions",
+                    server_name="aivara",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "patientId": {
+                                "type": "string",
+                                "description": "Patient context or explicit patientId.",
+                            },
+                            "includeResolved": {"type": "boolean"},
+                        },
+                    },
+                ),
+                name="aivara__GetConditions",
+            )
+
+            result = await tool.execute(ToolInvocation(params={"includeResolved": True}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata["recoverable"])
+            self.assertEqual(result.metadata["missing_context"], ["patientId"])
+            client.call_tool.assert_not_awaited()
+
+    async def test_mcp_patient_context_error_gets_calm_recoverable_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            client = MagicMock()
+            client.call_tool = AsyncMock(
+                return_value={
+                    "output": (
+                        "MCP tool failed: Error executing tool GetConditions: "
+                        "No patient context found. Provide a patientId or invoke from PO launchpad."
+                    ),
+                    "is_error": True,
+                }
+            )
+            client.tools = [
+                MCPToolInfo(name="ListPatients", description="List patients"),
+                MCPToolInfo(name="SearchPatients", description="Search patients"),
+            ]
+            tool = MCPTool(
+                config=Config(cwd=cwd, api_key="test"),
+                client=client,
+                tool_info=MCPToolInfo(
+                    name="GetConditions",
+                    description="Get conditions",
+                    server_name="aivara",
+                    input_schema={
+                        "type": "object",
+                        "properties": {
+                            "scope": {"type": "string"},
+                        },
+                    },
+                ),
+                name="aivara__GetConditions",
+            )
+
+            result = await tool.execute(ToolInvocation(params={"scope": "active"}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata["recoverable"])
+            self.assertEqual(result.metadata["ui_summary"], "Required context is missing.")
+            self.assertEqual(result.metadata["missing_context"], ["patientId"])
+            self.assertIn("retry", result.metadata["ui_detail"].lower())
+
     async def test_mcp_404_error_gets_calm_ui_copy(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

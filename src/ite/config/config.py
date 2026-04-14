@@ -32,6 +32,7 @@ class MCPServerConfig(BaseModel):
     enabled: bool = True
     auto_connect: bool = False
     startup_timeout_sec: float = 10
+    context_resolution: dict[str, list[str]] = Field(default_factory=dict)
 
     # stdio transport
     command: str | None = None
@@ -77,6 +78,19 @@ class MCPServerConfig(BaseModel):
             str(key): os.path.expandvars(item) if isinstance(item, str) else item
             for key, item in value.items()
         }
+
+    @field_validator("context_resolution", mode="before")
+    @classmethod
+    def normalize_context_resolution(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized: dict[str, list[str]] = {}
+        for key, item in value.items():
+            if isinstance(item, list):
+                normalized[str(key)] = [str(part) for part in item if str(part).strip()]
+            elif isinstance(item, str) and item.strip():
+                normalized[str(key)] = [item.strip()]
+        return normalized
 
     @field_validator("cwd", mode="before")
     @classmethod
@@ -205,7 +219,6 @@ class Config(BaseModel):
     approval: ApprovalPolicy = ApprovalPolicy.AUTO
 
     max_turns: int = 100
-
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
     max_tool_output_tokens: int = 50_000
