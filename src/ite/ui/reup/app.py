@@ -66,8 +66,10 @@ from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import ApprovalPolicy, Config
 from ite.config.loader import (
+    load_saved_custom_provider,
     save_cloud_settings,
     save_global_approval_mode,
+    save_saved_custom_provider,
     save_system_config,
 )
 from ite.git.branches import (
@@ -1477,6 +1479,7 @@ class ReupApp(App):
         await self.ensure_agent()
         current_model = self.config.model_name
         bundled_items = get_bundled_models(self.config)
+        saved_custom_provider = load_saved_custom_provider()
 
         model_options: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -1501,6 +1504,13 @@ class ReupApp(App):
                     "available": available,
                     "unavailable_reason": unavailable_reason,
                 }
+            )
+
+        if saved_custom_provider:
+            _append(
+                saved_custom_provider["model_name"],
+                saved_custom_provider["model_name"],
+                "Saved custom",
             )
 
         if current_model and current_model not in {
@@ -1545,10 +1555,27 @@ class ReupApp(App):
         if not selected or selected == current_model:
             return
 
+        restored_profile = (
+            saved_custom_provider
+            if saved_custom_provider
+            and selected == saved_custom_provider.get("model_name")
+            else None
+        )
+        next_api_key = (
+            str(restored_profile.get("api_key") or "")
+            if restored_profile
+            else (self.config.api_key or "")
+        )
+        next_base_url = (
+            str(restored_profile.get("base_url") or "")
+            if restored_profile
+            else (self.config.base_url or "")
+        )
+
         try:
             save_system_config(
-                api_key=self.config.api_key or "",
-                base_url=self.config.base_url or "",
+                api_key=next_api_key,
+                base_url=next_base_url,
                 model_name=selected,
                 cloud_auth_enabled=self.config.cloud_auth_enabled,
                 cloud_api_url=self.config.cloud_api_url,
@@ -1559,6 +1586,8 @@ class ReupApp(App):
             return
 
         old_model = self.config.model_name
+        self.config.api_key = next_api_key
+        self.config.base_url = next_base_url
         self.config.model.name = selected
         self.refresh_header()
         self.post_notice("Model", f"{old_model} → {selected}")
@@ -2744,6 +2773,11 @@ class ReupApp(App):
     async def _apply_setup_result(self, result: dict[str, str]) -> None:
         try:
             save_system_config(
+                api_key=result["api_key"],
+                base_url=result["base_url"],
+                model_name=result["model_name"],
+            )
+            save_saved_custom_provider(
                 api_key=result["api_key"],
                 base_url=result["base_url"],
                 model_name=result["model_name"],

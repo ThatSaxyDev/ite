@@ -246,6 +246,83 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_open_model_picker_includes_saved_custom_provider_when_current_model_is_bundled(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax-m2.7:cloud"
+
+            async def fake_open_modal(modal):
+                self.assertEqual(modal._models[0]["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+                self.assertEqual(modal._models[0]["provider"], "Saved custom")
+                self.assertEqual(modal._models[1]["model_name"], "minimax-m2.7:cloud")
+                return None
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "api_key": "custom-key",
+                    "base_url": "http://localhost:8080",
+                    "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models",
+                return_value=[
+                    {
+                        "model_name": "minimax-m2.7:cloud",
+                        "label": "MiniMax M2.7",
+                        "provider": "Bundled",
+                        "available": True,
+                        "unavailable_reason": "",
+                    }
+                ],
+            ), patch.object(app, "_open_modal", AsyncMock(side_effect=fake_open_modal)):
+                await app._open_model_picker_from_meta()
+
+        asyncio.run(run_test())
+
+    def test_open_model_picker_restores_saved_custom_provider_credentials(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax-m2.7:cloud"
+            app.config.api_key = "runtime-key"
+            app.config.base_url = "http://127.0.0.1:4000/v1"
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "api_key": "custom-key",
+                    "base_url": "http://localhost:8080",
+                    "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models",
+                return_value=[
+                    {
+                        "model_name": "minimax-m2.7:cloud",
+                        "label": "MiniMax M2.7",
+                        "provider": "Bundled",
+                        "available": True,
+                        "unavailable_reason": "",
+                    }
+                ],
+            ), patch(
+                "ite.ui.reup.app.save_system_config"
+            ) as save_system_config, patch.object(
+                app, "_open_modal", AsyncMock(return_value="unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                await app._open_model_picker_from_meta()
+
+            save_system_config.assert_called_once()
+            _, kwargs = save_system_config.call_args
+            self.assertEqual(kwargs["api_key"], "custom-key")
+            self.assertEqual(kwargs["base_url"], "http://localhost:8080")
+            self.assertEqual(kwargs["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+            self.assertEqual(app.config.api_key, "custom-key")
+            self.assertEqual(app.config.base_url, "http://localhost:8080")
+            self.assertEqual(app.config.model.name, "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+
+        asyncio.run(run_test())
+
     def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
         app = self._app()
 

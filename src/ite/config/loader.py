@@ -17,6 +17,7 @@ CONFIG_FILE_NAME = "config.toml"
 SECRETS_FILE_NAME = "secrets.toml"
 AGENT_MD_FILE = "AGENT.MD"
 WORKSPACE_DIR_NAME = ".ite"
+SAVED_CUSTOM_PROVIDER_TABLE = "saved_custom_provider"
 
 DEFAULT_PROJECT_CONFIG = """# Workspace-level ITE config
 # Add overrides here (model, hooks, mcp servers, etc.)
@@ -264,6 +265,65 @@ def save_system_config(
     return config_path
 
 
+def load_saved_custom_provider() -> dict[str, str] | None:
+    """Load the last saved BYOK/custom provider profile, if present."""
+    config_path = get_system_config_path()
+    if not config_path.is_file():
+        return None
+
+    try:
+        existing = _parse_toml(config_path)
+    except ConfigError:
+        return None
+
+    raw = existing.get(SAVED_CUSTOM_PROVIDER_TABLE)
+    if not isinstance(raw, dict):
+        return None
+
+    base_url = str(raw.get("base_url") or "").strip()
+    api_key = str(raw.get("api_key") or "").strip()
+    model_name = str(raw.get("model_name") or "").strip()
+    if not base_url or not api_key or not model_name:
+        return None
+
+    return {
+        "base_url": base_url,
+        "api_key": api_key,
+        "model_name": model_name,
+    }
+
+
+def save_saved_custom_provider(
+    *,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+) -> Path:
+    """Persist the last BYOK/custom provider profile separately from active model selection."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
+
+    existing[SAVED_CUSTOM_PROVIDER_TABLE] = {
+        "api_key": api_key,
+        "base_url": base_url,
+        "model_name": model_name,
+    }
+
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
+    logger.info("Saved custom provider profile to %s", config_path)
+    return config_path
+
+
 def save_cloud_settings(
     *,
     enabled: bool | None = None,
@@ -326,6 +386,14 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
             lines.append("")
         lines.append("[model]")
         for key, value in config["model"].items():
+            lines.append(f"{key} = {_toml_value(value)}")
+
+    saved_custom_provider = config.get(SAVED_CUSTOM_PROVIDER_TABLE)
+    if isinstance(saved_custom_provider, dict):
+        if lines:
+            lines.append("")
+        lines.append(f"[{SAVED_CUSTOM_PROVIDER_TABLE}]")
+        for key, value in saved_custom_provider.items():
             lines.append(f"{key} = {_toml_value(value)}")
 
     for table_name in ("sandbox", "shell_environment"):
