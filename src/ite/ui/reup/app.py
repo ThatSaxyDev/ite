@@ -1479,7 +1479,7 @@ class ReupApp(App):
         await self.ensure_agent()
         current_model = self.config.model_name
         bundled_items = get_bundled_models(self.config)
-        saved_custom_provider = load_saved_custom_provider()
+        saved_providers = load_saved_custom_provider()
 
         model_options: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -1506,10 +1506,10 @@ class ReupApp(App):
                 }
             )
 
-        if saved_custom_provider:
+        for profile in saved_providers.values():
             _append(
-                saved_custom_provider["model_name"],
-                saved_custom_provider["model_name"],
+                profile["model_name"],
+                profile["model_name"],
                 "Saved custom",
             )
 
@@ -1556,10 +1556,7 @@ class ReupApp(App):
             return
 
         restored_profile = (
-            saved_custom_provider
-            if saved_custom_provider
-            and selected == saved_custom_provider.get("model_name")
-            else None
+            saved_providers.get(selected) if selected in saved_providers else None
         )
         next_api_key = (
             str(restored_profile.get("api_key") or "")

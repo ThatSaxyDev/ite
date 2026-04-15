@@ -260,9 +260,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.load_saved_custom_provider",
                 return_value={
-                    "api_key": "custom-key",
-                    "base_url": "http://localhost:8080",
-                    "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                    "unsloth/gemma-4-E4B-it-UD-MLX-4bit": {
+                        "api_key": "custom-key",
+                        "base_url": "http://localhost:8080",
+                        "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                    }
                 },
             ), patch(
                 "ite.ui.reup.app.get_bundled_models",
@@ -290,9 +292,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.load_saved_custom_provider",
                 return_value={
-                    "api_key": "custom-key",
-                    "base_url": "http://localhost:8080",
-                    "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                    "unsloth/gemma-4-E4B-it-UD-MLX-4bit": {
+                        "api_key": "custom-key",
+                        "base_url": "http://localhost:8080",
+                        "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                    }
                 },
             ), patch(
                 "ite.ui.reup.app.get_bundled_models",

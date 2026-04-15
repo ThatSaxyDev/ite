@@ -17,7 +17,7 @@ CONFIG_FILE_NAME = "config.toml"
 SECRETS_FILE_NAME = "secrets.toml"
 AGENT_MD_FILE = "AGENT.MD"
 WORKSPACE_DIR_NAME = ".ite"
-SAVED_CUSTOM_PROVIDER_TABLE = "saved_custom_provider"
+SAVED_CUSTOM_PROVIDERS_TABLE = "saved_custom_providers"
 
 DEFAULT_PROJECT_CONFIG = """# Workspace-level ITE config
 # Add overrides here (model, hooks, mcp servers, etc.)
@@ -265,32 +265,36 @@ def save_system_config(
     return config_path
 
 
-def load_saved_custom_provider() -> dict[str, str] | None:
-    """Load the last saved BYOK/custom provider profile, if present."""
+def load_saved_custom_provider() -> dict[str, dict[str, str]]:
+    """Load all saved BYOK/custom provider profiles. Returns keyed by model_name."""
     config_path = get_system_config_path()
     if not config_path.is_file():
-        return None
+        return {}
 
     try:
         existing = _parse_toml(config_path)
     except ConfigError:
-        return None
+        return {}
 
-    raw = existing.get(SAVED_CUSTOM_PROVIDER_TABLE)
+    raw = existing.get(SAVED_CUSTOM_PROVIDERS_TABLE)
     if not isinstance(raw, dict):
-        return None
+        return {}
 
-    base_url = str(raw.get("base_url") or "").strip()
-    api_key = str(raw.get("api_key") or "").strip()
-    model_name = str(raw.get("model_name") or "").strip()
-    if not base_url or not api_key or not model_name:
-        return None
-
-    return {
-        "base_url": base_url,
-        "api_key": api_key,
-        "model_name": model_name,
-    }
+    result: dict[str, dict[str, str]] = {}
+    for model_name, values in raw.items():
+        if not isinstance(values, dict):
+            continue
+        base_url = str(values.get("base_url") or "").strip()
+        api_key = str(values.get("api_key") or "").strip()
+        normalized = str(model_name or "").strip()
+        if not normalized or not base_url or not api_key:
+            continue
+        result[normalized] = {
+            "base_url": base_url,
+            "api_key": api_key,
+            "model_name": normalized,
+        }
+    return result
 
 
 def save_saved_custom_provider(
@@ -299,7 +303,7 @@ def save_saved_custom_provider(
     base_url: str,
     model_name: str,
 ) -> Path:
-    """Persist the last BYOK/custom provider profile separately from active model selection."""
+    """Add or update a BYOK/custom provider profile. Others are preserved."""
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = get_system_config_path()
@@ -311,16 +315,44 @@ def save_saved_custom_provider(
         except ConfigError:
             existing = {}
 
-    existing[SAVED_CUSTOM_PROVIDER_TABLE] = {
+    providers: dict[str, Any] = dict(existing.get(SAVED_CUSTOM_PROVIDERS_TABLE) or {})
+    providers[model_name] = {
         "api_key": api_key,
         "base_url": base_url,
         "model_name": model_name,
     }
+    existing[SAVED_CUSTOM_PROVIDERS_TABLE] = providers
 
     lines = _render_system_config(existing)
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.chmod(config_path, 0o600)
-    logger.info("Saved custom provider profile to %s", config_path)
+    logger.info("Saved custom provider profile %s to %s", model_name, config_path)
+    return config_path
+
+
+def remove_saved_custom_provider(*, model_name: str) -> Path:
+    """Remove a saved custom provider profile by model name."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
+
+    providers: dict[str, Any] = dict(existing.get(SAVED_CUSTOM_PROVIDERS_TABLE) or {})
+    removed = providers.pop(model_name, None) is not None
+    if not removed:
+        return config_path
+
+    existing[SAVED_CUSTOM_PROVIDERS_TABLE] = providers
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
+    logger.info("Removed custom provider profile %s from %s", model_name, config_path)
     return config_path
 
 
@@ -388,13 +420,17 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
         for key, value in config["model"].items():
             lines.append(f"{key} = {_toml_value(value)}")
 
-    saved_custom_provider = config.get(SAVED_CUSTOM_PROVIDER_TABLE)
-    if isinstance(saved_custom_provider, dict):
-        if lines:
+    saved_custom_providers = config.get(SAVED_CUSTOM_PROVIDERS_TABLE)
+    if isinstance(saved_custom_providers, dict):
+        lines.append("")
+        lines.append(f"[{SAVED_CUSTOM_PROVIDERS_TABLE}]")
+        for mname, vals in saved_custom_providers.items():
+            if not isinstance(vals, dict):
+                continue
             lines.append("")
-        lines.append(f"[{SAVED_CUSTOM_PROVIDER_TABLE}]")
-        for key, value in saved_custom_provider.items():
-            lines.append(f"{key} = {_toml_value(value)}")
+            lines.append(f"  [{SAVED_CUSTOM_PROVIDERS_TABLE}.{_toml_key(mname)}]")
+            for key, value in vals.items():
+                lines.append(f"  {key} = {_toml_value(value)}")
 
     for table_name in ("sandbox", "shell_environment"):
         table = config.get(table_name)
