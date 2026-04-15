@@ -14,6 +14,11 @@ name = "test_before_agent"
 trigger = "before_agent"
 command = "python3 ./scripts/test_tool.py"
 
+# [sandbox]
+# enabled = true
+# allowed_paths = ["/Library/Frameworks/Python.framework/Versions/3.14"]
+
+
 
 # [mcp_servers.filesystem]
 # enabled = true
