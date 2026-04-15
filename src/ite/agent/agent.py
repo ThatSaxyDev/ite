@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import uuid
+from pathlib import Path
 from typing import AsyncGenerator, Awaitable, Callable
 
 from ite.agent.change_history import file_diffs_from_tool_result
@@ -19,6 +20,7 @@ from ite.memory import (
 )
 from ite.prompts.system import create_loop_breaker_prompt
 from ite.tools.base import ToolConfirmation, ToolResult
+from ite.utils.paths import resolve_path
 from ite.utils.errors import is_context_overflow_error
 
 
@@ -37,6 +39,22 @@ class Agent:
         "Use any preserved tool results or recent messages, do not repeat completed work, "
         "and continue with the next concrete step."
     )
+    RAW_TOOL_CALL_OPEN_MARKERS = (
+        "<|tool_call|>",
+        "<tool_call|>",
+        "<|tool_call>",
+        "<tool_call>",
+    )
+    RAW_TOOL_CALL_CLOSE_MARKERS = (
+        "<|tool_call|>",
+        "<tool_call|>",
+        "<|tool_call>",
+        "</tool_call|>",
+        "</tool_call>",
+        "<|/tool_call|>",
+    )
+    DUPLICATE_DISCOVERY_TOOL_NAMES = {"list_dir", "glob", "grep", "read_file"}
+
     def __init__(
         self,
         config: Config,
@@ -52,6 +70,103 @@ class Agent:
         self.session: Session | None = session or Session(self.config)
         self.session.approval_manager.confirmation_callback = confirmation_callback
         self.plan_question_callback = plan_question_callback
+
+    @classmethod
+    def _raw_tool_call_markers(cls) -> tuple[str, ...]:
+        return cls.RAW_TOOL_CALL_OPEN_MARKERS + tuple(
+            marker
+            for marker in cls.RAW_TOOL_CALL_CLOSE_MARKERS
+            if marker not in cls.RAW_TOOL_CALL_OPEN_MARKERS
+        )
+
+    @classmethod
+    def _longest_partial_tool_marker_suffix(cls, value: str) -> int:
+        longest = 0
+        for marker in cls._raw_tool_call_markers():
+            max_prefix = min(len(marker) - 1, len(value))
+            for prefix_len in range(max_prefix, 0, -1):
+                if value.endswith(marker[:prefix_len]):
+                    longest = max(longest, prefix_len)
+                    break
+        return longest
+
+    @classmethod
+    def _consume_raw_tool_call_markup(
+        cls,
+        text: str,
+        *,
+        inside_markup: bool,
+        final: bool = False,
+    ) -> tuple[str, str, bool]:
+        if not text:
+            return "", "", inside_markup
+
+        visible_parts: list[str] = []
+        index = 0
+        open_markers = cls.RAW_TOOL_CALL_OPEN_MARKERS
+        close_markers = cls.RAW_TOOL_CALL_CLOSE_MARKERS
+
+        while index < len(text):
+            markers = close_markers if inside_markup else open_markers
+            next_match: tuple[int, str] | None = None
+            for marker in markers:
+                position = text.find(marker, index)
+                if position < 0:
+                    continue
+                if next_match is None or position < next_match[0]:
+                    next_match = (position, marker)
+
+            if next_match is None:
+                remainder = text[index:]
+                if final:
+                    if not inside_markup:
+                        visible_parts.append(remainder)
+                        remainder = ""
+                    return "".join(visible_parts), remainder if inside_markup else "", inside_markup
+
+                holdback = cls._longest_partial_tool_marker_suffix(remainder)
+                visible_segment = remainder[:-holdback] if holdback else remainder
+                if not inside_markup and visible_segment:
+                    visible_parts.append(visible_segment)
+                remainder = remainder[-holdback:] if holdback else ""
+                return "".join(visible_parts), remainder, inside_markup
+
+            position, marker = next_match
+            if not inside_markup and position > index:
+                visible_parts.append(text[index:position])
+            index = position + len(marker)
+            inside_markup = not inside_markup
+
+        return "".join(visible_parts), "", inside_markup
+
+    @classmethod
+    def _discovery_tool_signature(
+        cls,
+        tool_name: str | None,
+        params: dict[str, Any],
+        *,
+        cwd: Path,
+    ) -> tuple[str, tuple[tuple[str, str], ...]] | None:
+        normalized_name = str(tool_name or "").strip()
+        if normalized_name not in cls.DUPLICATE_DISCOVERY_TOOL_NAMES:
+            return None
+
+        normalized: dict[str, str] = {}
+        for key, value in sorted((params or {}).items()):
+            if key == "path":
+                try:
+                    normalized[key] = str(resolve_path(cwd, str(value or ".")))
+                except Exception:
+                    normalized[key] = str(value or ".")
+            else:
+                normalized[key] = str(value)
+
+        if normalized_name == "glob" and "pattern" not in normalized:
+            normalized["pattern"] = "**/*"
+        if normalized_name == "list_dir" and "include_hidden" not in normalized:
+            normalized["include_hidden"] = "False"
+
+        return normalized_name, tuple(sorted(normalized.items()))
 
     async def run(
         self, message: str, user_model_content: str | list[dict] | None = None
@@ -1034,6 +1149,11 @@ class Agent:
         post_compaction_retry_attempts = 0
         incomplete_response_retries = 0
         incomplete_response_prefix = ""
+        discovery_result_cache: dict[
+            tuple[str, tuple[tuple[str, str], ...]],
+            ToolResult,
+        ] = {}
+        repeated_discovery_stalls = 0
         turn_num = 0
 
         while turn_num < max_turns:
@@ -1042,6 +1162,8 @@ class Agent:
                 return
 
             response_text = ""
+            raw_tool_markup_buffer = ""
+            inside_raw_tool_markup = False
             execution_progress_eligible = False
 
             session.context_manager.microcompact_tool_outputs()
@@ -1138,15 +1260,21 @@ class Agent:
                 if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta:
                         content = event.text_delta.content
-                        response_text += content
+                        visible_content, raw_tool_markup_buffer, inside_raw_tool_markup = (
+                            self._consume_raw_tool_call_markup(
+                                raw_tool_markup_buffer + content,
+                                inside_markup=inside_raw_tool_markup,
+                            )
+                        )
+                        response_text += visible_content
                         # In plan mode (pre-execution), suppress live text streaming.
                         # This prevents partial/final plan text from rendering before
                         # question flow is complete.
-                        if not (
+                        if visible_content and not (
                             session.plan_mode_enabled
                             and session.plan_phase != "executing"
                         ):
-                            yield AgentEvent.text_delta(content)
+                            yield AgentEvent.text_delta(visible_content)
                 elif event.type == StreamEventType.TOOL_CALL_COMPLETE:
                     if event.tool_call:
                         tool_calls.append(event.tool_call)
@@ -1155,6 +1283,16 @@ class Agent:
                     break
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
+
+            visible_tail, raw_tool_markup_buffer, inside_raw_tool_markup = (
+                self._consume_raw_tool_call_markup(
+                    raw_tool_markup_buffer,
+                    inside_markup=inside_raw_tool_markup,
+                    final=True,
+                )
+            )
+            if visible_tail:
+                response_text += visible_tail
 
             if stream_error:
                 if self._should_attempt_overflow_recovery(
@@ -1441,6 +1579,11 @@ class Agent:
 
             tool_call_results: list[tuple[str, ToolResultMessage, ToolResult]] = []
             skipped_plan_validation_errors: list[str] = []
+            seen_discovery_calls: set[
+                tuple[str, tuple[tuple[str, str], ...]]
+            ] = set()
+            actual_tool_execution_count = 0
+            repeated_discovery_reuse_count = 0
             for tool_call in tool_calls:
                 tool = session.tool_registry.get(tool_call.name)
                 effective_args = dict(tool_call.arguments)
@@ -1505,16 +1648,102 @@ class Agent:
                     )
                     continue
 
+                discovery_signature = self._discovery_tool_signature(
+                    tool_call.name,
+                    effective_args,
+                    cwd=self.config.cwd,
+                )
+                if discovery_signature is not None:
+                    cached_discovery_result = discovery_result_cache.get(
+                        discovery_signature
+                    )
+                    if cached_discovery_result is not None:
+                        repeated_discovery_reuse_count += 1
+                        reused_result = ToolResult.success_result(
+                            cached_discovery_result.output,
+                            metadata={
+                                **(
+                                    cached_discovery_result.metadata
+                                    if isinstance(
+                                        cached_discovery_result.metadata, dict
+                                    )
+                                    else {}
+                                ),
+                                "reused_cached_discovery": True,
+                                "recovery_hint": (
+                                    "This same discovery command already succeeded earlier in this request. "
+                                    "Use the cached result and take the next step."
+                                ),
+                            },
+                            truncated=cached_discovery_result.truncated,
+                            exit_code=cached_discovery_result.exit_code,
+                        )
+                        tool_call_results.append(
+                            (
+                                tool_call.name or "tool",
+                                ToolResultMessage(
+                                    tool_call_id=tool_call.call_id,
+                                    content=reused_result.to_model_output(),
+                                    is_error=False,
+                                ),
+                                reused_result,
+                            )
+                        )
+                        yield AgentEvent.tool_call_complete(
+                            tool_call.call_id,
+                            tool_call.name or "tool",
+                            reused_result,
+                        )
+                        continue
+                    if discovery_signature in seen_discovery_calls:
+                        repeated_discovery_reuse_count += 1
+                        duplicate_result = ToolResult.error_result(
+                            "Duplicate discovery call suppressed.",
+                            metadata={
+                                "recoverable": True,
+                                "suppressed": True,
+                                "duplicate_discovery_call": True,
+                                "recovery_hint": (
+                                    "You already ran this same discovery command in this turn. "
+                                    "Use the previous result and take the next step instead of repeating it."
+                                ),
+                            },
+                        )
+                        tool_call_results.append(
+                            (
+                                tool_call.name or "tool",
+                                ToolResultMessage(
+                                    tool_call_id=tool_call.call_id,
+                                    content=(
+                                        "Error: Duplicate discovery call suppressed."
+                                        "\n\nOutput:\nYou already ran this same discovery command in this turn. "
+                                        "Use the previous result and take the next step instead of repeating it."
+                                    ),
+                                    is_error=True,
+                                ),
+                                duplicate_result,
+                            )
+                        )
+                        yield AgentEvent.tool_call_complete(
+                            tool_call.call_id,
+                            tool_call.name or "tool",
+                            duplicate_result,
+                        )
+                        continue
+                    seen_discovery_calls.add(discovery_signature)
+
                 yield AgentEvent.tool_call_start(
                     tool_call.call_id,
                     tool_call.name,
                     effective_args,
                 )
+                actual_tool_execution_count += 1
 
                 session.loop_detector.record_action(
                     "tool_call",
                     tool_name=tool_call.name,
                     args=effective_args,
+                    cwd=self.config.cwd,
                 )
 
                 if asyncio.current_task() and asyncio.current_task().cancelling():
@@ -1632,6 +1861,9 @@ class Agent:
                     ):
                         yield progress_event
 
+                if discovery_signature is not None and result.success:
+                    discovery_result_cache[discovery_signature] = result
+
                 yield AgentEvent.tool_call_complete(
                     tool_call.call_id,
                     tool_call.name,
@@ -1671,6 +1903,28 @@ class Agent:
                     + " | ".join(skipped_plan_validation_errors)
                     + ". Retry with complete required arguments before continuing."
                 )
+
+            if (
+                tool_calls
+                and actual_tool_execution_count == 0
+                and repeated_discovery_reuse_count == len(tool_calls)
+                and not controlled_response_text.strip()
+            ):
+                repeated_discovery_stalls += 1
+                if repeated_discovery_stalls >= 2:
+                    yield AgentEvent.agent_error(
+                        "The model is stuck repeating the same discovery step without making progress. "
+                        "Try a stronger model or ask for a narrower file target."
+                    )
+                    return
+                session.context_manager.add_system_message(
+                    "You already have the result of that discovery step. "
+                    "Do not repeat the same folder listing or file search again. "
+                    "Use the existing result now: either read a specific file from it, "
+                    "or provide a concise status summary if you already have enough information."
+                )
+                continue
+            repeated_discovery_stalls = 0
 
             loop_message = session.loop_detector.check_for_loop()
             if loop_message:

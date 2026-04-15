@@ -29,6 +29,33 @@ class _FakeTool(Tool):
         return ToolResult.success_result("tool finished")
 
 
+class _FakeGlobTool(Tool):
+    name = "glob"
+    description = "Fake glob tool"
+    kind = ToolKind.READ
+    schema = {
+        "type": "object",
+        "properties": {"pattern": {"type": "string"}},
+        "required": ["pattern"],
+    }
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        return ToolResult.success_result("matched files")
+
+
+class _FakeListDirTool(Tool):
+    name = "list_dir"
+    description = "Fake list dir tool"
+    kind = ToolKind.READ
+    schema = {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+    }
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        return ToolResult.success_result("docs/\nite-cloud-api/\nite-cloud-web/")
+
+
 class _SequenceClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -130,6 +157,195 @@ class _StatusThenWriteClient:
         yield StreamEvent(
             type=StreamEventType.TEXT_DELTA,
             text_delta=TextDelta(content="Added the missing provider files."),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
+class _RawToolMarkupClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(
+                content='<|tool_call|>call:glob{"pattern":"**/*"}<|tool_call|>'
+            ),
+        )
+        yield StreamEvent(
+            type=StreamEventType.TOOL_CALL_COMPLETE,
+            tool_call=ToolCall(
+                call_id="call_glob_1",
+                name="glob",
+                arguments={"pattern": "**/*"},
+            ),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
+class _SplitRawToolMarkupClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        for chunk in (
+            "<|tool",
+            "_call|>call:glob",
+            '{"pattern":"**/*"}',
+            "<|tool_call|>",
+        ):
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(content=chunk),
+            )
+        yield StreamEvent(
+            type=StreamEventType.TOOL_CALL_COMPLETE,
+            tool_call=ToolCall(
+                call_id="call_glob_2",
+                name="glob",
+                arguments={"pattern": "**/*"},
+            ),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
+class _MalformedClosingToolMarkupClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(
+                content='<|tool_call|>call:list_dir{path:<|"|>Docs<|"|>}<tool_call|>'
+            ),
+        )
+        yield StreamEvent(
+            type=StreamEventType.TOOL_CALL_COMPLETE,
+            tool_call=ToolCall(
+                call_id="call_list_dir_1",
+                name="list_dir",
+                arguments={"path": "Docs"},
+            ),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
+class _DuplicateDiscoveryClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_list_1",
+                    name="list_dir",
+                    arguments={"path": "."},
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_list_2",
+                    name="list_dir",
+                    arguments={"path": "./"},
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(content="The deployment docs live in docs/."),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
+class _CrossTurnDuplicateDiscoveryClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_list_first",
+                    name="list_dir",
+                    arguments={"path": "docs"},
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+        if self.calls == 2:
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_list_repeat",
+                    name="list_dir",
+                    arguments={"path": "./docs"},
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(content="The deployment docs live in docs/."),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
+class _StuckDiscoveryClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_list_seed",
+                    name="list_dir",
+                    arguments={"path": "docs"},
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+
+        yield StreamEvent(
+            type=StreamEventType.TOOL_CALL_COMPLETE,
+            tool_call=ToolCall(
+                call_id=f"call_list_repeat_{self.calls}",
+                name="list_dir",
+                arguments={"path": "./docs"},
+            ),
         )
         yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
 
@@ -260,6 +476,47 @@ class AgentToolRecoveryTests(unittest.TestCase):
         )
         self.assertIn("missing", note or "")
 
+    def test_consumes_complete_raw_tool_markup_without_visible_text(self) -> None:
+        visible, remainder, inside = self.agent._consume_raw_tool_call_markup(
+            '<|tool_call|>call:glob{"pattern":"**/*"}<|tool_call|>',
+            inside_markup=False,
+            final=True,
+        )
+
+        self.assertEqual(visible, "")
+        self.assertEqual(remainder, "")
+        self.assertFalse(inside)
+
+    def test_consumes_split_raw_tool_markup_without_visible_text(self) -> None:
+        visible_1, remainder_1, inside_1 = self.agent._consume_raw_tool_call_markup(
+            "<|tool",
+            inside_markup=False,
+        )
+        visible_2, remainder_2, inside_2 = self.agent._consume_raw_tool_call_markup(
+            remainder_1 + '_call|>call:glob{"pattern":"**/*"}',
+            inside_markup=inside_1,
+        )
+        visible_3, remainder_3, inside_3 = self.agent._consume_raw_tool_call_markup(
+            remainder_2 + "<|tool_call|>",
+            inside_markup=inside_2,
+            final=True,
+        )
+
+        self.assertEqual(visible_1 + visible_2 + visible_3, "")
+        self.assertEqual(remainder_3, "")
+        self.assertFalse(inside_3)
+
+    def test_consumes_malformed_closing_tool_markup_without_visible_text(self) -> None:
+        visible, remainder, inside = self.agent._consume_raw_tool_call_markup(
+            '<|tool_call|>call:list_dir{path:<|"|>Docs<|"|>}<tool_call|>',
+            inside_markup=False,
+            final=True,
+        )
+
+        self.assertEqual(visible, "")
+        self.assertEqual(remainder, "")
+        self.assertFalse(inside)
+
 
 class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -342,4 +599,160 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 Path(self.temp_dir.name)
                 / "lib/features/editor/providers/project_provider.dart"
             ).exists()
+        )
+
+    async def test_raw_tool_markup_text_is_not_rendered_before_tool_call(self) -> None:
+        fake_client = _RawToolMarkupClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeGlobTool(self.config))
+
+        events = [event async for event in self.agent.run("search the workspace")]
+
+        text_events = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type in {AgentEventType.TEXT_DELTA, AgentEventType.TEXT_COMPLETE}
+        ]
+
+        self.assertEqual(text_events, [])
+        self.assertTrue(
+            any(
+                event.type == AgentEventType.TOOL_CALL_START
+                and event.data.get("name") == "glob"
+                for event in events
+            )
+        )
+
+    async def test_split_raw_tool_markup_text_is_not_rendered_before_tool_call(self) -> None:
+        fake_client = _SplitRawToolMarkupClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeGlobTool(self.config))
+
+        events = [event async for event in self.agent.run("search the workspace")]
+
+        text_events = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type in {AgentEventType.TEXT_DELTA, AgentEventType.TEXT_COMPLETE}
+        ]
+
+        self.assertEqual(text_events, [])
+        self.assertTrue(
+            any(
+                event.type == AgentEventType.TOOL_CALL_START
+                and event.data.get("name") == "glob"
+                for event in events
+            )
+        )
+
+    async def test_malformed_closing_tool_markup_text_is_not_rendered_before_tool_call(self) -> None:
+        fake_client = _MalformedClosingToolMarkupClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeGlobTool(self.config))
+
+        events = [event async for event in self.agent.run("check the docs folder")]
+
+        text_events = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type in {AgentEventType.TEXT_DELTA, AgentEventType.TEXT_COMPLETE}
+        ]
+
+        self.assertEqual(text_events, [])
+        self.assertTrue(
+            any(
+                event.type == AgentEventType.TOOL_CALL_START
+                and event.data.get("name") == "list_dir"
+                for event in events
+            )
+        )
+
+    async def test_duplicate_discovery_call_is_suppressed_with_recovery_hint(self) -> None:
+        fake_client = _DuplicateDiscoveryClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeListDirTool(self.config))
+
+        events = [event async for event in self.agent.run("find the deployment docs")]
+
+        starts = [
+            event
+            for event in events
+            if event.type == AgentEventType.TOOL_CALL_START
+            and event.data.get("name") == "list_dir"
+        ]
+        completions = [
+            event
+            for event in events
+            if event.type == AgentEventType.TOOL_CALL_COMPLETE
+            and event.data.get("name") == "list_dir"
+        ]
+        summaries = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(fake_client.calls, 2)
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(len(completions), 2)
+        self.assertTrue(
+            any(
+                bool((event.data.get("metadata") or {}).get("reused_cached_discovery"))
+                for event in completions
+            )
+        )
+        self.assertEqual(summaries, ["The deployment docs live in docs/."])
+
+    async def test_cross_turn_duplicate_discovery_call_reuses_cached_result(self) -> None:
+        fake_client = _CrossTurnDuplicateDiscoveryClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeListDirTool(self.config))
+
+        events = [event async for event in self.agent.run("find the deployment docs")]
+
+        starts = [
+            event
+            for event in events
+            if event.type == AgentEventType.TOOL_CALL_START
+            and event.data.get("name") == "list_dir"
+        ]
+        completions = [
+            event
+            for event in events
+            if event.type == AgentEventType.TOOL_CALL_COMPLETE
+            and event.data.get("name") == "list_dir"
+        ]
+        summaries = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(fake_client.calls, 3)
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(len(completions), 2)
+        self.assertTrue(
+            any(
+                bool((event.data.get("metadata") or {}).get("reused_cached_discovery"))
+                for event in completions
+            )
+        )
+        self.assertEqual(summaries, ["The deployment docs live in docs/."])
+
+    async def test_repeated_cached_discovery_stall_ends_run_with_error(self) -> None:
+        fake_client = _StuckDiscoveryClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeListDirTool(self.config))
+
+        events = [event async for event in self.agent.run("find the deployment docs")]
+
+        errors = [
+            str(event.data.get("error", ""))
+            for event in events
+            if event.type == AgentEventType.AGENT_ERROR
+        ]
+
+        self.assertEqual(fake_client.calls, 3)
+        self.assertTrue(
+            any("stuck repeating the same discovery step" in error for error in errors)
         )

@@ -1,4 +1,5 @@
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 
@@ -15,11 +16,18 @@ class LoopDetector:
             tool_name = details.get("tool_name", "")
             output.append(tool_name)
             args = details.get("args", {})
+            cwd = details.get("cwd")
 
             # Network calls often vary args (different URLs/queries) while still
             # being semantically repetitive. Normalize these to catch loops early.
             if tool_name in {"web_search", "web_fetch"}:
                 args = {}
+            else:
+                args = self._normalize_tool_args(
+                    tool_name,
+                    args,
+                    cwd=cwd,
+                )
 
             if isinstance(args, dict):
                 for k in sorted(args.keys()):
@@ -53,3 +61,43 @@ class LoopDetector:
 
     def clear(self) -> None:
         self._history.clear()
+
+    def _normalize_tool_args(
+        self,
+        tool_name: str,
+        args: Any,
+        *,
+        cwd: Any = None,
+    ) -> Any:
+        if not isinstance(args, dict):
+            return args
+
+        normalized = dict(args)
+        if tool_name in {"list_dir", "glob", "grep", "read_file"}:
+            for key in ("path",):
+                if key in normalized:
+                    normalized[key] = self._normalize_path_arg(
+                        normalized.get(key),
+                        cwd=cwd,
+                    )
+        if tool_name == "glob":
+            pattern = str(normalized.get("pattern") or "").strip()
+            normalized["pattern"] = pattern or "**/*"
+        if tool_name == "list_dir":
+            normalized["include_hidden"] = bool(normalized.get("include_hidden", False))
+        return normalized
+
+    def _normalize_path_arg(self, value: Any, *, cwd: Any = None) -> str:
+        path_text = str(value or ".").strip() or "."
+        if cwd is None:
+            return path_text
+        try:
+            base = Path(str(cwd)).resolve(strict=False)
+            candidate = Path(path_text)
+            if not candidate.is_absolute():
+                candidate = (base / candidate).resolve(strict=False)
+            else:
+                candidate = candidate.resolve(strict=False)
+            return str(candidate)
+        except Exception:
+            return path_text
