@@ -2123,3 +2123,70 @@ MarkdownBlockQuote {
     background: #1c1b1d;
     padding: 0 1;
 }
+
+/* Copyable code blocks with copy button */
+CopyableCodeBlock {
+    layout: vertical;
+    width: 1fr;
+    height: auto;
+    padding: 0;
+    margin: 1 0;
+    overflow: scroll hidden;
+    scrollbar-size-horizontal: 0;
+    scrollbar-size-vertical: 0;
+    color: #d4d4d4;
+    background: #0d0d0f;
+    border: round #2a2a2e;
+}
+
+CopyableCodeBlock:focus {
+    border: round #3d3d42;
+}
+
+CopyableCodeBlock > .code-header {
+    dock: top;
+    height: 1;
+    width: 1fr;
+    align-horizontal: right;
+    background: #151518;
+    padding: 0 1;
+}
+
+CopyableCodeBlock > .code-content {
+    padding: 0 2;
+}
+
+CopyableCodeBlock > .code-header > .copy-button {
+    min-width: 0;
+    height: 1;
+    padding: 0 1;
+    background: transparent;
+    color: #5a5a66;
+    border: none;
+    text-style: none;
+    opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s;
+}
+
+CopyableCodeBlock:hover > .code-header > .copy-button {
+    opacity: 1;
+    color: #8b8b99;
+}
+
+CopyableCodeBlock > .code-header > .copy-button:hover {
+    background: #2a2a2e;
+    color: #b7c8e1;
+    opacity: 1;
+}
+
+CopyableCodeBlock > .code-header > .copy-button:focus {
+    background: #35353a;
+    color: #c6d4e8;
+    opacity: 1;
+    text-style: none;
+}
+
+CopyableMarkdown {
+    layout: stream;
+    background: transparent;
+}

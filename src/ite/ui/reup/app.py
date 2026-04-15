@@ -15,6 +15,7 @@ from typing import Any
 from rich.cells import cell_len
 from rich.console import Group
 from rich.markdown import Markdown as RichMarkdown
+from textual.widgets import Markdown as TextualMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -39,6 +40,7 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
+from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.attachment_refs import (
     discover_attachable_files,
     extract_at_query,
@@ -2346,7 +2348,7 @@ class ReupApp(App):
                 response_widget = Static(answer, classes="aside-error")
             else:
                 response_widget = Static(
-                    RichMarkdown(answer), classes="aside-assistant-body"
+                    CopyableMarkdown(answer), classes="aside-assistant-body"
                 )
             await body.mount(
                 Vertical(user_row, response_widget, classes="aside-thread")
@@ -2952,7 +2954,7 @@ class ReupApp(App):
             return False
         await self.add_assistant_card(
             "Implementation Plan",
-            RichMarkdown(self._with_implementation_plan_title(normalized)),
+            CopyableMarkdown(self._with_implementation_plan_title(normalized)),
             css_class="plan",
         )
         self._last_rendered_plan_text = normalized
@@ -3923,7 +3925,7 @@ class ReupApp(App):
             if role == "assistant":
                 if content:
                     await self.add_assistant_card(
-                        "iTE", RichMarkdown(str(content)), css_class="assistant"
+                        "iTE", CopyableMarkdown(str(content)), css_class="assistant"
                     )
                 for tool_call in message.get("tool_calls") or []:
                     call_id = str(tool_call.get("id", "") or "")
@@ -4427,7 +4429,7 @@ class ReupApp(App):
         )
         sections.append(
             self._make_workboard_section(
-                "Summary", RichMarkdown(summary_md), tone="summary"
+                "Summary", CopyableMarkdown(summary_md), tone="summary"
             )
         )
 
@@ -4469,7 +4471,7 @@ class ReupApp(App):
             checklist_children.append(
                 self._make_workboard_section(
                     scope_title,
-                    RichMarkdown("\n".join(lines)),
+                    CopyableMarkdown("\n".join(lines)),
                     tone="execution" if scope == "execution" else "planning",
                     compact=True,
                 )
@@ -4489,7 +4491,7 @@ class ReupApp(App):
 
         plan_body: Widget
         if plan_text:
-            plan_body = RichMarkdown(plan_text)
+            plan_body = CopyableMarkdown(plan_text)
         else:
             plan_body = Static("No current plan saved.", classes="workboard-empty")
         sections.append(
@@ -5273,8 +5275,20 @@ class ReupApp(App):
 
     async def finalize_streaming_message(self) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
-        if self._streaming_widget is not None:
-            self._streaming_widget.update(RichMarkdown(self._streaming_buffer))
+        if self._streaming_widget is not None and self._streaming_buffer:
+            # Replace the streaming Static with a CopyableMarkdown widget
+            # so code blocks have copy buttons
+            old_widget = self._streaming_widget
+            new_widget = Container(
+                CopyableMarkdown(self._streaming_buffer),
+                classes="block assistant",
+            )
+            try:
+                await old_widget.remove()
+                await conversation.mount(new_widget)
+            except Exception:
+                # Fallback: just update the existing widget with RichMarkdown
+                old_widget.update(RichMarkdown(self._streaming_buffer))
             await self._pin_activity_indicator_to_end()
         self._streaming_widget = None
         self._streaming_buffer = ""
@@ -5372,7 +5386,7 @@ class ReupApp(App):
 
     async def add_assistant_message(self, message: str) -> None:
         await self.add_assistant_card(
-            "iTE", RichMarkdown(message), css_class="assistant"
+            "iTE", CopyableMarkdown(message), css_class="assistant"
         )
 
     def post_system(self, title: str, message: str, is_error: bool = False) -> None:
@@ -5506,7 +5520,7 @@ class ReupApp(App):
     def post_plan_note(self, title: str, markdown_text: str) -> None:
         self.run_worker(
             self.add_assistant_card(
-                title, RichMarkdown(markdown_text), css_class="plan"
+                title, CopyableMarkdown(markdown_text), css_class="plan"
             ),
             exclusive=False,
         )
