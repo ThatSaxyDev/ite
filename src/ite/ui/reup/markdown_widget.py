@@ -69,7 +69,7 @@ class CopyableCodeBlock(MarkdownFence):
     def compose(self) -> ComposeResult:
         """Compose the code block with a copy button."""
         yield Horizontal(
-            Button("⏻", classes="copy-button", id="copy-btn"),
+            Button("📋", classes="copy-button", id="copy-btn"),
             classes="code-header",
         )
         yield Static(self._highlighted_code, id="code-content", classes="code-content")
@@ -110,12 +110,7 @@ class CopyableCodeBlock(MarkdownFence):
 
     def _notify_copied(self) -> None:
         """Show a notification that code was copied."""
-        lines = len(self.code.splitlines()) if self.code else 0
-        self.notify(
-            f"Copied {lines} line{'s' if lines != 1 else ''} to clipboard",
-            title="Copied",
-            timeout=2,
-        )
+        self.notify("Copied to clipboard", timeout=2)
 
 
 class CopyableMarkdown(Markdown):
