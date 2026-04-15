@@ -45,6 +45,7 @@ class LLMClient:
             "minimax-m2.7": "minimax-m2.7",
             "kimi-k2.5": "kimi-k2.5",
             "glm-5": "glm-5",
+            "glm-5.1": "glm-5.1",
         }
         return aliases.get(model_name, model_name)
 

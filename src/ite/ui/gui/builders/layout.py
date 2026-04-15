@@ -703,6 +703,7 @@ class LayoutBuilderMixin:
             "minimax-m2.7:cloud",
             "kimi-k2.5:cloud",
             "glm-5:cloud",
+            "glm-5.1:cloud",
         ]
         if self.config.model_name not in model_choices:
             model_choices.insert(0, self.config.model_name)

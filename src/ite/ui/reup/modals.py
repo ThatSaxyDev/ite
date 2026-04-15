@@ -1328,6 +1328,7 @@ class ActivityModal(ModalScreen[None]):
             "kimi-k2.5": "Kimi K2.5",
             "minimax-m2.7": "MiniMax M2.7",
             "glm-5": "GLM-5",
+            "glm-5.1": "GLM-5.1",
         }
         return mapping.get(model_key, model_key)
 
