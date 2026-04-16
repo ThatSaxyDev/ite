@@ -4546,8 +4546,7 @@ class ReupApp(App):
         if not suppress_user_echo:
             run_state.failure_recovery_attempts = 0
         run_state.failure_recovery_payload = None
-        if not suppress_user_echo:
-            run_state.auto_resume_payload = None
+        run_state.auto_resume_payload = None
         attachments = list(
             getattr(active_agent.session, "pending_attachment_paths", [])
         )
@@ -4627,6 +4626,7 @@ class ReupApp(App):
                 self.refresh_header()
                 self._set_loading_state("idle", busy=False)
                 await self.auto_save()
+            return
         finally:
             run_state.active_turn_task = None
             run_state.is_turn_running = False
@@ -4640,6 +4640,8 @@ class ReupApp(App):
                 self._set_loading_state("idle", busy=False)
 
         if completed_normally and self._active_session_id() == session_id:
+            run_state.auto_resume_payload = None
+            run_state.failure_recovery_payload = None
             await self._dispatch_queued_payload_if_ready()
         elif (
             self._active_session_id() == session_id
