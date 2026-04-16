@@ -312,6 +312,30 @@ class Agent:
     def _should_delay_after_compaction(self) -> bool:
         return True
 
+    def _merge_incomplete_response_prefix(
+        self,
+        prefix: str,
+        continuation: str,
+    ) -> str:
+        previous = str(prefix or "")
+        current = str(continuation or "")
+        if not previous:
+            return current
+        if not current:
+            return previous
+
+        if current.startswith(previous):
+            return current
+        if previous.startswith(current):
+            return previous
+
+        max_overlap = min(len(previous), len(current))
+        for overlap in range(max_overlap, 0, -1):
+            if previous[-overlap:] == current[:overlap]:
+                return previous + current[overlap:]
+
+        return previous + current
+
     def _looks_incomplete_response(self, text: str) -> bool:
         stripped = str(text or "").strip()
         if not stripped:
@@ -328,7 +352,11 @@ class Agent:
         if not last_line:
             return False
 
-        if last_line.endswith(":"):
+        heading_word_count = len([part for part in re.split(r"\s+", last_line[:-1]) if part])
+        if (
+            heading_word_count <= 8
+            and re.match(r"^(\d+[\).\s-]+)?[A-Z][A-Za-z0-9 /_-]{1,80}:$", last_line)
+        ):
             return True
 
         if re.match(r"^P\d+\s+[–-]\s+.+:$", last_line):
@@ -1415,8 +1443,9 @@ class Agent:
                 response_text,
             )
             if incomplete_response_prefix and controlled_response_text and not tool_calls:
-                controlled_response_text = (
-                    incomplete_response_prefix + controlled_response_text
+                controlled_response_text = self._merge_incomplete_response_prefix(
+                    incomplete_response_prefix,
+                    controlled_response_text,
                 )
                 incomplete_response_prefix = ""
             has_visible_response = bool(controlled_response_text.strip())

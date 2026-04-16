@@ -4711,7 +4711,7 @@ class ReupApp(App):
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
             if self._streaming_widget is not None:
-                await self.finalize_streaming_message()
+                await self.finalize_streaming_message(content)
                 if (
                     content
                     and plan_only_phase
@@ -5273,14 +5273,15 @@ class ReupApp(App):
         self._streaming_widget.update(RichMarkdown(self._streaming_buffer))
         await self._pin_activity_indicator_to_end()
 
-    async def finalize_streaming_message(self) -> None:
+    async def finalize_streaming_message(self, final_text: str | None = None) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
-        if self._streaming_widget is not None and self._streaming_buffer:
+        rendered_text = final_text if final_text is not None else self._streaming_buffer
+        if self._streaming_widget is not None and rendered_text:
             # Replace the streaming Static with a CopyableMarkdown widget
             # so code blocks have copy buttons
             old_widget = self._streaming_widget
             new_widget = Container(
-                CopyableMarkdown(self._streaming_buffer),
+                CopyableMarkdown(rendered_text),
                 classes="block assistant",
             )
             try:
@@ -5288,7 +5289,7 @@ class ReupApp(App):
                 await conversation.mount(new_widget)
             except Exception:
                 # Fallback: just update the existing widget with RichMarkdown
-                old_widget.update(RichMarkdown(self._streaming_buffer))
+                old_widget.update(RichMarkdown(rendered_text))
             await self._pin_activity_indicator_to_end()
         self._streaming_widget = None
         self._streaming_buffer = ""

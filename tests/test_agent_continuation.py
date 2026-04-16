@@ -8,6 +8,16 @@ from ite.config.config import Config
 
 
 class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
+    def test_incomplete_response_heuristic_requires_heading_like_colon_line(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+
+        self.assertTrue(agent._looks_incomplete_response("What You Need to Do:"))
+        self.assertFalse(
+            agent._looks_incomplete_response(
+                "The root cause is the continuation heuristic repeating the same content:"
+            )
+        )
+
     async def test_incomplete_structured_response_continues_without_user_retry(self) -> None:
         agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
         assert agent.session is not None
@@ -15,7 +25,7 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
 
         call_count = 0
 
-        async def fake_chat_completion(messages, tools=None, stream=True):
+        async def fake_chat_completion(messages, tools=None, stream=True, visual_budget=None):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -59,6 +69,57 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("P1 - Should Fix:", completed[0])
         self.assertIn("completion-budget continuation heuristic", completed[0])
 
+    async def test_incomplete_response_merge_does_not_duplicate_restarted_content(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True, visual_budget=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text_delta=TextDelta(
+                        "Current Setup\n\nYou have two modes:\n1. direct\n2. ollama\n\nWhat You Need to Do:"
+                    ),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.MESSAGE_COMPLETE,
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                )
+                return
+
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    "Current Setup\n\nYou have two modes:\n1. direct\n2. ollama\n\nWhat You Need to Do:\n1. Set production env vars.\n2. Deploy the API."
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("Explain the launch steps."):
+            events.append(event)
+
+        completed = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0].count("Current Setup"), 1)
+        self.assertIn("Set production env vars.", completed[0])
+
     async def test_read_only_repo_summary_does_not_continue_due_to_stale_execution_todos(self) -> None:
         agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
         assert agent.session is not None
@@ -82,7 +143,7 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
 
         call_count = 0
 
-        async def fake_chat_completion(messages, tools=None, stream=True):
+        async def fake_chat_completion(messages, tools=None, stream=True, visual_budget=None):
             nonlocal call_count
             call_count += 1
             if call_count > 1:

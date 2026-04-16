@@ -454,6 +454,44 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app._top_spinner_index, before + 1)
 
+    def test_finalize_streaming_message_prefers_final_text_over_stream_buffer(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            class DummyConversation:
+                def __init__(self) -> None:
+                    self.mounted: list[object] = []
+
+                async def mount(self, widget) -> None:
+                    self.mounted.append(widget)
+
+            class FakeMarkdown(Static):
+                def __init__(self, text: str) -> None:
+                    super().__init__(text)
+                    self.source_text = text
+
+            class RemovableStatic(Static):
+                async def remove(self) -> None:
+                    return None
+
+            conversation = DummyConversation()
+            app._streaming_widget = RemovableStatic()
+            app._streaming_buffer = "Alpha\nAlpha\nBeta"
+
+            with patch.object(app, "query_one", return_value=conversation), patch.object(
+                app, "_pin_activity_indicator_to_end", AsyncMock()
+            ), patch("ite.ui.reup.app.CopyableMarkdown", FakeMarkdown):
+                await app.finalize_streaming_message("Alpha\nBeta")
+
+            self.assertIsNone(app._streaming_widget)
+            self.assertEqual(app._streaming_buffer, "")
+            self.assertEqual(len(conversation.mounted), 1)
+            mounted = conversation.mounted[0]
+            body = list(getattr(mounted, "_pending_children", []))[0]
+            self.assertEqual(body.source_text, "Alpha\nBeta")
+
+        asyncio.run(run_test())
+
     def test_append_streaming_command_marks_card_as_error_on_failure(self) -> None:
         async def run_test() -> None:
             app = self._app()
