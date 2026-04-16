@@ -33,6 +33,12 @@ class ReadImageParams(BaseModel):
         False,
         description="Attempt OCR text extraction when supported.",
     )
+    budget: int = Field(
+        280,
+        ge=70,
+        le=1120,
+        description="Visual token budget for the model. Options: 70, 140, 280, 560, 1120. Higher budget preserves more detail.",
+    )
 
 
 def _module_available(name: str) -> bool:
@@ -65,6 +71,22 @@ def _load_pytesseract():
     import pytesseract
 
     return pytesseract
+
+
+def _resize_image_if_needed(image, max_dimension: int = 2048):
+    """Resize image to fit within max_dimension while maintaining aspect ratio."""
+    width, height = image.size
+    if width <= max_dimension and height <= max_dimension:
+        return image
+
+    if width > height:
+        new_width = max_dimension
+        new_height = int(height * (max_dimension / width))
+    else:
+        new_height = max_dimension
+        new_width = int(width * (max_dimension / height))
+
+    return image.resize((new_width, new_height), Image.LANCZOS)
 
 
 def _ocr_recovery_hint() -> str:
@@ -228,6 +250,9 @@ class ReadImageTool(Tool):
         try:
             Image = _load_pillow()
             with Image.open(path) as image:
+                # Resize image to prevent "Request body too large" (413) errors
+                # when sending multimodal content to the cloud API.
+                image = _resize_image_if_needed(image)
                 width, height = image.size
                 mode = image.mode
                 image_format = image.format

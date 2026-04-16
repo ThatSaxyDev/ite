@@ -238,9 +238,12 @@ class LLMClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         stream: bool = True,
+        visual_budget: int | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         if self._is_cloud_model():
-            async for event in self._cloud_chat_completion(messages, tools=tools):
+            async for event in self._cloud_chat_completion(
+                messages, tools=tools, visual_budget=visual_budget
+            ):
                 yield event
             return
 
@@ -252,6 +255,17 @@ class LLMClient:
             "messages": safe_messages,
             "stream": stream,
         }
+        if self.config.model_name == "gemma4:31b-cloud":
+            kwargs["temperature"] = 1.0
+            kwargs["extra_body"] = {
+                "top_p": 0.95,
+                "top_k": 64,
+            }
+        
+        if visual_budget:
+            if "extra_body" not in kwargs:
+                kwargs["extra_body"] = {}
+            kwargs["extra_body"]["visual_token_budget"] = visual_budget
 
         if stream:
             kwargs["stream_options"] = {"include_usage": True}
@@ -388,6 +402,7 @@ class LLMClient:
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        visual_budget: int | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
         session = get_cloud_session(self.config)
         if session is None:
@@ -405,6 +420,14 @@ class LLMClient:
             "maxTokens": 1200,
             "temperature": self.config.temperature,
         }
+        if self.config.model_name == "gemma4:31b-cloud":
+            request_payload["temperature"] = 1.0
+            request_payload["top_p"] = 0.95
+            request_payload["top_k"] = 64
+        
+        if visual_budget:
+            request_payload["visual_token_budget"] = visual_budget
+
         if tools:
             request_payload["tools"] = self._build_tools(tools)
             request_payload["toolChoice"] = "auto"

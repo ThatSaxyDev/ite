@@ -1155,6 +1155,7 @@ class Agent:
         ] = {}
         repeated_discovery_stalls = 0
         turn_num = 0
+        current_visual_budget: int | None = None
 
         while turn_num < max_turns:
             if self.session is not session:
@@ -1256,6 +1257,7 @@ class Agent:
                 outbound_messages,
                 tools=tool_schemas if tool_schemas else None,
                 stream=True,
+                visual_budget=current_visual_budget,
             ):
                 if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta:
@@ -1828,6 +1830,28 @@ class Agent:
                         diffs = file_diffs_from_tool_result(result)
                         if diffs:
                             session.change_history.record_file_diffs(diffs)
+
+                if tool_call.name == "read_image" and result.success:
+                    image_path = result.metadata.get("path")
+                    budget = effective_args.get("budget", 280)
+                    if image_path:
+                        current_visual_budget = budget
+                        # Inject visual content into the most recent user message
+                        # to follow the "Modality Order" (Images before Text).
+                        messages = session.context_manager.get_messages()
+                        for msg in reversed(messages):
+                            if msg.get("role") == "user":
+                                content = msg.get("content")
+                                if isinstance(content, str):
+                                    # Convert existing text to a multimodal list
+                                    msg["content"] = [
+                                        {"type": "image_url", "image_url": {"url": f"file://{image_path}"}},
+                                        {"type": "text", "text": content},
+                                    ]
+                                elif isinstance(content, list):
+                                    # Prepend the image to the list
+                                    content.insert(0, {"type": "image_url", "image_url": {"url": f"file://{image_path}"}})
+                                break
 
                 if tool_call.name == "plan_question" and result.success:
                     session.increment_plan_questions()
