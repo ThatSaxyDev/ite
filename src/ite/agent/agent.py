@@ -32,7 +32,7 @@ class Agent:
     )
     POST_COMPACTION_CONTINUATION_DELAY_SECONDS = 1.25
     POST_COMPACTION_MAX_RECOVERY_RETRIES = 2
-    INCOMPLETE_RESPONSE_MAX_RETRIES = 2
+    INCOMPLETE_RESPONSE_MAX_RETRIES = 1
     POST_COMPACTION_CONTINUE_PROMPT = (
         "Continue from the compacted context and finish the current task. "
         "Treat compaction as a boundary, not a failure. "
@@ -336,6 +336,102 @@ class Agent:
 
         return previous + current
 
+    def _is_heading_like_incomplete_line(self, line: str) -> bool:
+        last_line = str(line or "").strip()
+        if not last_line or not last_line.endswith(":"):
+            return False
+        heading_word_count = len(
+            [part for part in re.split(r"\s+", last_line[:-1]) if part]
+        )
+        return heading_word_count <= 8 and bool(
+            re.match(r"^(\d+[\).\s-]+)?[A-Z][A-Za-z0-9 /_-]{1,80}:$", last_line)
+        )
+
+    def _has_conclusive_ending(self, text: str) -> bool:
+        stripped = str(text or "").strip()
+        if not stripped:
+            return False
+
+        lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return False
+
+        last_line = lines[-1]
+        if last_line.endswith(("?", "!", ".")):
+            return True
+
+        lowered = stripped.lower()
+        conclusive_markers = (
+            "in short",
+            "in summary",
+            "bottom line",
+            "that should",
+            "that should fix",
+            "this should",
+            "this is the safest path",
+            "that is the fastest path",
+            "you can ship",
+            "you should ship",
+        )
+        return any(marker in lowered for marker in conclusive_markers)
+
+    def _should_retry_incomplete_response(
+        self,
+        *,
+        text: str,
+        finish_reason: str | None,
+        retry_count: int,
+        has_tool_calls: bool,
+        user_message: str,
+    ) -> tuple[bool, str, int]:
+        if retry_count >= self.INCOMPLETE_RESPONSE_MAX_RETRIES:
+            return False, "retry cap reached", 0
+        if has_tool_calls:
+            return False, "tool calls present", 0
+
+        stripped = str(text or "").strip()
+        if not stripped:
+            return False, "empty response", 0
+
+        score = 0
+        reasons: list[str] = []
+        normalized_finish_reason = str(finish_reason or "").strip().lower()
+
+        if stripped.count("```") % 2 == 1:
+            score += 4
+            reasons.append("open code fence")
+
+        lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
+        last_line = lines[-1].strip() if lines else ""
+        if self._is_heading_like_incomplete_line(last_line):
+            score += 3
+            reasons.append("dangling heading")
+
+        if re.match(r"^\d+[\).\s-]+.+:$", last_line):
+            score += 2
+            reasons.append("numbered opener")
+
+        if normalized_finish_reason in {"length", "max_tokens"}:
+            score += 3
+            reasons.append(f"finish_reason={normalized_finish_reason}")
+
+        if resolve_response_intent(user_message).task_mode == "read_only":
+            score -= 1
+            reasons.append("read-only request")
+
+        if self._has_conclusive_ending(stripped):
+            score -= 3
+            reasons.append("conclusive ending")
+
+        if len(stripped) > 900 and normalized_finish_reason == "stop":
+            score -= 1
+            reasons.append("substantial stopped answer")
+
+        should_retry = score >= 2
+        if not reasons:
+            reasons.append("no strong truncation signal")
+        return should_retry, ", ".join(reasons), score
+
     def _looks_incomplete_response(self, text: str) -> bool:
         stripped = str(text or "").strip()
         if not stripped:
@@ -352,11 +448,7 @@ class Agent:
         if not last_line:
             return False
 
-        heading_word_count = len([part for part in re.split(r"\s+", last_line[:-1]) if part])
-        if (
-            heading_word_count <= 8
-            and re.match(r"^(\d+[\).\s-]+)?[A-Z][A-Za-z0-9 /_-]{1,80}:$", last_line)
-        ):
+        if self._is_heading_like_incomplete_line(last_line):
             return True
 
         if re.match(r"^P\d+\s+[–-]\s+.+:$", last_line):
@@ -1260,6 +1352,7 @@ class Agent:
             tool_calls: list[ToolCall] = []
             usage: TokenUsage | None = None
             stream_error: str | None = None
+            finish_reason: str | None = None
 
             outbound_messages = session.context_manager.get_prompt_messages(
                 latest_user_text
@@ -1281,11 +1374,16 @@ class Agent:
                         msg["content"] = latest_user_model_content
                         break
 
+            chat_completion_kwargs = {
+                "tools": tool_schemas if tool_schemas else None,
+                "stream": True,
+            }
+            if current_visual_budget is not None:
+                chat_completion_kwargs["visual_budget"] = current_visual_budget
+
             async for event in session.client.chat_completion(
                 outbound_messages,
-                tools=tool_schemas if tool_schemas else None,
-                stream=True,
-                visual_budget=current_visual_budget,
+                **chat_completion_kwargs,
             ):
                 if event.type == StreamEventType.TEXT_DELTA:
                     if event.text_delta:
@@ -1313,6 +1411,7 @@ class Agent:
                     break
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
+                    finish_reason = event.finish_reason
 
             visible_tail, raw_tool_markup_buffer, inside_raw_tool_markup = (
                 self._consume_raw_tool_call_markup(
@@ -1570,17 +1669,24 @@ class Agent:
                             )
                         session.set_plan_phase("idle")
                 elif controlled_response_text:
-                    if (
-                        incomplete_response_retries
-                        < self.INCOMPLETE_RESPONSE_MAX_RETRIES
-                        and self._looks_incomplete_response(controlled_response_text)
-                    ):
+                    should_retry_incomplete, retry_reason, retry_score = (
+                        self._should_retry_incomplete_response(
+                            text=controlled_response_text,
+                            finish_reason=finish_reason,
+                            retry_count=incomplete_response_retries,
+                            has_tool_calls=bool(tool_calls),
+                            user_message=latest_user_text,
+                        )
+                    )
+                    if should_retry_incomplete:
                         incomplete_response_retries += 1
                         incomplete_response_prefix = controlled_response_text
                         session.context_manager.add_system_message(
                             "The previous assistant response appears incomplete. "
                             "Continue exactly where you left off, finish the structure, "
-                            "and do not repeat already written content."
+                            "and do not repeat already written content. "
+                            f"Retry reason: {retry_reason}. "
+                            f"Confidence score: {retry_score}."
                         )
                         continue
                     if execution_progress_made:

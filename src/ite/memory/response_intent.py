@@ -187,6 +187,8 @@ _EXECUTION_PHRASES: tuple[str, ...] = (
     "edit the file",
     "change the code",
     "build this",
+    "finish the",
+    "complete the",
 )
 
 _READ_ONLY_PHRASES: tuple[str, ...] = (
@@ -294,7 +296,7 @@ def _resolve_task_mode(
     if "architecture" in context_set or "explanation" in context_set:
         return "read_only"
 
-    imperative_execution_tokens = {"fix", "implement", "edit", "update", "change", "build", "add", "remove", "refactor", "patch"}
+    imperative_execution_tokens = {"fix", "implement", "edit", "update", "change", "build", "add", "remove", "refactor", "patch", "finish", "complete", "setup"}
     if any(token in imperative_execution_tokens for token in tokens):
         return "execute"
 

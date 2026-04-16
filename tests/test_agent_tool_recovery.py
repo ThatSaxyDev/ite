@@ -601,6 +601,13 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
             ).exists()
         )
 
+    def test_finish_setup_request_is_treated_as_execution_intent(self) -> None:
+        from ite.memory.response_intent import resolve_response_intent
+
+        intent = resolve_response_intent("finish the provider setup")
+
+        self.assertEqual(intent.task_mode, "execute")
+
     async def test_raw_tool_markup_text_is_not_rendered_before_tool_call(self) -> None:
         fake_client = _RawToolMarkupClient()
         self.agent.session.client = fake_client
