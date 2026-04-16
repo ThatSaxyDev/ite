@@ -1,13 +1,15 @@
 import asyncio
 import fnmatch
 import os
-import pty
 import re
 import shutil
 import signal
 import sys
 import time
 import uuid
+
+if sys.platform != "win32":
+    import pty
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any

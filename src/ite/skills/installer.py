@@ -96,14 +96,19 @@ def _remote_url_for_reference(source: str) -> str | None:
 
 
 def _clone_skill_repo(source: str, destination: Path) -> None:
-    result = subprocess.run(
-        ["git", "clone", "--depth", "1", source, str(destination)],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", source, str(destination)],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "Git is not installed or not in PATH. Please install Git from https://git-scm.com/downloads"
+        )
     if result.returncode == 0:
         return
     detail = (result.stderr or result.stdout or "").strip()

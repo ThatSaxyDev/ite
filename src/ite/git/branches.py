@@ -29,8 +29,11 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 
 def is_git_repo(cwd: Path) -> bool:
-    result = _run_git(cwd, "rev-parse", "--is-inside-work-tree")
-    return result.returncode == 0 and result.stdout.strip() == "true"
+    try:
+        result = _run_git(cwd, "rev-parse", "--is-inside-work-tree")
+        return result.returncode == 0 and result.stdout.strip() == "true"
+    except FileNotFoundError:
+        return False
 
 
 def current_branch(cwd: Path) -> str:

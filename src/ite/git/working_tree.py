@@ -102,22 +102,30 @@ class GitOutboundState:
 
 
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except FileNotFoundError:
+        result = subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="git not found")
+        return result
 
 
 def _run_git_bytes(cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args],
-        capture_output=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        result = subprocess.CompletedProcess(args, returncode=1, stdout=b"", stderr=b"git not found")
+        return result
 
 
 def _git_output(cwd: Path, *args: str) -> str:
@@ -233,7 +241,10 @@ def _friendly_push_error(message: str) -> str:
 
 
 def git_outbound_state(cwd: Path) -> GitOutboundState | None:
-    branch = _git_output(cwd, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    try:
+        branch = _git_output(cwd, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    except FileNotFoundError:
+        return None
     if not branch or branch == "HEAD":
         return None
 

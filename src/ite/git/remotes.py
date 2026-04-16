@@ -14,12 +14,16 @@ class GitRemoteInfo:
 
 
 def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(cwd), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(
+            ["git", "-C", str(cwd), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        result = subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="git not found")
+        return result
 
 
 def _message_for(result: subprocess.CompletedProcess[str]) -> str:
