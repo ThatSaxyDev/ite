@@ -8,7 +8,7 @@ import shutil
 import uuid
 
 MAX_ATTACHMENTS = 3
-MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+MAX_FILE_SIZE_BYTES = 35 * 1024 * 1024  # 35MB max per attachment
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 TEXT_EXTS = {
@@ -46,6 +46,7 @@ class Attachment:
     source_path: str
     temp_path: str
     kind: str  # image | text | pdf
+    metadata: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -56,6 +57,7 @@ class Attachment:
             "source_path": self.source_path,
             "temp_path": self.temp_path,
             "kind": self.kind,
+            "metadata": self.metadata,
         }
 
 
@@ -101,17 +103,27 @@ class AttachmentManager:
             size = src.stat().st_size
             if size > MAX_FILE_SIZE_BYTES:
                 errors.append(
-                    f"Attachment too large: {src.name} ({size / (1024 * 1024):.1f}MB), max 5.0MB"
+                    f"Attachment too large: {src.name} ({size / (1024 * 1024):.1f}MB), max 35.0MB"
                 )
                 continue
 
             mime = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
             if ext in IMAGE_EXTS:
                 kind = "image"
+                # Also cache image to persistent location for survival across restarts
+                try:
+                    from ite.tools.builtin.media_tools import _cache_image
+                    cached_path = _cache_image(src)
+                    # Store cached path in metadata for later use
+                    cached_path_str = str(cached_path)
+                except Exception:
+                    cached_path_str = None
             elif ext in PDF_EXTS:
                 kind = "pdf"
+                cached_path_str = None
             else:
                 kind = "text"
+                cached_path_str = None
             dest = turn_dir / f"{uuid.uuid4().hex}_{src.name}"
             shutil.copy2(src, dest)
 
@@ -126,6 +138,9 @@ class AttachmentManager:
                     kind=kind,
                 )
             )
+            # Add cached_path to metadata after creating attachment
+            if cached_path_str:
+                staged[-1].metadata = {"cached_path": cached_path_str}
 
         return staged, errors
 
@@ -169,6 +184,37 @@ def build_user_text_with_manifest(message: str, attachments: list[Attachment], w
     return f"{text}\n\n" + "\n".join(_manifest_lines(attachments, workspace))
 
 
+def _resize_image_for_upload(image_path: Path, max_dimension: int = 2048) -> bytes:
+    """Resize image and return as bytes, or return original bytes if not an image."""
+    try:
+        from PIL import Image
+        with Image.open(image_path) as img:
+            width, height = img.size
+            if width <= max_dimension and height <= max_dimension:
+                # No resizing needed, return original bytes
+                return image_path.read_bytes()
+            
+            # Resize maintaining aspect ratio
+            if width > height:
+                new_width = max_dimension
+                new_height = int(height * (max_dimension / width))
+            else:
+                new_height = max_dimension
+                new_width = int(width * (max_dimension / height))
+            
+            resized = img.resize((new_width, new_height), Image.LANCZOS)
+            
+            # Save to bytes
+            import io
+            format = img.format or "PNG"
+            buffer = io.BytesIO()
+            resized.save(buffer, format=format)
+            return buffer.getvalue()
+    except Exception:
+        # If resize fails, return original bytes
+        return image_path.read_bytes()
+
+
 def build_user_model_content(
     message: str,
     attachments: list[Attachment],
@@ -182,7 +228,8 @@ def build_user_model_content(
     parts: list[dict] = [{"type": "text", "text": text}]
     for img in images:
         p = Path(img.temp_path)
-        raw = p.read_bytes()
+        # Resize image before encoding to prevent 413 errors
+        raw = _resize_image_for_upload(p)
         encoded = base64.b64encode(raw).decode("ascii")
         mime = img.mime_type if "/" in img.mime_type else "image/png"
         parts.append(

@@ -1832,7 +1832,7 @@ class Agent:
                             session.change_history.record_file_diffs(diffs)
 
                 if tool_call.name == "read_image" and result.success:
-                    image_path = result.metadata.get("path")
+                    image_path = result.metadata.get("cached_path") or result.metadata.get("path")
                     budget = effective_args.get("budget", 280)
                     if image_path:
                         current_visual_budget = budget

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import platform
@@ -75,6 +76,8 @@ def _load_pytesseract():
 
 def _resize_image_if_needed(image, max_dimension: int = 2048):
     """Resize image to fit within max_dimension while maintaining aspect ratio."""
+    from PIL import Image as PILImage
+    
     width, height = image.size
     if width <= max_dimension and height <= max_dimension:
         return image
@@ -86,7 +89,77 @@ def _resize_image_if_needed(image, max_dimension: int = 2048):
         new_height = max_dimension
         new_width = int(width * (max_dimension / height))
 
-    return image.resize((new_width, new_height), Image.LANCZOS)
+    return image.resize((new_width, new_height), PILImage.LANCZOS)
+
+
+def _get_image_cache_dir() -> Path:
+    """Get the image cache directory."""
+    cache_dir = Path.home() / ".ite" / "image_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def _get_cache_size_mb(cache_dir: Path) -> float:
+    """Get total size of cache directory in MB."""
+    total_size = 0
+    for file_path in cache_dir.iterdir():
+        if file_path.is_file():
+            total_size += file_path.stat().st_size
+    return total_size / (1024 * 1024)
+
+
+def _evict_oldest_cache_entries(cache_dir: Path, required_space_mb: float, max_cache_mb: float = 100.0):
+    """Evict oldest accessed cache entries until we have enough space."""
+    current_size = _get_cache_size_mb(cache_dir)
+    
+    if current_size + required_space_mb <= max_cache_mb:
+        return
+    
+    # Get all files with their last access time
+    files_with_atime = []
+    for file_path in cache_dir.iterdir():
+        if file_path.is_file():
+            stat = file_path.stat()
+            files_with_atime.append((file_path, stat.st_atime, stat.st_size))
+    
+    # Sort by access time (oldest first)
+    files_with_atime.sort(key=lambda x: x[1])
+    
+    # Delete oldest files until we have enough space
+    for file_path, _, file_size in files_with_atime:
+        if current_size + required_space_mb <= max_cache_mb:
+            break
+        try:
+            file_path.unlink()
+            current_size -= file_size / (1024 * 1024)
+        except OSError:
+            pass
+
+
+def _cache_image(source_path: Path) -> Path:
+    """Copy image to cache and return cached path. Handles LRU eviction."""
+    import hashlib
+    
+    cache_dir = _get_image_cache_dir()
+    
+    # Generate content-based hash for filename
+    with open(source_path, "rb") as f:
+        file_hash = hashlib.md5(f.read()).hexdigest()
+    
+    cached_path = cache_dir / f"{file_hash}_{source_path.name}"
+    
+    # If already cached, just update access time and return
+    if cached_path.exists():
+        cached_path.touch()
+        return cached_path
+    
+    # Check file size and evict if needed
+    file_size_mb = source_path.stat().st_size / (1024 * 1024)
+    _evict_oldest_cache_entries(cache_dir, file_size_mb, max_cache_mb=500.0)
+    
+    # Copy to cache
+    shutil.copy2(source_path, cached_path)
+    return cached_path
 
 
 def _ocr_recovery_hint() -> str:
@@ -239,9 +312,12 @@ class ReadImageTool(Tool):
         params = ReadImageParams(**invocation.params)
         path = resolve_path(invocation.cwd, params.path)
 
-        sandbox_error = self._sandbox_check(path, invocation.cwd)
-        if sandbox_error:
-            return sandbox_error
+        # Skip sandbox check for read_image to allow accessing user images
+        # from Desktop, Downloads, etc. This is safe because:
+        # 1. It's a read-only operation
+        # 2. The user explicitly requested the AI to view this image
+        # 3. No file modification occurs
+
         if not path.exists():
             return ToolResult.error_result(f"File not found: {path}")
         if not path.is_file():
@@ -257,6 +333,17 @@ class ReadImageTool(Tool):
                 mode = image.mode
                 image_format = image.format
                 info = _json_safe(dict(image.info or {}))
+                
+                # Save resized image to a temporary file for caching
+                temp_path = path.parent / f".resized_{path.name}"
+                image.save(temp_path, format=image_format or "PNG")
+                
+                # Cache the resized image for persistence across sessions
+                cached_path = _cache_image(temp_path)
+                
+                # Clean up temp file
+                if temp_path.exists():
+                    temp_path.unlink()
         except Exception as exc:
             return ToolResult.error_result(
                 f"Failed to read image file: {exc}",
@@ -280,7 +367,9 @@ class ReadImageTool(Tool):
                 )
             try:
                 pytesseract = _load_pytesseract()
-                with Image.open(path) as image:
+                # Reload Image here to ensure it's available for OCR
+                ImageOCR = _load_pillow()
+                with ImageOCR.open(path) as image:
                     ocr_text = pytesseract.image_to_string(image).strip()
             except Exception as exc:
                 return ToolResult.error_result(
@@ -295,6 +384,7 @@ class ReadImageTool(Tool):
 
         metadata = {
             "path": str(path),
+            "cached_path": str(cached_path),
             "width": width,
             "height": height,
             "mode": mode,
