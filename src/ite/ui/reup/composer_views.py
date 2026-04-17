@@ -35,6 +35,8 @@ def composer_meta_text(
     disabled = theme.get("disabled", muted)
     success = theme.get("success", "#5dcf84")
     error = theme.get("error", "#e35d6a")
+    warning = theme.get("warning", "#d18a35")
+    primary = theme.get("primary", success)
 
     status_text = "on" if plan_enabled else "off"
     status_style = f"bold {success}" if plan_enabled else f"bold {error}"
@@ -97,11 +99,19 @@ def composer_meta_text(
     if usage_remaining_percent is None:
         filled = 0
     else:
-        used_percent = max(0, min(100, 100 - usage_remaining_percent))
-        filled = max(0, min(meter_width, round((used_percent / 100) * meter_width)))
+        remaining_percent = max(0, min(100, usage_remaining_percent))
+        filled = max(0, min(meter_width, round((remaining_percent / 100) * meter_width)))
     empty = meter_width - filled
+    if usage_remaining_percent is None:
+        usage_meter_style = disabled
+    elif usage_remaining_percent >= 60:
+        usage_meter_style = success
+    elif usage_remaining_percent >= 30:
+        usage_meter_style = warning
+    else:
+        usage_meter_style = error
     if filled:
-        text.append("━" * filled, style=f"bold {fg}")
+        text.append("━" * filled, style=f"bold {usage_meter_style}")
         cell_pos += filled
     if empty:
         text.append("━" * empty, style=disabled)
@@ -132,7 +142,7 @@ def composer_meta_text(
         )
     context_empty = context_meter_width - context_filled
     if context_filled:
-        text.append("━" * context_filled, style=f"bold {fg}")
+        text.append("━" * context_filled, style=f"bold {primary}")
         cell_pos += context_filled
     if context_empty:
         text.append("━" * context_empty, style=disabled)

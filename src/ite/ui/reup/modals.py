@@ -1101,7 +1101,7 @@ class UsageSummaryModal(ModalScreen[None]):
             )
             sections.append(self._build_bar(remaining))
             if key != "sevenDay":
-                sections.append(Rule(style="#2a2d31"))
+                sections.append(Text(""))
         return Group(*sections)
 
     def compose(self) -> ComposeResult:
