@@ -58,6 +58,41 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_on_mount_uses_detected_light_theme_when_still_on_default_dark(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            prompt = SimpleNamespace(focus=lambda: None)
+            toggle = SimpleNamespace(display=True)
+
+            with (
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_resize_composer_for_prompt"),
+                patch.object(app, "_apply_aside_panel_state"),
+                patch.object(app, "_apply_change_review_panel_state"),
+                patch.object(app, "set_interval"),
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_sync_command_palette"),
+                patch("ite.ui.reup.app.detect_host_textual_theme", return_value="textual-light"),
+                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#aside-toggle": toggle,
+                        "#changes-toggle": toggle,
+                        "#prompt": prompt,
+                    }[selector],
+                ),
+            ):
+                await app.on_mount()
+
+            self.assertEqual(app.theme, "textual-light")
+
+        asyncio.run(run_test())
+
     def test_cloud_login_allows_manual_setup_after_sign_in(self) -> None:
         async def run_test() -> None:
             app = self._app()

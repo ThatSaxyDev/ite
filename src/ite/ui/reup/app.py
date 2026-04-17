@@ -142,10 +142,12 @@ from .modals import (
     UsageSummaryModal,
 )
 from .tool_views import (
+    detect_host_textual_theme,
     display_path,
     extract_read_file_code,
     format_mcp_identity,
     guess_language,
+    normalize_style_color,
     normalize_unified_diff_paths,
     render_args_table,
     render_git_log_output,
@@ -562,6 +564,8 @@ class ReupApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
+        if self.theme == "textual-dark":
+            self.theme = detect_host_textual_theme()
         self.query_one("#aside-toggle", Button).display = False
         self.query_one("#changes-toggle", Button).display = False
         self.refresh_header()
@@ -585,6 +589,31 @@ class ReupApp(App):
         await self._refresh_change_review_source()
         self.query_one("#prompt", TextArea).focus()
         self._sync_command_palette("")
+
+    def _syntax_theme_name(self) -> str:
+        syntax_theme = getattr(self.current_theme, "syntax_theme", None)
+        if isinstance(syntax_theme, str) and syntax_theme.strip():
+            return syntax_theme.strip()
+        return "textual-dark" if self.current_theme.dark else "textual-light"
+
+    def _theme_style(self, token: str, fallback: str) -> str:
+        return normalize_style_color(self.theme_variables.get(token), fallback)
+
+    def _render_styles(self) -> dict[str, str]:
+        return {
+            "fg": self._theme_style("foreground", "#e0e0e0"),
+            "muted": self._theme_style("foreground-muted", "#9aa3ad"),
+            "disabled": self._theme_style("foreground-disabled", "#727b86"),
+            "primary": self._theme_style("text-primary", "#57A5E2"),
+            "secondary": self._theme_style("text-secondary", "#5684A5"),
+            "accent": self._theme_style("text-accent", "#FFC473"),
+            "warning": self._theme_style("text-warning", "#FFC473"),
+            "error": self._theme_style("text-error", "#D17E92"),
+            "success": self._theme_style("text-success", "#8AD4A1"),
+        }
+
+    def _style(self, key: str) -> str:
+        return self._render_styles()[key]
 
     async def on_unmount(self) -> None:
         await self._shutdown_agents()
@@ -875,6 +904,7 @@ class ReupApp(App):
         self._refresh_empty_state()
 
     def _render_live_compaction_body(self, message: str, *, active: bool) -> Text:
+        styles = self._render_styles()
         content = Text()
         if active:
             frame = self._top_spinner_frames[
@@ -883,12 +913,12 @@ class ReupApp(App):
             suffix = self._activity_suffix_frames[
                 self._activity_suffix_index % len(self._activity_suffix_frames)
             ]
-            content.append(frame, style="bold #62f0b0")
+            content.append(frame, style=f"bold {self._style('success')}")
             content.append(" ")
-            content.append(message.strip() or "Compacting context", style="#edf1f7")
-            content.append(suffix, style="bold #d7deea")
+            content.append(message.strip() or "Compacting context", style=self._style("fg"))
+            content.append(suffix, style=f"bold {self._style('muted')}")
             return content
-        content.append(message.strip(), style="#edf1f7")
+        content.append(message.strip(), style=self._style("fg"))
         return content
 
     async def _start_live_compaction_card(self, message: str = "Compacting context") -> None:
@@ -1788,7 +1818,7 @@ class ReupApp(App):
             ]
             status.append(f"{frame} Opening your browser", style="bold #cfd6e2")
         else:
-            status.append(" ", style="#8c93a1")
+            status.append(" ", style=self._render_styles()["muted"])
         return status
 
     async def _run_cloud_login_flow(self) -> None:
@@ -2317,11 +2347,12 @@ class ReupApp(App):
             await self._populate_change_review_panel()
 
     def _render_aside_pending_text(self) -> Text:
-        text = Text("Thinking", style="#8fdad4 italic")
+        styles = self._render_styles()
+        text = Text("Thinking", style=f"{self._style('success')} italic")
         suffix = self._activity_suffix_frames[
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
-        text.append(suffix, style="#8fdad4 italic")
+        text.append(suffix, style=f"{self._style('success')} italic")
         return text
 
     async def _render_aside_panel(self) -> None:
@@ -5313,22 +5344,23 @@ class ReupApp(App):
         self._refresh_empty_state()
 
     def _render_user_message(self, message: str) -> Text | RichMarkdown:
+        styles = self._render_styles()
         refs = extract_inline_attachment_refs(message)
         if not refs:
             return RichMarkdown(message)
 
-        text = Text(style="#e8edf5")
+        text = Text(style=self._style("fg"))
         cursor = 0
         for ref in refs:
             if ref.start > cursor:
-                text.append(message[cursor : ref.start], style="#e8edf5")
+                text.append(message[cursor : ref.start], style=self._style("fg"))
             basename = Path(ref.value).name or ref.value
-            text.append(basename, style="bold #8bd5ff")
+            text.append(basename, style=f"bold {self._style('primary')}")
             if ref.trailing:
-                text.append(ref.trailing, style="#e8edf5")
+                text.append(ref.trailing, style=self._style("fg"))
             cursor = ref.end
         if cursor < len(message):
-            text.append(message[cursor:], style="#e8edf5")
+            text.append(message[cursor:], style=self._style("fg"))
         return text
 
     def _user_bubble_width(self, message: str, max_width: int = 92) -> int:
@@ -5383,9 +5415,10 @@ class ReupApp(App):
         )
 
     def post_notice(self, title: str, message: str) -> None:
+        styles = self._render_styles()
         self.run_worker(
             self.add_assistant_card(
-                title, Text(message, style="#d7deea"), css_class="note"
+                title, Text(message, style=self._style("fg")), css_class="note"
             ),
             exclusive=False,
         )
@@ -5397,38 +5430,39 @@ class ReupApp(App):
         recovering: bool,
         retry_available: bool,
     ) -> None:
+        styles = self._render_styles()
         title = "Recovering" if recovering else "Inference Interrupted"
         body = Text()
         if recovering:
             body.append(
                 "Bundled inference stalled after partial progress. Continuing automatically.\n\n",
-                style="#dfe8f3",
+                style=self._style("fg"),
             )
         else:
             body.append(
                 "Bundled inference is temporarily unavailable.\n\n",
-                style="#dfe8f3",
+                style=self._style("fg"),
             )
 
         if error_message:
-            body.append("Details\n", style="bold #f3c7af")
-            body.append(f"{error_message}\n", style="#f1c3ae")
+            body.append("Details\n", style=f"bold {self._style('error')}")
+            body.append(f"{error_message}\n", style=self._style("error"))
 
-        body.append("\nAction\n", style="bold #b7c8e1")
+        body.append("\nAction\n", style=f"bold {self._style('primary')}")
         if recovering:
             body.append(
                 "Waiting for one automatic continuation attempt.",
-                style="#9bcbb7",
+                style=self._style("success"),
             )
         elif retry_available:
             body.append(
                 "Run /retry to resend the last turn, or switch models if the provider stays unstable.",
-                style="#d7deea",
+                style=self._style("fg"),
             )
         else:
             body.append(
                 "Try again in a moment, or switch models if the provider stays unstable.",
-                style="#d7deea",
+                style=self._style("fg"),
             )
 
         self.run_worker(
@@ -5512,10 +5546,11 @@ class ReupApp(App):
         )
 
     def post_attachment_note(self, message: str) -> None:
+        styles = self._render_styles()
         self.run_worker(
             self.add_assistant_card(
                 "Attachments",
-                Text(message, style="#d7deea"),
+                Text(message, style=self._style("fg")),
                 css_class="attachment",
             ),
             exclusive=False,
@@ -5601,19 +5636,20 @@ class ReupApp(App):
         )
 
     def _build_command_result_renderable(self, message: str) -> Group:
+        styles = self._render_styles()
         lines = [line.rstrip() for line in str(message or "").strip().splitlines()]
         if not lines:
             return Group()
         if len(lines) == 1:
-            return Group(Text(lines[0], style="#edf1f7"))
+            return Group(Text(lines[0], style=self._style("fg")))
         renderables: list[Text] = []
         for index, line in enumerate(lines):
             if not line.strip():
                 renderables.append(Text(""))
                 continue
-            style = "#edf1f7" if index == 0 else "#c9d3e0"
+            style = self._style("fg") if index == 0 else self._style("secondary")
             if self._is_box_drawing_line(line):
-                style = "#5f6975"
+                style = self._style("muted")
             renderables.append(Text(line, style=style))
         return Group(*renderables)
 
@@ -5625,25 +5661,28 @@ class ReupApp(App):
         pending_text: str | None,
         spinner_index: int = 0,
     ) -> Group:
+        styles = self._render_styles()
+        styles = self._render_styles()
+        styles = self._render_styles()
         blocks: list[Any] = []
         show_pending_row = pending_active and not lines
         if show_pending_row:
             status = Text()
             status.append(
                 f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
-                style="bold #b8d8ff",
+                style=f"bold {self._style('primary')}",
             )
             if pending_text:
-                status.append(pending_text, style="#8c93a1")
+                status.append(pending_text, style=self._style("muted"))
             blocks.append(status)
         if lines:
             if pending_active:
                 first_line = Text()
                 first_line.append(
                     f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
-                    style="bold #b8d8ff",
+                    style=f"bold {self._style('primary')}",
                 )
-                first_line.append(lines[0], style="#edf1f7")
+                first_line.append(lines[0], style=self._style("fg"))
                 blocks.append(first_line)
                 if len(lines) > 1:
                     blocks.extend(
@@ -5969,6 +6008,7 @@ class ReupApp(App):
         exit_code: int | None,
         animate_running: bool = False,
     ) -> tuple[Text, Group]:
+        styles = self._render_styles()
         md = metadata if isinstance(metadata, dict) else {}
         icon, title_style = self._shell_card_icon_and_style(md, success=success)
         running_suffix = ""
@@ -5988,6 +6028,7 @@ class ReupApp(App):
                     command.strip(),
                     cwd=self.config.cwd,
                     shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
+                    theme_variables=self.theme_variables,
                 )
             )
         display_payload = (
@@ -6002,29 +6043,29 @@ class ReupApp(App):
         summary = Text()
         session_id = str(md.get("session_id") or "").strip()
         if session_id:
-            summary.append(session_id, style="#8c97ab")
+            summary.append(session_id, style=self._style("muted"))
         status_state = shell_session_state(md)
         if isinstance(md.get("running"), bool) or md.get("status"):
             if summary.plain:
-                summary.append("  •  ", style="#667084")
-            status_label, status_style = status_state, "#8c97ab"
+                summary.append("  •  ", style=self._style("disabled"))
+            status_label, status_style = status_state, self._style("muted")
             if status_state == "command_running":
                 status_label = "command running" + running_suffix
-                status_style = "#b7c8e1"
+                status_style = self._style("primary")
             elif status_state == "idle":
                 status_label = "idle"
-                status_style = "#8c93a1"
+                status_style = self._style("muted")
             elif status_label == "exited":
-                status_style = "#8c97ab"
+                status_style = self._style("muted")
             summary.append(status_label.replace("_", " "), style=status_style)
         if exit_code is not None:
             if summary.plain:
-                summary.append("  •  ", style="#667084")
-            summary.append(f"exit {exit_code}", style="#8c97ab")
+                summary.append("  •  ", style=self._style("disabled"))
+            summary.append(f"exit {exit_code}", style=self._style("muted"))
         if md.get("timed_out"):
             if summary.plain:
-                summary.append("  •  ", style="#667084")
-            summary.append("timed out", style="#f5b54f")
+                summary.append("  •  ", style=self._style("disabled"))
+            summary.append("timed out", style=self._style("warning"))
         if summary.plain:
             blocks.append(summary)
         blocks.append(
@@ -6033,6 +6074,7 @@ class ReupApp(App):
                 tone="stdout" if success else "stderr",
                 max_lines=None,
                 max_chars=64000,
+                theme_variables=self.theme_variables,
             )
         )
 
@@ -6121,6 +6163,7 @@ class ReupApp(App):
         args: dict[str, Any],
         spinner_index: int,
     ) -> Group:
+        styles = self._render_styles()
         def compact_result_line(value: str) -> str:
             text = str(value or "").strip()
             if not text:
@@ -6166,17 +6209,17 @@ class ReupApp(App):
         header = Text()
         header.append(
             f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
-            style="bold #b7c8e1",
+            style=f"bold {self._style('primary')}",
         )
-        header.append("Waiting on specialists", style="bold #edf1f7")
-        header.append("  running", style="#8c93a1")
+        header.append("Waiting on specialists", style=f"bold {self._style('fg')}")
+        header.append("  running", style=self._style("muted"))
 
-        blocks: list[Any] = [Text("Watching active specialist runs.", style="#8c97ab")]
+        blocks: list[Any] = [Text("Watching active specialist runs.", style=self._style("muted"))]
         summary = Text()
         if selected_ids:
-            summary.append(f"{len(selected_ids)} selected", style="#8c97ab")
-            summary.append("  •  ", style="#667084")
-        summary.append(return_when, style="#8c97ab")
+            summary.append(f"{len(selected_ids)} selected", style=self._style("muted"))
+            summary.append("  •  ", style=self._style("disabled"))
+        summary.append(return_when, style=self._style("muted"))
         blocks.append(summary)
 
         runtime = getattr(
@@ -6188,9 +6231,9 @@ class ReupApp(App):
                 runs = [run for run in runs if run.run_id in selected_ids]
             if runs:
                 table = Table.grid(padding=(0, 1))
-                table.add_column(style="#b7c8e1", no_wrap=True)
-                table.add_column(style="#8c97ab", no_wrap=True)
-                table.add_column(style="#dfe4ea")
+                table.add_column(style=self._style("primary"), no_wrap=True)
+                table.add_column(style=self._style("muted"), no_wrap=True)
+                table.add_column(style=self._style("fg"))
                 for run in runs[:12]:
                     goal_label = summarize_subagent_goal(
                         str(getattr(run, "goal", "") or "").strip()
@@ -6228,15 +6271,15 @@ class ReupApp(App):
                         details = details[:77].rstrip() + "..."
                     status_text = Text(run.status)
                     if status == "completed":
-                        status_text.stylize("#8fb7a1")
+                        status_text.stylize(self._style("success"))
                     elif status in {"failed", "timeout", "cancelled"}:
-                        status_text.stylize("#c48787")
+                        status_text.stylize(self._style("error"))
                     else:
-                        status_text.stylize("#8c97ab")
-                    run_label = Text(str(run.run_id), style="#b7c8e1")
+                        status_text.stylize(self._style("muted"))
+                    run_label = Text(str(run.run_id), style=self._style("primary"))
                     if goal_label:
-                        run_label.append(" · ", style="#667084")
-                        run_label.append(goal_label, style="#8c97ab")
+                        run_label.append(" · ", style=self._style("disabled"))
+                        run_label.append(goal_label, style=self._style("muted"))
                     table.add_row(run_label, status_text, details or "(no summary yet)")
                 blocks.append(table)
                 history_lines: list[Text] = []
@@ -6265,24 +6308,24 @@ class ReupApp(App):
                             recent.append(line)
                     if not recent:
                         continue
-                    history_header = Text(str(run.run_id), style="bold #d8ab74")
+                    history_header = Text(str(run.run_id), style=f"bold {self._style('accent')}")
                     if goal_label:
-                        history_header.append(" · ", style="#667084")
-                        history_header.append(goal_label, style="#8c97ab")
-                    history_header.append(" recent activity", style="bold #d8ab74")
+                        history_header.append(" · ", style=self._style("disabled"))
+                        history_header.append(goal_label, style=self._style("muted"))
+                    history_header.append(" recent activity", style=f"bold {self._style('accent')}")
                     history_lines.append(history_header)
                     for index, line in enumerate(recent):
-                        style = "#edf1f7" if index == len(recent) - 1 else "#8c97ab"
+                        style = self._style("fg") if index == len(recent) - 1 else self._style("muted")
                         history_lines.append(Text(f"• {line}", style=style))
                 if history_lines:
                     blocks.append(Text(""))
                 blocks.extend(history_lines)
             else:
                 blocks.append(
-                    Text("No matching specialist runs found.", style="#8c97ab")
+                    Text("No matching specialist runs found.", style=self._style("muted"))
                 )
         else:
-            blocks.append(Text("Specialist runtime unavailable.", style="#8c97ab"))
+            blocks.append(Text("Specialist runtime unavailable.", style=self._style("muted")))
 
         return Group(header, *blocks)
 
@@ -6294,6 +6337,7 @@ class ReupApp(App):
         args: dict[str, Any],
         spinner_index: int,
     ) -> Group:
+        styles = self._render_styles()
         def age_label(value: Any) -> str:
             if not isinstance(value, str) or not value.strip():
                 return ""
@@ -6316,15 +6360,15 @@ class ReupApp(App):
         header = Text()
         header.append(
             f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
-            style="bold #b7c8e1",
+            style=f"bold {self._style('primary')}",
         )
-        header.append("Asking specialist", style="bold #edf1f7")
-        header.append("  running", style="#8c93a1")
+        header.append("Asking specialist", style=f"bold {self._style('fg')}")
+        header.append("  running", style=self._style("muted"))
 
         blocks: list[Any] = []
         goal = str(args.get("goal") or "").strip()
         if goal:
-            blocks.append(Text(f"goal  {goal}", style="#dfe4ea"))
+            blocks.append(Text(f"goal  {goal}", style=self._style("fg")))
 
         registry = getattr(getattr(self.agent, "session", None), "tool_registry", None)
         tool = registry.get(name) if registry is not None else None
@@ -6340,14 +6384,14 @@ class ReupApp(App):
             child_session_id = str(live.get("child_session_id") or "").strip()
             details = "  •  ".join(part for part in [freshness, activity] if part)
             if details:
-                blocks.append(Text(details, style="#8c97ab"))
+                blocks.append(Text(details, style=self._style("muted")))
             if child_session_id:
                 blocks.append(
-                    Text(f"child session {child_session_id}", style="#8c97ab")
+                    Text(f"child session {child_session_id}", style=self._style("muted"))
                 )
             history = live.get("activity_history")
             if isinstance(history, list) and history:
-                blocks.append(Text("Recent activity", style="bold #d8ab74"))
+                blocks.append(Text("Recent activity", style=f"bold {self._style('accent')}"))
                 for entry in history[-3:]:
                     if not isinstance(entry, dict):
                         continue
@@ -6358,7 +6402,7 @@ class ReupApp(App):
                         style = "#edf1f7" if entry is history[-1] else "#8c97ab"
                         blocks.append(Text(f"• {line}", style=style))
         elif not blocks:
-            blocks.append(Text("Starting specialist session.", style="#8c97ab"))
+            blocks.append(Text("Starting specialist session.", style=self._render_styles()["muted"]))
 
         return Group(header, *blocks)
 
@@ -6397,7 +6441,7 @@ class ReupApp(App):
 
         blocks: list[Any] = []
         if name == "todos":
-            blocks.append(Text(todo_start_hint(arguments), style="#dfe4ea"))
+            blocks.append(Text(todo_start_hint(arguments), style=self._render_styles()["fg"]))
         elif tool_kind == "mcp":
             blocks.extend(
                 render_mcp_start_payload(
@@ -6409,7 +6453,7 @@ class ReupApp(App):
         elif arguments:
             blocks.append(render_args_table(name, arguments, cwd=self.config.cwd))
         else:
-            blocks.append(Text("(no args)", style="#8c93a1"))
+            blocks.append(Text("(no args)", style=self._render_styles()["muted"]))
 
         if name == "shell":
             self._run_state().running_shell_call_ids.add(call_id)
@@ -6454,9 +6498,9 @@ class ReupApp(App):
             header = Text()
             header.append("⌛ ", style="bold #b7c8e1")
             header.append(title_text, style="bold #edf1f7")
-            header.append("  running", style="#8c93a1")
+            header.append("  running", style=self._render_styles()["muted"])
             if tool_kind == "mcp" and narrative:
-                blocks.insert(0, Text(narrative, style="#8c97ab"))
+                blocks.insert(0, Text(narrative, style=self._render_styles()["muted"]))
             card.update(Group(header, *blocks))
         self._tool_widgets[call_id] = card
 
@@ -6555,6 +6599,7 @@ class ReupApp(App):
             await self._pin_activity_indicator_to_end()
             return
 
+        styles = self._render_styles()
         blocks: list[Any] = []
         local_truncated = False
         primary_path = md.get("path") if isinstance(md.get("path"), str) else None
@@ -6563,12 +6608,12 @@ class ReupApp(App):
         if policy_redirect:
             if redirect_to:
                 blocks.append(
-                    Text(f"Continuing with `{redirect_to}`.", style="#d9dee8")
+                    Text(f"Continuing with `{redirect_to}`.", style=self._style("fg"))
                 )
             payload = ""
 
         if name == "read_file" and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             extracted = extract_read_file_code(payload) if primary_path else None
             if primary_path and extracted is not None:
                 start_line, code = extracted
@@ -6582,7 +6627,7 @@ class ReupApp(App):
                         Syntax(
                             code_display,
                             language,
-                            theme="monokai",
+                            theme=self._syntax_theme_name(),
                             line_numbers=True,
                             start_line=start_line,
                             word_wrap=False,
@@ -6591,7 +6636,14 @@ class ReupApp(App):
             else:
                 output_display, was_truncated = truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
-                blocks.append(render_text_payload(output_display, success=True))
+                blocks.append(
+                    render_text_payload(
+                        output_display,
+                        success=True,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self.theme_variables,
+                    )
+                )
         elif (
             name
             in {
@@ -6609,7 +6661,7 @@ class ReupApp(App):
                 blocks.append(
                     Text(
                         display_path(primary_path, cwd=self.config.cwd),
-                        style="#8c97ab",
+                        style=self._style("muted"),
                     )
                 )
             summary_parts: list[str] = []
@@ -6651,19 +6703,19 @@ class ReupApp(App):
             if hunk_ranges:
                 summary_parts.append("  |  ".join(hunk_ranges[:2]))
             if summary_parts:
-                blocks.append(Text("  •  ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text("  •  ".join(summary_parts), style=self._style("muted")))
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
             blocks.append(render_numbered_unified_diff(diff_display))
         elif name in {"run_tests", "run_linter", "run_typecheck", "http_request"}:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             if name == "http_request":
                 method = (
                     str(md.get("method") or args.get("method") or "GET").strip().upper()
                 )
                 url = str(md.get("url") or args.get("url") or "").strip()
                 if url:
-                    blocks.append(Text(f"{method} {url}", style="#8c97ab"))
+                    blocks.append(Text(f"{method} {url}", style=self._style("muted")))
             else:
                 command = md.get("command") or args.get("command")
                 if isinstance(command, str) and command.strip():
@@ -6674,6 +6726,7 @@ class ReupApp(App):
                             shell_cwd=md.get("cwd")
                             if isinstance(md.get("cwd"), str)
                             else None,
+                            theme_variables=self.theme_variables,
                         )
                     )
             duration_ms = md.get("duration_ms")
@@ -6681,7 +6734,7 @@ class ReupApp(App):
                 blocks.append(
                     Text(
                         f"Completed in {duration_ms} ms",
-                        style="#8c97ab",
+                        style=self._style("muted"),
                     )
                 )
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -6699,34 +6752,49 @@ class ReupApp(App):
                             ]
                             if part
                         ),
-                        style="#8c97ab",
+                        style=self._style("muted"),
                     )
                 )
-                blocks.append(render_text_payload(output_display, success=success))
+                blocks.append(
+                    render_text_payload(
+                        output_display,
+                        success=success,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self.theme_variables,
+                    )
+                )
             else:
                 blocks.extend(
                     render_shell_result_payload(
                         payload=output_display,
                         metadata=md,
                         exit_code=exit_code,
+                        theme_variables=self.theme_variables,
                     )
                 )
         elif name == "list_archive" and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             if primary_path:
                 blocks.append(
                     Text(
-                        display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
+                        display_path(primary_path, cwd=self.config.cwd), style=self._style("muted")
                     )
                 )
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(render_text_payload(output_display, success=True))
+            blocks.append(
+                render_text_payload(
+                    output_display,
+                    success=True,
+                    syntax_theme=self._syntax_theme_name(),
+                    theme_variables=self.theme_variables,
+                )
+            )
         elif name in {"read_pdf", "read_image"} and success:
             if primary_path:
                 blocks.append(
                     Text(
-                        display_path(primary_path, cwd=self.config.cwd), style="#8c97ab"
+                        display_path(primary_path, cwd=self.config.cwd), style=self._style("muted")
                     )
                 )
             summary_parts: list[str] = []
@@ -6748,7 +6816,7 @@ class ReupApp(App):
                 if md.get("ocr_requested"):
                     summary_parts.append("ocr")
             if summary_parts:
-                blocks.append(Text("  •  ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text("  •  ".join(summary_parts), style=self._style("muted")))
         elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
             if primary_path:
                 target = display_path(primary_path, cwd=self.config.cwd)
@@ -6760,9 +6828,9 @@ class ReupApp(App):
                     structured_path = str(md.get("key", "")).strip()
                 if structured_path:
                     target = f"{target} :: {structured_path}"
-                blocks.append(Text(target, style="#8c97ab"))
+                blocks.append(Text(target, style=self._style("muted")))
             else:
-                blocks.append(Text(narrative, style="#8c97ab"))
+                blocks.append(Text(narrative, style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             language = "json"
@@ -6771,10 +6839,16 @@ class ReupApp(App):
             elif name == "read_yaml":
                 language = "yaml"
             blocks.append(
-                render_text_payload(output_display, success=True, language=language)
+                render_text_payload(
+                    output_display,
+                    success=True,
+                    language=language,
+                    syntax_theme=self._syntax_theme_name(),
+                    theme_variables=self.theme_variables,
+                )
             )
         elif name in {"shell", "shell_poll", "shell_stop"}:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             command = args.get("command")
             if isinstance(command, str) and command.strip():
                 blocks.append(
@@ -6784,6 +6858,7 @@ class ReupApp(App):
                         shell_cwd=md.get("cwd")
                         if isinstance(md.get("cwd"), str)
                         else None,
+                        theme_variables=self.theme_variables,
                     )
                 )
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -6793,10 +6868,11 @@ class ReupApp(App):
                     payload=output_display,
                     metadata=md,
                     exit_code=exit_code,
+                    theme_variables=self.theme_variables,
                 )
             )
         elif name == "web_search" and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             query = md.get("query") or args.get("query")
             results_count = md.get("results")
             provider = md.get("provider")
@@ -6810,12 +6886,19 @@ class ReupApp(App):
             if isinstance(provider, str) and provider.strip():
                 summary_parts.append(provider)
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(render_text_payload(output_display, success=success))
+            blocks.append(
+                render_text_payload(
+                    output_display,
+                    success=success,
+                    syntax_theme=self._syntax_theme_name(),
+                    theme_variables=self.theme_variables,
+                )
+            )
         elif name == "web_fetch" and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             summary_parts: list[str] = []
             url = md.get("url") or args.get("url")
             status_code = md.get("status_code")
@@ -6827,22 +6910,43 @@ class ReupApp(App):
             if isinstance(url, str) and url.strip():
                 summary_parts.append(url.strip())
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
-            blocks.append(render_text_payload(output_display, success=success))
+            blocks.append(
+                render_text_payload(
+                    output_display,
+                    success=success,
+                    syntax_theme=self._syntax_theme_name(),
+                    theme_variables=self.theme_variables,
+                )
+            )
         elif name in {"list_dir", "glob", "grep"}:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if name == "list_dir":
-                blocks.append(render_list_dir_output(output_display))
+                blocks.append(render_list_dir_output(output_display, theme_variables=self.theme_variables))
             elif name == "grep":
-                blocks.append(render_grep_output(output_display, cwd=self.config.cwd))
+                blocks.append(
+                    render_grep_output(
+                        output_display,
+                        cwd=self.config.cwd,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self.theme_variables,
+                    )
+                )
             else:
-                blocks.append(render_text_payload(output_display, success=success))
+                blocks.append(
+                    render_text_payload(
+                        output_display,
+                        success=success,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self.theme_variables,
+                    )
+                )
         elif name == "git_diff":
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             selection = md.get("selection")
             files = md.get("files")
             diff_count = md.get("diff_count")
@@ -6854,7 +6958,7 @@ class ReupApp(App):
                     f"{diff_count} file{'s' if diff_count != 1 else ''}"
                 )
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
+                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
             if isinstance(files, list) and files:
                 for entry in files[:6]:
                     if not isinstance(entry, dict):
@@ -6863,12 +6967,12 @@ class ReupApp(App):
                     stage_label = str(entry.get("stage_label", "")).strip()
                     change_type = str(entry.get("change_type", "")).strip()
                     detail = Text()
-                    detail.append("• ", style="#8c97ab")
-                    detail.append(rel_path, style="#dfe8f8")
+                    detail.append("• ", style=self._style("muted"))
+                    detail.append(rel_path, style=self._style("fg"))
                     meta_bits = [part for part in [stage_label, change_type] if part]
                     if meta_bits:
                         detail.append("  ")
-                        detail.append(" / ".join(meta_bits), style="#8c97ab")
+                        detail.append(" / ".join(meta_bits), style=self._style("muted"))
                     blocks.append(detail)
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
@@ -6882,11 +6986,18 @@ class ReupApp(App):
                     )
                 )
             elif output_display.strip():
-                blocks.append(render_text_payload(output_display, success=success))
+                blocks.append(
+                    render_text_payload(
+                        output_display,
+                        success=success,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self.theme_variables,
+                    )
+                )
             else:
-                blocks.append(Text("No diff output", style="#8c97ab"))
+                blocks.append(Text("No diff output", style=self._style("muted")))
         elif name == "git_log" and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             count = md.get("count")
             ref = md.get("ref")
             summary_parts: list[str] = []
@@ -6895,27 +7006,35 @@ class ReupApp(App):
             if isinstance(ref, str) and ref.strip():
                 summary_parts.append(ref.strip())
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style="#8c97ab"))
-            blocks.append(render_git_log_output(md))
+                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
+            blocks.append(render_git_log_output(md, theme_variables=self.theme_variables))
         elif name == "todos" and success:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             todo_blocks, was_truncated = render_todo_payload(
                 output=payload,
                 metadata=md,
+                theme_variables=self.theme_variables,
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
         elif name == "skills":
-            blocks.append(Text(narrative, style="#8c97ab"))
-            blocks.append(render_skills_payload(output=payload, success=success))
+            blocks.append(Text(narrative, style=self._style("muted")))
+            blocks.append(
+                render_skills_payload(
+                    output=payload,
+                    success=success,
+                    theme_variables=self.theme_variables,
+                )
+            )
         elif name == "subagent_metrics":
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             blocks.extend(
                 render_subagent_metrics_payload(
                     metadata=md,
                     output=output,
                     error=error,
                     success=success,
+                    theme_variables=self.theme_variables,
                 )
             )
         elif name in {
@@ -6925,7 +7044,7 @@ class ReupApp(App):
             "list_subagents",
             "cancel_subagent",
         }:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             blocks.extend(
                 render_subagent_runtime_payload(
                     metadata=md,
@@ -6933,15 +7052,17 @@ class ReupApp(App):
                     error=error,
                     success=success,
                     collapse_completed=(name == "wait_subagent"),
+                    theme_variables=self.theme_variables,
                 )
             )
         elif name.startswith("subagent_"):
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             subagent_blocks, was_truncated = render_subagent_payload(
                 output=output,
                 metadata=md,
                 success=success,
                 error=error,
+                theme_variables=self.theme_variables,
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(subagent_blocks)
@@ -6954,50 +7075,68 @@ class ReupApp(App):
                 mcp_tool_name=mcp_tool_name,
             )
             if identity:
-                blocks.append(Text(identity, style="#8c97ab"))
+                blocks.append(Text(identity, style=self._style("muted")))
             if success:
                 if payload.strip():
                     summary, mcp_blocks, was_truncated = summarize_mcp_success(
                         server_name=server_name,
                         tool_name=name,
                         payload_text=payload,
+                        theme_variables=self.theme_variables,
                     )
                     local_truncated = local_truncated or was_truncated
-                    blocks.append(Text(summary, style="#8c97ab"))
+                    blocks.append(Text(summary, style=self._style("muted")))
                     blocks.extend(mcp_blocks)
                 else:
-                    blocks.append(Text("Data loaded.", style="#8c97ab"))
+                    blocks.append(Text("Data loaded.", style=self._style("muted")))
             else:
                 summary = str(md.get("ui_summary") or "The MCP request failed.").strip()
                 detail = str(md.get("ui_detail") or "").strip()
-                summary_style = "#e7c58a" if recoverable else "#f1b4b4"
+                summary_style = self._style("warning") if recoverable else self._style("error")
                 blocks.append(Text(summary, style=summary_style))
                 if detail and detail != summary:
-                    blocks.append(Text(detail, style="#8c97ab"))
+                    blocks.append(Text(detail, style=self._style("muted")))
                 if self.config.debug:
                     output_display, was_truncated = truncate_for_tool(name, payload)
                     local_truncated = local_truncated or was_truncated
                     if output_display.strip():
                         blocks.append(
-                            render_text_payload(output_display, success=False)
+                            render_text_payload(
+                                output_display,
+                                success=False,
+                                syntax_theme=self._syntax_theme_name(),
+                                theme_variables=self.theme_variables,
+                            )
                         )
         else:
-            blocks.append(Text(narrative, style="#8c97ab"))
+            blocks.append(Text(narrative, style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if diff:
                 diff_display, diff_truncated = truncate_for_tool(name, diff)
                 local_truncated = local_truncated or diff_truncated
                 blocks.append(
-                    Syntax(diff_display, "diff", theme="monokai", word_wrap=True)
+                    Syntax(
+                        diff_display,
+                        "diff",
+                        theme=self._syntax_theme_name(),
+                        word_wrap=True,
+                    )
                 )
             elif output_display.strip():
-                blocks.append(render_text_payload(output_display, success=success))
+                blocks.append(
+                    render_text_payload(
+                        output_display,
+                        success=success,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self.theme_variables,
+                    )
+                )
             else:
-                blocks.append(Text("No output", style="#8c97ab"))
+                blocks.append(Text("No output", style=self._style("muted")))
 
         if local_truncated or truncated:
-            blocks.append(Text("... [truncated]", style="#f5b54f"))
+            blocks.append(Text("... [truncated]", style=self._style("warning")))
 
         header = Text()
         header.append(icon, style=title_style)
@@ -7015,7 +7154,7 @@ class ReupApp(App):
         if suffix:
             header.append(
                 "  " + suffix,
-                style="#8c97ab",
+                style=self._style("muted"),
             )
 
         card.update(Group(header, *blocks))

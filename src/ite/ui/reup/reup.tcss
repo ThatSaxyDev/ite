@@ -1,18 +1,18 @@
 Screen {
     layout: vertical;
-    background: #131315;
+    background: $background;
 }
 
 #shell {
     height: 1fr;
     layout: vertical;
-    background: #131315;
+    background: $background;
 }
 
 #topbar {
     height: 3;
     padding: 0 2 0 2;
-    background: #1c1b1d;
+    background: $surface;
     align-vertical: middle;
 }
 
@@ -36,7 +36,7 @@ Screen {
 
 #brand-kicker {
     width: 1fr;
-    color: #7d8591;
+    color: $foreground-muted;
     text-style: bold;
 }
 
@@ -49,7 +49,7 @@ Screen {
 #session-tabs-scroll {
     height: 3;
     width: 1fr;
-    background: #18181b;
+    background: $surface;
     overflow-x: auto;
     overflow-y: hidden;
 }
@@ -68,58 +68,58 @@ Screen {
     min-height: 3;
     margin-right: 1;
     padding: 0 2;
-    background: #232327;
-    color: #c6cbd4;
+    background: $panel;
+    color: $foreground;
     border: none;
     content-align: center middle;
 }
 
 .session-tab:hover,
 .session-tab:focus {
-    background: #2a2a2c;
-    color: #edf1f7;
+    background: $panel-lighten-1;
+    color: $foreground;
     border: none;
     text-style: none;
 }
 
 .session-tab-live {
-    background: #2f2419;
-    color: #ffcf92;
+    background: $warning-muted;
+    color: $text-warning;
     text-style: bold;
 }
 
 .session-tab-live:hover,
 .session-tab-live:focus {
-    background: #3a2b1c;
-    color: #ffe3b8;
+    background: $warning;
+    color: $background;
     border: none;
     text-style: bold;
 }
 
 .session-tab-live.-primary {
-    background: #1f3a2f;
-    color: #eefcf6;
+    background: $success-muted;
+    color: $text-success;
     text-style: bold;
 }
 
 .session-tab-live.-primary:hover,
 .session-tab-live.-primary:focus {
-    background: #254437;
-    color: #f5fffb;
+    background: $success;
+    color: $background;
     border: none;
     text-style: bold;
 }
 
 .session-tab.-primary {
-    background: #25313d;
-    color: #eef3f8;
+    background: $primary-muted;
+    color: $text-primary;
     text-style: bold;
 }
 
 .session-tab.-primary:hover,
 .session-tab.-primary:focus {
-    background: #2d3a46;
-    color: #f7f9fc;
+    background: $primary;
+    color: $background;
     border: none;
     text-style: bold;
 }
@@ -129,7 +129,7 @@ Screen {
     max-width: 60;
     margin-right: 2;
     text-style: bold;
-    color: #f2f5f8;
+    color: $foreground;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -137,7 +137,7 @@ Screen {
 #header-meta {
     width: 1fr;
     text-align: right;
-    color: #8f95a1;
+    color: $foreground-muted;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -149,7 +149,7 @@ Screen {
     min-height: 1;
     margin-left: 2;
     padding: 0;
-    color: #93f2e8;
+    color: $text-success;
     text-style: bold;
     background: transparent;
     border: none;
@@ -163,7 +163,7 @@ Screen {
     min-height: 1;
     margin-left: 2;
     padding: 0;
-    color: #b8d8ff;
+    color: $text-primary;
     text-style: bold;
     background: transparent;
     border: none;
@@ -172,13 +172,13 @@ Screen {
 
 #chat-panel {
     height: 1fr;
-    background: #131315;
+    background: $background;
 }
 
 #chat-body {
     height: 1fr;
     layout: horizontal;
-    background: #131315;
+    background: $background;
     padding: 0 2 0 2;
 }
 
@@ -186,14 +186,14 @@ Screen {
     width: 11fr;
     min-width: 72;
     height: 1fr;
-    background: #131315;
+    background: $background;
 }
 
 #change-review-panel {
     width: 9fr;
     min-width: 72;
     height: 1fr;
-    background: #1c1b1d;
+    background: $surface;
     padding: 1 2 0 2;
     display: none;
 }
@@ -206,7 +206,7 @@ Screen {
 
 #change-review-title {
     width: 1fr;
-    color: #b7c8e1;
+    color: $text-primary;
     text-style: bold;
 }
 
@@ -216,8 +216,8 @@ Screen {
     height: 3;
     min-height: 3;
     padding: 0 1;
-    background: #2a2a2c;
-    color: #c6c6cd;
+    background: $panel;
+    color: $foreground;
     border: none;
 }
 
@@ -264,7 +264,7 @@ Screen {
     min-width: 20;
     height: 1fr;
     padding: 0 0 1 0;
-    background: #18181b;
+    background: $surface;
 }
 
 #change-review-tree:focus {
@@ -293,7 +293,7 @@ Screen {
 }
 
 .change-review-path {
-    color: #edf1f7;
+    color: $foreground;
     text-style: bold;
     margin-bottom: 0;
     width: auto;
@@ -308,7 +308,7 @@ Screen {
 }
 
 .change-review-empty {
-    color: #8c93a1;
+    color: $foreground-muted;
     padding: 1 0;
 }
 
@@ -338,7 +338,7 @@ Screen {
     width: 100%;
     height: 100%;
     align: center middle;
-    background: #131315;
+    background: $background;
     padding: 0;
 }
 
@@ -361,7 +361,7 @@ Screen {
     width: auto;
     height: 1;
     margin-top: 2;
-    color: #8c93a1;
+    color: $foreground-muted;
     text-style: bold;
     text-align: center;
 }
@@ -387,30 +387,30 @@ Screen {
 }
 
 #cloud-sign-in {
-    background: #e9edf3;
-    color: #111317;
+    background: $primary;
+    color: $button-color-foreground;
 }
 
 #cloud-sign-in:hover,
 #cloud-sign-in:focus {
-    background: #f4f7fb;
-    color: #0f1114;
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
 }
 
 #cloud-sign-in:disabled {
-    background: #3a3d43;
-    color: #9aa2af;
+    background: $panel;
+    color: $foreground-disabled;
 }
 
 #cloud-exit {
-    background: #202226;
-    color: #d7deea;
+    background: $panel;
+    color: $foreground;
 }
 
 #cloud-exit:hover,
 #cloud-exit:focus {
-    background: #2a2d31;
-    color: #edf1f7;
+    background: $panel-lighten-1;
+    color: $foreground;
 }
 
 #composer {
@@ -425,8 +425,8 @@ Screen {
     width: 1fr;
     height: auto;
     layout: vertical;
-    border: round #303236;
-    background: #1f2226 82%;
+    border: round $border;
+    background: $surface;
     padding: 0 1 0 1;
     margin: 0 1 0 1;
 }
@@ -439,7 +439,7 @@ Screen {
     width: 44;
     min-width: 36;
     height: 1fr;
-    background: #191c1f;
+    background: $surface;
     padding: 1 2 0 2;
     display: none;
 }
@@ -451,7 +451,7 @@ Screen {
 }
 
 #aside-panel-title {
-    color: #4edea3;
+    color: $text-success;
     text-style: bold;
 }
 
@@ -480,28 +480,28 @@ Screen {
     margin-right: 0;
     margin-bottom: 1;
     padding: 0 1;
-    background: #232327 88%;
-    color: #edf1f7;
+    background: $panel;
+    color: $foreground;
     text-align: right;
     content-align: right middle;
 }
 
 .aside-assistant-body {
-    color: #dfe4ea;
+    color: $foreground;
     padding: 0;
     margin-bottom: 1;
     height: auto;
 }
 
 .aside-thinking {
-    color: #7fd4b0;
+    color: $foreground-muted;
     text-style: italic;
     padding: 0;
     margin-bottom: 1;
 }
 
 .aside-error {
-    color: #f1a4a4;
+    color: $text-error;
     padding: 0;
     margin-bottom: 1;
 }
@@ -516,7 +516,7 @@ Screen {
 }
 
 .block .card-title {
-    color: #8c93a1;
+    color: $foreground-muted;
     text-style: bold;
     margin-bottom: 1;
 }
@@ -536,8 +536,8 @@ Screen {
     margin-left: 8;
     margin-right: 2;
     padding: 1 1;
-    background: #202226 96%;
-    color: #edf1f7;
+    background: $panel;
+    color: $foreground;
     text-align: right;
     content-align: right middle;
 }
@@ -559,26 +559,26 @@ Screen {
 }
 
 .block.system {
-    border: round #303236;
-    background: #1d1f23 82%;
+    border: round $border;
+    background: $surface;
 }
 
 .block.system.error,
 .block.error {
-    border: round #5a4633;
-    background: #261f1a 88%;
+    border: round $warning;
+    background: $warning-muted;
 }
 
 .block.attachment {
-    border: round #303236;
-    background: #1d1f23 84%;
+    border: round $border;
+    background: $surface;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.attachment .card-title {
-    color: #b7c8e1;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -589,15 +589,15 @@ Screen {
 }
 
 .block.note {
-    border: round #303236;
-    background: #1d1f23 84%;
+    border: round $border;
+    background: $surface;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.note .card-title {
-    color: #c6c6cd;
+    color: $foreground-muted;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -608,15 +608,15 @@ Screen {
 }
 
 .block.recovery {
-    border: round #4d4234;
-    background: #201c19 90%;
+    border: round $warning;
+    background: $warning-muted;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.recovery .card-title {
-    color: #f2d2b8;
+    color: $text-warning;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -624,22 +624,22 @@ Screen {
 .block.recovery .card-body {
     margin-top: 1;
     padding: 0 1 0 1;
-    color: #e7ded6;
+    color: $foreground;
 }
 
 .block.command {
     border: none;
-    background: #151a21 94%;
+    background: $panel;
     padding: 1 2 1 2;
     margin: 0 2 2 0;
 }
 
 .block.command.command-error {
-    background: #251c1b 94%;
+    background: $warning-muted;
 }
 
 .block.command .card-title {
-    color: #8c93a1;
+    color: $foreground-muted;
     text-style: none;
     margin-bottom: 1;
 }
@@ -659,56 +659,56 @@ Screen {
     width: auto;
     margin-right: 2;
     padding: 0 1;
-    background: #24384a;
-    color: #d9ecff;
+    background: $primary-muted;
+    color: $text-primary;
     text-style: bold;
 }
 
 .block.command.command-error .command-kicker {
-    background: #4b2a25;
-    color: #ffe1d6;
+    background: $error-muted;
+    color: $text-error;
 }
 
 .command-name {
     width: 1fr;
-    color: #dfe8f3;
+    color: $text-primary;
     text-style: bold;
 }
 
 .command-body {
-    color: #d7deea;
+    color: $foreground;
 }
 
 .command-body Markdown {
-    color: #d7deea;
+    color: $foreground;
 }
 
 .command-body Markdown H1,
 .command-body Markdown H2,
 .command-body Markdown H3,
 .command-body Markdown Strong {
-    color: #edf1f7;
+    color: $foreground;
 }
 
 .command-body MarkdownFence {
-    background: #0e0e10;
-    border: round #32465a;
+    background: $surface-darken-1;
+    border: round $border;
 }
 
 .command-body MarkdownBlockQuote {
-    border-left: solid #3b5166;
-    background: #141920;
+    border-left: solid $border;
+    background: $surface-darken-1;
 }
 
 .block.skills {
     border: none;
-    background: #1b1d20 84%;
+    background: $surface;
     padding: 1 2;
     margin: 0 2 2 0;
 }
 
 .block.skills .card-title {
-    color: #edf1f7;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -719,15 +719,15 @@ Screen {
 }
 
 .block.change {
-    border: round #303236;
-    background: #1d1f23 84%;
+    border: round $border;
+    background: $surface;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.change .card-title {
-    color: #edf1f7;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -738,15 +738,15 @@ Screen {
 }
 
 .block.aside {
-    border: round #32443d;
-    background: #1b201e 84%;
+    border: round $border;
+    background: $panel;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.aside .card-title {
-    color: #4edea3;
+    color: $text-success;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -762,19 +762,19 @@ Screen {
 }
 
 .aside-meta {
-    color: #7cc9ad;
+    color: $text-success;
     text-style: bold;
     margin-bottom: 1;
 }
 
 .aside-question {
-    color: #e4faf1;
+    color: $foreground;
     text-style: italic;
     margin-bottom: 1;
 }
 
 .aside-answer {
-    color: #dfe4ea;
+    color: $foreground;
 }
 
 .activity-indicator {
@@ -1009,7 +1009,7 @@ Screen {
 
 .plan-question-status {
     margin-top: 1;
-    color: #c6c6cd;
+    color: $foreground-muted;
     text-style: bold;
 }
 
@@ -1048,20 +1048,20 @@ Screen {
 
 .block.tool.running {
     border: none;
-    background: #181a1d 94%;
+    background: $surface;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
 }
 
 .block.tool.mcp-card {
-    background: #181a1d 96%;
+    background: $surface;
     padding: 1 2;
 }
 
 .block.success {
     border: none;
-    background: #181a1d 94%;
+    background: $surface;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
@@ -1069,14 +1069,14 @@ Screen {
 
 .block.tool.error {
     border: none;
-    background: #211b18 94%;
+    background: $warning-muted;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
 }
 
 .block.shell-card {
-    background: #181a1d 96%;
+    background: $surface;
     padding: 1 2;
     margin-top: 0;
     margin-bottom: 2;
@@ -1086,7 +1086,7 @@ Screen {
 }
 
 .shell-card-header {
-    color: #b7c8e1;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 1;
 }
@@ -1099,7 +1099,7 @@ Screen {
 }
 
 .shell-card-body {
-    color: #dfe4ea;
+    color: $foreground;
 }
 
 .block.assistant {
@@ -1122,23 +1122,23 @@ Screen {
 .assistant-body MarkdownList,
 .assistant-body MarkdownTable,
 .assistant-body MarkdownBlockQuote {
-    color: #dfe4ea;
+    color: $foreground;
 }
 
 .assistant-body MarkdownH1 {
-    color: #f1ddaa;
+    color: $markdown-h1-color;
     background: transparent;
     text-style: bold;
 }
 
 .assistant-body MarkdownH2 {
-    color: #d8ab74;
+    color: $markdown-h2-color;
     background: transparent;
     text-style: bold;
 }
 
 .assistant-body MarkdownH3 {
-    color: #b7c8e1;
+    color: $markdown-h3-color;
     background: transparent;
     text-style: bold;
 }
@@ -1146,13 +1146,13 @@ Screen {
 .assistant-body MarkdownH4,
 .assistant-body MarkdownH5,
 .assistant-body MarkdownH6 {
-    color: #dfe4ea;
+    color: $foreground;
     background: transparent;
     text-style: bold;
 }
 
 .assistant-body MarkdownTableContent > .header {
-    color: #b7c8e1;
+    color: $text-primary;
 }
 
 .user-body MarkdownBlock:last-of-type,
@@ -1161,15 +1161,15 @@ Screen {
 }
 
 .assistant-body MarkdownFence {
-    background: #0e0e10;
-    border: round #303236;
+    background: $surface-darken-1;
+    border: round $border;
 }
 
 .modal {
     width: 72;
     height: auto;
-    border: round #303236;
-    background: #1c1b1d 96%;
+    border: round $border;
+    background: $surface;
     padding: 1 2;
 }
 
@@ -1187,7 +1187,7 @@ ActivityModal,
 AttachPickerModal,
 SetupModal {
     align: center middle;
-    background: #050607 62%;
+    background: $background-darken-1 62%;
 }
 
 ConfirmModal .confirm-modal {
@@ -1195,8 +1195,8 @@ ConfirmModal .confirm-modal {
     height: 12;
     min-height: 12;
     max-height: 16;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1204,7 +1204,7 @@ ConfirmModal .confirm-modal {
 ConfirmModal .confirm-body {
     height: 1fr;
     margin-bottom: 1;
-    color: #dfe4ea;
+    color: $foreground;
 }
 
 ConfirmModal .confirm-actions {
@@ -2136,8 +2136,8 @@ AttachPickerModal #attach-clear:hover {
 }
 
 Footer {
-    background: #18181b;
-    color: #8c93a1;
+    background: $surface;
+    color: $foreground-muted;
 }
 
 Markdown {
@@ -2146,18 +2146,18 @@ Markdown {
 }
 
 MarkdownFence {
-    background: #0e0e10;
-    border: round #303236;
+    background: $surface-darken-1;
+    border: round $border;
     padding: 0 1;
 }
 
 MarkdownTable {
-    border: solid #303236;
+    border: solid $border;
 }
 
 MarkdownBlockQuote {
-    border-left: solid #303236;
-    background: #1c1b1d;
+    border-left: solid $border;
+    background: $surface;
     padding: 0 1;
 }
 
@@ -2171,13 +2171,13 @@ CopyableCodeBlock {
     overflow: scroll hidden;
     scrollbar-size-horizontal: 0;
     scrollbar-size-vertical: 0;
-    color: #d4d4d4;
-    background: #0d0d0f;
-    border: round #2a2a2e;
+    color: $foreground;
+    background: $surface-darken-1;
+    border: round $border;
 }
 
 CopyableCodeBlock:focus {
-    border: round #3d3d42;
+    border: round $primary;
 }
 
 CopyableCodeBlock > .code-header {
@@ -2185,7 +2185,7 @@ CopyableCodeBlock > .code-header {
     height: 1;
     width: 1fr;
     align-horizontal: right;
-    background: #151518;
+    background: $surface;
     padding: 0 1;
 }
 
@@ -2198,7 +2198,7 @@ CopyableCodeBlock > .code-header > .copy-button {
     height: 1;
     padding: 0 1;
     background: transparent;
-    color: #5a5a66;
+    color: $foreground-muted;
     border: none;
     text-style: none;
     opacity: 0.6;
@@ -2207,18 +2207,18 @@ CopyableCodeBlock > .code-header > .copy-button {
 
 CopyableCodeBlock:hover > .code-header > .copy-button {
     opacity: 1;
-    color: #8b8b99;
+    color: $foreground;
 }
 
 CopyableCodeBlock > .code-header > .copy-button:hover {
-    background: #2a2a2e;
-    color: #b7c8e1;
+    background: $panel;
+    color: $text-primary;
     opacity: 1;
 }
 
 CopyableCodeBlock > .code-header > .copy-button:focus {
-    background: #35353a;
-    color: #c6d4e8;
+    background: $panel-lighten-1;
+    color: $text-primary;
     opacity: 1;
     text-style: none;
 }

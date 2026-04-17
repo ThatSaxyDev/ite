@@ -141,7 +141,48 @@ class ReupCommandPaletteTests(unittest.TestCase):
         renderables = list(rendered.renderables)
 
         self.assertEqual(len(renderables), 3)
-        self.assertEqual(renderables[1].style, "#5f6975")
+        self.assertEqual(renderables[1].style, app._render_styles()["muted"])
+
+    def test_update_tool_call_list_dir_renders_without_missing_style_locals(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            call_id = "call_list_dir_1"
+            card = Static()
+            app._tool_widgets[call_id] = card
+            app._tool_args_by_call_id[call_id] = {"path": str(self.cwd)}
+
+            with (
+                patch.object(app, "query_one", return_value=SimpleNamespace()),
+                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()) as pin_end,
+            ):
+                await app.update_tool_call(
+                    call_id=call_id,
+                    name="list_dir",
+                    tool_kind="read",
+                    success=True,
+                    output="🗂️ src/\n📄 README.md",
+                    error=None,
+                    metadata={
+                        "path": str(self.cwd),
+                        "entries": 2,
+                        "tool_name": "list_dir",
+                        "tool_metadata": {
+                            "mutating": False,
+                            "risk_level": "low",
+                            "allowed_in_plan_mode": True,
+                            "supports_subagent_use": True,
+                            "output_schema": {"type": "string"},
+                        },
+                    },
+                    diff=None,
+                    truncated=False,
+                    exit_code=None,
+                )
+
+            pin_end.assert_awaited_once()
+            self.assertIn("success", card.classes)
+
+        asyncio.run(run_test())
 
     def test_composer_meta_text_includes_context_meter(self) -> None:
         app = self._app()

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import platform
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -15,6 +18,66 @@ from rich.text import Text
 
 from ite.skills import build_skills_tool_renderable
 from ite.ui.tool_narrative import describe_tool_activity
+
+
+def detect_host_textual_theme() -> str:
+    """Best-effort detection for the host light / dark appearance."""
+    if platform.system() == "Darwin":
+        try:
+            result = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True,
+                text=True,
+                timeout=0.5,
+                check=False,
+            )
+        except Exception:
+            result = None
+        if result is not None:
+            if result.returncode == 0 and "dark" in result.stdout.lower():
+                return "textual-dark"
+            if result.returncode != 0:
+                return "textual-light"
+
+    colorfgbg = os.environ.get("COLORFGBG", "").strip()
+    if colorfgbg:
+        try:
+            background = int(colorfgbg.split(";")[-1])
+        except ValueError:
+            return "textual-dark"
+        return "textual-dark" if background in {0, 1, 2, 3, 4, 5, 6, 8} else "textual-light"
+
+    return "textual-dark"
+
+
+def normalize_syntax_theme(theme: str | None) -> str:
+    """Use Textual's theme names for Rich syntax output."""
+    value = str(theme or "").strip()
+    return value or "textual-dark"
+
+
+def normalize_style_color(value: str | None, fallback: str) -> str:
+    """Return a Rich-compatible color token."""
+    resolved = str(value or fallback).strip() or fallback
+    if re.fullmatch(r"#[0-9a-fA-F]{8}", resolved):
+        return resolved[:7]
+    return resolved
+
+
+def render_palette(theme_variables: dict[str, str] | None = None) -> dict[str, str]:
+    theme = theme_variables or {}
+    return {
+        "fg": normalize_style_color(theme.get("foreground"), "#e0e0e0"),
+        "muted": normalize_style_color(theme.get("foreground-muted"), "#9aa3ad"),
+        "disabled": normalize_style_color(theme.get("foreground-disabled"), "#727b86"),
+        "primary": normalize_style_color(theme.get("text-primary"), "#57A5E2"),
+        "secondary": normalize_style_color(theme.get("text-secondary"), "#5684A5"),
+        "accent": normalize_style_color(theme.get("text-accent"), "#FFC473"),
+        "warning": normalize_style_color(theme.get("text-warning"), "#FFC473"),
+        "error": normalize_style_color(theme.get("text-error"), "#D17E92"),
+        "success": normalize_style_color(theme.get("text-success"), "#8AD4A1"),
+        "border": normalize_style_color(theme.get("border"), "#0178D4"),
+    }
 
 
 def split_mcp_tool_identity(
@@ -472,18 +535,20 @@ def summarize_mcp_success(
     server_name: str,
     tool_name: str,
     payload_text: str,
+    theme_variables: dict[str, str] | None = None,
 ) -> tuple[str, list[Any], bool]:
     parsed = parse_nested_json_payload(payload_text)
     label = humanize_mcp_name(server_name) or "MCP"
     blocks: list[Any] = []
     was_truncated = False
+    palette = render_palette(theme_variables)
 
     if isinstance(parsed, list):
         count = len(parsed)
         summary = f"Loaded {count} result{'s' if count != 1 else ''} from {label}."
         table = Table.grid(expand=True)
-        table.add_column(style="#dfe4ea", ratio=2)
-        table.add_column(style="#8c97ab", ratio=3)
+        table.add_column(style=palette["fg"], ratio=2)
+        table.add_column(style=palette["muted"], ratio=3)
         shown = 0
         for item in parsed:
             if not isinstance(item, dict):
@@ -524,8 +589,8 @@ def summarize_mcp_success(
         if primary:
             summary = f"Loaded {primary} from {label}."
         table = Table.grid(padding=(0, 1))
-        table.add_column(style="#8c93a1", no_wrap=True)
-        table.add_column(style="#dfe4ea", overflow="fold")
+        table.add_column(style=palette["muted"], no_wrap=True)
+        table.add_column(style=palette["fg"], overflow="fold")
         seen_keys: set[str] = set()
         preferred_keys = [
             "id",
@@ -566,9 +631,21 @@ def summarize_mcp_success(
             for title, body in sections:
                 blocks.append(Text(title, style="bold #b7c8e1"))
                 if body.strip():
-                    blocks.append(render_text_payload(body, success=True))
+                    blocks.append(
+                        render_text_payload(
+                            body,
+                            success=True,
+                            theme_variables=theme_variables,
+                        )
+                    )
         else:
-            blocks.append(render_text_payload(output_display, success=True))
+            blocks.append(
+                render_text_payload(
+                    output_display,
+                    success=True,
+                    theme_variables=theme_variables,
+                )
+            )
     return f"{label} data loaded.", blocks, was_truncated
 
 
@@ -626,15 +703,24 @@ def render_mcp_start_payload(
     tool_name: str,
     arguments: dict[str, Any],
     cwd: Path,
+    theme_variables: dict[str, str] | None = None,
 ) -> list[Any]:
     identity = format_mcp_identity(tool_name)
     blocks: list[Any] = []
+    palette = render_palette(theme_variables)
     if identity:
-        blocks.append(Text(identity, style="#dfe4ea"))
+        blocks.append(Text(identity, style=palette["fg"]))
     if arguments:
-        blocks.append(render_args_table(tool_name, arguments, cwd=cwd))
+        blocks.append(
+            render_args_table(
+                tool_name,
+                arguments,
+                cwd=cwd,
+                theme_variables=theme_variables,
+            )
+        )
     else:
-        blocks.append(Text("Waiting for MCP response.", style="#8c97ab"))
+        blocks.append(Text("Waiting for MCP response.", style=palette["muted"]))
     return blocks
 
 
@@ -642,6 +728,7 @@ def render_todo_payload(
     *,
     output: str,
     metadata: dict[str, Any] | None,
+    theme_variables: dict[str, str] | None = None,
 ) -> tuple[list[Any], bool]:
     md = metadata if isinstance(metadata, dict) else {}
     completed = md.get("completed", 0)
@@ -652,6 +739,7 @@ def render_todo_payload(
     output_display, was_truncated = truncate_for_tool("todos", output)
 
     blocks: list[Any] = []
+    palette = render_palette(theme_variables)
 
     if total > 0:
         bar_width = 10
@@ -660,38 +748,45 @@ def render_todo_payload(
         header = Text()
         header.append(
             f"{str(scope).capitalize()} tasks: {completed}/{total} completed ",
-            style="#8c97ab",
+            style=palette["muted"],
         )
-        header.append(bar, style="green" if completed == total else "yellow")
+        header.append(bar, style=palette["success"] if completed == total else palette["warning"])
         blocks.append(header)
     elif isinstance(scope, str):
-        blocks.append(Text(f"Scope: {scope}", style="#8c97ab"))
+        blocks.append(Text(f"Scope: {scope}", style=palette["muted"]))
 
     for line in output_display.splitlines():
         stripped = line.strip()
         if stripped.startswith("☑"):
             styled = Text()
-            styled.append("  ☑ ", style="bold green")
-            styled.append(stripped[1:].strip(), style="dim strike")
+            styled.append("  ☑ ", style=f"bold {palette['success']}")
+            styled.append(stripped[1:].strip(), style=f"{palette['muted']} strike")
             blocks.append(styled)
         elif stripped.startswith("☐"):
             styled = Text()
-            styled.append("  ☐ ", style="bold yellow")
-            styled.append(stripped[1:].strip(), style="white")
+            styled.append("  ☐ ", style=f"bold {palette['warning']}")
+            styled.append(stripped[1:].strip(), style=palette["fg"])
             blocks.append(styled)
 
     if action == "clear":
-        blocks.append(Text("  All todos cleared", style="#8c97ab"))
+        blocks.append(Text("  All todos cleared", style=palette["muted"]))
     elif message:
-        blocks.append(Text(f"  {message}", style="#8c97ab"))
+        blocks.append(Text(f"  {message}", style=palette["muted"]))
 
     return blocks, was_truncated
 
 
-def render_args_table(tool_name: str, args: dict[str, Any], *, cwd: Path) -> Table:
+def render_args_table(
+    tool_name: str,
+    args: dict[str, Any],
+    *,
+    cwd: Path,
+    theme_variables: dict[str, str] | None = None,
+) -> Table:
+    palette = render_palette(theme_variables)
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#8c93a1", justify="right", no_wrap=True)
-    table.add_column(style="#dfe4ea", overflow="fold")
+    table.add_column(style=palette["muted"], justify="right", no_wrap=True)
+    table.add_column(style=palette["fg"], overflow="fold")
 
     for key, value in ordered_args(tool_name, args):
         if key in {"raw", "raw_arguments"}:
@@ -709,7 +804,12 @@ def render_args_table(tool_name: str, args: dict[str, Any], *, cwd: Path) -> Tab
     return table
 
 
-def render_list_dir_output(output: str) -> Text:
+def render_list_dir_output(
+    output: str,
+    *,
+    theme_variables: dict[str, str] | None = None,
+) -> Text:
+    palette = render_palette(theme_variables)
     def strip_existing_icon(text: str) -> str:
         cleaned = text.lstrip()
         while cleaned and cleaned[0] in {
@@ -734,16 +834,23 @@ def render_list_dir_output(output: str) -> Text:
             result.append("\n")
             continue
         if line.endswith("/"):
-            result.append("📁 ", style="#b7c8e1")
-            result.append(line, style="#edf1f7")
+            result.append("📁 ", style=palette["primary"])
+            result.append(line, style=palette["fg"])
         else:
-            result.append("📄 ", style="#8c93a1")
-            result.append(line, style="#dfe4ea")
+            result.append("📄 ", style=palette["muted"])
+            result.append(line, style=palette["fg"])
         result.append("\n")
     return result
 
 
-def render_grep_output(output: str, *, cwd: Path) -> Any:
+def render_grep_output(
+    output: str,
+    *,
+    cwd: Path,
+    syntax_theme: str = "textual-dark",
+    theme_variables: dict[str, str] | None = None,
+) -> Any:
+    palette = render_palette(theme_variables)
     groups: list[tuple[str, list[str]]] = []
     current_file: str | None = None
     current_lines: list[str] = []
@@ -762,36 +869,46 @@ def render_grep_output(output: str, *, cwd: Path) -> Any:
         groups.append((current_file, current_lines))
 
     if not groups:
-        return Syntax(output, "text", theme="monokai", word_wrap=True)
+        return Syntax(
+            output,
+            "text",
+            theme=normalize_syntax_theme(syntax_theme),
+            word_wrap=True,
+        )
 
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#8c93a1", justify="right", no_wrap=True)
-    table.add_column(style="#dfe4ea")
+    table.add_column(style=palette["muted"], justify="right", no_wrap=True)
+    table.add_column(style=palette["fg"])
 
     for file_path, lines in groups:
-        table.add_row("", Text(display_path(file_path, cwd=cwd), style="bold #b7c8e1"))
+        table.add_row("", Text(display_path(file_path, cwd=cwd), style=f"bold {palette['primary']}"))
         for line in lines:
             match = re.match(r"^\s*(\d+):(.*)$", line)
             if match:
-                table.add_row(match.group(1), Text(match.group(2).lstrip(), style="#dfe4ea"))
+                table.add_row(match.group(1), Text(match.group(2).lstrip(), style=palette["fg"]))
             else:
-                table.add_row("", Text(line, style="#dfe4ea"))
+                table.add_row("", Text(line, style=palette["fg"]))
         table.add_row("", Text(""))
 
     return table
 
 
-def render_git_log_output(metadata: dict[str, Any] | None) -> Any:
+def render_git_log_output(
+    metadata: dict[str, Any] | None,
+    *,
+    theme_variables: dict[str, str] | None = None,
+) -> Any:
+    palette = render_palette(theme_variables)
     md = metadata if isinstance(metadata, dict) else {}
     commits = md.get("commits")
     if not isinstance(commits, list) or not commits:
-        return Text("No commits found.", style="#8c93a1")
+        return Text("No commits found.", style=palette["muted"])
 
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#b7c8e1", no_wrap=True)
-    table.add_column(style="#8c93a1", no_wrap=True)
-    table.add_column(style="#c6c6cd")
-    table.add_column(style="#edf1f7")
+    table.add_column(style=palette["primary"], no_wrap=True)
+    table.add_column(style=palette["muted"], no_wrap=True)
+    table.add_column(style=palette["secondary"])
+    table.add_column(style=palette["fg"])
 
     for commit in commits:
         if not isinstance(commit, dict):
@@ -805,9 +922,17 @@ def render_git_log_output(metadata: dict[str, Any] | None) -> Any:
     return table
 
 
-def render_text_payload(text: str, *, success: bool, language: str = "text") -> Any:
+def render_text_payload(
+    text: str,
+    *,
+    success: bool,
+    language: str = "text",
+    syntax_theme: str = "textual-dark",
+    theme_variables: dict[str, str] | None = None,
+) -> Any:
+    palette = render_palette(theme_variables)
     if not text.strip():
-        return Text("No output", style="#8c93a1")
+        return Text("No output", style=palette["muted"])
     if "\x1b" in text:
         return Text.from_ansi(text)
     if success and looks_like_markdown(text):
@@ -821,36 +946,42 @@ def render_text_payload(text: str, *, success: bool, language: str = "text") -> 
             return Syntax(
                 json.dumps(payload, indent=2, ensure_ascii=False),
                 "json",
-                theme="monokai",
+                theme=normalize_syntax_theme(syntax_theme),
                 word_wrap=True,
             )
     if language != "text":
-        return Syntax(text, language, theme="monokai", word_wrap=True)
-    return Text(text, style="#dfe4ea")
+        return Syntax(
+            text,
+            language,
+            theme=normalize_syntax_theme(syntax_theme),
+            word_wrap=True,
+        )
+    return Text(text, style=palette["fg"])
 
 
 def render_skills_payload(
     *,
     output: str,
     success: bool,
+    theme_variables: dict[str, str] | None = None,
 ) -> Any:
     if not output.strip():
-        return Text("No output", style="#8c93a1")
+        return Text("No output", style=render_palette(theme_variables)["muted"])
     if not success:
         clipped, _ = truncate_for_tool("skills", output)
-        return render_text_payload(clipped, success=False)
+        return render_text_payload(clipped, success=False, theme_variables=theme_variables)
     try:
         payload = json.loads(output)
     except Exception:
         clipped, _ = truncate_for_tool("skills", output)
-        return render_text_payload(clipped, success=True)
+        return render_text_payload(clipped, success=True, theme_variables=theme_variables)
     if not isinstance(payload, dict):
         clipped, _ = truncate_for_tool("skills", output)
-        return render_text_payload(clipped, success=True)
+        return render_text_payload(clipped, success=True, theme_variables=theme_variables)
     rendered = build_skills_tool_renderable(payload)
     if rendered is None:
         clipped, _ = truncate_for_tool("skills", output)
-        return render_text_payload(clipped, success=True)
+        return render_text_payload(clipped, success=True, theme_variables=theme_variables)
     return rendered
 
 
@@ -860,6 +991,7 @@ def render_subagent_payload(
     metadata: dict[str, Any] | None,
     success: bool,
     error: str | None,
+    theme_variables: dict[str, str] | None = None,
 ) -> tuple[list[Any], bool]:
     md = metadata if isinstance(metadata, dict) else {}
     result = md.get("subagent_result")
@@ -883,6 +1015,7 @@ def render_subagent_payload(
 
     blocks: list[Any] = []
     was_truncated = False
+    palette = render_palette(theme_variables)
 
     trace_parts: list[str] = []
     if isinstance(trace, dict):
@@ -906,7 +1039,7 @@ def render_subagent_payload(
     if isinstance(tools_used, list):
         trace_parts.append(f"tools={len(tools_used)}")
     if trace_parts:
-        blocks.append(Text(" • ".join(trace_parts), style="#8c97ab"))
+        blocks.append(Text(" • ".join(trace_parts), style=palette["muted"]))
 
     recovered_after_retry = False
     if isinstance(payload.get("recovered_after_retry"), bool):
@@ -914,32 +1047,32 @@ def render_subagent_payload(
     elif isinstance(trace, dict):
         recovered_after_retry = trace.get("recovered_after_retry") is True
     if recovered_after_retry:
-        blocks.append(Text("Recovered after retry.", style="#7cc7ff"))
+        blocks.append(Text("Recovered after retry.", style=palette["primary"]))
 
     if summary:
         summary_display, truncated = truncate_for_tool("subagent", summary)
         was_truncated = was_truncated or truncated
-        blocks.append(render_text_payload(summary_display, success=True))
+        blocks.append(render_text_payload(summary_display, success=True, theme_variables=theme_variables))
 
     if findings:
-        blocks.append(Text("Findings", style="bold #7cc7ff"))
+        blocks.append(Text("Findings", style=f"bold {palette['primary']}"))
         for item in findings[:4]:
             text = str(item).strip()
             if not text:
                 continue
-            blocks.append(Text(f"• {text}", style="#dfe4ea"))
+            blocks.append(Text(f"• {text}", style=palette["fg"]))
         if len(findings) > 4:
-            blocks.append(Text(f"... {len(findings) - 4} more findings", style="#8c97ab"))
+            blocks.append(Text(f"... {len(findings) - 4} more findings", style=palette["muted"]))
 
     if actions:
-        blocks.append(Text("Actions", style="bold #f5b54f"))
+        blocks.append(Text("Actions", style=f"bold {palette['warning']}"))
         for item in actions[:4]:
             text = str(item).strip()
             if not text:
                 continue
-            blocks.append(Text(f"• {text}", style="#dfe4ea"))
+            blocks.append(Text(f"• {text}", style=palette["fg"]))
         if len(actions) > 4:
-            blocks.append(Text(f"... {len(actions) - 4} more actions", style="#8c97ab"))
+            blocks.append(Text(f"... {len(actions) - 4} more actions", style=palette["muted"]))
 
     failure_text = ""
     if not success:
@@ -949,17 +1082,17 @@ def render_subagent_payload(
         if failure_text and failure_text != summary:
             failure_display, truncated = truncate_for_tool("subagent", failure_text)
             was_truncated = was_truncated or truncated
-            blocks.append(Text("Failure", style="bold #d8ab74"))
-            blocks.append(render_text_payload(failure_display, success=False))
+            blocks.append(Text("Failure", style=f"bold {palette['warning']}"))
+            blocks.append(render_text_payload(failure_display, success=False, theme_variables=theme_variables))
 
     if not blocks:
         fallback = output.strip() or str(error or "").strip()
         if fallback:
             fallback_display, truncated = truncate_for_tool("subagent", fallback)
             was_truncated = was_truncated or truncated
-            blocks.append(render_text_payload(fallback_display, success=success))
+            blocks.append(render_text_payload(fallback_display, success=success, theme_variables=theme_variables))
         else:
-            blocks.append(Text("No output", style="#8c97ab"))
+            blocks.append(Text("No output", style=palette["muted"]))
 
     return blocks, was_truncated
 
@@ -971,6 +1104,7 @@ def render_subagent_runtime_payload(
     error: str | None = None,
     success: bool = True,
     collapse_completed: bool = False,
+    theme_variables: dict[str, str] | None = None,
 ) -> list[Any]:
     def age_label(value: Any) -> str:
         if not isinstance(value, str) or not value.strip():
@@ -993,16 +1127,17 @@ def render_subagent_runtime_payload(
 
     md = metadata if isinstance(metadata, dict) else {}
     blocks: list[Any] = []
+    palette = render_palette(theme_variables)
 
     requested_subagent = str(md.get("requested_subagent") or "").strip()
     selected_subagent = str(md.get("selected_subagent") or "").strip()
     if md.get("reused_existing") is True:
-        blocks.append(Text("Reused matching active specialist run.", style="#8c97ab"))
+        blocks.append(Text("Reused matching active specialist run.", style=palette["muted"]))
     if requested_subagent and selected_subagent:
         blocks.append(
             Text(
                 f"Used `{selected_subagent}` for requested specialist `{requested_subagent}`.",
-                style="#8c97ab",
+                style=palette["muted"],
             )
         )
 
@@ -1011,7 +1146,7 @@ def render_subagent_runtime_payload(
         blocks.append(
             Text(
                 "Available specialists: " + ", ".join(str(item) for item in available_subagents if str(item).strip()),
-                style="#8c97ab",
+                style=palette["muted"],
             )
         )
     if md.get("circuit_open") is True:
@@ -1022,7 +1157,7 @@ def render_subagent_runtime_payload(
             parts.append(f"{failure_count} recent failures/timeouts.")
         if reopen_at:
             parts.append(f"Retry after {reopen_at}.")
-        blocks.append(Text(" ".join(parts), style="#d8ab74"))
+        blocks.append(Text(" ".join(parts), style=palette["warning"]))
 
     runs = md.get("runs")
     if not isinstance(runs, list) or not runs:
@@ -1032,16 +1167,16 @@ def render_subagent_runtime_payload(
     if not runs:
         failure_text = str(error or output or "").strip()
         if failure_text and not success:
-            blocks.append(Text("Failure", style="bold #d8ab74"))
-            blocks.append(render_text_payload(failure_text, success=False))
+            blocks.append(Text("Failure", style=f"bold {palette['warning']}"))
+            blocks.append(render_text_payload(failure_text, success=False, theme_variables=theme_variables))
         else:
-            blocks.append(Text("No specialist runs.", style="#8c97ab"))
+            blocks.append(Text("No specialist runs.", style=palette["muted"]))
         return blocks
 
     table = Table.grid(padding=(0, 1))
-    table.add_column(style="#b7c8e1", no_wrap=True)
-    table.add_column(style="#8c97ab", no_wrap=True)
-    table.add_column(style="#dfe4ea")
+    table.add_column(style=palette["primary"], no_wrap=True)
+    table.add_column(style=palette["muted"], no_wrap=True)
+    table.add_column(style=palette["fg"])
 
     for run in runs[:12]:
         if not isinstance(run, dict):
@@ -1063,10 +1198,10 @@ def render_subagent_runtime_payload(
                 detail = f"{freshness}  •  {detail}" if detail else freshness
         if len(detail) > 120:
             detail = detail[:117].rstrip() + "..."
-        run_label = Text(run_id, style="#b7c8e1")
+        run_label = Text(run_id, style=palette["primary"])
         if goal_label:
-            run_label.append(" · ", style="#667084")
-            run_label.append(goal_label, style="#8c97ab")
+            run_label.append(" · ", style=palette["disabled"])
+            run_label.append(goal_label, style=palette["muted"])
         table.add_row(run_label, status or "unknown", detail or " ")
 
     blocks.append(table)
@@ -1074,7 +1209,7 @@ def render_subagent_runtime_payload(
     first_run = runs[0] if runs and isinstance(runs[0], dict) else None
     history = first_run.get("activity_history") if isinstance(first_run, dict) else None
     if not collapse_completed and isinstance(history, list) and history:
-        blocks.append(Text("Recent activity", style="bold #d8ab74"))
+        blocks.append(Text("Recent activity", style=f"bold {palette['warning']}"))
         for entry in history[-3:]:
             if not isinstance(entry, dict):
                 continue
@@ -1082,7 +1217,7 @@ def render_subagent_runtime_payload(
             freshness = age_label(entry.get("at"))
             line = "  •  ".join(part for part in [freshness, message] if part)
             if line:
-                blocks.append(Text(f"• {line}", style="#8c97ab"))
+                blocks.append(Text(f"• {line}", style=palette["muted"]))
 
     completed = md.get("completed_run_ids")
     pending = md.get("pending_run_ids")
@@ -1095,7 +1230,7 @@ def render_subagent_runtime_payload(
     if isinstance(cancelled, list):
         notes.append(f"cancelled={len(cancelled)}")
     if notes:
-        blocks.append(Text(" • ".join(notes), style="#8c97ab"))
+        blocks.append(Text(" • ".join(notes), style=palette["muted"]))
     return blocks
 
 
@@ -1105,29 +1240,31 @@ def render_subagent_metrics_payload(
     output: str = "",
     error: str | None = None,
     success: bool = True,
+    theme_variables: dict[str, str] | None = None,
 ) -> list[Any]:
     md = metadata if isinstance(metadata, dict) else {}
     blocks: list[Any] = []
+    palette = render_palette(theme_variables)
 
     if not success:
         failure_text = str(error or output or "").strip()
         if failure_text:
-            blocks.append(Text("Failure", style="bold #d8ab74"))
-            blocks.append(render_text_payload(failure_text, success=False))
+            blocks.append(Text("Failure", style=f"bold {palette['warning']}"))
+            blocks.append(render_text_payload(failure_text, success=False, theme_variables=theme_variables))
         else:
-            blocks.append(Text("No metrics available.", style="#8c97ab"))
+            blocks.append(Text("No metrics available.", style=palette["muted"]))
         return blocks
 
     totals = md.get("totals")
     if not isinstance(totals, dict):
-        blocks.append(Text("No metrics available.", style="#8c97ab"))
+        blocks.append(Text("No metrics available.", style=palette["muted"]))
         return blocks
 
     restored = bool(md.get("restored_from_snapshot"))
 
     historical = Table.grid(padding=(0, 1))
-    historical.add_column(style="#d8ab74", no_wrap=True)
-    historical.add_column(style="#edf1f7")
+    historical.add_column(style=palette["warning"], no_wrap=True)
+    historical.add_column(style=palette["fg"])
     historical.add_row("Historical session totals", "restored from saved session" if restored else "live session history")
     historical.add_row("Spawned runs", str(int(totals.get("spawned_runs") or 0)))
     historical.add_row("Completed", str(int(totals.get("completed") or 0)))
@@ -1139,8 +1276,8 @@ def render_subagent_metrics_payload(
     blocks.append(historical)
 
     live = Table.grid(padding=(0, 1))
-    live.add_column(style="#b7c8e1", no_wrap=True)
-    live.add_column(style="#edf1f7")
+    live.add_column(style=palette["primary"], no_wrap=True)
+    live.add_column(style=palette["fg"])
     live.add_row("Live runtime state", "current process")
     live.add_row("Active runs", str(int(totals.get("active_runs") or 0)))
     live.add_row("Retained runs", str(int(totals.get("retained_runs") or 0)))
@@ -1150,9 +1287,9 @@ def render_subagent_metrics_payload(
 
     open_circuits = md.get("open_circuits")
     if isinstance(open_circuits, dict) and open_circuits:
-        blocks.append(Text("Open circuits", style="bold #d8ab74"))
+        blocks.append(Text("Open circuits", style=f"bold {palette['warning']}"))
         for subagent, reopen_at in open_circuits.items():
-            blocks.append(Text(f"{subagent}: retry after {reopen_at}", style="#8c97ab"))
+            blocks.append(Text(f"{subagent}: retry after {reopen_at}", style=palette["muted"]))
 
     return blocks
 
@@ -1268,13 +1405,19 @@ def collapse_terminal_rewrites(text: str) -> str:
     return "\n".join(compacted_lines).strip()
 
 
-def render_terminal_payload(text: str, *, tone: str = "stdout") -> Any:
+def render_terminal_payload(
+    text: str,
+    *,
+    tone: str = "stdout",
+    theme_variables: dict[str, str] | None = None,
+) -> Any:
+    palette = render_palette(theme_variables)
     collapsed = collapse_terminal_rewrites(text)
     if not collapsed:
-        return Text("No output", style="#8c97ab")
+        return Text("No output", style=palette["muted"])
     if "\x1b" in collapsed:
         return Text.from_ansi(collapsed)
-    style = "#dfe4ea" if tone == "stdout" else "#f0c48d"
+    style = palette["fg"] if tone == "stdout" else palette["warning"]
     return Text(collapsed, style=style)
 
 
@@ -1284,20 +1427,22 @@ def render_terminal_snapshot_payload(
     tone: str = "stdout",
     max_lines: int | None = None,
     max_chars: int = 16000,
+    theme_variables: dict[str, str] | None = None,
 ) -> Any:
+    palette = render_palette(theme_variables)
     if not text:
-        return Text("No output", style="#8c97ab")
+        return Text("No output", style=palette["muted"])
     window = text[-max_chars:] if len(text) > max_chars else text
     collapsed = collapse_terminal_rewrites(window)
     if not collapsed:
-        return Text("No output", style="#8c97ab")
+        return Text("No output", style=palette["muted"])
     if max_lines is not None:
         lines = collapsed.splitlines()
         if len(lines) > max_lines:
             collapsed = "\n".join(lines[-max_lines:])
     if "\x1b" in collapsed:
         return Text.from_ansi(collapsed)
-    style = "#dfe4ea" if tone == "stdout" else "#f0c48d"
+    style = palette["fg"] if tone == "stdout" else palette["warning"]
     return Text(collapsed, style=style)
 
 
@@ -1318,14 +1463,14 @@ def shell_session_state(metadata: dict[str, Any] | None) -> str:
 def shell_session_status_label(metadata: dict[str, Any] | None, *, running_suffix: str = "") -> tuple[str, str]:
     state = shell_session_state(metadata)
     if state == "command_running":
-        return "command running" + running_suffix, "#b7c8e1"
+        return "command running" + running_suffix, "primary"
     if state == "idle":
-        return "idle", "#8c97ab"
+        return "idle", "muted"
     if state == "stopped":
-        return "stopped", "#8c97ab"
+        return "stopped", "muted"
     if state == "exited":
-        return "exited", "#8c97ab"
-    return state.replace("_", " "), "#8c97ab"
+        return "exited", "muted"
+    return state.replace("_", " "), "muted"
 
 
 def shell_spinner_frame(index: int) -> str:
@@ -1333,18 +1478,25 @@ def shell_spinner_frame(index: int) -> str:
     return frames[index % len(frames)]
 
 
-def render_shell_command_line(command: str, *, cwd: Path, shell_cwd: str | None = None) -> Table:
+def render_shell_command_line(
+    command: str,
+    *,
+    cwd: Path,
+    shell_cwd: str | None = None,
+    theme_variables: dict[str, str] | None = None,
+) -> Table:
+    palette = render_palette(theme_variables)
     table = Table.grid(expand=True)
     table.add_column(width=2)
     table.add_column(ratio=1)
     table.add_row(
-        Text("$", style="bold #7cc7ff"),
-        Text(command.strip() or "(no command)", style="#dbe4f2"),
+        Text("$", style=f"bold {palette['primary']}"),
+        Text(command.strip() or "(no command)", style=palette["fg"]),
     )
     if isinstance(shell_cwd, str) and shell_cwd.strip():
         table.add_row(
             Text(""),
-            Text(f"in {display_path(shell_cwd.strip(), cwd=cwd)}", style="#8c93a1"),
+            Text(f"in {display_path(shell_cwd.strip(), cwd=cwd)}", style=palette["muted"]),
         )
     return table
 
@@ -1354,17 +1506,19 @@ def render_shell_running_card(
     *,
     cwd: Path,
     spinner_index: int,
+    theme_variables: dict[str, str] | None = None,
 ) -> Group:
+    palette = render_palette(theme_variables)
     command = str(arguments.get("command", "")).strip()
     shell_cwd = arguments.get("cwd") if isinstance(arguments.get("cwd"), str) else None
     header = Text()
-    header.append(f"{shell_spinner_frame(spinner_index)} ", style="bold #b7c8e1")
-    header.append("Running in shell", style="bold #edf1f7")
-    header.append("  live", style="#8c93a1")
+    header.append(f"{shell_spinner_frame(spinner_index)} ", style=f"bold {palette['primary']}")
+    header.append("Running in shell", style=f"bold {palette['fg']}")
+    header.append("  live", style=palette["muted"])
     return Group(
         header,
-        Text(describe_tool_activity("shell", arguments, stage="start"), style="#8c93a1"),
-        render_shell_command_line(command, cwd=cwd, shell_cwd=shell_cwd),
+        Text(describe_tool_activity("shell", arguments, stage="start"), style=palette["muted"]),
+        render_shell_command_line(command, cwd=cwd, shell_cwd=shell_cwd, theme_variables=theme_variables),
     )
 
 
@@ -1374,7 +1528,9 @@ def render_shell_result_payload(
     metadata: dict[str, Any] | None,
     exit_code: int | None,
     running_suffix: str = "",
+    theme_variables: dict[str, str] | None = None,
 ) -> list[Any]:
+    palette = render_palette(theme_variables)
     md = metadata if isinstance(metadata, dict) else {}
     session_id = str(md.get("session_id") or "").strip()
     has_new_output = bool(md.get("has_new_output"))
@@ -1384,43 +1540,43 @@ def render_shell_result_payload(
 
     summary = Text()
     if session_id:
-        summary.append(session_id, style="#8c97ab")
+        summary.append(session_id, style=palette["muted"])
     if isinstance(running, bool) or md.get("status"):
         if summary.plain:
-            summary.append("  •  ", style="#667084")
+            summary.append("  •  ", style=palette["disabled"])
         status_label, status_style = shell_session_status_label(
             md,
             running_suffix=running_suffix,
         )
-        summary.append(status_label, style=status_style)
+        summary.append(status_label, style=palette.get(status_style, palette["muted"]))
     if exit_code is not None:
         if summary.plain:
-            summary.append("  •  ", style="#667084")
-        summary.append(f"exit {exit_code}", style="#8c97ab")
+            summary.append("  •  ", style=palette["disabled"])
+        summary.append(f"exit {exit_code}", style=palette["muted"])
     if md.get("timed_out"):
         if summary.plain:
-            summary.append("  •  ", style="#667084")
-        summary.append("timed out", style="#f5b54f")
+            summary.append("  •  ", style=palette["disabled"])
+        summary.append("timed out", style=palette["warning"])
     if summary.plain:
         blocks.append(summary)
 
     if not has_new_output and session_id:
         if isinstance(running, bool) and not running:
-            blocks.append(Text("No new output.", style="#8c97ab"))
+            blocks.append(Text("No new output.", style=palette["muted"]))
         else:
-            blocks.append(Text("No new output yet.", style="#8c97ab"))
+            blocks.append(Text("No new output yet.", style=palette["muted"]))
         return blocks
 
     if not stdout_text and not stderr_text:
-        blocks.append(Text("No output", style="#8c97ab"))
+        blocks.append(Text("No output", style=palette["muted"]))
         return blocks
 
     if stdout_text and stderr_text:
-        blocks.append(render_terminal_payload(stdout_text, tone="stdout"))
-        blocks.append(Text("stderr", style="bold #d8ab74"))
-        blocks.append(render_terminal_payload(stderr_text, tone="stderr"))
+        blocks.append(render_terminal_payload(stdout_text, tone="stdout", theme_variables=theme_variables))
+        blocks.append(Text("stderr", style=f"bold {palette['warning']}"))
+        blocks.append(render_terminal_payload(stderr_text, tone="stderr", theme_variables=theme_variables))
     elif stdout_text:
-        blocks.append(render_terminal_payload(stdout_text, tone="stdout"))
+        blocks.append(render_terminal_payload(stdout_text, tone="stdout", theme_variables=theme_variables))
     else:
-        blocks.append(render_terminal_payload(stderr_text, tone="stderr"))
+        blocks.append(render_terminal_payload(stderr_text, tone="stderr", theme_variables=theme_variables))
     return blocks
