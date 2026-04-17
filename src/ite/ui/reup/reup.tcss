@@ -36,7 +36,7 @@ Screen {
 
 #brand-kicker {
     width: 1fr;
-    color: $foreground-muted;
+    color: $text-secondary;
     text-style: bold;
 }
 
@@ -137,7 +137,7 @@ Screen {
 #header-meta {
     width: 1fr;
     text-align: right;
-    color: $foreground-muted;
+    color: $text-secondary;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -361,7 +361,7 @@ Screen {
     width: auto;
     height: 1;
     margin-top: 2;
-    color: $foreground-muted;
+    color: $text-secondary;
     text-style: bold;
     text-align: center;
 }
@@ -516,7 +516,7 @@ Screen {
 }
 
 .block .card-title {
-    color: $foreground-muted;
+    color: $text-secondary;
     text-style: bold;
     margin-bottom: 1;
 }
@@ -2195,7 +2195,7 @@ AttachPickerModal #attach-clear:hover {
     min-height: 2;
     border: none;
     background: transparent;
-    color: #edf1f7;
+    color: $foreground;
     padding: 1 1 0 1;
 }
 
@@ -2225,7 +2225,7 @@ AttachPickerModal #attach-clear:hover {
     min-height: 1;
     width: 1fr;
     margin: 0 2 0 2;
-    color: #c6c6cd;
+    color: $foreground;
     text-style: bold;
     text-wrap: nowrap;
     text-overflow: ellipsis;

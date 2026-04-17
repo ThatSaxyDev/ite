@@ -150,6 +150,7 @@ from .tool_views import (
     extract_read_file_code,
     format_mcp_identity,
     guess_language,
+    is_light_background,
     normalize_style_color,
     syntax_background_color,
     normalize_unified_diff_paths,
@@ -157,8 +158,10 @@ from .tool_views import (
     render_git_log_output,
     render_grep_output,
     render_list_dir_output,
+    render_line_numbered_text,
     render_mcp_start_payload,
     render_numbered_unified_diff,
+    render_palette,
     render_shell_command_line,
     render_shell_result_payload,
     render_shell_running_card,
@@ -397,6 +400,7 @@ class ReupApp(App):
         self._tool_widgets: dict[str, Static] = {}
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._tool_name_by_call_id: dict[str, str] = {}
+        self._tool_completion_state: dict[str, dict[str, Any]] = {}
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
@@ -612,26 +616,72 @@ class ReupApp(App):
     def _theme_style(self, token: str, fallback: str) -> str:
         return normalize_style_color(self._theme_tokens().get(token), fallback)
 
+    def _prefer_terminal_safe_source_rendering(self) -> bool:
+        return is_light_background(self._theme_tokens())
+
     def _render_styles(self) -> dict[str, str]:
+        theme_tokens = self._theme_tokens()
+        palette = render_palette(theme_tokens)
         return {
-            "background": self._theme_style("background", "#121212"),
-            "fg": self._theme_style("foreground", "#e0e0e0"),
-            "muted": self._theme_style("foreground-muted", "#9aa3ad"),
-            "disabled": self._theme_style("foreground-disabled", "#727b86"),
+            "background": palette["background"],
+            "fg": palette["fg"],
+            "muted": palette["muted"],
+            "disabled": palette["disabled"],
             "button_fg": self._theme_style("button-color-foreground", "#07140f"),
             "panel": self._theme_style("panel", "#242f38"),
             "surface": self._theme_style("surface", "#1e1e1e"),
-            "border": self._theme_style("border", "#0178D4"),
-            "primary": self._theme_style("text-primary", "#57A5E2"),
-            "secondary": self._theme_style("text-secondary", "#5684A5"),
-            "accent": self._theme_style("text-accent", "#FFC473"),
-            "warning": self._theme_style("text-warning", "#FFC473"),
-            "error": self._theme_style("text-error", "#D17E92"),
-            "success": self._theme_style("text-success", "#8AD4A1"),
+            "border": palette["border"],
+            "primary": palette["primary"],
+            "secondary": palette["secondary"],
+            "accent": palette["accent"],
+            "warning": palette["warning"],
+            "error": palette["error"],
+            "success": palette["success"],
         }
 
     def _style(self, key: str) -> str:
         return self._render_styles()[key]
+
+    def watch_theme(self, _old_theme: str, _new_theme: str) -> None:
+        self.refresh_header()
+        self._refresh_empty_state()
+        self._update_composer_meta_line()
+        try:
+            prompt = self.query_one("#prompt", TextArea)
+        except NoMatches:
+            prompt = None
+        if prompt is not None:
+            self._sync_command_palette(prompt.text)
+        if self._cloud_signed_out:
+            try:
+                self.query_one("#signed-out-copy", Static).update(
+                    build_signed_out_state_renderable(styles=self._render_styles())
+                )
+                self.query_one("#signed-out-status", Static).update(
+                    self._signed_out_status_text()
+                )
+            except NoMatches:
+                pass
+        self.run_worker(self._rerender_completed_tool_cards_for_theme(), exclusive=False)
+
+    async def _rerender_completed_tool_cards_for_theme(self) -> None:
+        for call_id, state in list(self._tool_completion_state.items()):
+            card = self._tool_widgets.get(call_id)
+            if card is None:
+                continue
+            await self.update_tool_call(
+                call_id=call_id,
+                name=str(state.get("name") or ""),
+                tool_kind=state.get("tool_kind"),
+                success=bool(state.get("success")),
+                output=str(state.get("output") or ""),
+                error=state.get("error") if isinstance(state.get("error"), str) else None,
+                metadata=state.get("metadata") if isinstance(state.get("metadata"), dict) else None,
+                diff=state.get("diff") if isinstance(state.get("diff"), str) else None,
+                truncated=bool(state.get("truncated")),
+                exit_code=state.get("exit_code") if isinstance(state.get("exit_code"), int) else None,
+                pin_after_update=False,
+            )
 
     async def on_unmount(self) -> None:
         await self._shutdown_agents()
@@ -1001,6 +1051,7 @@ class ReupApp(App):
         self._activity_resume_timer = self.set_timer(delay, _resume)
 
     def _render_activity_indicator_text(self, label: str) -> Text:
+        styles = self._render_styles()
         frame = self._top_spinner_frames[
             self._top_spinner_index % len(self._top_spinner_frames)
         ]
@@ -1008,12 +1059,13 @@ class ReupApp(App):
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
         content = Text()
-        content.append(frame, style="bold #62f0b0")
+        content.append(frame, style=f"bold {styles['success']}")
         content.append(" ")
         content.append(
-            (label or "Thinking").strip().title() or "Thinking", style="bold #ffffff"
+            (label or "Thinking").strip().title() or "Thinking",
+            style=f"bold {styles['fg']}",
         )
-        content.append(suffix, style="bold #d7deea")
+        content.append(suffix, style=f"bold {styles['secondary']}")
         return content
 
     def _composer_meta_text(self) -> Text:
@@ -1045,6 +1097,7 @@ class ReupApp(App):
             branch_label=branch_label,
             usage_remaining_percent=self._usage_remaining_percent,
             context_used_percent=context_used_percent,
+            styles=self._render_styles(),
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -1792,6 +1845,7 @@ class ReupApp(App):
         return build_empty_state_renderable(
             cwd=Path(self.config.cwd),
             thread_count=self._empty_state_cached_thread_count,
+            styles=self._render_styles(),
         )
 
     def _set_loading_state(self, state: str, busy: bool) -> None:
@@ -1840,7 +1894,7 @@ class ReupApp(App):
         sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
         self.query_one("#signed-out-copy", Static).update(
-            build_signed_out_state_renderable()
+            build_signed_out_state_renderable(styles=self._render_styles())
         )
         self.query_one("#signed-out-status", Static).update(
             self._signed_out_status_text()
@@ -1855,7 +1909,10 @@ class ReupApp(App):
             frame = self._top_spinner_frames[
                 self._top_spinner_index % len(self._top_spinner_frames)
             ]
-            status.append(f"{frame} Opening your browser", style="bold #cfd6e2")
+            status.append(
+                f"{frame} Opening your browser",
+                style=f"bold {self._render_styles()['fg']}",
+            )
         else:
             status.append(" ", style=self._render_styles()["muted"])
         return status
@@ -2143,7 +2200,7 @@ class ReupApp(App):
         old_lineno = 0
         new_lineno = 0
         gutter_style = "#7d8591"
-        context_style = "#edf1f7"
+        context_style = self._style("fg")
         add_style = "#4edea3"
         del_style = "#ffb95f"
         hunk_style = "#b7c8e1"
@@ -2242,7 +2299,7 @@ class ReupApp(App):
         except Exception:
             rel = str(diff.path)
         action, color = change_entry_label(diff, mode=self._change_review_mode)
-        header.append(rel, style="bold #edf1f7")
+        header.append(rel, style=f"bold {self._style('fg')}")
         header.append("  ")
         header.append(action, style=f"bold {color}")
         if self._change_review_source == "git":
@@ -3085,6 +3142,7 @@ class ReupApp(App):
         self._tool_widgets.clear()
         self._tool_args_by_call_id.clear()
         self._tool_name_by_call_id.clear()
+        self._tool_completion_state.clear()
         self._live_shell_call_state.clear()
         self._streaming_widget = None
         self._streaming_buffer = ""
@@ -5383,6 +5441,7 @@ class ReupApp(App):
                 self._tool_widgets.pop(call_id, None)
                 self._tool_args_by_call_id.pop(call_id, None)
                 self._tool_name_by_call_id.pop(call_id, None)
+                self._tool_completion_state.pop(call_id, None)
 
         self._refresh_empty_state()
 
@@ -5892,8 +5951,8 @@ class ReupApp(App):
             return "▫️", "bold #dfe4ea"
         return "▫️", "bold #dfe4ea"
 
-    @staticmethod
     def _tool_completion_icon_and_style(
+        self,
         name: str,
         *,
         success: bool,
@@ -5943,7 +6002,7 @@ class ReupApp(App):
             "memory": "🧠",
             "shell": "▫️",
         }
-        return icon_by_tool.get(name, "✅"), "bold #edf1f7"
+        return icon_by_tool.get(name, "✅"), f"bold {self._style('fg')}"
 
     @staticmethod
     def _normalize_tool_start_arguments(
@@ -6436,7 +6495,7 @@ class ReupApp(App):
                     freshness = age_label(entry.get("at"))
                     line = "  •  ".join(part for part in [freshness, message] if part)
                     if line:
-                        style = "#edf1f7" if entry is history[-1] else "#8c97ab"
+                        style = self._style("fg") if entry is history[-1] else self._style("secondary")
                         blocks.append(Text(f"• {line}", style=style))
         elif not blocks:
             blocks.append(Text("Starting specialist session.", style=self._render_styles()["muted"]))
@@ -6534,7 +6593,7 @@ class ReupApp(App):
         else:
             header = Text()
             header.append("⌛ ", style="bold #b7c8e1")
-            header.append(title_text, style="bold #edf1f7")
+            header.append(title_text, style=f"bold {self._style('fg')}")
             header.append("  running", style=self._render_styles()["muted"])
             if tool_kind == "mcp" and narrative:
                 blocks.insert(0, Text(narrative, style=self._render_styles()["muted"]))
@@ -6562,11 +6621,24 @@ class ReupApp(App):
         diff: str | None,
         truncated: bool,
         exit_code: int | None,
+        pin_after_update: bool = True,
     ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         card = self._tool_widgets.get(call_id)
         if card is None:
             return
+
+        self._tool_completion_state[call_id] = {
+            "name": name,
+            "tool_kind": tool_kind,
+            "success": success,
+            "output": output,
+            "error": error,
+            "metadata": metadata if isinstance(metadata, dict) else None,
+            "diff": diff,
+            "truncated": truncated,
+            "exit_code": exit_code,
+        }
 
         md = metadata if isinstance(metadata, dict) else {}
         policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
@@ -6633,7 +6705,8 @@ class ReupApp(App):
                 card.add_class("success")
             else:
                 card.add_class("error")
-            await self._pin_activity_indicator_to_end()
+            if pin_after_update:
+                await self._pin_activity_indicator_to_end()
             return
 
         styles = self._render_styles()
@@ -6650,16 +6723,17 @@ class ReupApp(App):
             payload = ""
 
         if name == "read_file" and success:
-            blocks.append(Text(narrative, style=self._style("muted")))
+            blocks.append(Text(narrative, style=self._style("secondary")))
             extracted = extract_read_file_code(payload) if primary_path else None
             if primary_path and extracted is not None:
                 start_line, code = extracted
                 code_display, was_truncated = truncate_for_tool(name, code)
                 local_truncated = local_truncated or was_truncated
                 language = guess_language(primary_path)
+                prefer_terminal_safe = self._prefer_terminal_safe_source_rendering()
                 if language == "markdown":
                     blocks.append(RichMarkdown(code_display))
-                else:
+                elif self.current_theme.dark and not prefer_terminal_safe:
                     blocks.append(
                         Syntax(
                             code_display,
@@ -6669,6 +6743,14 @@ class ReupApp(App):
                             line_numbers=True,
                             start_line=start_line,
                             word_wrap=False,
+                        )
+                    )
+                else:
+                    blocks.append(
+                        render_line_numbered_text(
+                            code_display,
+                            start_line=start_line,
+                            theme_variables=self._theme_tokens(),
                         )
                     )
             else:
@@ -6744,7 +6826,9 @@ class ReupApp(App):
                 blocks.append(Text("  •  ".join(summary_parts), style=self._style("muted")))
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
-            blocks.append(render_numbered_unified_diff(diff_display))
+            blocks.append(
+                render_numbered_unified_diff(diff_display, self._theme_tokens())
+            )
         elif name in {"run_tests", "run_linter", "run_typecheck", "http_request"}:
             blocks.append(Text(narrative, style=self._style("muted")))
             if name == "http_request":
@@ -6866,9 +6950,9 @@ class ReupApp(App):
                     structured_path = str(md.get("key", "")).strip()
                 if structured_path:
                     target = f"{target} :: {structured_path}"
-                blocks.append(Text(target, style=self._style("muted")))
+                blocks.append(Text(target, style=self._style("secondary")))
             else:
-                blocks.append(Text(narrative, style=self._style("muted")))
+                blocks.append(Text(narrative, style=self._style("secondary")))
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             language = "json"
@@ -6880,7 +6964,12 @@ class ReupApp(App):
                 render_text_payload(
                     output_display,
                     success=True,
-                    language=language,
+                    language=(
+                        language
+                        if self.current_theme.dark
+                        and not self._prefer_terminal_safe_source_rendering()
+                        else "text"
+                    ),
                     syntax_theme=self._syntax_theme_name(),
                     theme_variables=self._theme_tokens(),
                 )
@@ -7020,7 +7109,8 @@ class ReupApp(App):
                         normalize_unified_diff_paths(
                             output_display,
                             cwd=self.config.cwd,
-                        )
+                        ),
+                        self._theme_tokens(),
                     )
                 )
             elif output_display.strip():
@@ -7203,7 +7293,8 @@ class ReupApp(App):
         else:
             card.add_class("error")
 
-        await self._pin_activity_indicator_to_end()
+        if pin_after_update:
+            await self._pin_activity_indicator_to_end()
 
     async def confirmation_callback(self, confirmation) -> bool:
         body = confirmation.description

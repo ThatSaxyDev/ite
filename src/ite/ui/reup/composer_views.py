@@ -26,31 +26,40 @@ def composer_meta_text(
     branch_label: str,
     usage_remaining_percent: int | None = None,
     context_used_percent: int | None = None,
+    styles: dict[str, str] | None = None,
 ) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
+    theme = styles or {}
+    fg = theme.get("fg", "#d1d5db")
+    secondary = theme.get("secondary", fg)
+    muted = theme.get("muted", secondary)
+    disabled = theme.get("disabled", muted)
+    success = theme.get("success", "#5dcf84")
+    error = theme.get("error", "#e35d6a")
+
     status_text = "on" if plan_enabled else "off"
-    status_style = "bold #5dcf84" if plan_enabled else "bold #e35d6a"
-    branch_style = "bold #d1d5db" if branch_label != "no-git" else "bold #9ca3af"
+    status_style = f"bold {success}" if plan_enabled else f"bold {error}"
+    branch_style = f"bold {fg}" if branch_label != "no-git" else f"bold {muted}"
 
     cell_pos = 0
-    text = Text(style="#d1d5db")
+    text = Text(style=fg)
     attach_start = cell_pos
-    text.append("📎", style="bold #d1d5db")
+    text.append("📎", style=f"bold {fg}")
     cell_pos += cell_len("📎")
     attach_end = cell_pos
     spacer = "     "
     text.append(spacer)
     cell_pos += cell_len(spacer)
     model_start = cell_pos
-    text.append(model_name, style="bold #d1d5db")
+    text.append(model_name, style=f"bold {fg}")
     cell_pos += cell_len(model_name)
     model_suffix = " ▾"
-    text.append(model_suffix, style="bold #9ca3af")
+    text.append(model_suffix, style=f"bold {muted}")
     cell_pos += cell_len(model_suffix)
     model_end = cell_pos
     text.append(spacer)
     cell_pos += cell_len(spacer)
     plan_start = cell_pos
-    text.append("Plan", style="bold #d1d5db")
+    text.append("Plan", style=f"bold {fg}")
     cell_pos += cell_len("Plan")
     text.append(" ")
     cell_pos += 1
@@ -61,26 +70,26 @@ def composer_meta_text(
     cell_pos += cell_len(spacer)
     branch_start = cell_pos
     git_prefix = "git "
-    text.append(git_prefix, style="bold #9ca3af")
+    text.append(git_prefix, style=f"bold {muted}")
     cell_pos += cell_len(git_prefix)
     text.append(branch_label, style=branch_style)
     cell_pos += cell_len(branch_label)
     branch_suffix = " ▾"
-    text.append(branch_suffix, style="bold #9ca3af")
+    text.append(branch_suffix, style=f"bold {muted}")
     cell_pos += cell_len(branch_suffix)
     branch_end = cell_pos
     text.append(spacer)
     cell_pos += cell_len(spacer)
     usage_start = cell_pos
     usage_label = "usage "
-    text.append(usage_label, style="bold #9ca3af")
+    text.append(usage_label, style=f"bold {muted}")
     cell_pos += cell_len(usage_label)
     usage_text = (
         f"{usage_remaining_percent}%"
         if usage_remaining_percent is not None
         else "--"
     )
-    text.append(usage_text, style="bold #d1d5db")
+    text.append(usage_text, style=f"bold {fg}")
     cell_pos += cell_len(usage_text)
     text.append(" ")
     cell_pos += 1
@@ -92,24 +101,24 @@ def composer_meta_text(
         filled = max(0, min(meter_width, round((used_percent / 100) * meter_width)))
     empty = meter_width - filled
     if filled:
-        text.append("━" * filled, style="bold #f3f4f6")
+        text.append("━" * filled, style=f"bold {fg}")
         cell_pos += filled
     if empty:
-        text.append("━" * empty, style="#34363a")
+        text.append("━" * empty, style=disabled)
         cell_pos += empty
     usage_end = cell_pos
     text.append(spacer)
     cell_pos += cell_len(spacer)
     context_start = cell_pos
     context_label = "context "
-    text.append(context_label, style="bold #9ca3af")
+    text.append(context_label, style=f"bold {muted}")
     cell_pos += cell_len(context_label)
     context_text = (
         f"{context_used_percent}%"
         if context_used_percent is not None
         else "--"
     )
-    text.append(context_text, style="bold #d1d5db")
+    text.append(context_text, style=f"bold {fg}")
     cell_pos += cell_len(context_text)
     text.append(" ")
     cell_pos += 1
@@ -123,17 +132,17 @@ def composer_meta_text(
         )
     context_empty = context_meter_width - context_filled
     if context_filled:
-        text.append("━" * context_filled, style="bold #f3f4f6")
+        text.append("━" * context_filled, style=f"bold {fg}")
         cell_pos += context_filled
     if context_empty:
-        text.append("━" * context_empty, style="#34363a")
+        text.append("━" * context_empty, style=disabled)
         cell_pos += context_empty
     context_end = cell_pos
     text.append(spacer)
     cell_pos += cell_len(spacer)
     activity_start = cell_pos
     activity_label = "activity"
-    text.append(activity_label, style="bold #9ca3af")
+    text.append(activity_label, style=f"bold {secondary}")
     cell_pos += cell_len(activity_label)
     activity_end = cell_pos
     return (
@@ -373,13 +382,15 @@ def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | Non
     return f"{opener}. {followup}"
 
 
-def build_empty_state_welcome(title: str) -> Text:
+def build_empty_state_welcome(title: str, styles: dict[str, str] | None = None) -> Text:
+    theme = styles or {}
     welcome = Text(justify="center")
-    welcome.append(title, style="bold #f7fafc")
+    welcome.append(title, style=f"bold {theme.get('fg', '#f7fafc')}")
     return welcome
 
 
-def build_empty_state_ascii() -> Text:
+def build_empty_state_ascii(styles: dict[str, str] | None = None) -> Text:
+    theme = styles or {}
     lines = [
         "  ██╗ ██████╗ ███████╗",
         "  ╚═╝ ╚═██╔═╝ ██╔═══╝",
@@ -390,7 +401,7 @@ def build_empty_state_ascii() -> Text:
     ]
     art = Text(justify="center")
     for index, line in enumerate(lines):
-        art.append(line, style="bold #8d94a0")
+        art.append(line, style=f"bold {theme.get('secondary', '#8d94a0')}")
         if index < len(lines) - 1:
             art.append("\n")
     return art
@@ -401,27 +412,35 @@ def build_empty_state_renderable(
     cwd: Path,
     thread_count: int,
     now: datetime | None = None,
+    styles: dict[str, str] | None = None,
 ) -> Any:
     title = build_empty_state_title(cwd=cwd, thread_count=thread_count, now=now)
     return Align.center(
         Group(
-            build_empty_state_ascii(),
+            build_empty_state_ascii(styles),
             Text(""),
-            build_empty_state_welcome(title),
+            build_empty_state_welcome(title, styles),
         ),
         vertical="middle",
     )
 
 
-def build_signed_out_state_renderable(status: str | None = None) -> Any:
+def build_signed_out_state_renderable(
+    status: str | None = None,
+    styles: dict[str, str] | None = None,
+) -> Any:
+    theme = styles or {}
     title = Text(justify="center")
-    title.append("Sign in to continue", style="bold #f7fafc")
+    title.append("Sign in to continue", style=f"bold {theme.get('fg', '#f7fafc')}")
 
     body = Text(justify="center")
-    body.append("We will open your browser and resume here when sign-in is complete.", style="#8c93a1")
+    body.append(
+        "We will open your browser and resume here when sign-in is complete.",
+        style=theme.get("secondary", "#8c93a1"),
+    )
 
     parts: list[Any] = [
-        build_empty_state_ascii(),
+        build_empty_state_ascii(styles),
         Text(""),
         title,
         Text(""),

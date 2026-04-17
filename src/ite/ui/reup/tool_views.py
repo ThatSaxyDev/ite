@@ -64,6 +64,46 @@ def normalize_style_color(value: str | None, fallback: str) -> str:
     return resolved
 
 
+def _hex_rgb(value: str) -> tuple[int, int, int] | None:
+    resolved = normalize_style_color(value, "").strip()
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", resolved):
+        return (
+            int(resolved[1:3], 16),
+            int(resolved[3:5], 16),
+            int(resolved[5:7], 16),
+        )
+    return None
+
+
+def _relative_luminance(color: str) -> float | None:
+    rgb = _hex_rgb(color)
+    if rgb is None:
+        return None
+
+    def _channel(value: int) -> float:
+        normalized = value / 255.0
+        if normalized <= 0.03928:
+            return normalized / 12.92
+        return ((normalized + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = (_channel(component) for component in rgb)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _prefer_darker_text(color: str, fallback: str, *, threshold: float) -> str:
+    luminance = _relative_luminance(color)
+    if luminance is None:
+        return fallback
+    return fallback if luminance > threshold else color
+
+
+def is_light_background(theme_variables: dict[str, str] | None = None) -> bool:
+    theme = theme_variables or {}
+    background = normalize_style_color(theme.get("background"), "#121212")
+    background_luminance = _relative_luminance(background)
+    return background_luminance is not None and background_luminance > 0.58
+
+
 def syntax_background_color(theme_variables: dict[str, str] | None = None) -> str:
     theme = theme_variables or {}
     return normalize_style_color(
@@ -74,17 +114,45 @@ def syntax_background_color(theme_variables: dict[str, str] | None = None) -> st
 
 def render_palette(theme_variables: dict[str, str] | None = None) -> dict[str, str]:
     theme = theme_variables or {}
+    background = normalize_style_color(theme.get("background"), "#121212")
+    fg = normalize_style_color(theme.get("foreground"), "#e0e0e0")
+    secondary = normalize_style_color(
+        theme.get("text-secondary") or theme.get("foreground-muted"),
+        fg,
+    )
+    muted = normalize_style_color(theme.get("foreground-muted"), secondary)
+    disabled = normalize_style_color(theme.get("foreground-disabled"), muted)
+    primary = normalize_style_color(theme.get("text-primary"), "#57A5E2")
+    accent = normalize_style_color(theme.get("text-accent"), "#FFC473")
+    warning = normalize_style_color(theme.get("text-warning"), "#FFC473")
+    error = normalize_style_color(theme.get("text-error"), "#D17E92")
+    success = normalize_style_color(theme.get("text-success"), "#8AD4A1")
+    border = normalize_style_color(theme.get("border"), "#0178D4")
+
+    if is_light_background(theme):
+        fg = _prefer_darker_text(fg, "#253243", threshold=0.32)
+        secondary = _prefer_darker_text(secondary, "#38506a", threshold=0.42)
+        muted = _prefer_darker_text(muted, "#51657d", threshold=0.5)
+        disabled = _prefer_darker_text(disabled, "#6b7b8e", threshold=0.58)
+        primary = _prefer_darker_text(primary, "#1f5f99", threshold=0.56)
+        accent = _prefer_darker_text(accent, "#9a6415", threshold=0.62)
+        warning = _prefer_darker_text(warning, "#9a6415", threshold=0.62)
+        error = _prefer_darker_text(error, "#9a3d4f", threshold=0.62)
+        success = _prefer_darker_text(success, "#2c7a55", threshold=0.62)
+        border = _prefer_darker_text(border, "#5b6d84", threshold=0.72)
+
     return {
-        "fg": normalize_style_color(theme.get("foreground"), "#e0e0e0"),
-        "muted": normalize_style_color(theme.get("foreground-muted"), "#9aa3ad"),
-        "disabled": normalize_style_color(theme.get("foreground-disabled"), "#727b86"),
-        "primary": normalize_style_color(theme.get("text-primary"), "#57A5E2"),
-        "secondary": normalize_style_color(theme.get("text-secondary"), "#5684A5"),
-        "accent": normalize_style_color(theme.get("text-accent"), "#FFC473"),
-        "warning": normalize_style_color(theme.get("text-warning"), "#FFC473"),
-        "error": normalize_style_color(theme.get("text-error"), "#D17E92"),
-        "success": normalize_style_color(theme.get("text-success"), "#8AD4A1"),
-        "border": normalize_style_color(theme.get("border"), "#0178D4"),
+        "background": background,
+        "fg": fg,
+        "secondary": secondary,
+        "muted": muted,
+        "disabled": disabled,
+        "primary": primary,
+        "accent": accent,
+        "warning": warning,
+        "error": error,
+        "success": success,
+        "border": border,
     }
 
 
@@ -382,18 +450,22 @@ def summarize_diff_hunk_ranges(diff_text: str) -> list[str]:
     return summaries
 
 
-def render_numbered_unified_diff(diff_text: str) -> Text:
+def render_numbered_unified_diff(
+    diff_text: str,
+    theme_variables: dict[str, str] | None = None,
+) -> Text:
+    palette = render_palette(theme_variables)
     hunk_re = re.compile(
         r"^@@ -(?P<old>\d+)(?:,(?P<old_count>\d+))? \+(?P<new>\d+)(?:,(?P<new_count>\d+))? @@"
     )
     rendered = Text(no_wrap=True)
     old_lineno = 0
     new_lineno = 0
-    gutter_style = "#7d8591"
-    context_style = "#edf1f7"
-    add_style = "#8fb7a1"
-    del_style = "#d8ab74"
-    hunk_style = "#b7c8e1"
+    gutter_style = palette["secondary"]
+    context_style = palette["fg"]
+    add_style = palette["success"]
+    del_style = palette["warning"]
+    hunk_style = palette["primary"]
 
     def append_line(
         old_label: str,
@@ -967,6 +1039,30 @@ def render_text_payload(
             background_color=syntax_background_color(theme_variables),
         )
     return Text(text, style=palette["fg"])
+
+
+def render_line_numbered_text(
+    text: str,
+    *,
+    start_line: int = 1,
+    theme_variables: dict[str, str] | None = None,
+) -> Text:
+    palette = render_palette(theme_variables)
+    gutter_style = palette["secondary"]
+    body_style = palette["fg"]
+    rendered = Text(no_wrap=True)
+    lines = (text or "").splitlines()
+    if not lines:
+        return Text("", style=body_style)
+    width = max(len(str(start_line + len(lines) - 1)), 1)
+    for index, line in enumerate(lines, start=start_line):
+        rendered.append(f"{index:>{width}} ", style=gutter_style)
+        rendered.append(line, style=body_style)
+        if index < start_line + len(lines) - 1:
+            rendered.append("\n")
+    if text.endswith("\n"):
+        rendered.append("\n")
+    return rendered
 
 
 def render_skills_payload(
