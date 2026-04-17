@@ -597,8 +597,14 @@ class ReupApp(App):
             return syntax_theme.strip()
         return "textual-dark" if self.current_theme.dark else "textual-light"
 
+    def _theme_tokens(self) -> dict[str, str]:
+        return {
+            key: str(value)
+            for key, value in self.current_theme.to_color_system().generate().items()
+        }
+
     def _theme_style(self, token: str, fallback: str) -> str:
-        return normalize_style_color(self.theme_variables.get(token), fallback)
+        return normalize_style_color(self._theme_tokens().get(token), fallback)
 
     def _render_styles(self) -> dict[str, str]:
         return {
@@ -6029,7 +6035,7 @@ class ReupApp(App):
                     command.strip(),
                     cwd=self.config.cwd,
                     shell_cwd=md.get("cwd") if isinstance(md.get("cwd"), str) else None,
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         display_payload = (
@@ -6075,7 +6081,7 @@ class ReupApp(App):
                 tone="stdout" if success else "stderr",
                 max_lines=None,
                 max_chars=64000,
-                theme_variables=self.theme_variables,
+                theme_variables=self._theme_tokens(),
             )
         )
 
@@ -6629,7 +6635,7 @@ class ReupApp(App):
                             code_display,
                             language,
                             theme=self._syntax_theme_name(),
-                            background_color=syntax_background_color(self.theme_variables),
+                            background_color=syntax_background_color(self._theme_tokens()),
                             line_numbers=True,
                             start_line=start_line,
                             word_wrap=False,
@@ -6643,7 +6649,7 @@ class ReupApp(App):
                         output_display,
                         success=True,
                         syntax_theme=self._syntax_theme_name(),
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
         elif (
@@ -6728,7 +6734,7 @@ class ReupApp(App):
                             shell_cwd=md.get("cwd")
                             if isinstance(md.get("cwd"), str)
                             else None,
-                            theme_variables=self.theme_variables,
+                            theme_variables=self._theme_tokens(),
                         )
                     )
             duration_ms = md.get("duration_ms")
@@ -6762,7 +6768,7 @@ class ReupApp(App):
                         output_display,
                         success=success,
                         syntax_theme=self._syntax_theme_name(),
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
             else:
@@ -6771,7 +6777,7 @@ class ReupApp(App):
                         payload=output_display,
                         metadata=md,
                         exit_code=exit_code,
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
         elif name == "list_archive" and success:
@@ -6789,7 +6795,7 @@ class ReupApp(App):
                     output_display,
                     success=True,
                     syntax_theme=self._syntax_theme_name(),
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name in {"read_pdf", "read_image"} and success:
@@ -6846,7 +6852,7 @@ class ReupApp(App):
                     success=True,
                     language=language,
                     syntax_theme=self._syntax_theme_name(),
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name in {"shell", "shell_poll", "shell_stop"}:
@@ -6860,7 +6866,7 @@ class ReupApp(App):
                         shell_cwd=md.get("cwd")
                         if isinstance(md.get("cwd"), str)
                         else None,
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -6870,7 +6876,7 @@ class ReupApp(App):
                     payload=output_display,
                     metadata=md,
                     exit_code=exit_code,
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name == "web_search" and success:
@@ -6896,7 +6902,7 @@ class ReupApp(App):
                     output_display,
                     success=success,
                     syntax_theme=self._syntax_theme_name(),
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name == "web_fetch" and success:
@@ -6920,7 +6926,7 @@ class ReupApp(App):
                     output_display,
                     success=success,
                     syntax_theme=self._syntax_theme_name(),
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name in {"list_dir", "glob", "grep"}:
@@ -6928,14 +6934,14 @@ class ReupApp(App):
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if name == "list_dir":
-                blocks.append(render_list_dir_output(output_display, theme_variables=self.theme_variables))
+                blocks.append(render_list_dir_output(output_display, theme_variables=self._theme_tokens()))
             elif name == "grep":
                 blocks.append(
                     render_grep_output(
                         output_display,
                         cwd=self.config.cwd,
                         syntax_theme=self._syntax_theme_name(),
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
             else:
@@ -6944,7 +6950,7 @@ class ReupApp(App):
                         output_display,
                         success=success,
                         syntax_theme=self._syntax_theme_name(),
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
         elif name == "git_diff":
@@ -6993,7 +6999,7 @@ class ReupApp(App):
                         output_display,
                         success=success,
                         syntax_theme=self._syntax_theme_name(),
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
             else:
@@ -7009,13 +7015,13 @@ class ReupApp(App):
                 summary_parts.append(ref.strip())
             if summary_parts:
                 blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
-            blocks.append(render_git_log_output(md, theme_variables=self.theme_variables))
+            blocks.append(render_git_log_output(md, theme_variables=self._theme_tokens()))
         elif name == "todos" and success:
             blocks.append(Text(narrative, style=self._style("muted")))
             todo_blocks, was_truncated = render_todo_payload(
                 output=payload,
                 metadata=md,
-                theme_variables=self.theme_variables,
+                theme_variables=self._theme_tokens(),
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(todo_blocks)
@@ -7025,7 +7031,7 @@ class ReupApp(App):
                 render_skills_payload(
                     output=payload,
                     success=success,
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name == "subagent_metrics":
@@ -7036,7 +7042,7 @@ class ReupApp(App):
                     output=output,
                     error=error,
                     success=success,
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name in {
@@ -7054,7 +7060,7 @@ class ReupApp(App):
                     error=error,
                     success=success,
                     collapse_completed=(name == "wait_subagent"),
-                    theme_variables=self.theme_variables,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif name.startswith("subagent_"):
@@ -7064,7 +7070,7 @@ class ReupApp(App):
                 metadata=md,
                 success=success,
                 error=error,
-                theme_variables=self.theme_variables,
+                theme_variables=self._theme_tokens(),
             )
             local_truncated = local_truncated or was_truncated
             blocks.extend(subagent_blocks)
@@ -7084,7 +7090,7 @@ class ReupApp(App):
                         server_name=server_name,
                         tool_name=name,
                         payload_text=payload,
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                     local_truncated = local_truncated or was_truncated
                     blocks.append(Text(summary, style=self._style("muted")))
@@ -7107,7 +7113,7 @@ class ReupApp(App):
                                 output_display,
                                 success=False,
                                 syntax_theme=self._syntax_theme_name(),
-                                theme_variables=self.theme_variables,
+                                theme_variables=self._theme_tokens(),
                             )
                         )
         else:
@@ -7122,7 +7128,7 @@ class ReupApp(App):
                         diff_display,
                         "diff",
                         theme=self._syntax_theme_name(),
-                        background_color=syntax_background_color(self.theme_variables),
+                        background_color=syntax_background_color(self._theme_tokens()),
                         word_wrap=True,
                     )
                 )
@@ -7132,7 +7138,7 @@ class ReupApp(App):
                         output_display,
                         success=success,
                         syntax_theme=self._syntax_theme_name(),
-                        theme_variables=self.theme_variables,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
             else:

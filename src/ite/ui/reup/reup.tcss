@@ -1626,8 +1626,8 @@ SessionResumeModal .modal {
     height: 32;
     max-height: 86%;
     min-height: 24;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1637,8 +1637,8 @@ BranchPickerModal .modal {
     height: 32;
     max-height: 86%;
     min-height: 24;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1659,8 +1659,8 @@ UsageSummaryModal .modal {
     height: 24;
     max-height: 80%;
     min-height: 20;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1670,8 +1670,8 @@ ContextSummaryModal .modal {
     height: auto;
     max-height: 70%;
     min-height: 14;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1681,8 +1681,8 @@ ActivityModal .modal {
     height: 28;
     max-height: 82%;
     min-height: 22;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1692,8 +1692,8 @@ AttachPickerModal .modal {
     height: 36;
     max-height: 86%;
     min-height: 28;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1702,8 +1702,8 @@ SetupModal .modal {
     width: 86;
     height: auto;
     min-height: 18;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
 }
 
@@ -1928,6 +1928,49 @@ AttachPickerModal .resume-table {
     height: 1fr;
     background: $surface-darken-1;
     color: $foreground;
+    border: none;
+}
+
+SessionResumeModal .resume-table > .datatable--header,
+BranchPickerModal .resume-table > .datatable--header,
+ModelPickerModal .resume-table > .datatable--header,
+AttachPickerModal .resume-table > .datatable--header {
+    background: $panel;
+    color: $foreground;
+}
+
+SessionResumeModal .resume-table > .datatable--even-row,
+BranchPickerModal .resume-table > .datatable--even-row,
+ModelPickerModal .resume-table > .datatable--even-row,
+AttachPickerModal .resume-table > .datatable--even-row {
+    background: $surface;
+}
+
+SessionResumeModal .resume-table > .datatable--odd-row,
+BranchPickerModal .resume-table > .datatable--odd-row,
+ModelPickerModal .resume-table > .datatable--odd-row,
+AttachPickerModal .resume-table > .datatable--odd-row {
+    background: $surface-darken-1;
+}
+
+SessionResumeModal .resume-table > .datatable--cursor,
+SessionResumeModal .resume-table:focus > .datatable--cursor,
+BranchPickerModal .resume-table > .datatable--cursor,
+BranchPickerModal .resume-table:focus > .datatable--cursor,
+ModelPickerModal .resume-table > .datatable--cursor,
+ModelPickerModal .resume-table:focus > .datatable--cursor,
+AttachPickerModal .resume-table > .datatable--cursor,
+AttachPickerModal .resume-table:focus > .datatable--cursor {
+    background: $primary-muted;
+    color: $foreground;
+}
+
+SessionResumeModal .resume-table > .datatable--header-cursor,
+BranchPickerModal .resume-table > .datatable--header-cursor,
+ModelPickerModal .resume-table > .datatable--header-cursor,
+AttachPickerModal .resume-table > .datatable--header-cursor {
+    background: $primary;
+    color: $button-color-foreground;
 }
 
 .attach-root-row {
@@ -1992,27 +2035,37 @@ BranchPickerModal #switch {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b7c8e1;
-    color: #111821;
+    background: $primary;
+    color: $button-color-foreground;
     border: none;
 }
 
 BranchPickerModal #switch:hover {
-    background: #cad6ea;
-    color: #111821;
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
 }
 
 BranchPickerModal #create {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #4edea3;
-    color: #07140f;
+    background: $success;
+    color: $button-color-foreground;
     border: none;
 }
 
 BranchPickerModal #create:hover {
-    background: #6ae7b5;
+    background: $success-lighten-1;
+    color: $button-color-foreground;
+}
+
+BranchPickerModal #branch-name,
+RemoteSetupModal #remote-name,
+RemoteSetupModal #remote-url,
+SetupModal Input {
+    background: $surface-darken-1;
+    color: $foreground;
+    border: round $border;
 }
 
 ModelPickerModal #select {
