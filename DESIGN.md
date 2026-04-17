@@ -32,6 +32,7 @@ The correct mental model is:
 - spacing as structure
 - color as state
 - very little chrome
+- one active Textual theme driving the full app
 
 ---
 
@@ -69,6 +70,50 @@ Examples:
 ---
 
 ## 3. Visual System
+
+### Theme Source Of Truth
+
+`iTE` now uses the active Textual theme as the single source of truth for UI color.
+
+- The app may choose an initial theme at startup.
+- After startup, the active Textual theme owns color.
+- Theme switching must affect the full runtime, not only the shell.
+- Palette themes such as `flexoki`, `gruvbox`, `catppuccin-*`, `solarized-*`, etc. must visibly change the app.
+
+Do not treat `textual-light` and `textual-dark` as the only real themes.
+
+They are default starting points, not the entire design system.
+
+### Token Rule
+
+Prefer valid Textual theme tokens first.
+
+Use tokens such as:
+
+- `$background`
+- `$surface`
+- `$surface-darken-1`
+- `$panel`
+- `$panel-lighten-1`
+- `$border`
+- `$foreground`
+- `$foreground-muted`
+- `$foreground-disabled`
+- `$primary`
+- `$primary-muted`
+- `$success`
+- `$success-muted`
+- `$warning`
+- `$warning-muted`
+- `$text-primary`
+- `$text-secondary`
+- `$text-success`
+- `$text-warning`
+- `$text-error`
+
+Do not invent token names and hope Textual supports them.
+
+Do not rely on a `Screen:light` rescue layer as the main theme strategy.
 
 ### Base Palette
 
@@ -239,6 +284,20 @@ Tool cards exist to summarize machine activity, not to become the whole visual l
 - Keep spacing between cards modest but readable.
 - Plain text output should look like terminal output, not like a syntax-highlight slab unless syntax is truly needed.
 
+Tool cards must inherit the active theme.
+
+That includes:
+
+- card surface
+- card border
+- metadata text
+- nested code surfaces
+- syntax render backgrounds
+
+If a code or YAML panel appears as an alien white or generic gray slab, the bug is usually in the renderable background, not the outer card shell.
+
+Fix the renderable, not only the container.
+
 ### System and Special Cards
 
 System, warnings, plans, and change-review elements may use contained surfaces because they represent non-conversational structures.
@@ -395,10 +454,32 @@ Color should communicate operational meaning fast.
 
 - Selected tabs, active routes, and focus states can use a cooler slate-blue.
 - Keep this distinct from success.
+- Selection treatment must still come from the active theme rather than a fixed blue.
 
 ---
 
-## 12. Change Review and Dense Data
+## 12. Syntax, Code, and Dense Data
+
+### Syntax Rule
+
+Syntax highlighting and code surfaces are separate concerns.
+
+- The code surface background must follow the active Textual theme.
+- The syntax token palette may follow a dark or light syntax theme selected from theme polarity.
+- Do not assume the Textual theme name is itself a valid Rich / Pygments syntax theme.
+
+Current implementation rule:
+
+- derive the syntax theme from active theme polarity unless a concrete syntax theme exists
+- inject the code background explicitly from current theme tokens
+
+If code rendering looks wrong:
+
+1. check the code background token source
+2. check whether the syntax renderer is using a real syntax theme
+3. check the outer TCSS surface only after those two
+
+### Dense Data
 
 Change review is a high-density workflow and should respect terminal economics.
 
@@ -417,7 +498,129 @@ If a dense surface looks “amateur,” check:
 
 ---
 
-## 13. Implementation Rules
+## 13. Modal Rules
+
+Modal screens are a distinct interaction layer and must behave consistently.
+
+### Modal Contract
+
+- Modal screens are centered.
+- The background behind them remains visible through a scrim.
+- The scrim should be theme-driven.
+- The modal shell should use theme tokens, not legacy dark literals.
+- Internal picker tables must also be themed; the shell alone is not enough.
+
+### Picker Rule
+
+Picker modals such as:
+
+- attach
+- branch
+- model
+- theme
+- session resume
+
+should share the same structural model:
+
+- centered modal shell
+- title
+- helper copy
+- themed list / table surface
+- aligned action row
+
+If a new picker is added, it should be implemented as a native modal using the same structure rather than inventing a one-off surface.
+
+### DataTable Rule
+
+If a modal contains a `DataTable`, the table must be styled explicitly.
+
+At minimum, theme:
+
+- header
+- odd/even rows
+- cursor row
+- header cursor
+- surrounding list surface
+
+Otherwise the table will keep default widget styling and visually break the modal.
+
+### Commit Modal Rule
+
+The commit modal now follows the same token rules as other modals:
+
+- shell from `$surface` and `$border`
+- labels from `$foreground-muted`
+- primary actions from `$primary`
+- success actions from `$success`
+- cancel from `$panel`
+
+---
+
+## 14. Slash Palette and Composer Overlays
+
+The slash palette is part of the composer control surface.
+
+It must follow the active theme like any other overlay.
+
+### Slash Palette Rule
+
+- Palette shell uses theme tokens.
+- Selected row uses theme-driven selection colors.
+- Descriptions use muted text.
+- It should never carry a fixed dark palette independent of the current theme.
+
+### Slash Command Rule
+
+Commands that map to native UI flows should appear in slash suggestions and open native in-app controls.
+
+Examples:
+
+- `/branch`
+- `/attach`
+- `/model`
+- `/theme`
+
+`/theme` belongs in this set. Theme switching is an in-app interaction, not a hidden palette-only behavior.
+
+---
+
+## 15. Notifications and Persistence
+
+`iTE` now has two notification classes and they serve different purposes.
+
+### Transient Notices
+
+These are bottom-right notifications.
+
+Use them for:
+
+- theme changed
+- git operation succeeded
+- setup completed
+- queue / retry / shift confirmations
+- screenshot saved
+- copy-to-clipboard confirmations
+- other one-shot acknowledgements
+
+These should not clutter the conversation transcript.
+
+### Persistent System Cards
+
+These stay in chat.
+
+Use them for:
+
+- actual errors
+- important durable workflow state
+- information the user should still see when reopening the thread later
+
+Do not use persistent system cards for disposable confirmations.
+
+If a user returns to the session later and the item would feel like noise, it should have been a transient notice.
+
+---
+
+## 16. Implementation Rules
 
 These files are the source of truth for the current Textual UI:
 
@@ -435,10 +638,13 @@ When changing the UI:
 2. avoid speculative restyling while fixing a layout bug
 3. verify against the actual view state that broke
 4. keep user-message, assistant-message, and tool-card paths conceptually separate
+5. prefer active-theme tokens over ad hoc literals
+6. if a renderable and a widget both control color, verify both layers
+7. do not add a new picker or overlay without checking how the existing native pickers are built
 
 ---
 
-## 14. Regression Checklist
+## 17. Regression Checklist
 
 Before considering a Textual UI change complete, check:
 
@@ -452,10 +658,16 @@ Before considering a Textual UI change complete, check:
 - Are tool cards compact and border-light?
 - Did any accent color drift too bright or too green?
 - Did spacing improve readability without wasting rows?
+- Does the active palette theme visibly tint the app beyond only startup light/dark selection?
+- Do syntax/code surfaces follow the active theme background?
+- Do picker modals center correctly with a visible background scrim?
+- Do picker tables inherit the current theme instead of default `DataTable` styling?
+- Does the slash palette follow the active theme?
+- Do one-shot confirmations appear as transient notices instead of polluting chat history?
 
 ---
 
-## 15. Summary
+## 18. Summary
 
 The main lesson is simple:
 
