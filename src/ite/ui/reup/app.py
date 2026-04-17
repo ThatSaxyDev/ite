@@ -5452,13 +5452,7 @@ class ReupApp(App):
         )
 
     def post_notice(self, title: str, message: str) -> None:
-        styles = self._render_styles()
-        self.run_worker(
-            self.add_assistant_card(
-                title, Text(message, style=self._style("fg")), css_class="note"
-            ),
-            exclusive=False,
-        )
+        self.notify(message, title=title, timeout=3)
 
     def post_recovery_status(
         self,
