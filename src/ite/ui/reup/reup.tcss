@@ -1654,6 +1654,17 @@ ModelPickerModal .modal {
     overflow: hidden;
 }
 
+ThemePickerModal .theme-picker-modal {
+    width: 96;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
 UsageSummaryModal .modal {
     width: 108;
     height: 24;
@@ -1710,6 +1721,7 @@ SetupModal .modal {
 SessionResumeModal .modal-list,
 BranchPickerModal .modal-list,
 ModelPickerModal .modal-list,
+ThemePickerModal .modal-list,
 ActivityModal .modal-list,
 AttachPickerModal .modal-list {
     height: 1fr;
@@ -1726,6 +1738,7 @@ AttachPickerModal .modal-list {
 SessionResumeModal .modal-title,
 BranchPickerModal .modal-title,
 ModelPickerModal .modal-title,
+ThemePickerModal .modal-title,
 UsageSummaryModal .modal-title,
 ContextSummaryModal .modal-title,
 ActivityModal .modal-title,
@@ -1742,6 +1755,7 @@ SetupModal .modal-title {
 SessionResumeModal .modal-body,
 BranchPickerModal .modal-body,
 ModelPickerModal .modal-body,
+ThemePickerModal .modal-body,
 UsageSummaryModal .modal-body,
 ContextSummaryModal .modal-body,
 ActivityModal .modal-body,
@@ -1763,6 +1777,7 @@ SessionResumeModal .resume-warning {
 SessionResumeModal .modal-actions,
 BranchPickerModal .modal-actions,
 ModelPickerModal .modal-actions,
+ThemePickerModal .modal-actions,
 UsageSummaryModal .modal-actions,
 ContextSummaryModal .modal-actions,
 ActivityModal .modal-actions,
@@ -1795,6 +1810,7 @@ SessionResumeModal #resume:hover {
 SessionResumeModal #cancel,
 BranchPickerModal #cancel,
 ModelPickerModal #cancel,
+ThemePickerModal #cancel,
 UsageSummaryModal #cancel,
 ContextSummaryModal #cancel,
 ActivityModal #cancel,
@@ -1812,6 +1828,7 @@ SetupModal #cancel {
 SessionResumeModal #cancel:hover,
 BranchPickerModal #cancel:hover,
 ModelPickerModal #cancel:hover,
+ThemePickerModal #cancel:hover,
 UsageSummaryModal #cancel:hover,
 ContextSummaryModal #cancel:hover,
 ActivityModal #cancel:hover,
@@ -1924,6 +1941,7 @@ SetupModal #setup-api-key {
 SessionResumeModal .resume-table,
 BranchPickerModal .resume-table,
 ModelPickerModal .resume-table,
+ThemePickerModal .resume-table,
 AttachPickerModal .resume-table {
     height: 1fr;
     background: $surface-darken-1;
@@ -1934,6 +1952,7 @@ AttachPickerModal .resume-table {
 SessionResumeModal .resume-table > .datatable--header,
 BranchPickerModal .resume-table > .datatable--header,
 ModelPickerModal .resume-table > .datatable--header,
+ThemePickerModal .resume-table > .datatable--header,
 AttachPickerModal .resume-table > .datatable--header {
     background: $panel;
     color: $foreground;
@@ -1942,6 +1961,7 @@ AttachPickerModal .resume-table > .datatable--header {
 SessionResumeModal .resume-table > .datatable--even-row,
 BranchPickerModal .resume-table > .datatable--even-row,
 ModelPickerModal .resume-table > .datatable--even-row,
+ThemePickerModal .resume-table > .datatable--even-row,
 AttachPickerModal .resume-table > .datatable--even-row {
     background: $surface;
 }
@@ -1949,6 +1969,7 @@ AttachPickerModal .resume-table > .datatable--even-row {
 SessionResumeModal .resume-table > .datatable--odd-row,
 BranchPickerModal .resume-table > .datatable--odd-row,
 ModelPickerModal .resume-table > .datatable--odd-row,
+ThemePickerModal .resume-table > .datatable--odd-row,
 AttachPickerModal .resume-table > .datatable--odd-row {
     background: $surface-darken-1;
 }
@@ -1959,6 +1980,8 @@ BranchPickerModal .resume-table > .datatable--cursor,
 BranchPickerModal .resume-table:focus > .datatable--cursor,
 ModelPickerModal .resume-table > .datatable--cursor,
 ModelPickerModal .resume-table:focus > .datatable--cursor,
+ThemePickerModal .resume-table > .datatable--cursor,
+ThemePickerModal .resume-table:focus > .datatable--cursor,
 AttachPickerModal .resume-table > .datatable--cursor,
 AttachPickerModal .resume-table:focus > .datatable--cursor {
     background: $primary-muted;
@@ -1968,6 +1991,7 @@ AttachPickerModal .resume-table:focus > .datatable--cursor {
 SessionResumeModal .resume-table > .datatable--header-cursor,
 BranchPickerModal .resume-table > .datatable--header-cursor,
 ModelPickerModal .resume-table > .datatable--header-cursor,
+ThemePickerModal .resume-table > .datatable--header-cursor,
 AttachPickerModal .resume-table > .datatable--header-cursor {
     background: $primary;
     color: $button-color-foreground;
@@ -2082,6 +2106,20 @@ ModelPickerModal #select:hover {
     color: $button-color-foreground;
 }
 
+ThemePickerModal #select {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+ThemePickerModal #select:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
 BranchPickerModal #branch-name {
     margin-top: 1;
     margin-bottom: 1;
@@ -2173,9 +2211,9 @@ AttachPickerModal #attach-clear:hover {
     width: 1fr;
     margin: 0 2 0 2;
     padding: 0 1 0 1;
-    border: round #303236;
-    background: #24282c 94%;
-    color: #edf1f7;
+    border: round $border;
+    background: $surface;
+    color: $foreground;
     pointer: pointer;
 }
 

@@ -205,7 +205,13 @@ def render_command_palette(
     filtered_options: list[SlashCommandOption],
     command_palette_index: int,
     max_rows: int,
+    styles: dict[str, str] | None = None,
 ) -> Text:
+    theme = styles or {}
+    fg = theme.get("fg", "#edf1f7")
+    muted = theme.get("muted", "#8c93a1")
+    primary = theme.get("primary", "#4edea3")
+    selected_fg = theme.get("background", "#07120d")
     text = Text()
     window = command_palette_window(
         filtered_options=filtered_options,
@@ -217,8 +223,8 @@ def render_command_palette(
     start = filtered_options.index(window[0])
     for idx, option in enumerate(window, start=start):
         selected = idx == command_palette_index
-        line_style = "bold #07120d on #4edea3" if selected else "bold #edf1f7"
-        desc_style = "bold #07120d on #4edea3" if selected else "#8c93a1"
+        line_style = f"bold {selected_fg} on {primary}" if selected else f"bold {fg}"
+        desc_style = f"bold {selected_fg} on {primary}" if selected else muted
         text.append(option.name.ljust(14), style=line_style)
         text.append("  ", style=line_style)
         text.append(option.description, style=desc_style)
@@ -241,14 +247,24 @@ def build_turn_action_options(*, replacing_queue: bool) -> list[SlashCommandOpti
     ]
 
 
-def render_turn_action_palette(turn_action_options: list[SlashCommandOption], command_palette_index: int) -> Text:
+def render_turn_action_palette(
+    turn_action_options: list[SlashCommandOption],
+    command_palette_index: int,
+    *,
+    styles: dict[str, str] | None = None,
+) -> Text:
+    theme = styles or {}
+    fg = theme.get("fg", "#edf1f7")
+    muted = theme.get("muted", "#8c93a1")
+    primary = theme.get("primary", "#4edea3")
+    selected_fg = theme.get("background", "#07120d")
     text = Text()
     if not turn_action_options:
         return text
     for idx, option in enumerate(turn_action_options):
         selected = idx == command_palette_index
-        line_style = "bold #07120d on #4edea3" if selected else "bold #edf1f7"
-        desc_style = "bold #07120d on #4edea3" if selected else "#8c93a1"
+        line_style = f"bold {selected_fg} on {primary}" if selected else f"bold {fg}"
+        desc_style = f"bold {selected_fg} on {primary}" if selected else muted
         text.append(option.name.ljust(12), style=line_style)
         text.append("  ", style=line_style)
         text.append(option.description, style=desc_style)

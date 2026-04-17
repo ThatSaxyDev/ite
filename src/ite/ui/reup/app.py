@@ -133,6 +133,7 @@ from .modals import (
     ConfirmModal,
     ContextSummaryModal,
     ModelPickerModal,
+    ThemePickerModal,
     PlanQuestionModal,
     PushReviewModal,
     RemoteSetupModal,
@@ -608,9 +609,14 @@ class ReupApp(App):
 
     def _render_styles(self) -> dict[str, str]:
         return {
+            "background": self._theme_style("background", "#121212"),
             "fg": self._theme_style("foreground", "#e0e0e0"),
             "muted": self._theme_style("foreground-muted", "#9aa3ad"),
             "disabled": self._theme_style("foreground-disabled", "#727b86"),
+            "button_fg": self._theme_style("button-color-foreground", "#07140f"),
+            "panel": self._theme_style("panel", "#242f38"),
+            "surface": self._theme_style("surface", "#1e1e1e"),
+            "border": self._theme_style("border", "#0178D4"),
             "primary": self._theme_style("text-primary", "#57A5E2"),
             "secondary": self._theme_style("text-secondary", "#5684A5"),
             "accent": self._theme_style("text-accent", "#FFC473"),
@@ -1074,7 +1080,15 @@ class ReupApp(App):
             self._usage_refresh_in_flight = False
 
     def _build_command_palette_options(self) -> list[SlashCommandOption]:
-        return build_command_palette_options(self._command_registry)
+        options = build_command_palette_options(self._command_registry)
+        if not any(option.name == "/theme" for option in options):
+            options.append(
+                SlashCommandOption(
+                    name="/theme",
+                    description="Choose a Textual theme for this session",
+                )
+            )
+        return sorted(options, key=lambda option: option.name.lower())
 
     @staticmethod
     def _extract_slash_query(text: str) -> str | None:
@@ -1148,6 +1162,7 @@ class ReupApp(App):
             filtered_options=self._filtered_command_palette_options,
             command_palette_index=self._command_palette_index,
             max_rows=self.COMMAND_PALETTE_MAX_ROWS,
+            styles=self._render_styles(),
         )
 
     def _build_turn_action_options(
@@ -1157,7 +1172,9 @@ class ReupApp(App):
 
     def _render_turn_action_palette(self) -> Text:
         return render_turn_action_palette(
-            self._turn_action_options, self._command_palette_index
+            self._turn_action_options,
+            self._command_palette_index,
+            styles=self._render_styles(),
         )
 
     def _show_turn_action_palette(
@@ -1626,7 +1643,16 @@ class ReupApp(App):
         self.config.base_url = next_base_url
         self.config.model.name = selected
         self.refresh_header()
-        self.post_notice("Model", f"{old_model} → {selected}")
+
+    async def _open_theme_picker_from_meta(self) -> None:
+        old_theme = str(self.theme or "textual-dark")
+        selected = await self._open_modal(ThemePickerModal(old_theme))
+        if not selected or selected == self.theme:
+            return
+        self.theme = selected
+        self.refresh_header()
+        self._sync_command_palette(self.query_one("#prompt", TextArea).text)
+        self.post_notice("Theme", f"{old_theme} → {selected}")
 
     async def _open_usage_modal_from_meta(self) -> None:
         await self.ensure_agent()
@@ -4150,6 +4176,10 @@ class ReupApp(App):
             await self._open_activity_modal_from_meta()
             return
 
+        if command == "/theme":
+            await self._open_theme_picker_from_meta()
+            return
+
         if command == "/retry":
             await self._retry_last_turn()
             return
@@ -4200,7 +4230,7 @@ class ReupApp(App):
         if isinstance(output, StreamingCommandOutput):
             output.flush_pending()
         rendered = output.getvalue().strip()
-        if command in {"/branch", "/attach", "/model", "/rename"}:
+        if command in {"/branch", "/attach", "/model", "/rename", "/theme"}:
             self.refresh_header()
         had_live_output = (
             isinstance(output, StreamingCommandOutput) and output.had_live_output

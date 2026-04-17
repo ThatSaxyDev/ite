@@ -17,6 +17,7 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, DataTable, DirectoryTree, Input, Label, Static
+from textual.theme import BUILTIN_THEMES
 from textual.widgets.directory_tree import DirEntry
 
 from ite.attachments import MAX_ATTACHMENTS
@@ -990,6 +991,57 @@ class ModelPickerModal(ModalScreen[str | None]):
         row = table.cursor_row
         if 0 <= row < len(self._model_names) and self._model_available[row]:
             self.dismiss(self._model_names[row])
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class ThemePickerModal(ModalScreen[str | None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, current: str) -> None:
+        super().__init__()
+        self._current = current
+        self._theme_names = sorted(BUILTIN_THEMES.keys())
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal theme-picker-modal"):
+            yield Label("Select theme", classes="modal-title resume-title")
+            yield Static(
+                "Choose a Textual theme for the current session.",
+                classes="modal-body resume-body",
+                id="theme-picker-help",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(id="themes", classes="resume-table", cursor_type="row")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Select", id="select", variant="primary")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#themes", DataTable)
+        table.add_columns("Theme", "Mode", "Current")
+        initial_row = 0
+        for index, name in enumerate(self._theme_names):
+            theme = BUILTIN_THEMES[name]
+            table.add_row(name, "Dark" if theme.dark else "Light", "✓" if name == self._current else "")
+            if name == self._current:
+                initial_row = index
+        if self._theme_names:
+            table.move_cursor(row=initial_row, column=0)
+
+    @on(DataTable.RowSelected, "#themes")
+    def on_row_selected(self, event: DataTable.RowSelected) -> None:
+        if 0 <= event.cursor_row < len(self._theme_names):
+            self.dismiss(self._theme_names[event.cursor_row])
+
+    @on(Button.Pressed, "#select")
+    def on_select_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#themes", DataTable)
+        row = table.cursor_row
+        if 0 <= row < len(self._theme_names):
+            self.dismiss(self._theme_names[row])
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
