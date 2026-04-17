@@ -19,6 +19,9 @@ AGENT_MD_FILE = "AGENT.MD"
 WORKSPACE_DIR_NAME = ".ite"
 SAVED_CUSTOM_PROVIDERS_TABLE = "saved_custom_providers"
 
+# Theme storage
+THEME_FILE_NAME = "theme.json"
+
 DEFAULT_PROJECT_CONFIG = """# Workspace-level ITE config
 # Add overrides here (model, hooks, mcp servers, etc.)
 #
@@ -59,6 +62,13 @@ def get_system_config_path() -> Path:
 
 def get_system_secrets_path() -> Path:
     return get_config_dir() / SECRETS_FILE_NAME
+
+
+def get_theme_path() -> Path:
+    """Path to the stored theme preference file in data dir."""
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / THEME_FILE_NAME
 
 
 def get_workspace_secrets_path(cwd: Path) -> Path:
@@ -497,6 +507,26 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     os.chmod(config_path, 0o600)
     return config_path
+
+
+def save_theme(theme: str) -> Path:
+    """Persist the selected UI theme to a JSON file in data dir."""
+    theme_path = get_theme_path()
+    theme_path.write_text(json.dumps({"theme": theme}), encoding="utf-8")
+    return theme_path
+
+
+def load_theme() -> str | None:
+    """Load the saved UI theme from data dir, or None if not set."""
+    theme_path = get_theme_path()
+    if not theme_path.exists():
+        return None
+    try:
+        data = json.loads(theme_path.read_text(encoding="utf-8"))
+        theme = data.get("theme")
+        return str(theme) if theme else None
+    except Exception:
+        return None
 
 
 def save_mcp_server_config(

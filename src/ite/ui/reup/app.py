@@ -69,10 +69,12 @@ from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import ApprovalPolicy, Config
 from ite.config.loader import (
     load_saved_custom_provider,
+    load_theme,
     save_cloud_settings,
     save_global_approval_mode,
     save_saved_custom_provider,
     save_system_config,
+    save_theme,
 )
 from ite.git.branches import (
     checkout_branch,
@@ -566,7 +568,10 @@ class ReupApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        if self.theme == "textual-dark":
+        saved_theme = load_theme()
+        if saved_theme:
+            self.theme = saved_theme
+        elif self.theme == "textual-dark":
             self.theme = detect_host_textual_theme()
         self.query_one("#aside-toggle", Button).display = False
         self.query_one("#changes-toggle", Button).display = False
@@ -1650,6 +1655,7 @@ class ReupApp(App):
         if not selected or selected == self.theme:
             return
         self.theme = selected
+        save_theme(selected)
         self.refresh_header()
         self._sync_command_palette(self.query_one("#prompt", TextArea).text)
         self.post_notice("Theme", f"{old_theme} → {selected}")
