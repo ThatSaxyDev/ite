@@ -35,6 +35,7 @@ class SubagentDefinition:
     allowed_tools: list[str] | None = None
     max_turns: int = 20
     timeout_seconds: float = 600
+    inactivity_timeout_seconds: float = 120
     retry_attempts: int = 1
 
     @classmethod
@@ -52,6 +53,7 @@ class SubagentDefinition:
             allowed_tools=data.get("allowed_tools"),
             max_turns=data.get("max_turns", 20),
             timeout_seconds=data.get("timeout_seconds", 600),
+            inactivity_timeout_seconds=data.get("inactivity_timeout_seconds", 120),
             retry_attempts=data.get("retry_attempts", 1),
         )
 
@@ -172,6 +174,7 @@ class SubagentTool(Tool):
         prompt: str,
         subagent_config: Config,
         tool_calls: list[str],
+        agent=None,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> tuple[str, str | None, str | None, str | None, int]:
         from ite.agent.events import AgentEventType
@@ -183,10 +186,11 @@ class SubagentTool(Tool):
         child_session_id: str | None = None
         child_turn_count = 0
 
-        async with Agent(subagent_config) as agent:
-            if agent.session is not None:
-                child_session_id = agent.session.session_id
-                if progress_callback is not None:
+        async def _consume_agent(run_agent: Agent) -> None:
+            nonlocal final_response, error, terminate_response, child_session_id, child_turn_count
+            if run_agent.session is not None:
+                child_session_id = run_agent.session.session_id
+                if progress_callback is not None and agent is None:
                     maybe = progress_callback(
                         {
                             "phase": "session_started",
@@ -195,7 +199,7 @@ class SubagentTool(Tool):
                     )
                     if maybe is not None:
                         await maybe
-            async for event in agent.run(prompt):
+            async for event in run_agent.run(prompt):
                 if event.type == AgentEventType.TOOL_CALL_START:
                     tool_name = event.data.get("name")
                     tool_calls.append(tool_name)
@@ -210,12 +214,14 @@ class SubagentTool(Tool):
                         if maybe is not None:
                             await maybe
                 elif event.type == AgentEventType.TEXT_COMPLETE:
-                    final_response = event.data.get("content")
+                    if bool(event.data.get("final", True)):
+                        final_response = event.data.get("content")
                     if progress_callback is not None:
                         maybe = progress_callback(
                             {
                                 "phase": "text_complete",
-                                "summary": final_response,
+                                "summary": event.data.get("content"),
+                                "final": bool(event.data.get("final", True)),
                             }
                         )
                         if maybe is not None:
@@ -247,8 +253,14 @@ class SubagentTool(Tool):
                         if maybe is not None:
                             await maybe
                     break
-            if agent.session is not None:
-                child_turn_count = agent.session.turn_count
+            if run_agent.session is not None:
+                child_turn_count = run_agent.session.turn_count
+
+        if agent is not None:
+            await _consume_agent(agent)
+        else:
+            async with Agent(subagent_config) as child_agent:
+                await _consume_agent(child_agent)
 
         return terminate_response, final_response, error, child_session_id, child_turn_count
 
@@ -426,6 +438,9 @@ class SubagentTool(Tool):
         invocation: ToolInvocation,
         progress_callback: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
     ) -> ToolResult:
+        class _InactiveSubagentTimeout(Exception):
+            pass
+
         params = SubagentParams(**invocation.params)
         if not params.goal:
             return ToolResult.error_result("No goal specified for subagent")
@@ -461,15 +476,20 @@ class SubagentTool(Tool):
             )
 
         attempt_activities: list[str] = []
+        progress_loop = asyncio.get_running_loop()
+        last_progress_at = progress_loop.time()
 
         async def tracked_progress(update: dict[str, Any]) -> None:
+            nonlocal child_session_id, last_progress_at
+            last_progress_at = progress_loop.time()
             if live_call_id:
                 phase = str(update.get("phase") or "").strip()
                 if phase == "session_started":
+                    child_session_id = str(update.get("child_session_id") or "").strip() or child_session_id
                     self._set_live_progress(
                         call_id=live_call_id,
                         message="Session started.",
-                        child_session_id=str(update.get("child_session_id") or "").strip() or None,
+                        child_session_id=child_session_id,
                     )
                 elif phase == "tool_call_start":
                     tool_name = str(update.get("tool_name") or "").strip()
@@ -519,89 +539,154 @@ class SubagentTool(Tool):
                 if maybe is not None:
                     await maybe
 
-        for attempt_index in range(self.definition.retry_attempts + 1):
-            attempts_run = attempt_index + 1
-            tool_calls: list[str] = []
-            attempt_activities = []
-            prompt = self._build_attempt_prompt(
-                goal=params.goal,
-                prior_attempts=prior_attempts,
-            )
-            try:
-                runner_kwargs: dict[str, Any] = {
-                    "prompt": prompt,
-                    "subagent_config": subagent_config,
-                    "tool_calls": tool_calls,
-                }
-                try:
-                    parameters = inspect.signature(self._run_subagent_agent).parameters
-                except (TypeError, ValueError):
-                    parameters = {}
-                if "progress_callback" in parameters:
-                    runner_kwargs["progress_callback"] = tracked_progress
-                terminate_response, final_response, error, child_session_id, child_turn_count = await asyncio.wait_for(
-                    self._run_subagent_agent(**runner_kwargs),
-                    timeout=self.definition.timeout_seconds,
-                )
-            except asyncio.TimeoutError:
-                terminate_response = "timeout"
-                final_response = "Sub-agent timed out"
-                error = "Sub-agent timed out"
-                if live_call_id:
-                    self._set_live_progress(
-                        call_id=live_call_id,
-                        message="Specialist timed out.",
-                    )
-                attempt_activities.append("Specialist timed out.")
-            except Exception as e:
-                terminate_response = "error"
-                error = str(e)
-                final_response = f"Sub-agent failed: {e}"
-                if live_call_id:
-                    self._set_live_progress(
-                        call_id=live_call_id,
-                        message=str(e),
-                    )
-                attempt_activities.append(str(e))
+        from ite.agent.agent import Agent
 
-            all_tool_calls.extend(tool_calls)
-            partial_summary, partial_findings, partial_actions = self._normalize_response_payload(final_response or "")
-            should_retry = (
-                attempt_index < self.definition.retry_attempts
-                and self._is_retryable_failure(terminate_response, error)
-            )
-            if not should_retry:
-                break
-            retries_used += 1
-            prior_attempts.append(
-                {
-                    "attempt": attempt_index + 1,
-                    "termination": terminate_response,
-                    "error": error,
-                    "final_response": final_response,
-                    "summary": partial_summary,
-                    "findings": partial_findings,
-                    "actions": partial_actions,
-                    "activities": attempt_activities,
-                    "tool_calls": list(tool_calls),
-                }
-            )
-            if live_call_id:
-                self._set_live_progress(
-                    call_id=live_call_id,
-                    message=f"Retrying specialist with carried context (attempt {attempt_index + 2}).",
-                )
-            if progress_callback is not None:
-                maybe = progress_callback(
+        async with Agent(subagent_config) as child_agent:
+            if child_agent.session is not None:
+                child_session_id = child_agent.session.session_id
+                await tracked_progress(
                     {
-                        "phase": "retrying",
-                        "attempt": attempt_index + 2,
-                        "reason": terminate_response,
+                        "phase": "session_started",
+                        "child_session_id": child_session_id,
                     }
                 )
-                if maybe is not None:
-                    await maybe
-            error = None
+
+            for attempt_index in range(self.definition.retry_attempts + 1):
+                attempts_run = attempt_index + 1
+                tool_calls: list[str] = []
+                attempt_activities = []
+                prompt = self._build_attempt_prompt(
+                    goal=params.goal,
+                    prior_attempts=prior_attempts,
+                )
+                try:
+                    runner_kwargs: dict[str, Any] = {
+                        "prompt": prompt,
+                        "subagent_config": subagent_config,
+                        "tool_calls": tool_calls,
+                    }
+                    try:
+                        parameters = inspect.signature(self._run_subagent_agent).parameters
+                    except (TypeError, ValueError):
+                        parameters = {}
+                    if "agent" in parameters:
+                        runner_kwargs["agent"] = child_agent
+                    if "progress_callback" in parameters:
+                        runner_kwargs["progress_callback"] = tracked_progress
+                    last_progress_at = progress_loop.time()
+                    runner_task = asyncio.create_task(self._run_subagent_agent(**runner_kwargs))
+                    absolute_deadline = progress_loop.time() + self.definition.timeout_seconds
+                    inactivity_timeout = max(0.0, float(self.definition.inactivity_timeout_seconds))
+
+                    while True:
+                        now = progress_loop.time()
+                        remaining_total = absolute_deadline - now
+                        if remaining_total <= 0:
+                            raise asyncio.TimeoutError
+
+                        remaining_wait = remaining_total
+                        if inactivity_timeout > 0:
+                            remaining_inactive = (last_progress_at + inactivity_timeout) - now
+                            if remaining_inactive <= 0:
+                                raise _InactiveSubagentTimeout
+                            remaining_wait = min(remaining_wait, remaining_inactive)
+
+                        done, _pending = await asyncio.wait(
+                            {runner_task},
+                            timeout=remaining_wait,
+                            return_when=asyncio.ALL_COMPLETED,
+                        )
+                        if runner_task in done:
+                            (
+                                terminate_response,
+                                final_response,
+                                error,
+                                child_session_id,
+                                child_turn_count,
+                            ) = await runner_task
+                            break
+                        if inactivity_timeout > 0 and (progress_loop.time() - last_progress_at) >= inactivity_timeout:
+                            raise _InactiveSubagentTimeout
+                        continue
+                except asyncio.TimeoutError:
+                    terminate_response = "timeout"
+                    final_response = "Sub-agent timed out"
+                    error = "Sub-agent timed out"
+                    if live_call_id:
+                        self._set_live_progress(
+                            call_id=live_call_id,
+                            message="Specialist timed out.",
+                            child_session_id=child_session_id,
+                        )
+                    attempt_activities.append("Specialist timed out.")
+                    if "runner_task" in locals() and not runner_task.done():
+                        runner_task.cancel()
+                        await asyncio.gather(runner_task, return_exceptions=True)
+                except _InactiveSubagentTimeout:
+                    terminate_response = "timeout"
+                    final_response = "Sub-agent timed out after no progress"
+                    error = "Sub-agent timed out after no progress"
+                    if live_call_id:
+                        self._set_live_progress(
+                            call_id=live_call_id,
+                            message="Specialist timed out after no progress.",
+                            child_session_id=child_session_id,
+                        )
+                    attempt_activities.append("Specialist timed out after no progress.")
+                    if "runner_task" in locals() and not runner_task.done():
+                        runner_task.cancel()
+                        await asyncio.gather(runner_task, return_exceptions=True)
+                except Exception as e:
+                    terminate_response = "error"
+                    error = str(e)
+                    final_response = f"Sub-agent failed: {e}"
+                    if live_call_id:
+                        self._set_live_progress(
+                            call_id=live_call_id,
+                            message=str(e),
+                            child_session_id=child_session_id,
+                        )
+                    attempt_activities.append(str(e))
+
+                all_tool_calls.extend(tool_calls)
+                partial_summary, partial_findings, partial_actions = self._normalize_response_payload(final_response or "")
+                should_retry = (
+                    attempt_index < self.definition.retry_attempts
+                    and self._is_retryable_failure(terminate_response, error)
+                )
+                if not should_retry:
+                    break
+                retries_used += 1
+                prior_attempts.append(
+                    {
+                        "attempt": attempt_index + 1,
+                        "termination": terminate_response,
+                        "error": error,
+                        "final_response": final_response,
+                        "summary": partial_summary,
+                        "findings": partial_findings,
+                        "actions": partial_actions,
+                        "activities": attempt_activities,
+                        "tool_calls": list(tool_calls),
+                    }
+                )
+                if live_call_id:
+                    self._set_live_progress(
+                        call_id=live_call_id,
+                        message=f"Continuing specialist after {terminate_response} (attempt {attempt_index + 2}).",
+                        child_session_id=child_session_id,
+                    )
+                if progress_callback is not None:
+                    maybe = progress_callback(
+                        {
+                            "phase": "retrying",
+                            "attempt": attempt_index + 2,
+                            "reason": terminate_response,
+                        }
+                    )
+                    if maybe is not None:
+                        await maybe
+                error = None
 
         response_text = final_response or ""
         summary, findings, actions = self._normalize_response_payload(response_text)
@@ -695,6 +780,7 @@ Do NOT modify any files.""",
     allowed_tools=["read_file", "grep", "list_dir"],
     max_turns=30,
     timeout_seconds=600,
+    inactivity_timeout_seconds=120,
     retry_attempts=2,
 )
 
@@ -708,6 +794,7 @@ Return concrete findings and actions in concise bullets.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir"],
     max_turns=40,
     timeout_seconds=600,
+    inactivity_timeout_seconds=120,
     retry_attempts=2,
 )
 
@@ -721,6 +808,7 @@ Return concise findings and executable next actions.""",
     allowed_tools=["read_file", "grep", "glob", "list_dir", "shell"],
     max_turns=12,
     timeout_seconds=360,
+    inactivity_timeout_seconds=120,
     retry_attempts=1,
 )
 

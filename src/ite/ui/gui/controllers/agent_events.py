@@ -168,6 +168,7 @@ class AgentEventControllerMixin:
 
         elif event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
+            is_final_text = bool(event.data.get("final", True))
             self._hide_thinking_indicator()
             if self.streaming_markdown is not None:
                 self._finalize_streaming_message()
@@ -176,7 +177,7 @@ class AgentEventControllerMixin:
             # In plan-only phases, final plan rendering is handled exclusively
             # by PLAN_READY to avoid duplicate plan cards.
             # If the turn is still running after this text block, show activity again.
-            if self._is_turn_running:
+            if self._is_turn_running and not is_final_text:
                 self._show_thinking_indicator(
                     self._progress_indicator_label(plan_only_phase=plan_only_phase)
                 )
@@ -305,23 +306,14 @@ class AgentEventControllerMixin:
                 )
 
         elif event.type == AgentEventType.CONTEXT_COMPACTING:
-            self._show_thinking_indicator("Compacting context...")
+            self._show_thinking_indicator("Automatically compacting context...")
 
         elif event.type == AgentEventType.CONTEXT_COMPACTED:
             self._show_thinking_indicator(self._progress_indicator_label())
-            trigger_tokens = int(event.data.get("trigger_tokens", 0))
-            context_window = int(event.data.get("context_window", 0))
-            trigger_reason = str(event.data.get("trigger_reason", "threshold"))
-            used_pct = (trigger_tokens / context_window * 100) if context_window else 0
-            message = (
-                f"Context compacted after overflow retry. Local estimate was {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
-                if trigger_reason == "overflow_retry"
-                else f"Context compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
-            )
             self._add_assistant_card(
                 "Context",
                 ft.Text(
-                    message,
+                    "Context compacted.",
                     color=TEXT_SECONDARY,
                 ),
             )

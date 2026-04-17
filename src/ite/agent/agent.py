@@ -198,7 +198,7 @@ class Agent:
                 user_message=message,
                 agent_response=confirmation,
             )
-            yield AgentEvent.text_complete(confirmation)
+            yield AgentEvent.text_complete(confirmation, final=True)
             yield AgentEvent.agent_end(confirmation)
             return
         exact_recall = parse_exact_recall_probe(message)
@@ -210,7 +210,7 @@ class Agent:
                 user_message=message,
                 agent_response=recall,
             )
-            yield AgentEvent.text_complete(recall)
+            yield AgentEvent.text_complete(recall, final=True)
             yield AgentEvent.agent_end(recall)
             return
         direct_memory_answer = self._direct_memory_answer(session, message)
@@ -221,7 +221,7 @@ class Agent:
                 user_message=message,
                 agent_response=direct_memory_answer,
             )
-            yield AgentEvent.text_complete(direct_memory_answer)
+            yield AgentEvent.text_complete(direct_memory_answer, final=True)
             yield AgentEvent.agent_end(direct_memory_answer)
             return
         session.context_manager.add_user_message(message)
@@ -254,7 +254,9 @@ class Agent:
             ):
                 yield event
 
-                if event.type == AgentEventType.TEXT_COMPLETE:
+                if event.type == AgentEventType.TEXT_COMPLETE and bool(
+                    event.data.get("final", True)
+                ):
                     final_response = event.data.get("content")
         finally:
             session.todo_execution_handoff_active = False
@@ -375,6 +377,83 @@ class Agent:
         )
         return any(marker in lowered for marker in conclusive_markers)
 
+    def _has_structured_continuation_context(self, text: str) -> bool:
+        lines = [line.strip() for line in str(text or "").splitlines() if line.strip()]
+        if len(lines) < 2:
+            return False
+
+        prior_lines = lines[:-1]
+        prior_heading_count = sum(
+            1 for line in prior_lines if self._is_heading_like_incomplete_line(line)
+        )
+        if prior_heading_count >= 1:
+            return True
+
+        numbered_or_bulleted = sum(
+            1
+            for line in prior_lines
+            if re.match(r"^(\d+[\).\s-]+|[-*]\s+)", line)
+        )
+        return numbered_or_bulleted >= 2
+
+    def _has_dangling_inline_markup(self, text: str) -> bool:
+        stripped = str(text or "")
+        if not stripped:
+            return False
+
+        # Ignore fenced blocks; this helper is for inline markdown/code corruption.
+        without_fences = re.sub(r"```.*?```", "", stripped, flags=re.DOTALL)
+        return without_fences.count("`") % 2 == 1
+
+    def _has_incomplete_markdown_table_tail(self, text: str) -> bool:
+        lines = [line.rstrip() for line in str(text or "").splitlines() if line.strip()]
+        if len(lines) < 2:
+            return False
+
+        table_lines = [line for line in lines if "|" in line]
+        if len(table_lines) < 2:
+            return False
+
+        last_line = lines[-1].strip()
+        if "|" not in last_line:
+            return False
+
+        nonempty_table_lines = [line.strip() for line in table_lines if line.strip()]
+        if len(nonempty_table_lines) < 2:
+            return False
+
+        expected_columns = max(
+            line.count("|") for line in nonempty_table_lines[:-1] if "|" in line
+        )
+        return last_line.count("|") < expected_columns
+
+    def _has_empty_trailing_section(self, text: str) -> bool:
+        lines = [line.rstrip() for line in str(text or "").splitlines()]
+        if len(lines) < 2:
+            return False
+
+        trimmed = [line.strip() for line in lines]
+        last_nonempty_index = -1
+        for idx, line in enumerate(trimmed):
+            if line:
+                last_nonempty_index = idx
+        if last_nonempty_index < 0:
+            return False
+
+        tail = trimmed[max(0, last_nonempty_index - 4) : last_nonempty_index + 1]
+        if not tail:
+            return False
+
+        heading_pattern = re.compile(r"^(#{1,6}\s+.+|[A-Z][A-Za-z0-9 /_().:-]{2,90}):?$")
+        if len(tail) >= 2 and heading_pattern.match(tail[-2]) and tail[-1] in {"```", "'''"}:
+            return True
+
+        if len(tail) >= 2 and heading_pattern.match(tail[-2]):
+            filler = tail[-1].strip()
+            if filler in {"```", "```dart", "```ts", "```tsx", "```js", "```json", "|", "-", "—", "...", "(continued)"}:
+                return True
+        return False
+
     def _should_retry_incomplete_response(
         self,
         *,
@@ -383,6 +462,7 @@ class Agent:
         retry_count: int,
         has_tool_calls: bool,
         user_message: str,
+        was_streamed: bool = False,
     ) -> tuple[bool, str, int]:
         if retry_count >= self.INCOMPLETE_RESPONSE_MAX_RETRIES:
             return False, "retry cap reached", 0
@@ -401,11 +481,26 @@ class Agent:
             score += 4
             reasons.append("open code fence")
 
+        if self._has_dangling_inline_markup(stripped):
+            score += 4
+            reasons.append("dangling inline markup")
+
         lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
         last_line = lines[-1].strip() if lines else ""
         if self._is_heading_like_incomplete_line(last_line):
             score += 3
             reasons.append("dangling heading")
+            if self._has_structured_continuation_context(stripped):
+                score += 1
+                reasons.append("structured continuation context")
+
+        if self._has_incomplete_markdown_table_tail(stripped):
+            score += 4
+            reasons.append("incomplete markdown table")
+
+        if self._has_empty_trailing_section(stripped):
+            score += 4
+            reasons.append("empty trailing section")
 
         if re.match(r"^\d+[\).\s-]+.+:$", last_line):
             score += 2
@@ -426,6 +521,15 @@ class Agent:
         if len(stripped) > 900 and normalized_finish_reason == "stop":
             score -= 1
             reasons.append("substantial stopped answer")
+
+        if (
+            was_streamed
+            and score < 4
+            and normalized_finish_reason not in {"length", "max_tokens"}
+            and stripped.count("```") % 2 == 0
+        ):
+            reasons.append("already streamed to user")
+            return False, ", ".join(reasons), score
 
         should_retry = score >= 2
         if not reasons:
@@ -1283,6 +1387,7 @@ class Agent:
                 return
 
             response_text = ""
+            streamed_visible_text = False
             raw_tool_markup_buffer = ""
             inside_raw_tool_markup = False
             execution_progress_eligible = False
@@ -1402,6 +1507,7 @@ class Agent:
                             session.plan_mode_enabled
                             and session.plan_phase != "executing"
                         ):
+                            streamed_visible_text = True
                             yield AgentEvent.text_delta(visible_content)
                 elif event.type == StreamEventType.TOOL_CALL_COMPLETE:
                     if event.tool_call:
@@ -1648,7 +1754,7 @@ class Agent:
                                 progress_event
                             ) in self._complete_planning_seed_todo(session, 2):
                                 yield progress_event
-                            yield AgentEvent.text_complete(plan_text)
+                            yield AgentEvent.text_complete(plan_text, final=True)
                             session.loop_detector.record_action(
                                 "response", text=plan_text
                             )
@@ -1663,7 +1769,10 @@ class Agent:
                                     stage="summary",
                                 ):
                                     yield progress_event
-                            yield AgentEvent.text_complete(controlled_response_text)
+                            yield AgentEvent.text_complete(
+                                controlled_response_text,
+                                final=True,
+                            )
                             session.loop_detector.record_action(
                                 "response", text=controlled_response_text
                             )
@@ -1676,6 +1785,7 @@ class Agent:
                             retry_count=incomplete_response_retries,
                             has_tool_calls=bool(tool_calls),
                             user_message=latest_user_text,
+                            was_streamed=streamed_visible_text,
                         )
                     )
                     if should_retry_incomplete:
@@ -1695,7 +1805,10 @@ class Agent:
                             stage="summary",
                         ):
                             yield progress_event
-                    yield AgentEvent.text_complete(controlled_response_text)
+                    yield AgentEvent.text_complete(
+                        controlled_response_text,
+                        final=True,
+                    )
                     session.loop_detector.record_action(
                         "response", text=controlled_response_text
                     )
@@ -1704,12 +1817,16 @@ class Agent:
                 incomplete_response_prefix = ""
                 return
 
-            if controlled_response_text and not tool_calls:
+            if controlled_response_text and tool_calls:
                 in_plan_questioning = (
                     session.plan_mode_enabled and session.plan_phase != "executing"
                 )
                 if not in_plan_questioning:
-                    yield AgentEvent.text_complete(controlled_response_text)
+                    yield AgentEvent.text_complete(
+                        controlled_response_text,
+                        final=False,
+                        continue_after=True,
+                    )
                 session.loop_detector.record_action(
                     "response", text=controlled_response_text
                 )

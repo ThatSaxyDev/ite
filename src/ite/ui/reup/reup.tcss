@@ -1118,6 +1118,43 @@ Screen {
     padding: 0;
 }
 
+.assistant-body MarkdownParagraph,
+.assistant-body MarkdownList,
+.assistant-body MarkdownTable,
+.assistant-body MarkdownBlockQuote {
+    color: #dfe4ea;
+}
+
+.assistant-body MarkdownH1 {
+    color: #f1ddaa;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownH2 {
+    color: #d8ab74;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownH3 {
+    color: #b7c8e1;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownH4,
+.assistant-body MarkdownH5,
+.assistant-body MarkdownH6 {
+    color: #dfe4ea;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownTableContent > .header {
+    color: #b7c8e1;
+}
+
 .user-body MarkdownBlock:last-of-type,
 .assistant-body MarkdownBlock:last-of-type {
     margin-bottom: 0;

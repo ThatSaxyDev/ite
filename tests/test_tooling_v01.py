@@ -845,6 +845,49 @@ class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
             payload = result.metadata.get("subagent_result", {})
             self.assertEqual(payload.get("termination"), "timeout")
 
+    async def test_subagent_inactivity_timeout_is_enforced(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            definition = SubagentDefinition(
+                name="inactive_test",
+                description="inactive",
+                goal_prompt="inactive",
+                allowed_tools=["read_file"],
+                timeout_seconds=1.0,
+                inactivity_timeout_seconds=0.01,
+            )
+            tool = SubagentTool(config, definition)
+
+            async def stalled_run(*, prompt, subagent_config, tool_calls, progress_callback=None):
+                tool_calls.append("read_file")
+                if progress_callback is not None:
+                    maybe = progress_callback(
+                        {
+                            "phase": "tool_call_start",
+                            "tool_name": "read_file",
+                            "arguments": {"path": "lib/sms_notifier.dart"},
+                        }
+                    )
+                    if maybe is not None:
+                        await maybe
+                await asyncio.sleep(0.1)
+                return "goal", "ok", None, "child-session-inactive", 1
+
+            tool._run_subagent_agent = stalled_run  # type: ignore[method-assign]
+            result = await tool.execute(
+                ToolInvocation(
+                    params={"goal": "investigate notifier stall"},
+                    cwd=cwd,
+                    call_id="call_inactive",
+                )
+            )
+
+            self.assertFalse(result.success)
+            self.assertIn("timed out", result.error or "")
+            payload = result.metadata.get("subagent_result", {})
+            self.assertEqual(payload.get("termination"), "timeout")
+
     async def test_subagent_retries_after_max_turns_with_carried_context(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
@@ -921,11 +964,14 @@ class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
             tool = SubagentTool(config, definition)
             prompts: list[str] = []
             attempts = {"count": 0}
+            child_session_ids: list[str] = []
 
-            async def flaky_timeout_run(*, prompt, subagent_config, tool_calls, progress_callback=None):
+            async def flaky_timeout_run(*, prompt, subagent_config, tool_calls, agent=None, progress_callback=None):
                 prompts.append(prompt)
                 attempts["count"] += 1
                 tool_calls.append("read_file")
+                if agent is not None and agent.session is not None:
+                    child_session_ids.append(agent.session.session_id)
                 if attempts["count"] == 1:
                     if progress_callback is not None:
                         maybe = progress_callback(
@@ -960,12 +1006,82 @@ class SubagentTimeoutTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.success, msg=result.error)
             self.assertEqual(attempts["count"], 2)
             self.assertEqual(len(prompts), 2)
+            self.assertEqual(len(set(child_session_ids)), 1)
             self.assertIn("CONTINUATION CONTEXT FROM PRIOR ATTEMPT(S):", prompts[1])
             self.assertIn("termination=timeout", prompts[1])
             self.assertIn("Reading session.py.", prompts[1])
             payload = result.metadata.get("subagent_result", {})
             trace = result.metadata.get("subagent_trace", {})
             self.assertEqual(payload.get("summary"), "Recovered after timeout")
+            self.assertEqual(payload.get("retries_used"), 1)
+            self.assertEqual(trace.get("retries_used"), 1)
+            self.assertEqual(trace.get("attempt_count"), 2)
+
+    async def test_subagent_retries_after_inactivity_timeout_with_carried_context(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            config = Config(cwd=cwd, api_key="test")
+            definition = SubagentDefinition(
+                name="retry_inactive",
+                description="retry inactivity",
+                goal_prompt="retry inactivity",
+                allowed_tools=["read_file"],
+                timeout_seconds=1.0,
+                inactivity_timeout_seconds=0.01,
+                retry_attempts=1,
+            )
+            tool = SubagentTool(config, definition)
+            prompts: list[str] = []
+            attempts = {"count": 0}
+            child_session_ids: list[str] = []
+
+            async def flaky_inactive_run(*, prompt, subagent_config, tool_calls, agent=None, progress_callback=None):
+                prompts.append(prompt)
+                attempts["count"] += 1
+                tool_calls.append("read_file")
+                if agent is not None and agent.session is not None:
+                    child_session_ids.append(agent.session.session_id)
+                if attempts["count"] == 1:
+                    if progress_callback is not None:
+                        maybe = progress_callback(
+                            {
+                                "phase": "tool_call_start",
+                                "tool_name": "read_file",
+                                "arguments": {"path": "lib/shared/shared_prefs_helper.dart"},
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
+                    await asyncio.sleep(0.1)
+                    return "goal", "slow", None, "child-session-inactive", 1
+                return (
+                    "goal",
+                    '{"summary":"Recovered after inactivity timeout","findings":["Resumed stalled investigation"],"actions":["Done"]}',
+                    None,
+                    "child-session-inactive-2",
+                    2,
+                )
+
+            tool._run_subagent_agent = flaky_inactive_run  # type: ignore[method-assign]
+            result = await tool.execute(
+                ToolInvocation(
+                    params={"goal": "resume after inactivity timeout"},
+                    cwd=cwd,
+                    call_id="call_retry_inactive",
+                    session_id="parent_session_retry",
+                )
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(attempts["count"], 2)
+            self.assertEqual(len(prompts), 2)
+            self.assertEqual(len(set(child_session_ids)), 1)
+            self.assertIn("CONTINUATION CONTEXT FROM PRIOR ATTEMPT(S):", prompts[1])
+            self.assertIn("termination=timeout", prompts[1])
+            self.assertIn("Reading shared_prefs_helper.dart.", prompts[1])
+            payload = result.metadata.get("subagent_result", {})
+            trace = result.metadata.get("subagent_trace", {})
+            self.assertEqual(payload.get("summary"), "Recovered after inactivity timeout")
             self.assertEqual(payload.get("retries_used"), 1)
             self.assertEqual(trace.get("retries_used"), 1)
             self.assertEqual(trace.get("attempt_count"), 2)

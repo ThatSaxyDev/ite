@@ -32,6 +32,17 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(score, 2)
 
         should_retry, _reason, score = agent._should_retry_incomplete_response(
+            text="What You Need to Do:",
+            finish_reason="stop",
+            retry_count=0,
+            has_tool_calls=False,
+            user_message="Explain what to do next.",
+            was_streamed=True,
+        )
+        self.assertFalse(should_retry)
+        self.assertGreaterEqual(score, 2)
+
+        should_retry, _reason, score = agent._should_retry_incomplete_response(
             text="The safest path is to ship BYOK first. That should get you to production cleanly.",
             finish_reason="stop",
             retry_count=0,
@@ -55,6 +66,45 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reason, "retry cap reached")
         self.assertEqual(score, 0)
 
+    def test_streamed_structural_corruption_still_retries(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+
+        should_retry, _reason, score = agent._should_retry_incomplete_response(
+            text=(
+                "## Color Palette\n\n"
+                "| Name | Purpose | Primary Shade |\n"
+                "| --- | --- | --- |\n"
+                "| c1 | Neutral/Grayscale | Black -> White gradient |\n"
+                "| `c"
+            ),
+            finish_reason="stop",
+            retry_count=0,
+            has_tool_calls=False,
+            user_message="Audit the theme architecture.",
+            was_streamed=True,
+        )
+        self.assertTrue(should_retry)
+        self.assertGreaterEqual(score, 4)
+
+    def test_streamed_empty_trailing_section_still_retries(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+
+        should_retry, _reason, score = agent._should_retry_incomplete_response(
+            text=(
+                "## Dio Interceptor Chain\n\n"
+                "Located in lib/core/interceptors/.\n\n"
+                "## Endpoints (lib/core/config/endpoints.dart)\n"
+                "```"
+            ),
+            finish_reason="stop",
+            retry_count=0,
+            has_tool_calls=False,
+            user_message="Inspect the networking layer.",
+            was_streamed=True,
+        )
+        self.assertTrue(should_retry)
+        self.assertGreaterEqual(score, 4)
+
     async def test_incomplete_structured_response_continues_without_user_retry(self) -> None:
         agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
         assert agent.session is not None
@@ -74,6 +124,7 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
                 )
                 yield StreamEvent(
                     type=StreamEventType.MESSAGE_COMPLETE,
+                    finish_reason="length",
                     usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
                 )
                 return
@@ -125,6 +176,7 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
                 )
                 yield StreamEvent(
                     type=StreamEventType.MESSAGE_COMPLETE,
+                    finish_reason="length",
                     usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
                 )
                 return
@@ -196,6 +248,158 @@ class AgentContinuationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(call_count, 1)
         self.assertEqual(len(completed), 1)
         self.assertIn("BYOK-first", completed[0])
+
+    async def test_streamed_heading_only_tail_does_not_auto_retry(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True, visual_budget=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 1:
+                raise AssertionError("Streamed weak truncation signal should not auto-retry.")
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    "The root cause is in the turn completion heuristic.\n\nWhat You Need to Do:"
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                finish_reason="stop",
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("Explain the problem briefly."):
+            events.append(event)
+
+        completed = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(call_count, 1)
+        self.assertEqual(len(completed), 1)
+        self.assertIn("What You Need to Do:", completed[0])
+
+    async def test_streamed_broken_markdown_table_retries_once(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True, visual_budget=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text_delta=TextDelta(
+                        "## Color Palette\n\n"
+                        "| Name | Purpose | Primary Shade |\n"
+                        "| --- | --- | --- |\n"
+                        "| c1 | Neutral/Grayscale | Black -> White gradient |\n"
+                        "| `c"
+                    ),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.MESSAGE_COMPLETE,
+                    finish_reason="stop",
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                )
+                return
+
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    " | Accent ramp |\n| c2 | Primary accent | Blue scale |"
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                finish_reason="stop",
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("Summarize the color palette."):
+            events.append(event)
+
+        completed = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(len(completed), 1)
+        self.assertIn("| c2 | Primary accent | Blue scale |", completed[0])
+
+    async def test_streamed_empty_section_retries_once(self) -> None:
+        agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        call_count = 0
+
+        async def fake_chat_completion(messages, tools=None, stream=True, visual_budget=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA,
+                    text_delta=TextDelta(
+                        "## Dio Interceptor Chain\n\n"
+                        "Located in lib/core/interceptors/.\n\n"
+                        "## Endpoints (lib/core/config/endpoints.dart)\n"
+                        "```"
+                    ),
+                )
+                yield StreamEvent(
+                    type=StreamEventType.MESSAGE_COMPLETE,
+                    finish_reason="stop",
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                )
+                return
+
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    "\nstatic const receiveMoney = '/receive/connect';\n"
+                    "static const payout = '/payout';\n```"
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                finish_reason="stop",
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+        events = []
+        async for event in agent.run("Inspect the endpoints file."):
+            events.append(event)
+
+        completed = [
+            str(event.data.get("content", ""))
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(call_count, 2)
+        self.assertEqual(len(completed), 1)
+        self.assertIn("receiveMoney", completed[0])
 
     async def test_read_only_repo_summary_does_not_continue_due_to_stale_execution_todos(self) -> None:
         agent = Agent(Config(cwd=Path("/tmp"), api_key="test"))

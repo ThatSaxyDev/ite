@@ -161,6 +161,40 @@ class _StatusThenWriteClient:
         yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
 
 
+class _CommentaryThenToolClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(
+                    content="Inspecting the workspace now."
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_fake_commentary",
+                    name="fake_tool",
+                    arguments={"value": "x"},
+                ),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+            return
+
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(content="Finished the task."),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
 class _RawToolMarkupClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -600,6 +634,27 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 / "lib/features/editor/providers/project_provider.dart"
             ).exists()
         )
+
+    async def test_commentary_before_tool_is_not_marked_as_final_response(self) -> None:
+        fake_client = _CommentaryThenToolClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeTool(self.config))
+
+        events = [event async for event in self.agent.run("do the task")]
+
+        completed = [
+            event.data
+            for event in events
+            if event.type == AgentEventType.TEXT_COMPLETE
+        ]
+
+        self.assertEqual(fake_client.calls, 2)
+        self.assertEqual(len(completed), 2)
+        self.assertEqual(completed[0].get("content"), "Inspecting the workspace now.")
+        self.assertFalse(completed[0].get("final", True))
+        self.assertTrue(completed[0].get("continue_after"))
+        self.assertEqual(completed[1].get("content"), "Finished the task.")
+        self.assertTrue(completed[1].get("final", False))
 
     def test_finish_setup_request_is_treated_as_execution_intent(self) -> None:
         from ite.memory.response_intent import resolve_response_intent

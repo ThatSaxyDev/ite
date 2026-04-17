@@ -926,8 +926,6 @@ def progress_label(
         label = "Delegating to specialist"
 
     if phase == "post_tool":
-        if name in {"list_dir", "grep", "glob", "read_file", "web_search", "web_fetch"}:
-            return label
         return "Planning next step" if plan_mode else "Reviewing results"
 
     return label

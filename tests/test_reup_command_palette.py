@@ -676,7 +676,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         post_notice.assert_called_once_with("Context", "Compacting context")
         post_system.assert_called_once()
-        self.assertEqual(post_system.call_args.args[0], "Context automatically compacted")
+        self.assertEqual(post_system.call_args.args[0], "Context compacted")
+        self.assertEqual(post_system.call_args.args[1], "Context compacted.")
         post_command.assert_not_called()
 
     def test_run_command_retry_dispatches_saved_retryable_payload(self) -> None:
@@ -909,6 +910,49 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 set_loading.assert_called_once_with("resuming after compaction", busy=True)
                 dispatch.assert_awaited_once_with(expected_payload)
                 post_notice.assert_not_called()
+
+        asyncio.run(scenario())
+
+    def test_run_agent_message_dispatches_compaction_auto_resume_after_turn(self) -> None:
+        app = self._app()
+        run_state = app._run_state("s1")
+        app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                pending_attachment_paths=[],
+                get_stats=lambda: {"context_used_pct": 0.0},
+                plan_mode_enabled=False,
+                plan_phase="idle",
+            )
+        )
+
+        expected_payload = {
+            "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
+            "display_message": "",
+            "attachments": [],
+            "suppress_user_echo": True,
+        }
+
+        async def fake_agent_turn(*_args, **_kwargs) -> None:
+            run_state.auto_resume_payload = dict(expected_payload)
+
+        async def scenario() -> None:
+            with patch.object(app, "ensure_agent", new=AsyncMock()), patch.object(
+                app, "_prepare_attachments_for_turn", return_value=("hello", None, None, None)
+            ), patch.object(app, "add_user_message", new=AsyncMock()), patch.object(
+                app, "auto_save", new=AsyncMock()
+            ), patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
+                app, "_set_loading_state"
+            ) as set_loading, patch.object(app, "refresh_header"), patch.object(
+                app, "_agent_turn", new=AsyncMock(side_effect=fake_agent_turn)
+            ):
+                await app.run_agent_message("hello")
+                dispatch.assert_awaited_once_with(expected_payload)
+                self.assertIsNone(run_state.auto_resume_payload)
+                self.assertIn(
+                    unittest.mock.call("resuming after compaction", busy=True),
+                    set_loading.call_args_list,
+                )
 
         asyncio.run(scenario())
 
@@ -1820,6 +1864,33 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 await app.handle_send()
                 resolve.assert_awaited_once()
                 cancel.assert_not_called()
+
+        asyncio.run(scenario())
+
+    def test_cancel_active_turn_cancels_active_session_subagents(self) -> None:
+        app = self._app()
+        runtime = SimpleNamespace(cancel=AsyncMock(return_value={"cancelled_run_ids": ["agent_001"]}))
+        app.agent = SimpleNamespace(session=SimpleNamespace(subagent_runtime=runtime))
+
+        async def scenario() -> None:
+            blocker = asyncio.Event()
+
+            async def wait_forever() -> None:
+                await blocker.wait()
+
+            task = asyncio.create_task(wait_forever())
+            app._active_turn_task = task
+            app._is_turn_running = True
+
+            with (
+                patch.object(app, "_clear_inflight_turn_ui", new=AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+            ):
+                await app.cancel_active_turn()
+
+            runtime.cancel.assert_awaited_once_with(run_ids=None)
+            self.assertIsNone(app._active_turn_task)
+            self.assertFalse(app._is_turn_running)
 
         asyncio.run(scenario())
 

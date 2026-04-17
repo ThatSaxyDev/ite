@@ -963,18 +963,21 @@ class CLI:
                     self.tui.stream_assistant_delta(content)
 
                 elif event.type == AgentEventType.TEXT_COMPLETE:
-                    final_response = event.data.get("content")
+                    content = event.data.get("content")
+                    is_final_text = bool(event.data.get("final", True))
+                    if is_final_text:
+                        final_response = content
                     self.tui.stop_spinner()
-                    if final_response:
+                    if content:
                         self._mark_pending_tool_failures_recovered()
                     if assistant_streaming:
-                        self.tui.end_assistant(final_response)
+                        self.tui.end_assistant(content)
                         assistant_streaming = False
-                    elif final_response:
+                    elif content:
                         # Plan mode may suppress text deltas before final output.
                         # Render complete assistant output in one shot.
                         self.tui.begin_assistant()
-                        self.tui.stream_assistant_delta(final_response)
+                        self.tui.stream_assistant_delta(content)
                         self.tui.end_assistant()
 
                 elif event.type == AgentEventType.AGENT_ERROR:
@@ -1148,22 +1151,11 @@ class CLI:
 
                 elif event.type == AgentEventType.CONTEXT_COMPACTING:
                     self.tui.stop_spinner()
-                    self.tui.start_spinner("Compacting context...")
+                    self.tui.start_spinner("Automatically compacting context...")
 
                 elif event.type == AgentEventType.CONTEXT_COMPACTED:
                     self.tui.stop_spinner()
-                    trigger_tokens = int(event.data.get("trigger_tokens", 0))
-                    context_window = int(event.data.get("context_window", 0))
-                    trigger_reason = str(event.data.get("trigger_reason", "threshold"))
-                    used_pct = (trigger_tokens / context_window * 100) if context_window else 0
-                    if trigger_reason == "overflow_retry":
-                        console.print(
-                            f"[dim]Context compacted after overflow retry · local estimate {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
-                        )
-                    else:
-                        console.print(
-                            f"[dim]Context compacted · {trigger_tokens}/{context_window} tokens ({used_pct:.1f}%)[/dim]"
-                        )
+                    console.print("[dim]Context compacted.[/dim]")
                     self.tui.start_spinner(progress_label(plan_mode=plan_only_phase))
 
                 elif event.type == AgentEventType.PLAN_READY:

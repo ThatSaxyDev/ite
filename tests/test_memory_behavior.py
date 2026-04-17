@@ -159,7 +159,7 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("active response controls", system_prompt.lower())
         self.assertIn("keep answers short by default.", system_prompt.lower())
         self.assertIn(
-            "avoid bullet lists unless the user explicitly asks for them.",
+            "avoid casual unordered bullet lists unless the user explicitly asks for them, but preserve numbered steps or checklists when structure materially improves clarity.",
             system_prompt.lower(),
         )
 
@@ -197,6 +197,41 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("\n-", response)
         self.assertNotIn("\n*", response)
         self.assertIn("sessions; tools; context", response.lower())
+
+    async def test_numbered_lists_are_preserved_when_avoid_bullets_preference_is_active(self) -> None:
+        workspace = self.base_path / "ws-numbered-bullets"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        async def stubborn_numbered_list(messages, tools=None, stream=True):
+            latest_user = ""
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    latest_user = str(msg.get("content", ""))
+                    break
+            if "what should i check?" in latest_user.lower():
+                text = "Checks:\n1. auth\n2. storage\n3. routing"
+            else:
+                text = "Stored."
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(text),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = stubborn_numbered_list  # type: ignore[method-assign]
+
+        await self._drain(agent.run("From now on, keep answers short and avoid bullet lists."))
+        response = await self._collect_text(agent.run("What should I check?"))
+        self.assertIn("\n1. auth", response.lower())
+        self.assertIn("\n2. storage", response.lower())
+        self.assertIn("\n3. routing", response.lower())
 
     async def test_memory_command_shows_active_controls(self) -> None:
         workspace = self.base_path / "ws-memory-command"
@@ -364,7 +399,7 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
                 return "Detailed answer:\n- sessions\n- tools\n- context"
             if (
                 "keep answers short by default." in prompt_text
-                and "avoid bullet lists unless the user explicitly asks for them." in prompt_text
+                and "avoid casual unordered bullet lists unless the user explicitly asks for them, but preserve numbered steps or checklists when structure materially improves clarity." in prompt_text
             ):
                 return "Short answer: session, tools, context."
             return "The architecture uses sessions, tools, and context."

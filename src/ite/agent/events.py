@@ -74,10 +74,20 @@ class AgentEvent:
         )
 
     @classmethod
-    def text_complete(cls, content: str) -> AgentEvent:
+    def text_complete(
+        cls,
+        content: str,
+        *,
+        final: bool = True,
+        continue_after: bool = False,
+    ) -> AgentEvent:
         return cls(
             type=AgentEventType.TEXT_COMPLETE,
-            data={"content": content},
+            data={
+                "content": content,
+                "final": final,
+                "continue_after": continue_after,
+            },
         )
 
     @classmethod

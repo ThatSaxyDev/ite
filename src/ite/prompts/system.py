@@ -548,7 +548,10 @@ def _get_controls_section(controls: dict) -> str:
 
     bullet_style = str(controls.get("bullet_style", "")).strip()
     if bullet_style == "avoid":
-        instructions.append("Avoid bullet lists unless the user explicitly asks for them.")
+        instructions.append(
+            "Avoid casual unordered bullet lists unless the user explicitly asks for them, "
+            "but preserve numbered steps or checklists when structure materially improves clarity."
+        )
     elif bullet_style == "helpful":
         instructions.append("Use bullet lists when they materially improve clarity.")
     elif bullet_style == "default":

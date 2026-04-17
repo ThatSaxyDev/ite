@@ -204,7 +204,7 @@ class MemoryEvalMatrixTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("short answer", result.response.lower())
         self.assertIn("keep answers short by default.", result.system_prompt.lower())
         self.assertIn(
-            "avoid bullet lists unless the user explicitly asks for them.",
+            "avoid casual unordered bullet lists unless the user explicitly asks for them, but preserve numbered steps or checklists when structure materially improves clarity.",
             result.system_prompt.lower(),
         )
 

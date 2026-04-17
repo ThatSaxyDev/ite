@@ -4178,16 +4178,9 @@ class ReupApp(App):
         ):
             compact_after = self.agent.session.context_manager.compaction_count
             if compact_after > compact_before:
-                latest_tokens = (
-                    self.agent.session.context_manager.latest_usage.prompt_tokens
-                )
-                context_window = self.config.model.context_window
-                used_pct = (
-                    (latest_tokens / context_window * 100) if context_window else 0
-                )
                 self.post_system(
-                    "Context automatically compacted",
-                    f"Compacted for testing. Current local estimate is {latest_tokens}/{context_window} tokens ({used_pct:.1f}% used).",
+                    "Context compacted",
+                    "Context compacted.",
                 )
                 return
         if rendered and not had_live_output:
@@ -4640,7 +4633,6 @@ class ReupApp(App):
                 self._set_loading_state("idle", busy=False)
 
         if completed_normally and self._active_session_id() == session_id:
-            run_state.auto_resume_payload = None
             run_state.failure_recovery_payload = None
             await self._dispatch_queued_payload_if_ready()
         elif (
@@ -4707,6 +4699,7 @@ class ReupApp(App):
 
         if event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
+            is_final_text = bool(event.data.get("final", True))
             if content:
                 run_state.turn_made_progress = True
             self._cancel_activity_resume_timer()
@@ -4734,7 +4727,7 @@ class ReupApp(App):
                 == "awaiting_implementation_confirmation"
             ):
                 await self._render_plan_text_if_needed(content)
-            if self._is_turn_running:
+            if self._is_turn_running and not is_final_text:
                 self._activity_version += 1
                 await self._show_activity_indicator(
                     self._progress_state_label(),
@@ -4784,16 +4777,12 @@ class ReupApp(App):
             self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
-            await self._start_live_compaction_card("Compacting context")
+            await self._start_live_compaction_card("Automatically compacting context...")
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
-            trigger_tokens = int(event.data.get("trigger_tokens", 0))
-            context_window = int(event.data.get("context_window", 0))
-            trigger_reason = str(event.data.get("trigger_reason", "threshold"))
             auto_resume_required = bool(event.data.get("auto_resume_required", False))
-            used_pct = (trigger_tokens / context_window * 100) if context_window else 0
-            run_state.context_meter_floor_pct = int(round(used_pct))
+            run_state.context_meter_floor_pct = 100
             if auto_resume_required:
                 run_state.auto_resume_payload = {
                     "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
@@ -4801,13 +4790,7 @@ class ReupApp(App):
                     "attachments": [],
                     "suppress_user_echo": True,
                 }
-            await self._finish_live_compaction_card(
-                (
-                    f"Compacted after overflow retry. Local estimate was {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
-                    if trigger_reason == "overflow_retry"
-                    else f"Compacted at {trigger_tokens}/{context_window} tokens ({used_pct:.1f}% used)."
-                )
-            )
+            await self._finish_live_compaction_card("Context compacted.")
             self.refresh_header()
             return
 
@@ -7102,6 +7085,12 @@ class ReupApp(App):
                 await task
             except asyncio.CancelledError:
                 pass
+            except Exception:
+                pass
+        runtime = getattr(getattr(self.agent, "session", None), "subagent_runtime", None)
+        if runtime is not None and hasattr(runtime, "cancel"):
+            try:
+                await runtime.cancel(run_ids=None)
             except Exception:
                 pass
         self._active_turn_task = None
