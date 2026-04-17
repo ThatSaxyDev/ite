@@ -1181,6 +1181,7 @@ PlanQuestionModal,
 SessionResumeModal,
 BranchPickerModal,
 ModelPickerModal,
+ThemePickerModal,
 UsageSummaryModal,
 ContextSummaryModal,
 ActivityModal,
@@ -1248,8 +1249,8 @@ CommitModal .commit-modal {
     height: 20;
     min-height: 20;
     max-height: 20;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1268,12 +1269,12 @@ CommitModal .commit-toggle-row {
 CommitModal .commit-label {
     width: 18;
     min-width: 18;
-    color: #c6c6cd;
+    color: $foreground-muted;
     text-style: bold;
 }
 
 CommitModal .commit-branch {
-    color: #edf1f7;
+    color: $foreground;
     text-style: bold;
 }
 
@@ -1324,15 +1325,15 @@ CommitModal #commit-ai-fill {
     min-height: 3;
     margin-left: 0;
     border: none;
-    background: #27323b;
-    color: #b7c8e1;
+    background: $panel;
+    color: $text-primary;
     text-style: bold;
     content-align: center middle;
 }
 
 CommitModal #commit-ai-fill:hover {
-    background: #313d48;
-    color: #d7e3f2;
+    background: $panel-lighten-1;
+    color: $text-primary;
 }
 
 CommitModal .commit-ai-status {
@@ -1342,7 +1343,7 @@ CommitModal .commit-ai-status {
     margin-left: 1;
     margin-top: 0;
     margin-bottom: 0;
-    color: #aeb7c6;
+    color: $foreground-muted;
     content-align: left middle;
 }
 
@@ -1359,39 +1360,41 @@ CommitModal #commit-confirm {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b7c8e1;
-    color: #111821;
+    background: $primary;
+    color: $button-color-foreground;
     border: none;
 }
 
 CommitModal #commit-confirm:hover {
-    background: #cad6ea;
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
 }
 
 CommitModal #commit-push {
     width: 18;
     min-width: 18;
     text-style: bold;
-    background: #4edea3;
-    color: #07140f;
+    background: $success;
+    color: $button-color-foreground;
     border: none;
 }
 
 CommitModal #commit-push:hover {
-    background: #6ae7b5;
+    background: $success-lighten-1;
+    color: $button-color-foreground;
 }
 
 CommitModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #2a2a2c;
-    color: #edf1f7;
+    background: $panel;
+    color: $foreground;
     border: none;
 }
 
 CommitModal #cancel:hover {
-    background: #313337;
+    background: $panel-lighten-1;
 }
 
 PushReviewModal .push-review-modal {
