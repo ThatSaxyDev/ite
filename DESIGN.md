@@ -115,6 +115,23 @@ Do not invent token names and hope Textual supports them.
 
 Do not rely on a `Screen:light` rescue layer as the main theme strategy.
 
+### Contrast Rule
+
+Theme fidelity is important, but readability is not optional.
+
+- If a light theme produces unreadable foreground or accent colors in dense Rich renderables, introduce a contrast floor.
+- That floor should be derived from theme lightness, not guessed from the terminal brand.
+- Dark themes should keep their richer original rendering if they are already readable.
+- Light themes may need darker semantic accents than the raw generated theme tokens provide.
+
+The practical rule is:
+
+- detect whether the active theme background is light
+- if it is, darken low-contrast foreground, secondary, muted, and semantic accent styles enough to remain readable
+- do not globally flatten all themes just to save one terminal / theme combination
+
+If the app looks good in one terminal and bad in another, verify the actual rendered contrast first before adding terminal-specific behavior.
+
 ### Base Palette
 
 - Canvas: `#131315`
@@ -472,12 +489,30 @@ Current implementation rule:
 
 - derive the syntax theme from active theme polarity unless a concrete syntax theme exists
 - inject the code background explicitly from current theme tokens
+- when a light theme makes source previews unreadable, prefer a theme-safe plain line-numbered rendering over faint syntax colors
 
 If code rendering looks wrong:
 
 1. check the code background token source
 2. check whether the syntax renderer is using a real syntax theme
 3. check the outer TCSS surface only after those two
+
+### Theme Change Rule
+
+Changing the app theme must update both:
+
+- live widget chrome driven by TCSS
+- already-rendered Rich renderables in the conversation
+
+If only the shell updates, old tool cards may stay frozen with stale low-contrast colors.
+
+So when the theme changes:
+
+- rerender completed tool cards
+- rerender other cached Rich surfaces that carry old colors
+- refresh composer overlays and empty-state renderables
+
+Theme switching is not complete until historical transcript surfaces repaint too.
 
 ### Dense Data
 
@@ -660,10 +695,12 @@ Before considering a Textual UI change complete, check:
 - Did spacing improve readability without wasting rows?
 - Does the active palette theme visibly tint the app beyond only startup light/dark selection?
 - Do syntax/code surfaces follow the active theme background?
+- Do light-background themes still meet a readable contrast floor for body text, metadata, and semantic accents?
 - Do picker modals center correctly with a visible background scrim?
 - Do picker tables inherit the current theme instead of default `DataTable` styling?
 - Does the slash palette follow the active theme?
 - Do one-shot confirmations appear as transient notices instead of polluting chat history?
+- After changing theme, do already-rendered tool cards repaint instead of keeping stale colors?
 
 ---
 
