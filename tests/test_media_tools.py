@@ -62,14 +62,18 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             fake_image.info = {"dpi": (72, 72)}
             fake_image.__enter__ = Mock(return_value=fake_image)
             fake_image.__exit__ = Mock(return_value=False)
-            fake_image.save = Mock()
+
+            def mock_save(path, format=None):
+                Path(path).write_bytes(b"resized")
+
+            fake_image.save = Mock(side_effect=mock_save)
             image_module = Mock()
             image_module.open.return_value = fake_image
 
             tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
             with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
                 "ite.tools.builtin.media_tools._module_available", side_effect=lambda name: name == "PIL"
-            ):
+            ), patch("ite.tools.builtin.media_tools._get_image_cache_dir", return_value=cwd):
                 result = await tool.execute(ToolInvocation(params={"path": "shot.png"}, cwd=cwd))
 
             self.assertTrue(result.success, msg=result.error)
@@ -91,7 +95,11 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             fake_image.info = {}
             fake_image.__enter__ = Mock(return_value=fake_image)
             fake_image.__exit__ = Mock(return_value=False)
-            fake_image.save = Mock()
+
+            def mock_save(path, format=None):
+                Path(path).write_bytes(b"resized")
+
+            fake_image.save = Mock(side_effect=mock_save)
             image_module = Mock()
             image_module.open.return_value = fake_image
             pytesseract = Mock()
@@ -100,7 +108,9 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
             with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
                 "ite.tools.builtin.media_tools._load_pytesseract", return_value=pytesseract
-            ), patch("ite.tools.builtin.media_tools._module_available", return_value=True):
+            ), patch("ite.tools.builtin.media_tools._module_available", return_value=True), patch(
+                "ite.tools.builtin.media_tools._get_image_cache_dir", return_value=cwd
+            ):
                 result = await tool.execute(ToolInvocation(params={"path": "receipt.png", "ocr": True}, cwd=cwd))
 
             self.assertTrue(result.success, msg=result.error)
@@ -122,6 +132,11 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             fake_image.info = {}
             fake_image.__enter__ = Mock(return_value=fake_image)
             fake_image.__exit__ = Mock(return_value=False)
+
+            def mock_save(path, format=None):
+                Path(path).write_bytes(b"resized")
+
+            fake_image.save = Mock(side_effect=mock_save)
             image_module = Mock()
             image_module.open.return_value = fake_image
             pytesseract = Mock()
@@ -130,7 +145,9 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
             with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
                 "ite.tools.builtin.media_tools._load_pytesseract", return_value=pytesseract
-            ), patch("ite.tools.builtin.media_tools._module_available", return_value=True):
+            ), patch("ite.tools.builtin.media_tools._module_available", return_value=True), patch(
+                "ite.tools.builtin.media_tools._get_image_cache_dir", return_value=cwd
+            ):
                 result = await tool.execute(ToolInvocation(params={"path": "receipt.png", "ocr": True}, cwd=cwd))
 
             self.assertTrue(result.success, msg=result.error)
@@ -151,13 +168,20 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             fake_image.info = {}
             fake_image.__enter__ = Mock(return_value=fake_image)
             fake_image.__exit__ = Mock(return_value=False)
+
+            def mock_save(path, format=None):
+                Path(path).write_bytes(b"resized")
+
+            fake_image.save = Mock(side_effect=mock_save)
             image_module = Mock()
             image_module.open.return_value = fake_image
 
             tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
             with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
                 "ite.tools.builtin.media_tools._ocr_backend_status", return_value=(False, "none")
-            ), patch("ite.tools.builtin.media_tools.platform.system", return_value="Darwin"):
+            ), patch("ite.tools.builtin.media_tools.platform.system", return_value="Darwin"), patch(
+                "ite.tools.builtin.media_tools._get_image_cache_dir", return_value=cwd
+            ):
                 result = await tool.execute(ToolInvocation(params={"path": "receipt.png", "ocr": True}, cwd=cwd))
 
             self.assertFalse(result.success)
@@ -179,13 +203,18 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             fake_image.info = {"icc_profile": b"\x00\x01binary", "dpi": (72, 72)}
             fake_image.__enter__ = Mock(return_value=fake_image)
             fake_image.__exit__ = Mock(return_value=False)
+
+            def mock_save(path, format=None):
+                Path(path).write_bytes(b"resized")
+
+            fake_image.save = Mock(side_effect=mock_save)
             image_module = Mock()
             image_module.open.return_value = fake_image
 
             tool = ReadImageTool(Config(cwd=cwd, api_key="test"))
             with patch("ite.tools.builtin.media_tools._load_pillow", return_value=image_module), patch(
                 "ite.tools.builtin.media_tools._module_available", side_effect=lambda name: name == "PIL"
-            ):
+            ), patch("ite.tools.builtin.media_tools._get_image_cache_dir", return_value=cwd):
                 result = await tool.execute(ToolInvocation(params={"path": "shot.png"}, cwd=cwd))
 
             self.assertTrue(result.success, msg=result.error)

@@ -220,6 +220,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 return None
 
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
+            ), patch(
                 "ite.ui.reup.app.get_bundled_models",
                 return_value=[
                     {

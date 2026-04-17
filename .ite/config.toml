@@ -74,6 +74,12 @@ transport = "streamable_http"
 "x-fhir-server-url" = "https://app.promptopinion.ai/api/workspaces/019ce299-a68e-79ce-a4ae-2bd8b4d5a683/fhir"
 "X-Aivara-Key" = "${AIVARA_MCP_KEY}"
 
+[mcp_servers.paper]
+enabled = true
+auto_connect = false
+startup_timeout_sec = 45
+url = "http://127.0.0.1:29979/mcp"
+
 # [mcp_servers.filesystem2]
 # enabled = true
 # command = "np"

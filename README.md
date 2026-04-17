@@ -1,6 +1,6 @@
-# ITE - Interactive Terminal Environment
+# iTE - Interactive Terminal Environment
 
-An AI coding agent for your terminal.
+An AI coding agent for your terminal. **BYOK-first** — bring your own model provider.
 
 ## Installation
 
@@ -94,8 +94,27 @@ See [docs/SKILLS.md](docs/SKILLS.md) for the supported roots, frontmatter, and c
 
 ## Configuration
 
-Run `ite` for the first time to set up your API credentials interactively.
-Or use the `/setup` command within the tool.
+iTE is **BYOK-first** (Bring Your Own Key). You provide your own model provider credentials.
+
+```bash
+# Start iTE
+ite
+
+# Configure your provider (required on first run)
+/setup
+
+# Enter your provider base URL, API key, and model name
+# Then start prompting immediately
+```
+
+**What's available now:**
+- Sign in with GitHub for session management
+- BYOK setup with any OpenAI-compatible provider
+- Full terminal AI coding experience
+
+**Coming soon:**
+- Bundled model access (no provider key needed)
+- Paid plans with hosted inference
 
 ## Architecture
 
