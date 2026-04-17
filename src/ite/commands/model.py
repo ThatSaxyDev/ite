@@ -1,4 +1,4 @@
-"""Model/config commands: /model, /config, /approval."""
+"""Model/config commands: /model, /config, /approval, /theme."""
 
 import os
 import sys
@@ -294,6 +294,28 @@ async def cmd_approval(ctx: CommandContext, args: list[str]) -> None:
         )
 
 
+async def cmd_theme(ctx: CommandContext, args: list[str]) -> None:
+    open_theme_picker = getattr(ctx.tui, "_open_theme_picker_from_meta", None)
+    if callable(open_theme_picker):
+        await open_theme_picker()
+        return
+
+    title = Text.assemble(("🎨 ", ""), ("Theme", "bold bright_white"))
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Text.assemble(
+                ("Theme switching is available in the re-up UI.", "code"),
+            ),
+            title=title,
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/model", description="Show or change the model",
@@ -306,4 +328,8 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/approval", description="Show or change approval mode",
         handler=cmd_approval,
+    ))
+    registry.register(Command(
+        name="/theme", description="Choose a Textual theme for this session",
+        handler=cmd_theme,
     ))

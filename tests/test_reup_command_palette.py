@@ -62,8 +62,20 @@ class ReupCommandPaletteTests(unittest.TestCase):
         # /activity and /approval are alphabetically first
         self.assertIn(slash_only[0].name, ["/activity", "/approval"])
         self.assertIn("/publish", [entry.name for entry in slash_only])
+        self.assertIn("/theme", [entry.name for entry in slash_only])
         self.assertEqual([entry.name for entry in filtered], ["/approval"])
         self.assertEqual(filtered[0].description, "Show or change approval mode")
+
+    def test_filtered_command_palette_can_find_theme_command(self) -> None:
+        app = self._app()
+
+        filtered = app._filtered_command_palette("/theme")
+
+        self.assertEqual([entry.name for entry in filtered], ["/theme"])
+        self.assertEqual(
+            filtered[0].description,
+            "Choose a Textual theme for this session",
+        )
 
     def test_filtered_attachment_palette_matches_workspace_files(self) -> None:
         app = self._app()
