@@ -123,13 +123,13 @@ class PushReviewModal(ModalScreen[bool]):
                 with Horizontal(classes="push-review-row"):
                     yield Static("Outgoing", classes="push-review-label")
                     stats = Text()
-                    stats.append(f"{self._ahead_count} {noun}", style="bold #dfe8f8")
+                    stats.append(f"{self._ahead_count} {noun}", style="bold $foreground")
                     stats.append("  ")
-                    stats.append("↑", style="bold #79d8a4")
+                    stats.append("↑", style="bold $text-success")
                     if self._behind_count > 0:
                         stats.append("    ")
                         stats.append(
-                            f"{self._behind_count} behind", style="bold #f2b38f"
+                            f"{self._behind_count} behind", style="bold $text-warning"
                         )
                     yield Static(stats, classes="push-review-value")
                 if self._behind_count > 0:

@@ -1402,8 +1402,8 @@ PushReviewModal .push-review-modal {
     height: auto;
     min-height: 12;
     max-height: 16;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1422,19 +1422,19 @@ PushReviewModal .push-review-row {
 PushReviewModal .push-review-label {
     width: 14;
     min-width: 14;
-    color: #c6c6cd;
+    color: $foreground-muted;
     text-style: bold;
 }
 
 PushReviewModal .push-review-value {
-    color: #edf1f7;
+    color: $foreground;
     text-style: bold;
 }
 
 PushReviewModal .push-review-warning {
     margin-top: 1;
     margin-bottom: 0;
-    color: #ffb95f;
+    color: $text-warning;
 }
 
 RemoteSetupModal .push-review-row {
@@ -1445,19 +1445,19 @@ RemoteSetupModal .push-review-row {
 RemoteSetupModal .push-review-label {
     width: 14;
     min-width: 14;
-    color: #c6c6cd;
+    color: $foreground-muted;
     text-style: bold;
 }
 
 RemoteSetupModal .push-review-value {
-    color: #edf1f7;
+    color: $foreground;
     text-style: bold;
 }
 
 RemoteSetupModal .push-review-warning {
     margin-top: 1;
     margin-bottom: 0;
-    color: #ffb95f;
+    color: $text-warning;
 }
 
 PushReviewModal .push-review-actions {
@@ -1473,26 +1473,26 @@ PushReviewModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #2a2a2c;
-    color: #edf1f7;
+    background: $panel;
+    color: $foreground;
     border: none;
 }
 
 PushReviewModal #cancel:hover {
-    background: #313337;
+    background: $panel-lighten-1;
 }
 
 PushReviewModal #confirm {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #4edea3;
-    color: #07140f;
+    background: $success;
+    color: $background;
     border: none;
 }
 
 PushReviewModal #confirm:hover {
-    background: #6ae7b5;
+    background: $success-lighten-1;
 }
 
 RemoteSetupModal .remote-setup-modal {
