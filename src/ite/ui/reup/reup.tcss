@@ -1648,8 +1648,8 @@ ModelPickerModal .modal {
     height: 32;
     max-height: 86%;
     min-height: 24;
-    border: heavy #303236;
-    background: #1c1b1d 96%;
+    border: heavy $border;
+    background: $surface;
     padding: 1 2;
     overflow: hidden;
 }
@@ -1717,8 +1717,8 @@ AttachPickerModal .modal-list {
     max-height: 1fr;
     margin-top: 1;
     margin-bottom: 0;
-    border: solid #303236;
-    background: #151618;
+    border: solid $border;
+    background: $surface-darken-1;
     padding: 0;
     overflow-y: auto;
 }
@@ -1734,7 +1734,7 @@ RemoteSetupModal .modal-title,
 SetupModal .modal-title {
     text-align: center;
     text-style: bold;
-    color: #b7c8e1;
+    color: $text-primary;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -1748,14 +1748,14 @@ ActivityModal .modal-body,
 AttachPickerModal .modal-body,
 RemoteSetupModal .modal-body,
 SetupModal .modal-body {
-    color: #dfe4ea;
+    color: $foreground;
     margin-bottom: 1;
 }
 
 SessionResumeModal .resume-warning {
-    border: round #5a4633;
-    background: #261f1a;
-    color: #ffd8a8;
+    border: round $warning;
+    background: $warning-muted;
+    color: $text-warning;
     padding: 0 1;
     margin-bottom: 1;
 }
@@ -1782,14 +1782,14 @@ SessionResumeModal #resume {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b7c8e1;
-    color: #111821;
+    background: $primary;
+    color: $button-color-foreground;
     border: none;
 }
 
 SessionResumeModal #resume:hover {
-    background: #cad6ea;
-    color: #111821;
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
 }
 
 SessionResumeModal #cancel,
@@ -1804,8 +1804,8 @@ SetupModal #cancel {
     width: 12;
     min-width: 12;
     text-style: bold;
-    background: #2a2a2c;
-    color: #edf1f7;
+    background: $panel;
+    color: $foreground;
     border: none;
 }
 
@@ -1818,7 +1818,7 @@ ActivityModal #cancel:hover,
 AttachPickerModal #cancel:hover,
 RemoteSetupModal #cancel:hover,
 SetupModal #cancel:hover {
-    background: #313337;
+    background: $panel-lighten-1;
 }
 
 UsageSummaryModal .usage-summary-panel {
@@ -1826,8 +1826,8 @@ UsageSummaryModal .usage-summary-panel {
     min-height: 12;
     margin-top: 1;
     margin-bottom: 1;
-    border: solid #303236;
-    background: #151618;
+    border: solid $border;
+    background: $surface-darken-1;
     padding: 1 1;
 }
 
@@ -1836,8 +1836,8 @@ ContextSummaryModal .usage-summary-panel {
     min-height: 0;
     margin-top: 1;
     margin-bottom: 1;
-    border: solid #303236;
-    background: #151618;
+    border: solid $border;
+    background: $surface-darken-1;
     padding: 1 1;
 }
 
@@ -1846,8 +1846,8 @@ ActivityModal .usage-summary-panel {
     min-height: 14;
     margin-top: 1;
     margin-bottom: 1;
-    border: solid #303236;
-    background: #151618;
+    border: solid $border;
+    background: $surface-darken-1;
     padding: 1 1;
 }
 
@@ -1926,6 +1926,8 @@ BranchPickerModal .resume-table,
 ModelPickerModal .resume-table,
 AttachPickerModal .resume-table {
     height: 1fr;
+    background: $surface-darken-1;
+    color: $foreground;
 }
 
 .attach-root-row {
@@ -2017,14 +2019,14 @@ ModelPickerModal #select {
     width: 14;
     min-width: 14;
     text-style: bold;
-    background: #b7c8e1;
-    color: #111821;
+    background: $primary;
+    color: $button-color-foreground;
     border: none;
 }
 
 ModelPickerModal #select:hover {
-    background: #cad6ea;
-    color: #111821;
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
 }
 
 BranchPickerModal #branch-name {
@@ -2066,12 +2068,12 @@ AttachPickerModal #attach-clear:hover {
 
 .modal-title {
     text-style: bold;
-    color: #f2f5f8;
+    color: $foreground;
     margin-bottom: 1;
 }
 
 .modal-body {
-    color: #dfe4ea;
+    color: $foreground;
     margin-bottom: 1;
 }
 
@@ -2083,8 +2085,9 @@ AttachPickerModal #attach-clear:hover {
     height: 16;
     margin-top: 1;
     margin-bottom: 1;
-    border: solid #303236;
+    border: solid $border;
     padding: 1;
+    background: $surface-darken-1;
 }
 
 .modal-actions {

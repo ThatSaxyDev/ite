@@ -64,6 +64,14 @@ def normalize_style_color(value: str | None, fallback: str) -> str:
     return resolved
 
 
+def syntax_background_color(theme_variables: dict[str, str] | None = None) -> str:
+    theme = theme_variables or {}
+    return normalize_style_color(
+        theme.get("surface-darken-1") or theme.get("surface"),
+        "#1b1d20",
+    )
+
+
 def render_palette(theme_variables: dict[str, str] | None = None) -> dict[str, str]:
     theme = theme_variables or {}
     return {
@@ -948,6 +956,7 @@ def render_text_payload(
                 "json",
                 theme=normalize_syntax_theme(syntax_theme),
                 word_wrap=True,
+                background_color=syntax_background_color(theme_variables),
             )
     if language != "text":
         return Syntax(
@@ -955,6 +964,7 @@ def render_text_payload(
             language,
             theme=normalize_syntax_theme(syntax_theme),
             word_wrap=True,
+            background_color=syntax_background_color(theme_variables),
         )
     return Text(text, style=palette["fg"])
 

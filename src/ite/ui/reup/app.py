@@ -148,6 +148,7 @@ from .tool_views import (
     format_mcp_identity,
     guess_language,
     normalize_style_color,
+    syntax_background_color,
     normalize_unified_diff_paths,
     render_args_table,
     render_git_log_output,
@@ -6628,6 +6629,7 @@ class ReupApp(App):
                             code_display,
                             language,
                             theme=self._syntax_theme_name(),
+                            background_color=syntax_background_color(self.theme_variables),
                             line_numbers=True,
                             start_line=start_line,
                             word_wrap=False,
@@ -7120,6 +7122,7 @@ class ReupApp(App):
                         diff_display,
                         "diff",
                         theme=self._syntax_theme_name(),
+                        background_color=syntax_background_color(self.theme_variables),
                         word_wrap=True,
                     )
                 )
