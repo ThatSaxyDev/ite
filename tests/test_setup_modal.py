@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import httpx
@@ -34,6 +35,128 @@ class _FakeAsyncClient:
 
 
 class SetupModalTests(unittest.IsolatedAsyncioTestCase):
+    def test_provider_visibility_hides_base_url_for_ollama(self) -> None:
+        modal = SetupModal(Config())
+        base_url_label = SimpleNamespace(display=True)
+        base_url_input = SimpleNamespace(display=True)
+        base_url_help = SimpleNamespace(display=True)
+        api_key_label = SimpleNamespace(display=True)
+        api_key_row = SimpleNamespace(display=True)
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-base-url-label": base_url_label,
+                "#setup-base-url": base_url_input,
+                "#setup-base-url-help": base_url_help,
+                "#setup-api-key-label": api_key_label,
+                "#setup-api-key-row": api_key_row,
+            }[selector],
+        ):
+            modal._apply_provider_visibility("ollama")
+
+        self.assertFalse(base_url_label.display)
+        self.assertFalse(base_url_input.display)
+        self.assertTrue(base_url_help.display)
+
+    def test_provider_visibility_hides_base_url_for_openrouter(self) -> None:
+        modal = SetupModal(Config())
+        base_url_label = SimpleNamespace(display=True)
+        base_url_input = SimpleNamespace(display=True)
+        base_url_help = SimpleNamespace(display=True)
+        api_key_label = SimpleNamespace(display=False)
+        api_key_row = SimpleNamespace(display=False)
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-base-url-label": base_url_label,
+                "#setup-base-url": base_url_input,
+                "#setup-base-url-help": base_url_help,
+                "#setup-api-key-label": api_key_label,
+                "#setup-api-key-row": api_key_row,
+            }[selector],
+        ):
+            modal._apply_provider_visibility("openrouter")
+
+        self.assertFalse(base_url_label.display)
+        self.assertFalse(base_url_input.display)
+        self.assertTrue(base_url_help.display)
+
+    def test_provider_visibility_shows_base_url_for_generic_provider(self) -> None:
+        modal = SetupModal(Config())
+        base_url_label = SimpleNamespace(display=False)
+        base_url_input = SimpleNamespace(display=False)
+        base_url_help = SimpleNamespace(display=True)
+        api_key_label = SimpleNamespace(display=False)
+        api_key_row = SimpleNamespace(display=False)
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-base-url-label": base_url_label,
+                "#setup-base-url": base_url_input,
+                "#setup-base-url-help": base_url_help,
+                "#setup-api-key-label": api_key_label,
+                "#setup-api-key-row": api_key_row,
+            }[selector],
+        ):
+            modal._apply_provider_visibility("generic")
+
+        self.assertTrue(base_url_label.display)
+        self.assertTrue(base_url_input.display)
+
+    def test_provider_visibility_hides_api_key_for_ollama(self) -> None:
+        modal = SetupModal(Config())
+        api_key_label = SimpleNamespace(display=True)
+        api_key_row = SimpleNamespace(display=True)
+        base_url_label = SimpleNamespace(display=True)
+        base_url_input = SimpleNamespace(display=True)
+        base_url_help = SimpleNamespace(display=True)
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-base-url-label": base_url_label,
+                "#setup-base-url": base_url_input,
+                "#setup-base-url-help": base_url_help,
+                "#setup-api-key-label": api_key_label,
+                "#setup-api-key-row": api_key_row,
+            }[selector],
+        ):
+            modal._apply_provider_visibility("ollama")
+
+        self.assertFalse(api_key_label.display)
+        self.assertFalse(api_key_row.display)
+
+    def test_provider_visibility_shows_api_key_for_hosted_provider(self) -> None:
+        modal = SetupModal(Config())
+        api_key_label = SimpleNamespace(display=False)
+        api_key_row = SimpleNamespace(display=False)
+        base_url_label = SimpleNamespace(display=False)
+        base_url_input = SimpleNamespace(display=False)
+        base_url_help = SimpleNamespace(display=True)
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-base-url-label": base_url_label,
+                "#setup-base-url": base_url_input,
+                "#setup-base-url-help": base_url_help,
+                "#setup-api-key-label": api_key_label,
+                "#setup-api-key-row": api_key_row,
+            }[selector],
+        ):
+            modal._apply_provider_visibility("openrouter")
+
+        self.assertTrue(api_key_label.display)
+        self.assertTrue(api_key_row.display)
+
     async def test_probe_ollama_requires_running_service(self) -> None:
         modal = SetupModal(Config())
 

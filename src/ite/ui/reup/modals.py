@@ -1726,19 +1726,19 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         if provider == SETUP_PROVIDER_OLLAMA:
             return (
                 "Use a model running on this computer through Ollama.",
-                "Before you continue, start Ollama and make sure the model you want is available.",
-                "Paste the exact model name you pulled locally, for example `kimi-k2.5:cloud`, `gemma4:31b-cloud` or your own Ollama-hosted alias.",
+                "Before you continue, start Ollama and make sure the model you want is available at the default local endpoint.",
+                "Enter the exact model name Ollama exposes for this route, for example `kimi-k2.5:cloud`, `gemma4:31b-cloud`, or another model available through your Ollama instance.",
             )
         if provider == SETUP_PROVIDER_OPENROUTER:
             return (
                 "Use your own OpenRouter key with iTE.",
-                "iTE will talk to OpenRouter's OpenAI-compatible API using your key. Create the key in OpenRouter first, then paste it here.",
-                "Use the exact model id that OpenRouter exposes on your account.",
+                "iTE will use OpenRouter's standard API endpoint with the key you provide here. Create the key in OpenRouter first, then paste it below.",
+                "Enter the exact model id available on your OpenRouter account.",
             )
         return (
-            "Use any OpenAI-compatible provider by pasting its API base URL.",
-            "This path is for custom gateways, self-hosted proxies, or direct providers with an OpenAI-compatible `/v1` API.",
-            "Use the exact model name that provider expects for chat completions.",
+            "Use any OpenAI-compatible provider by entering its API base URL.",
+            "Use this path for custom gateways, self-hosted proxies, or direct providers that expose an OpenAI-compatible `/v1` API.",
+            "Enter the exact model name that provider expects for chat completions.",
         )
 
     def compose(self) -> ComposeResult:
@@ -1763,15 +1763,15 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 id="setup-provider",
             )
             yield Static(provider_copy, id="setup-provider-copy", classes="setup-help")
-            yield Static("Base URL", classes="setup-label")
+            yield Static("Base URL", classes="setup-label", id="setup-base-url-label")
             yield Input(
                 value=base_url,
                 placeholder=DEFAULT_BASE_URL,
                 id="setup-base-url",
             )
             yield Static(provider_help, id="setup-base-url-help", classes="setup-help")
-            yield Static("API key", classes="setup-label")
-            with Horizontal(classes="setup-secret-row"):
+            yield Static("API key", classes="setup-label", id="setup-api-key-label")
+            with Horizontal(classes="setup-secret-row", id="setup-api-key-row"):
                 yield Input(
                     value=api_key,
                     placeholder="API key",
@@ -1798,6 +1798,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 yield Button("Continue", id="continue", variant="primary")
 
     async def on_mount(self) -> None:
+        self._apply_provider_visibility(self._infer_provider())
         self.query_one("#setup-provider", Select).focus()
 
     @on(Button.Pressed, "#continue")
@@ -1827,6 +1828,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self.query_one("#setup-model-help", Static).update(model_help)
         self.query_one("#setup-status", Static).update("")
         self.query_one("#setup-error", Static).update("")
+        self._apply_provider_visibility(provider)
 
     @on(Input.Submitted, "#setup-base-url")
     @on(Input.Submitted, "#setup-api-key")
@@ -1849,6 +1851,15 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self.query_one("#setup-api-key", Input).disabled = busy
         self.query_one("#setup-model", Input).disabled = busy
         self.query_one("#setup-toggle-api-key", Button).disabled = busy
+
+    def _apply_provider_visibility(self, provider: str) -> None:
+        show_base_url = provider == SETUP_PROVIDER_GENERIC
+        show_api_key = provider != SETUP_PROVIDER_OLLAMA
+        self.query_one("#setup-base-url-label", Static).display = show_base_url
+        self.query_one("#setup-base-url", Input).display = show_base_url
+        self.query_one("#setup-base-url-help", Static).display = True
+        self.query_one("#setup-api-key-label", Static).display = show_api_key
+        self.query_one("#setup-api-key-row", Horizontal).display = show_api_key
 
     @staticmethod
     def _ollama_api_root(base_url: str) -> str:
