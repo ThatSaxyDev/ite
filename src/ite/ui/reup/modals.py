@@ -895,7 +895,7 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
-class ModelPickerModal(ModalScreen[str | None]):
+class ModelPickerModal(ModalScreen[dict[str, str] | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
     def __init__(self, current: str, models: list[dict[str, Any]]) -> None:
@@ -905,6 +905,7 @@ class ModelPickerModal(ModalScreen[str | None]):
         self._model_names: list[str] = []
         self._model_available: list[bool] = []
         self._model_unavailable_reasons: list[str] = []
+        self._model_sources: list[str] = []
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
@@ -917,6 +918,7 @@ class ModelPickerModal(ModalScreen[str | None]):
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="models", classes="resume-table", cursor_type="row")
             with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Delete saved", id="delete", variant="error", disabled=True)
                 yield Button("Select", id="select", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
 
@@ -926,6 +928,7 @@ class ModelPickerModal(ModalScreen[str | None]):
         self._model_names = []
         self._model_available = []
         self._model_unavailable_reasons = []
+        self._model_sources = []
         for item in self._models:
             model_name = str(item.get("model_name") or "").strip()
             label = str(item.get("label") or model_name).strip()
@@ -937,6 +940,7 @@ class ModelPickerModal(ModalScreen[str | None]):
             self._model_names.append(model_name)
             self._model_available.append(available)
             self._model_unavailable_reasons.append(unavailable_reason)
+            self._model_sources.append(provider)
             table.add_row(
                 label,
                 provider,
@@ -954,19 +958,23 @@ class ModelPickerModal(ModalScreen[str | None]):
 
     def _refresh_selection_state(self, row: int) -> None:
         select_button = self.query_one("#select", Button)
+        delete_button = self.query_one("#delete", Button)
         help_text = self.query_one("#model-picker-help", Static)
         if not (0 <= row < len(self._model_names)):
             select_button.disabled = True
+            delete_button.disabled = True
             help_text.update(
-                "Pick an available bundled model, or keep your current custom provider model."
+                "Pick an available model, or delete a saved custom profile."
             )
             return
 
         available = self._model_available[row]
+        source = self._model_sources[row]
         select_button.disabled = not available
+        delete_button.disabled = source != "Saved custom"
         if available:
             help_text.update(
-                "Pick an available bundled model, or keep your current custom provider model."
+                "Pick an available model, or delete a saved custom profile."
             )
             return
 
@@ -983,14 +991,21 @@ class ModelPickerModal(ModalScreen[str | None]):
     @on(DataTable.RowSelected, "#models")
     def on_row_selected(self, event: DataTable.RowSelected) -> None:
         if 0 <= event.cursor_row < len(self._model_names) and self._model_available[event.cursor_row]:
-            self.dismiss(self._model_names[event.cursor_row])
+            self.dismiss({"action": "select", "model_name": self._model_names[event.cursor_row]})
 
     @on(Button.Pressed, "#select")
     def on_select_pressed(self, _event: Button.Pressed) -> None:
         table = self.query_one("#models", DataTable)
         row = table.cursor_row
         if 0 <= row < len(self._model_names) and self._model_available[row]:
-            self.dismiss(self._model_names[row])
+            self.dismiss({"action": "select", "model_name": self._model_names[row]})
+
+    @on(Button.Pressed, "#delete")
+    def on_delete_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#models", DataTable)
+        row = table.cursor_row
+        if 0 <= row < len(self._model_names) and self._model_sources[row] == "Saved custom":
+            self.dismiss({"action": "delete", "model_name": self._model_names[row]})
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:

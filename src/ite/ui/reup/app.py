@@ -70,6 +70,7 @@ from ite.config.config import ApprovalPolicy, Config
 from ite.config.loader import (
     load_saved_custom_provider,
     load_theme,
+    remove_saved_custom_provider,
     save_cloud_settings,
     save_global_approval_mode,
     save_saved_custom_provider,
@@ -1606,83 +1607,109 @@ class ReupApp(App):
 
     async def _open_model_picker_from_meta(self) -> None:
         await self.ensure_agent()
-        current_model = self.config.model_name
-        bundled_items = get_bundled_models(self.config)
-        saved_providers = load_saved_custom_provider()
+        while True:
+            current_model = self.config.model_name
+            bundled_items = get_bundled_models(self.config)
+            saved_providers = load_saved_custom_provider()
 
-        model_options: list[dict[str, Any]] = []
-        seen: set[str] = set()
+            model_options: list[dict[str, Any]] = []
+            seen: set[str] = set()
 
-        def _append(
-            model_name: str,
-            label: str,
-            provider: str,
-            *,
-            available: bool = True,
-            unavailable_reason: str = "",
-        ) -> None:
-            normalized = str(model_name or "").strip()
-            if not normalized or normalized in seen:
+            def _append(
+                model_name: str,
+                label: str,
+                provider: str,
+                *,
+                available: bool = True,
+                unavailable_reason: str = "",
+            ) -> None:
+                normalized = str(model_name or "").strip()
+                if not normalized or normalized in seen:
+                    return
+                seen.add(normalized)
+                model_options.append(
+                    {
+                        "model_name": normalized,
+                        "label": label,
+                        "provider": provider,
+                        "available": available,
+                        "unavailable_reason": unavailable_reason,
+                    }
+                )
+
+            for profile in saved_providers.values():
+                _append(
+                    profile["model_name"],
+                    profile["model_name"],
+                    "Saved custom",
+                )
+
+            if current_model and current_model not in {
+                item.get("model_name", "") for item in bundled_items
+            }:
+                _append(current_model, current_model, "Custom")
+
+            for item in bundled_items:
+                _append(
+                    str(item.get("model_name") or ""),
+                    str(item.get("label") or item.get("model_name") or ""),
+                    str(item.get("provider") or "Bundled"),
+                    available=bool(item.get("available", True)),
+                    unavailable_reason=str(item.get("unavailable_reason") or ""),
+                )
+
+            if not model_options:
+                self.post_system(
+                    "Model",
+                    "No saved models are available right now.",
+                    is_error=True,
+                )
                 return
-            seen.add(normalized)
-            model_options.append(
-                {
-                    "model_name": normalized,
-                    "label": label,
-                    "provider": provider,
-                    "available": available,
-                    "unavailable_reason": unavailable_reason,
-                }
-            )
 
-        for profile in saved_providers.values():
-            _append(
-                profile["model_name"],
-                profile["model_name"],
-                "Saved custom",
-            )
+            available_options = [
+                item for item in model_options if bool(item.get("available", True))
+            ]
+            if not available_options and current_model and any(
+                item.get("model_name") == current_model for item in model_options
+            ):
+                reason = ""
+                for item in model_options:
+                    if item.get("model_name") == current_model:
+                        reason = str(item.get("unavailable_reason") or "").strip()
+                        break
+                message = "Bundled models are unavailable right now."
+                if reason:
+                    message = f"{message} {reason}"
+                self.post_system("Model", message, is_error=True)
 
-        if current_model and current_model not in {
-            item.get("model_name", "") for item in bundled_items
-        }:
-            _append(current_model, current_model, "Custom")
+            result = await self._open_modal(ModelPickerModal(current_model, model_options))
+            if not result:
+                return
 
-        for item in bundled_items:
-            _append(
-                str(item.get("model_name") or ""),
-                str(item.get("label") or item.get("model_name") or ""),
-                str(item.get("provider") or "Bundled"),
-                available=bool(item.get("available", True)),
-                unavailable_reason=str(item.get("unavailable_reason") or ""),
-            )
+            action = str(result.get("action") or "").strip().lower()
+            selected = str(result.get("model_name") or "").strip()
+            if not selected:
+                return
 
-        if not model_options:
-            self.post_system(
-                "Model",
-                "No bundled models are available right now.",
-                is_error=True,
-            )
-            return
+            if action == "delete":
+                if selected == current_model:
+                    self.post_system(
+                        "Model",
+                        "Switch to another model before deleting the current saved profile.",
+                        is_error=True,
+                    )
+                    continue
+                try:
+                    remove_saved_custom_provider(model_name=selected)
+                except Exception as exc:
+                    self.post_system("Model", str(exc), is_error=True)
+                    return
+                self.post_notice("Model", f"Removed saved model {selected}.")
+                continue
 
-        available_options = [
-            item for item in model_options if bool(item.get("available", True))
-        ]
-        if not available_options and current_model and any(
-            item.get("model_name") == current_model for item in model_options
-        ):
-            reason = ""
-            for item in model_options:
-                if item.get("model_name") == current_model:
-                    reason = str(item.get("unavailable_reason") or "").strip()
-                    break
-            message = "Bundled models are unavailable right now."
-            if reason:
-                message = f"{message} {reason}"
-            self.post_system("Model", message, is_error=True)
-
-        selected = await self._open_modal(ModelPickerModal(current_model, model_options))
-        if not selected or selected == current_model:
-            return
+            if action != "select" or selected == current_model:
+                return
+            break
 
         restored_profile = (
             saved_providers.get(selected) if selected in saved_providers else None
