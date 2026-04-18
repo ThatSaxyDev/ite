@@ -2048,9 +2048,13 @@ SetupModal #continue:hover {
 
 SetupModal .setup-label {
     margin-top: 1;
-    margin-bottom: 0;
+    margin-bottom: 1;
     color: $text-primary;
     text-style: bold;
+}
+
+SetupModal .setup-body {
+    margin-bottom: 1;
 }
 
 SetupModal Input {
@@ -2072,7 +2076,19 @@ SetupModal Select {
     margin-bottom: 1;
 }
 
+.setup-model-row {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
 SetupModal #setup-api-key {
+    width: 1fr;
+    margin-bottom: 0;
+    margin-right: 1;
+}
+
+SetupModal #setup-model-select {
     width: 1fr;
     margin-bottom: 0;
     margin-right: 1;
@@ -2093,6 +2109,21 @@ SetupModal #setup-api-key {
     background: #313337;
 }
 
+.setup-load-models {
+    width: 8;
+    min-width: 8;
+    height: 3;
+    min-height: 3;
+    border: none;
+    background: #2a2a2c;
+    color: #edf1f7;
+    text-style: bold;
+}
+
+.setup-load-models:hover {
+    background: #313337;
+}
+
 .setup-error {
     color: #f1998e;
     min-height: 1;
@@ -2101,6 +2132,7 @@ SetupModal #setup-api-key {
 
 .setup-help {
     color: $text-secondary;
+    margin-top: 1;
     margin-bottom: 1;
 }
 

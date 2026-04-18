@@ -43,6 +43,15 @@ SETUP_PROVIDER_OLLAMA = "ollama"
 SETUP_PROVIDER_OPENROUTER = "openrouter"
 SETUP_PROVIDER_GENERIC = "generic"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+SETUP_MODEL_OTHER = "__other__"
+SETUP_MODEL_SELECT = "__select__"
+RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
+    "kimi-k2.5:cloud",
+    "minimax-m2.5:cloud",
+    "minimax-m2.7:cloud",
+    "glm-5:cloud",
+    "glm-5.1:cloud",
+)
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -920,12 +929,13 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
         self._model_available: list[bool] = []
         self._model_unavailable_reasons: list[str] = []
         self._model_sources: list[str] = []
+        self._model_saved_profile: list[bool] = []
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
             yield Label("Select model", classes="modal-title resume-title")
             yield Static(
-                "Pick an available bundled model, or keep your current custom provider model.",
+                "Pick an available model, or remove a saved provider profile you no longer want to keep.",
                 classes="modal-body resume-body",
                 id="model-picker-help",
             )
@@ -933,7 +943,7 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
                 yield DataTable(id="models", classes="resume-table", cursor_type="row")
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button(
-                    "Delete saved", id="delete", variant="default", disabled=True
+                    "Remove saved", id="delete", variant="default", disabled=True
                 )
                 yield Button("Select", id="select", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
@@ -945,18 +955,21 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
         self._model_available = []
         self._model_unavailable_reasons = []
         self._model_sources = []
+        self._model_saved_profile = []
         for item in self._models:
             model_name = str(item.get("model_name") or "").strip()
             label = str(item.get("label") or model_name).strip()
             provider = str(item.get("provider") or "").strip()
             available = bool(item.get("available", True))
             unavailable_reason = str(item.get("unavailable_reason") or "").strip()
+            saved_profile = bool(item.get("saved_profile", False))
             if not model_name:
                 continue
             self._model_names.append(model_name)
             self._model_available.append(available)
             self._model_unavailable_reasons.append(unavailable_reason)
             self._model_sources.append(provider)
+            self._model_saved_profile.append(saved_profile)
             table.add_row(
                 label,
                 provider,
@@ -980,17 +993,16 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
             select_button.disabled = True
             delete_button.disabled = True
             help_text.update(
-                "Pick an available model, or delete a saved custom profile."
+                "Pick an available model, or remove a saved provider profile."
             )
             return
 
         available = self._model_available[row]
-        source = self._model_sources[row]
         select_button.disabled = not available
-        delete_button.disabled = source != "Saved custom"
+        delete_button.disabled = not self._model_saved_profile[row]
         if available:
             help_text.update(
-                "Pick an available model, or delete a saved custom profile."
+                "Pick an available model, or remove a saved provider profile."
             )
             return
 
@@ -1027,7 +1039,7 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
         row = table.cursor_row
         if (
             0 <= row < len(self._model_names)
-            and self._model_sources[row] == "Saved custom"
+            and self._model_saved_profile[row]
         ):
             self.dismiss({"action": "delete", "model_name": self._model_names[row]})
 
@@ -1680,6 +1692,34 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         super().__init__()
         self._config = config
         self._validating = False
+        self._openrouter_models: list[str] = []
+        inferred_provider = self._infer_provider()
+        current_model = str(self._config.model_name or DEFAULT_MODEL_NAME).strip()
+        self._provider_selected_model: dict[str, str] = {
+            SETUP_PROVIDER_OLLAMA: (
+                current_model
+                if inferred_provider == SETUP_PROVIDER_OLLAMA
+                and current_model in RECOMMENDED_OLLAMA_MODELS
+                else RECOMMENDED_OLLAMA_MODELS[0]
+            ),
+            SETUP_PROVIDER_OPENROUTER: (
+                current_model if inferred_provider == SETUP_PROVIDER_OPENROUTER else ""
+            ),
+            SETUP_PROVIDER_GENERIC: current_model,
+        }
+        self._provider_manual_model: dict[str, str] = {
+            SETUP_PROVIDER_OLLAMA: (
+                current_model
+                if inferred_provider == SETUP_PROVIDER_OLLAMA
+                and current_model not in RECOMMENDED_OLLAMA_MODELS
+                else ""
+            ),
+            SETUP_PROVIDER_OPENROUTER: (
+                current_model if inferred_provider == SETUP_PROVIDER_OPENROUTER else ""
+            ),
+            SETUP_PROVIDER_GENERIC: current_model,
+        }
+        self._active_provider = inferred_provider
 
     def _infer_provider(self) -> str:
         base_url = str(self._config.base_url or "").strip().lower()
@@ -1725,20 +1765,20 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
     def _provider_copy(self, provider: str) -> tuple[str, str, str]:
         if provider == SETUP_PROVIDER_OLLAMA:
             return (
-                "Use a model running on this computer through Ollama.",
-                "Before you continue, start Ollama and make sure the model you want is available at the default local endpoint.",
-                "Enter the exact model name Ollama exposes for this route, for example `kimi-k2.5:cloud`, `gemma4:31b-cloud`, or another model available through your Ollama instance.",
+                "Use a model through Ollama.",
+                "Choose a recommended model, or pick Other to enter one yourself. Before you continue, start Ollama.",
+                "Enter the exact model name as Ollama expects it.",
             )
         if provider == SETUP_PROVIDER_OPENROUTER:
             return (
                 "Use your own OpenRouter key with iTE.",
-                "iTE will use OpenRouter's standard API endpoint with the key you provide here. Create the key in OpenRouter first, then paste it below.",
-                "Enter the exact model id available on your OpenRouter account.",
+                "Enter your OpenRouter API key. iTE will verify it before saving this setup.",
+                "Enter the exact model id OpenRouter expects.",
             )
         return (
-            "Use any OpenAI-compatible provider by entering its API base URL.",
-            "Use this path for custom gateways, self-hosted proxies, or direct providers that expose an OpenAI-compatible `/v1` API.",
-            "Enter the exact model name that provider expects for chat completions.",
+            "Use any OpenAI-compatible provider.",
+            "Enter your provider base URL and API key. iTE will verify the connection before saving this setup.",
+            "Enter the exact model name your provider expects.",
         )
 
     def compose(self) -> ComposeResult:
@@ -1748,7 +1788,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         with Container(classes="modal setup-modal"):
             yield Label("Setup iTE", classes="modal-title setup-title")
             yield Static(
-                "Choose how iTE should reach your model. You can use Ollama on this machine, OpenRouter with your own key, or another OpenAI-compatible API.",
+                "Choose how iTE should reach your model.",
                 classes="modal-body setup-body",
             )
             yield Static("Provider", classes="setup-label")
@@ -1784,11 +1824,24 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                     variant="default",
                     classes="setup-eye",
                 )
-            yield Static("Model", classes="setup-label")
+            yield Static("Model", classes="setup-label", id="setup-model-label")
+            with Horizontal(classes="setup-model-row", id="setup-model-select-row"):
+                yield Select(
+                    [(model_name, model_name), ("Other", SETUP_MODEL_OTHER)],
+                    value=model_name if model_name in RECOMMENDED_OLLAMA_MODELS else RECOMMENDED_OLLAMA_MODELS[0],
+                    allow_blank=False,
+                    id="setup-model-select",
+                )
+                yield Button(
+                    "Load",
+                    id="setup-load-models",
+                    variant="default",
+                    classes="setup-load-models",
+                )
             yield Input(
                 value=model_name,
                 placeholder="Model",
-                id="setup-model",
+                id="setup-model-input",
             )
             yield Static(model_help, id="setup-model-help", classes="setup-help")
             yield Static("", id="setup-status", classes="setup-status")
@@ -1798,8 +1851,14 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 yield Button("Continue", id="continue", variant="primary")
 
     async def on_mount(self) -> None:
-        self._apply_provider_visibility(self._infer_provider())
+        provider = self._infer_provider()
+        self._active_provider = provider
+        provider_copy, _provider_help, _model_help = self._provider_copy(provider)
+        self.query_one("#setup-provider-copy", Static).display = bool(provider_copy)
+        self._apply_provider_visibility(provider)
         self.query_one("#setup-provider", Select).focus()
+        if provider == SETUP_PROVIDER_OPENROUTER and self.query_one("#setup-api-key", Input).value.strip():
+            self.run_worker(self._load_openrouter_models(), exclusive=False)
 
     @on(Button.Pressed, "#continue")
     def on_continue_pressed(self, _event: Button.Pressed) -> None:
@@ -1817,24 +1876,57 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
 
     @on(Select.Changed, "#setup-provider")
     def on_provider_changed(self, event: Select.Changed) -> None:
+        previous_provider = self._active_provider
+        self._capture_provider_model_state(previous_provider)
         provider = str(event.value or "").strip() or SETUP_PROVIDER_GENERIC
+        self._active_provider = provider
         base_url, api_key, model_name = self._provider_defaults(provider)
         provider_copy, provider_help, model_help = self._provider_copy(provider)
         self.query_one("#setup-provider-copy", Static).update(provider_copy)
+        self.query_one("#setup-provider-copy", Static).display = bool(provider_copy)
         self.query_one("#setup-base-url", Input).value = base_url
         self.query_one("#setup-base-url-help", Static).update(provider_help)
         self.query_one("#setup-api-key", Input).value = api_key
-        self.query_one("#setup-model", Input).value = model_name
+        self.query_one("#setup-model-input", Input).value = (
+            self._provider_manual_model.get(provider, "")
+            if provider != SETUP_PROVIDER_GENERIC
+            else (self._provider_manual_model.get(provider, "") or model_name)
+        )
         self.query_one("#setup-model-help", Static).update(model_help)
         self.query_one("#setup-status", Static).update("")
         self.query_one("#setup-error", Static).update("")
         self._apply_provider_visibility(provider)
+        if provider == SETUP_PROVIDER_OPENROUTER and api_key.strip():
+            self.run_worker(self._load_openrouter_models(), exclusive=False)
 
     @on(Input.Submitted, "#setup-base-url")
     @on(Input.Submitted, "#setup-api-key")
-    @on(Input.Submitted, "#setup-model")
+    @on(Input.Submitted, "#setup-model-input")
     def on_input_submitted(self, _event: Input.Submitted) -> None:
         self.run_worker(self._submit_async(), exclusive=False)
+
+    @on(Button.Pressed, "#setup-load-models")
+    def on_load_models_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._load_openrouter_models(), exclusive=False)
+
+    @on(Select.Changed, "#setup-model-select")
+    def on_model_select_changed(self, event: Select.Changed) -> None:
+        provider = (
+            str(self.query_one("#setup-provider", Select).value or "").strip()
+            or SETUP_PROVIDER_GENERIC
+        )
+        self._provider_selected_model[provider] = str(event.value or "").strip()
+        if str(event.value or "").strip() != SETUP_MODEL_OTHER:
+            self._provider_manual_model[provider] = ""
+        self._apply_model_input_visibility(str(event.value or "").strip())
+
+    @on(Input.Changed, "#setup-model-input")
+    def on_model_input_changed(self, event: Input.Changed) -> None:
+        provider = (
+            str(self.query_one("#setup-provider", Select).value or "").strip()
+            or SETUP_PROVIDER_GENERIC
+        )
+        self._provider_manual_model[provider] = event.value
 
     def _set_error(self, message: str) -> None:
         self.query_one("#setup-error", Static).update(message)
@@ -1849,17 +1941,118 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self.query_one("#setup-provider", Select).disabled = busy
         self.query_one("#setup-base-url", Input).disabled = busy
         self.query_one("#setup-api-key", Input).disabled = busy
-        self.query_one("#setup-model", Input).disabled = busy
+        self.query_one("#setup-model-select", Select).disabled = busy
+        self.query_one("#setup-model-input", Input).disabled = busy
         self.query_one("#setup-toggle-api-key", Button).disabled = busy
+        self.query_one("#setup-load-models", Button).disabled = busy
 
     def _apply_provider_visibility(self, provider: str) -> None:
         show_base_url = provider == SETUP_PROVIDER_GENERIC
         show_api_key = provider != SETUP_PROVIDER_OLLAMA
+        show_model_select = provider == SETUP_PROVIDER_OLLAMA or (
+            provider == SETUP_PROVIDER_OPENROUTER and bool(self._openrouter_models)
+        )
+        show_load_models = provider == SETUP_PROVIDER_OPENROUTER
+        show_model_label = provider == SETUP_PROVIDER_GENERIC or show_model_select
         self.query_one("#setup-base-url-label", Static).display = show_base_url
         self.query_one("#setup-base-url", Input).display = show_base_url
         self.query_one("#setup-base-url-help", Static).display = True
         self.query_one("#setup-api-key-label", Static).display = show_api_key
         self.query_one("#setup-api-key-row", Horizontal).display = show_api_key
+        self.query_one("#setup-model-label", Static).display = show_model_label
+        self.query_one("#setup-model-select-row", Horizontal).display = show_model_select
+        self.query_one("#setup-load-models", Button).display = show_load_models
+        if provider == SETUP_PROVIDER_OLLAMA:
+            self._set_model_options(list(RECOMMENDED_OLLAMA_MODELS), preserve_current=True)
+        elif provider == SETUP_PROVIDER_OPENROUTER:
+            self._set_model_options(self._openrouter_models, preserve_current=True)
+        self.query_one("#setup-model-input", Input).display = provider == SETUP_PROVIDER_GENERIC
+        if provider == SETUP_PROVIDER_GENERIC:
+            self.query_one("#setup-model-input", Input).value = (
+                self.query_one("#setup-model-input", Input).value.strip()
+                or self._config.model_name
+                or DEFAULT_MODEL_NAME
+            )
+            self.query_one("#setup-model-help", Static).display = False
+        elif provider == SETUP_PROVIDER_OPENROUTER and not self._openrouter_models:
+            self.query_one("#setup-model-help", Static).display = False
+        self._apply_model_input_visibility(
+            str(self.query_one("#setup-model-select", Select).value or "").strip()
+        )
+
+    def _capture_provider_model_state(self, provider: str) -> None:
+        manual_value = self.query_one("#setup-model-input", Input).value.strip()
+        if provider == SETUP_PROVIDER_GENERIC:
+            self._provider_manual_model[provider] = manual_value
+            self._provider_selected_model[provider] = manual_value
+            return
+        selected_value = str(
+            self.query_one("#setup-model-select", Select).value or ""
+        ).strip()
+        self._provider_selected_model[provider] = selected_value
+        if selected_value == SETUP_MODEL_OTHER:
+            self._provider_manual_model[provider] = manual_value
+
+    def _set_model_options(self, models: list[str], *, preserve_current: bool) -> None:
+        select = self.query_one("#setup-model-select", Select)
+        provider = (
+            str(self.query_one("#setup-provider", Select).value or "").strip()
+            or SETUP_PROVIDER_GENERIC
+        )
+        current_value = (
+            self._provider_selected_model.get(provider, "").strip()
+            if preserve_current
+            else ""
+        )
+        manual_input = self.query_one("#setup-model-input", Input)
+        if provider == SETUP_PROVIDER_OPENROUTER:
+            options = [("Select a model", SETUP_MODEL_SELECT)]
+        else:
+            options = []
+        options.extend((model, model) for model in models)
+        options.append(("Other", SETUP_MODEL_OTHER))
+        select.set_options(options)
+
+        option_values = {value for _, value in options}
+        target = current_value
+        if target not in option_values:
+            manual_value = self._provider_manual_model.get(provider, "").strip()
+            if manual_value and manual_value in option_values:
+                target = manual_value
+            elif current_value == SETUP_MODEL_OTHER and manual_value:
+                target = SETUP_MODEL_OTHER
+            elif provider == SETUP_PROVIDER_OPENROUTER:
+                target = SETUP_MODEL_SELECT
+            elif models:
+                target = models[0]
+            else:
+                target = SETUP_MODEL_OTHER
+        select.value = target
+        self._provider_selected_model[provider] = target
+        if target != SETUP_MODEL_OTHER:
+            manual_input.value = ""
+
+    def _apply_model_input_visibility(self, selected_value: str) -> None:
+        provider = (
+            str(self.query_one("#setup-provider", Select).value or "").strip()
+            or SETUP_PROVIDER_GENERIC
+        )
+        model_input = self.query_one("#setup-model-input", Input)
+        if provider == SETUP_PROVIDER_GENERIC:
+            model_input.display = True
+            return
+        if provider == SETUP_PROVIDER_OPENROUTER and not self._openrouter_models:
+            model_input.display = False
+            self.query_one("#setup-model-help", Static).display = False
+            return
+        show_manual = selected_value == SETUP_MODEL_OTHER
+        model_input.display = show_manual
+        self.query_one("#setup-model-help", Static).display = show_manual
+        if not show_manual:
+            model_input.value = ""
+            return
+        model_input.value = self._provider_manual_model.get(provider, "")
+        model_input.focus()
 
     @staticmethod
     def _ollama_api_root(base_url: str) -> str:
@@ -1922,6 +2115,103 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             )
         return None
 
+    async def _fetch_openrouter_models(self, *, api_key: str) -> tuple[list[str], str | None]:
+        headers = {
+            "authorization": f"Bearer {api_key}",
+            "content-type": "application/json",
+        }
+        timeout = httpx.Timeout(10.0, connect=5.0)
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                key_response = await client.get(
+                    f"{OPENROUTER_BASE_URL}/key",
+                    headers=headers,
+                )
+            except httpx.HTTPError as exc:
+                return [], f"Could not verify the OpenRouter API key: {exc}"
+
+            if key_response.status_code in {401, 403}:
+                return [], "OpenRouter rejected this API key. Check the key and try again."
+            if key_response.status_code >= 400:
+                return [], f"OpenRouter key check failed with status {key_response.status_code}."
+
+            try:
+                response = await client.get(
+                    f"{OPENROUTER_BASE_URL}/models",
+                    headers=headers,
+                    params={"supported_parameters": "tools"},
+                )
+            except httpx.HTTPError as exc:
+                return [], f"Could not load models from OpenRouter: {exc}"
+
+        if response.status_code in {401, 403}:
+            return [], "OpenRouter rejected this API key. Check the key and try again."
+        if response.status_code >= 400:
+            return [], f"OpenRouter model list failed with status {response.status_code}."
+
+        try:
+            payload = response.json()
+        except ValueError:
+            return [], "OpenRouter returned invalid JSON while listing models."
+
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return [], "OpenRouter did not return a model list."
+
+        models = sorted(
+            {
+                str(item.get("id") or "").strip()
+                for item in data
+                if isinstance(item, dict)
+                and str(item.get("id") or "").strip()
+                and str(item.get("id") or "").strip().endswith(":free")
+            }
+        )
+        if not models:
+            return [], "No free, tool-capable OpenRouter models were returned for this account."
+        return models, None
+
+    async def _load_openrouter_models(self) -> None:
+        loaded = await self._load_openrouter_models_for_setup()
+        if loaded:
+            self._set_status(
+                f"API key verified. Loaded {len(self._openrouter_models)} available models."
+            )
+
+    async def _load_openrouter_models_for_setup(self) -> bool:
+        provider = (
+            str(self.query_one("#setup-provider", Select).value or "").strip()
+            or SETUP_PROVIDER_GENERIC
+        )
+        if provider != SETUP_PROVIDER_OPENROUTER or self._validating:
+            return False
+        api_key = self.query_one("#setup-api-key", Input).value.strip()
+        if not api_key:
+            self._set_error("Enter your OpenRouter API key first.")
+            return False
+
+        self._set_error("")
+        self._set_status("Verifying API key and loading available models...")
+        self._set_validating(True)
+        try:
+            models, error = await self._fetch_openrouter_models(api_key=api_key)
+        finally:
+            self._set_validating(False)
+
+        if error:
+            self._set_status("")
+            self._set_error(error)
+            return False
+
+        self._openrouter_models = models
+        self._set_model_options(models, preserve_current=True)
+        self._apply_provider_visibility(provider)
+        self._apply_model_input_visibility(
+            str(self.query_one("#setup-model-select", Select).value or "").strip()
+        )
+        return True
+
     async def _probe_ollama(self, *, base_url: str, model_name: str) -> str | None:
         api_root = self._ollama_api_root(base_url)
         timeout = httpx.Timeout(5.0, connect=3.0)
@@ -1949,6 +2239,12 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         models = payload.get("models")
         if not isinstance(models, list):
             return "Ollama did not return a model list. Make sure the local Ollama API is healthy."
+
+        # Ollama cloud-style routes are served by Ollama but may not appear as
+        # locally pulled models in /api/tags. For those, a healthy Ollama
+        # endpoint is the right validation.
+        if model_name.endswith(":cloud"):
+            return None
 
         available = {
             str(item.get("model") or item.get("name") or "").strip()
@@ -1987,11 +2283,16 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         )
         base_url = self.query_one("#setup-base-url", Input).value.strip()
         api_key = self.query_one("#setup-api-key", Input).value.strip()
-        model_name = (
-            self.query_one("#setup-model", Input).value.strip()
-            or self._config.model_name
-            or DEFAULT_MODEL_NAME
-        )
+        selected_model = str(self.query_one("#setup-model-select", Select).value or "").strip()
+        manual_model = self.query_one("#setup-model-input", Input).value.strip()
+        if provider == SETUP_PROVIDER_GENERIC:
+            model_name = manual_model or self._config.model_name or DEFAULT_MODEL_NAME
+        elif selected_model == SETUP_MODEL_OTHER:
+            model_name = manual_model or self._config.model_name or DEFAULT_MODEL_NAME
+        elif selected_model == SETUP_MODEL_SELECT:
+            model_name = ""
+        else:
+            model_name = selected_model or manual_model or self._config.model_name or DEFAULT_MODEL_NAME
 
         if provider == SETUP_PROVIDER_OLLAMA:
             base_url = base_url or DEFAULT_BASE_URL
@@ -2004,6 +2305,11 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             return
         if not api_key:
             self._set_error("API key is required for the selected provider.")
+            return
+        if provider == SETUP_PROVIDER_OPENROUTER and not self._openrouter_models:
+            loaded = await self._load_openrouter_models_for_setup()
+            if loaded:
+                self._set_status("API key verified. Choose a model to continue.")
             return
         if not model_name:
             self._set_error("Model name is required.")

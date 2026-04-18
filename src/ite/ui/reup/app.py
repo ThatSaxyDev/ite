@@ -11,6 +11,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from rich.cells import cell_len
 from rich.console import Group
@@ -1802,6 +1803,29 @@ class ReupApp(App):
             model_options: list[dict[str, Any]] = []
             seen: set[str] = set()
 
+            def _saved_provider_label(profile: dict[str, Any]) -> str:
+                base_url = str(profile.get("base_url") or "").strip().lower()
+                api_key = str(profile.get("api_key") or "").strip().lower()
+                if (
+                    not base_url
+                    or "localhost:11434" in base_url
+                    or "127.0.0.1:11434" in base_url
+                    or api_key == "ollama"
+                ):
+                    return "Ollama"
+                if "openrouter.ai" in base_url:
+                    return "OpenRouter"
+                parsed = urlparse(base_url)
+                host = (parsed.netloc or parsed.path or "").strip().lower()
+                if not host:
+                    return "Custom provider"
+                host = host.split("@")[-1].split(":")[0].strip(".")
+                if host.startswith("www."):
+                    host = host[4:]
+                if not host:
+                    return "Custom provider"
+                return host
+
             def _append(
                 model_name: str,
                 label: str,
@@ -1809,6 +1833,7 @@ class ReupApp(App):
                 *,
                 available: bool = True,
                 unavailable_reason: str = "",
+                saved_profile: bool = False,
             ) -> None:
                 normalized = str(model_name or "").strip()
                 if not normalized or normalized in seen:
@@ -1821,6 +1846,7 @@ class ReupApp(App):
                         "provider": provider,
                         "available": available,
                         "unavailable_reason": unavailable_reason,
+                        "saved_profile": saved_profile,
                     }
                 )
 
@@ -1828,7 +1854,8 @@ class ReupApp(App):
                 _append(
                     profile["model_name"],
                     profile["model_name"],
-                    "Saved custom",
+                    _saved_provider_label(profile),
+                    saved_profile=True,
                 )
 
             if (

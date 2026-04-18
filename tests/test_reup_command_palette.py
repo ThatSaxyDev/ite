@@ -308,7 +308,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
             async def fake_open_modal(modal):
                 self.assertEqual(modal._models[0]["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
-                self.assertEqual(modal._models[0]["provider"], "Saved custom")
+                self.assertEqual(modal._models[0]["provider"], "localhost")
+                self.assertTrue(modal._models[0]["saved_profile"])
                 self.assertEqual(modal._models[1]["model_name"], "minimax-m2.7:cloud")
                 return None
 
@@ -367,7 +368,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             ), patch(
                 "ite.ui.reup.app.save_system_config"
             ) as save_system_config, patch.object(
-                app, "_open_modal", AsyncMock(return_value="unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+                app,
+                "_open_modal",
+                AsyncMock(
+                    return_value={
+                        "action": "select",
+                        "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                    }
+                ),
             ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
                 await app._open_model_picker_from_meta()
 
