@@ -34,7 +34,7 @@ from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Footer, Header, Input, Label, Static, TextArea, Tree
+from textual.widgets import Button, Footer, Header, Input, Label, Select, Static, TextArea, Tree
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
@@ -229,6 +229,39 @@ def _skills_action_title(action: str) -> str:
         "add": "Skills installed",
     }
     return action_map.get(str(action or "").strip().lower(), "Skills update")
+
+
+ONBOARDING_ROLE_OPTIONS: tuple[str, ...] = (
+    "Software engineer",
+    "Founder",
+    "Product manager",
+    "Designer",
+    "Doctor",
+    "Student",
+    "Researcher",
+    "Marketer",
+    "Sales",
+    "Operations",
+    "Writer",
+    "Consultant",
+)
+
+ONBOARDING_USE_CASE_OPTIONS: tuple[str, ...] = (
+    "Writing code",
+    "Debugging an issue",
+    "Shipping a feature",
+    "Researching a topic",
+    "Planning a project",
+    "Reviewing code",
+    "Writing content",
+    "Analyzing data",
+    "Studying",
+    "Automating a workflow",
+    "Designing a product",
+    "Brainstorming ideas",
+)
+
+ONBOARDING_OTHER_VALUE = "__other__"
 
 
 class ReupTUIAdapter:
@@ -592,13 +625,33 @@ class ReupApp(App):
                                     placeholder="Your name",
                                     id="onboarding-name",
                                 )
+                                yield Select(
+                                    [
+                                        (option, option)
+                                        for option in ONBOARDING_ROLE_OPTIONS
+                                    ]
+                                    + [("Other", ONBOARDING_OTHER_VALUE)],
+                                    prompt="What do you do?",
+                                    allow_blank=True,
+                                    id="onboarding-role-select",
+                                )
                                 yield Input(
                                     placeholder="What do you do? e.g. software engineer, doctor, founder",
-                                    id="onboarding-role",
+                                    id="onboarding-role-other",
+                                )
+                                yield Select(
+                                    [
+                                        (option, option)
+                                        for option in ONBOARDING_USE_CASE_OPTIONS
+                                    ]
+                                    + [("Other", ONBOARDING_OTHER_VALUE)],
+                                    prompt="What are you using iTE for right now?",
+                                    allow_blank=True,
+                                    id="onboarding-use-case-select",
                                 )
                                 yield Input(
                                     placeholder="What are you using iTE for right now?",
-                                    id="onboarding-use-case",
+                                    id="onboarding-use-case-other",
                                 )
                                 with Horizontal(id="onboarding-actions"):
                                     yield Button(
@@ -2063,6 +2116,13 @@ class ReupApp(App):
         self._onboarding_active = enabled
         if enabled:
             self._cloud_signed_out = False
+            try:
+                self.query_one("#onboarding-role-other", Input).display = False
+                self.query_one("#onboarding-role-other", Input).value = ""
+                self.query_one("#onboarding-use-case-other", Input).display = False
+                self.query_one("#onboarding-use-case-other", Input).value = ""
+            except NoMatches:
+                pass
         self._apply_shell_surface()
 
     def _apply_shell_surface(self) -> None:
@@ -2210,6 +2270,13 @@ class ReupApp(App):
     async def _finish_onboarding_flow(self, *, skip: bool) -> None:
         if self._onboarding_busy:
             return
+        if not skip:
+            validation_error = self._validate_onboarding_inputs()
+            if validation_error is not None:
+                self.query_one("#onboarding-status", Static).update(
+                    Text(validation_error, style="bold #ffcf92", justify="center")
+                )
+                return
         self._onboarding_busy = True
         self._apply_shell_surface()
 
@@ -2224,8 +2291,14 @@ class ReupApp(App):
 
             if not skip:
                 name = self.query_one("#onboarding-name", Input).value.strip()
-                role = self.query_one("#onboarding-role", Input).value.strip()
-                use_case = self.query_one("#onboarding-use-case", Input).value.strip()
+                role = self._resolve_onboarding_choice(
+                    select_id="onboarding-role-select",
+                    other_input_id="onboarding-role-other",
+                )
+                use_case = self._resolve_onboarding_choice(
+                    select_id="onboarding-use-case-select",
+                    other_input_id="onboarding-use-case-other",
+                )
 
                 entries: list[tuple[str, str]] = []
                 if name:
@@ -2264,16 +2337,61 @@ class ReupApp(App):
         self._refresh_empty_state()
         self.query_one("#prompt", TextArea).focus()
 
+    def _resolve_onboarding_choice(self, *, select_id: str, other_input_id: str) -> str:
+        value = self.query_one(f"#{select_id}", Select).value
+        if value in {Select.BLANK, Select.NULL, None}:
+            return ""
+        if value == ONBOARDING_OTHER_VALUE:
+            return self.query_one(f"#{other_input_id}", Input).value.strip()
+        return str(value).strip()
+
+    def _validate_onboarding_inputs(self) -> str | None:
+        name = self.query_one("#onboarding-name", Input).value.strip()
+        if not name:
+            self.query_one("#onboarding-name", Input).focus()
+            return "Enter your name, or choose Skip to do this later."
+
+        role_value = self.query_one("#onboarding-role-select", Select).value
+        if role_value in {Select.BLANK, Select.NULL, None}:
+            self.query_one("#onboarding-role-select", Select).focus()
+            return "Choose what you do, or choose Other and type it in."
+        if role_value == ONBOARDING_OTHER_VALUE:
+            role_other = self.query_one("#onboarding-role-other", Input)
+            if not role_other.value.strip():
+                role_other.focus()
+                return "Tell iTE what you do before continuing."
+
+        use_case_value = self.query_one("#onboarding-use-case-select", Select).value
+        if use_case_value in {Select.BLANK, Select.NULL, None}:
+            self.query_one("#onboarding-use-case-select", Select).focus()
+            return "Choose what you're using iTE for right now, or choose Other and type it in."
+        if use_case_value == ONBOARDING_OTHER_VALUE:
+            use_case_other = self.query_one("#onboarding-use-case-other", Input)
+            if not use_case_other.value.strip():
+                use_case_other.focus()
+                return "Tell iTE what you're using it for before continuing."
+
+        return None
+
     def _focus_next_onboarding_field(self, current_id: str | None) -> bool:
-        order = ["onboarding-name", "onboarding-role", "onboarding-use-case"]
-        if not current_id or current_id not in order:
-            return False
-        current_index = order.index(current_id)
-        if current_index >= len(order) - 1:
-            return False
-        next_id = f"#{order[current_index + 1]}"
-        self.query_one(next_id, Input).focus()
-        return True
+        if current_id == "onboarding-name":
+            self.query_one("#onboarding-role-select", Select).focus()
+            return True
+        if current_id == "onboarding-role-other":
+            self.query_one("#onboarding-use-case-select", Select).focus()
+            return True
+        return False
+
+    def _set_onboarding_other_visibility(
+        self, *, other_input_id: str, value: object
+    ) -> None:
+        other_input = self.query_one(f"#{other_input_id}", Input)
+        is_other = value == ONBOARDING_OTHER_VALUE
+        other_input.display = is_other
+        if not is_other:
+            other_input.value = ""
+            return
+        other_input.focus()
 
     def _apply_aside_panel_state(self) -> None:
         panel = self.query_one("#aside-panel", Container)
@@ -2866,12 +2984,29 @@ class ReupApp(App):
         self.run_worker(self._finish_onboarding_flow(skip=True), exclusive=False)
 
     @on(Input.Submitted, "#onboarding-name")
-    @on(Input.Submitted, "#onboarding-role")
-    @on(Input.Submitted, "#onboarding-use-case")
+    @on(Input.Submitted, "#onboarding-role-other")
+    @on(Input.Submitted, "#onboarding-use-case-other")
     def on_onboarding_input_submitted(self, event: Input.Submitted) -> None:
         if self._focus_next_onboarding_field(getattr(event.input, "id", None)):
             return
         self.run_worker(self._finish_onboarding_flow(skip=False), exclusive=False)
+
+    @on(Select.Changed, "#onboarding-role-select")
+    def on_onboarding_role_select_changed(self, event: Select.Changed) -> None:
+        self._set_onboarding_other_visibility(
+            other_input_id="onboarding-role-other",
+            value=event.value,
+        )
+        if event.value not in {Select.BLANK, Select.NULL, ONBOARDING_OTHER_VALUE}:
+            self.query_one("#onboarding-use-case-select", Select).focus()
+
+    @on(Select.Changed, "#onboarding-use-case-select")
+    def on_onboarding_use_case_select_changed(self, event: Select.Changed) -> None:
+        self._set_onboarding_other_visibility(
+            other_input_id="onboarding-use-case-other",
+            value=event.value,
+        )
+
 
     @on(Button.Pressed, "#changes-toggle")
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:

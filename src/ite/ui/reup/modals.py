@@ -16,7 +16,7 @@ from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, DirectoryTree, Input, Label, Static
+from textual.widgets import Button, DataTable, DirectoryTree, Input, Label, Select, Static
 from textual.theme import BUILTIN_THEMES
 from textual.widgets.directory_tree import DirEntry
 
@@ -29,6 +29,12 @@ from ite.config.config import (
     Config,
 )
 from ite.git.branches import BranchInfo, is_valid_branch_name
+
+
+SETUP_PROVIDER_OLLAMA = "ollama"
+SETUP_PROVIDER_OPENROUTER = "openrouter"
+SETUP_PROVIDER_GENERIC = "generic"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 class ConfirmModal(ModalScreen[bool]):

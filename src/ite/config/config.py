@@ -10,7 +10,7 @@ from enum import Enum
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_API_KEY = "ollama"
-DEFAULT_MODEL_NAME = "minimax-m2.7:cloud"
+DEFAULT_MODEL_NAME = "kimi-k2.5:cloud"
 DEFAULT_CLOUD_API_URL = "https://ite-cloud-api.onrender.com"
 DEFAULT_CLOUD_CLIENT_ID = "ite-cli"
 

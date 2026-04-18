@@ -700,8 +700,8 @@ class LayoutBuilderMixin:
 
     def build_composer(self) -> ft.Control:
         model_choices = [
-            "minimax-m2.7:cloud",
             "kimi-k2.5:cloud",
+            "minimax-m2.7:cloud",
             "glm-5:cloud",
             "glm-5.1:cloud",
         ]

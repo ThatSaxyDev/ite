@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock, patch
 from ite.cloud.auth import CloudAuthError
 from ite.cloud.auth import has_valid_cloud_auth
 from ite.config.config import Config
-from ite.ui.reup.app import ReupApp
+from textual.widgets import Select
+
+from ite.ui.reup.app import ONBOARDING_OTHER_VALUE, ReupApp
 
 
 class ReupStartupTests(unittest.TestCase):
@@ -42,6 +44,7 @@ class ReupStartupTests(unittest.TestCase):
                 return qualname
 
             with (
+                patch("ite.ui.reup.app.load_theme", return_value=None),
                 patch.object(app, "refresh_header"),
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "_refresh_empty_state"),
@@ -100,6 +103,7 @@ class ReupStartupTests(unittest.TestCase):
                 return None
 
             with (
+                patch("ite.ui.reup.app.load_theme", return_value=None),
                 patch.object(app, "refresh_header"),
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "_refresh_empty_state"),
@@ -265,6 +269,7 @@ class ReupStartupTests(unittest.TestCase):
             toggle = SimpleNamespace(display=True)
 
             with (
+                patch("ite.ui.reup.app.load_theme", return_value=None),
                 patch.object(app, "refresh_header"),
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "_refresh_empty_state"),
@@ -299,15 +304,15 @@ class ReupStartupTests(unittest.TestCase):
     def test_onboarding_submit_advances_to_next_field_before_finishing(self) -> None:
         app = self._app()
         name_input = SimpleNamespace(id="onboarding-name")
-        role_input = SimpleNamespace(focus=lambda: None)
+        role_select = SimpleNamespace(focus=lambda: None)
 
         with (
-            patch.object(app, "query_one", return_value=role_input) as query_one,
+            patch.object(app, "query_one", return_value=role_select) as query_one,
             patch.object(app, "run_worker") as run_worker,
         ):
             app.on_onboarding_input_submitted(SimpleNamespace(input=name_input))
 
-        query_one.assert_called_once_with("#onboarding-role", unittest.mock.ANY)
+        query_one.assert_called_once_with("#onboarding-role-select", unittest.mock.ANY)
         run_worker.assert_not_called()
 
     def test_cloud_login_shows_onboarding_before_starting_agent(self) -> None:
@@ -342,7 +347,7 @@ class ReupStartupTests(unittest.TestCase):
 
     def test_onboarding_submit_finishes_on_last_field(self) -> None:
         app = self._app()
-        use_case_input = SimpleNamespace(id="onboarding-use-case")
+        use_case_input = SimpleNamespace(id="onboarding-use-case-other")
 
         def _consume(coro, **_kwargs):
             coro.close()
@@ -352,6 +357,95 @@ class ReupStartupTests(unittest.TestCase):
             app.on_onboarding_input_submitted(SimpleNamespace(input=use_case_input))
 
         run_worker.assert_called_once()
+
+    def test_onboarding_role_select_shows_other_input_when_selected(self) -> None:
+        app = self._app()
+        other_input = SimpleNamespace(display=False, value="", focus=lambda: None)
+
+        with patch.object(app, "query_one", return_value=other_input):
+            app.on_onboarding_role_select_changed(
+                SimpleNamespace(value=ONBOARDING_OTHER_VALUE)
+            )
+
+        self.assertTrue(other_input.display)
+
+    def test_onboarding_role_select_hides_other_input_for_preset_choice(self) -> None:
+        app = self._app()
+        other_input = SimpleNamespace(display=True, value="Custom role", focus=lambda: None)
+        use_case_select = SimpleNamespace(focus=lambda: None)
+
+        with patch.object(
+            app,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#onboarding-role-other": other_input,
+                "#onboarding-use-case-select": use_case_select,
+            }[selector],
+        ):
+            app.on_onboarding_role_select_changed(SimpleNamespace(value="Founder"))
+
+        self.assertFalse(other_input.display)
+        self.assertEqual(other_input.value, "")
+
+    def test_continue_requires_remaining_onboarding_fields(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            status = SimpleNamespace(update=lambda _msg: None)
+            name_input = SimpleNamespace(value="David", focus=lambda: None)
+            role_select = SimpleNamespace(value=Select.BLANK, focus=lambda: None)
+            role_other = SimpleNamespace(value="", focus=lambda: None)
+            use_case_select = SimpleNamespace(value=Select.BLANK, focus=lambda: None)
+            use_case_other = SimpleNamespace(value="", focus=lambda: None)
+
+            with (
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#onboarding-status": status,
+                        "#onboarding-name": name_input,
+                        "#onboarding-role-select": role_select,
+                        "#onboarding-role-other": role_other,
+                        "#onboarding-use-case-select": use_case_select,
+                        "#onboarding-use-case-other": use_case_other,
+                    }[selector],
+                ),
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+            ):
+                await app._finish_onboarding_flow(skip=False)
+
+            ensure_agent.assert_not_awaited()
+
+        asyncio.run(run_test())
+
+    def test_skip_bypasses_onboarding_validation(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(session=SimpleNamespace())
+            prompt = SimpleNamespace(focus=lambda: None)
+            status = SimpleNamespace(update=lambda _msg: None)
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "_set_onboarding_state"),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "_open_setup_modal", AsyncMock()),
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#onboarding-status": status,
+                        "#prompt": prompt,
+                    }[selector],
+                ),
+            ):
+                await app._finish_onboarding_flow(skip=True)
+
+            self.assertTrue(app.config.onboarding_completed)
+
+        asyncio.run(run_test())
 
 
 if __name__ == "__main__":

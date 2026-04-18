@@ -492,13 +492,20 @@ Screen {
 }
 
 #onboarding-name,
-#onboarding-role,
-#onboarding-use-case {
+#onboarding-role-select,
+#onboarding-role-other,
+#onboarding-use-case-select,
+#onboarding-use-case-other {
     width: 100%;
     margin-top: 1;
     background: $surface-darken-1;
     color: $foreground;
     border: round $border;
+}
+
+#onboarding-role-other,
+#onboarding-use-case-other {
+    display: none;
 }
 
 #onboarding-actions {

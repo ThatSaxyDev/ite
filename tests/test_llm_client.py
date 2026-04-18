@@ -100,7 +100,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(events)
         payload = captured[0]["json"]
-        self.assertEqual(payload["model"], "minimax-m2.7")
+        self.assertEqual(payload["model"], "kimi-k2.5")
         self.assertEqual(payload["messages"], [{"role": "user", "content": "hello"}])
         self.assertNotIn("tools", payload)
         self.assertNotIn("toolChoice", payload)
