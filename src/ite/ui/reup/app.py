@@ -600,20 +600,28 @@ class ReupApp(App):
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(1.0, self._poll_change_review_panel)
+        self._set_loading_state("starting up", busy=True)
         if self.config.cloud_auth_enabled:
             self._cloud_bootstrap_busy = True
             self._set_signed_out_state(True)
+        self.run_worker(self._bootstrap_after_mount(), exclusive=False)
+
+    async def _bootstrap_after_mount(self) -> None:
+        if self.config.cloud_auth_enabled:
             has_cloud_session = await asyncio.to_thread(
                 has_valid_cloud_auth, self.config
             )
             self._cloud_bootstrap_busy = False
             if not has_cloud_session:
                 self._set_signed_out_state(True)
+                self._set_loading_state("idle", busy=False)
                 return
             self._set_signed_out_state(False)
+
         await self.ensure_agent()
         self._schedule_usage_meta_refresh()
         await self._refresh_change_review_source()
+        self._set_loading_state("idle", busy=False)
         self.query_one("#prompt", TextArea).focus()
         self._sync_command_palette("")
 
@@ -7608,6 +7616,9 @@ class ReupApp(App):
 
 
 def run_reup(config: Config) -> None:
+    if sys.stdout.isatty():
+        sys.stdout.write("Launching iTE...\n")
+        sys.stdout.flush()
     app = ReupApp(config)
     app.run()
     if sys.stdout.isatty():

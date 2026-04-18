@@ -918,7 +918,7 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="models", classes="resume-table", cursor_type="row")
             with Horizontal(classes="modal-actions resume-actions"):
-                yield Button("Delete saved", id="delete", variant="error", disabled=True)
+                yield Button("Delete saved", id="delete", variant="default", disabled=True)
                 yield Button("Select", id="select", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
 

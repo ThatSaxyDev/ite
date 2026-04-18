@@ -2109,6 +2109,20 @@ ModelPickerModal #select:hover {
     color: $button-color-foreground;
 }
 
+ModelPickerModal #delete {
+    width: 16;
+    min-width: 16;
+    text-style: bold;
+    background: $warning-muted;
+    color: $text-warning;
+    border: none;
+}
+
+ModelPickerModal #delete:hover {
+    background: $warning;
+    color: $foreground;
+}
+
 ThemePickerModal #select {
     width: 14;
     min-width: 14;
