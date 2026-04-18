@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 from rich.cells import cell_len
 from rich.console import Group
 from rich.markdown import Markdown as RichMarkdown
-from textual.widgets import Markdown as TextualMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -35,13 +34,23 @@ from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Footer, Header, Input, Label, Select, Static, TextArea, Tree
+from textual.widgets import (
+    Button,
+    Footer,
+    Header,
+    Input,
+    Label,
+    Select,
+    Static,
+    TextArea,
+    Tree,
+)
+from textual.widgets import Markdown as TextualMarkdown
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
-from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.attachment_refs import (
     discover_attachable_files,
     extract_at_query,
@@ -107,6 +116,7 @@ from ite.skills import (
     build_skill_feedback_renderable,
     build_skills_overview_renderable,
 )
+from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
 from .adapters.registry import StreamingCommandOutput, build_command_context
@@ -133,19 +143,19 @@ from .composer_views import (
     render_turn_action_palette,
 )
 from .modals import (
+    ActivityModal,
     AttachPickerModal,
     BranchPickerModal,
     CommitModal,
     ConfirmModal,
     ContextSummaryModal,
     ModelPickerModal,
-    ThemePickerModal,
     PlanQuestionModal,
     PushReviewModal,
     RemoteSetupModal,
     SessionResumeModal,
     SetupModal,
-    ActivityModal,
+    ThemePickerModal,
     UsageSummaryModal,
 )
 from .tool_views import (
@@ -156,13 +166,12 @@ from .tool_views import (
     guess_language,
     is_light_background,
     normalize_style_color,
-    syntax_background_color,
     normalize_unified_diff_paths,
     render_args_table,
     render_git_log_output,
     render_grep_output,
-    render_list_dir_output,
     render_line_numbered_text,
+    render_list_dir_output,
     render_mcp_start_payload,
     render_numbered_unified_diff,
     render_palette,
@@ -180,6 +189,7 @@ from .tool_views import (
     summarize_diff_hunk_ranges,
     summarize_mcp_success,
     summarize_subagent_goal,
+    syntax_background_color,
     todo_start_hint,
     truncate_for_tool,
 )
@@ -844,7 +854,9 @@ class ReupApp(App):
                 )
             except NoMatches:
                 pass
-        self.run_worker(self._rerender_completed_tool_cards_for_theme(), exclusive=False)
+        self.run_worker(
+            self._rerender_completed_tool_cards_for_theme(), exclusive=False
+        )
 
     async def _rerender_completed_tool_cards_for_theme(self) -> None:
         for call_id, state in list(self._tool_completion_state.items()):
@@ -857,11 +869,17 @@ class ReupApp(App):
                 tool_kind=state.get("tool_kind"),
                 success=bool(state.get("success")),
                 output=str(state.get("output") or ""),
-                error=state.get("error") if isinstance(state.get("error"), str) else None,
-                metadata=state.get("metadata") if isinstance(state.get("metadata"), dict) else None,
+                error=state.get("error")
+                if isinstance(state.get("error"), str)
+                else None,
+                metadata=state.get("metadata")
+                if isinstance(state.get("metadata"), dict)
+                else None,
                 diff=state.get("diff") if isinstance(state.get("diff"), str) else None,
                 truncated=bool(state.get("truncated")),
-                exit_code=state.get("exit_code") if isinstance(state.get("exit_code"), int) else None,
+                exit_code=state.get("exit_code")
+                if isinstance(state.get("exit_code"), int)
+                else None,
                 pin_after_update=False,
             )
 
@@ -1165,13 +1183,17 @@ class ReupApp(App):
             ]
             content.append(frame, style=f"bold {self._style('success')}")
             content.append(" ")
-            content.append(message.strip() or "Compacting context", style=self._style("fg"))
+            content.append(
+                message.strip() or "Compacting context", style=self._style("fg")
+            )
             content.append(suffix, style=f"bold {self._style('muted')}")
             return content
         content.append(message.strip(), style=self._style("fg"))
         return content
 
-    async def _start_live_compaction_card(self, message: str = "Compacting context") -> None:
+    async def _start_live_compaction_card(
+        self, message: str = "Compacting context"
+    ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         if self._live_compaction_body is None or self._live_compaction_card is None:
             title_widget = Static("Context", classes="card-title note-title")
@@ -1265,7 +1287,11 @@ class ReupApp(App):
         if self.agent and self.agent.session and self.agent.session.context_manager:
             try:
                 context_used_percent = int(
-                    round(float(self.agent.session.get_stats().get("context_used_pct", 0.0)))
+                    round(
+                        float(
+                            self.agent.session.get_stats().get("context_used_pct", 0.0)
+                        )
+                    )
                 )
             except Exception:
                 context_used_percent = None
@@ -1273,7 +1299,16 @@ class ReupApp(App):
         if context_used_percent is not None and floor_pct is not None:
             context_used_percent = max(context_used_percent, floor_pct)
         model_display_name = self._model_display_name()
-        text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox, context_hitbox, activity_hitbox = composer_meta_text(
+        (
+            text,
+            attach_hitbox,
+            model_hitbox,
+            branch_hitbox,
+            plan_hitbox,
+            usage_hitbox,
+            context_hitbox,
+            activity_hitbox,
+        ) = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=model_display_name,
             plan_enabled=plan_enabled,
@@ -1861,9 +1896,8 @@ class ReupApp(App):
             if (
                 current_model
                 and not str(current_model).endswith(":cloud")
-                and current_model not in {
-                    item.get("model_name", "") for item in bundled_items
-                }
+                and current_model
+                not in {item.get("model_name", "") for item in bundled_items}
             ):
                 _append(current_model, current_model, "Custom")
 
@@ -1887,8 +1921,12 @@ class ReupApp(App):
             available_options = [
                 item for item in model_options if bool(item.get("available", True))
             ]
-            if not available_options and current_model and any(
-                item.get("model_name") == current_model for item in model_options
+            if (
+                not available_options
+                and current_model
+                and any(
+                    item.get("model_name") == current_model for item in model_options
+                )
             ):
                 reason = ""
                 for item in model_options:
@@ -1900,7 +1938,9 @@ class ReupApp(App):
                     message = f"{message} {reason}"
                 self.post_system("Model", message, is_error=True)
 
-            result = await self._open_modal(ModelPickerModal(current_model, model_options))
+            result = await self._open_modal(
+                ModelPickerModal(current_model, model_options)
+            )
             if not result:
                 return
 
@@ -1932,15 +1972,37 @@ class ReupApp(App):
         restored_profile = (
             saved_providers.get(selected) if selected in saved_providers else None
         )
+        selected_item = next(
+            (
+                item
+                for item in model_options
+                if str(item.get("model_name") or "").strip() == selected
+            ),
+            None,
+        )
         next_api_key = (
             str(restored_profile.get("api_key") or "")
             if restored_profile
-            else (self.config.api_key or "")
+            else (
+                ""
+                if bool(selected_item)
+                and not bool(selected_item.get("saved_profile"))
+                and str(selected_item.get("provider") or "").strip().lower()
+                == "bundled"
+                else (self.config.api_key or "")
+            )
         )
         next_base_url = (
             str(restored_profile.get("base_url") or "")
             if restored_profile
-            else (self.config.base_url or "")
+            else (
+                ""
+                if bool(selected_item)
+                and not bool(selected_item.get("saved_profile"))
+                and str(selected_item.get("provider") or "").strip().lower()
+                == "bundled"
+                else (self.config.base_url or "")
+            )
         )
 
         try:
@@ -1960,6 +2022,7 @@ class ReupApp(App):
         self.config.api_key = next_api_key
         self.config.base_url = next_base_url
         self.config.model.name = selected
+        await self._reset_active_provider_client()
         self.refresh_header()
 
     async def _open_theme_picker_from_meta(self) -> None:
@@ -1977,20 +2040,30 @@ class ReupApp(App):
         await self.ensure_agent()
         summary = get_usage_summary(self.config)
         if not summary:
-            self.post_system("Usage", "Usage is not available right now.", is_error=True)
+            self.post_system(
+                "Usage", "Usage is not available right now.", is_error=True
+            )
             return
         quotas = summary.get("quotas") or {}
         five_hour = quotas.get("fiveHour") or {}
         used = int(five_hour.get("usedUsdCents") or 0)
         cap = max(1, int(five_hour.get("capUsdCents") or 1))
-        self._usage_remaining_percent = max(0, min(100, round(((cap - used) / cap) * 100)))
+        self._usage_remaining_percent = max(
+            0, min(100, round(((cap - used) / cap) * 100))
+        )
         self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
 
     async def _open_context_modal_from_meta(self) -> None:
         await self.ensure_agent()
-        if not self.agent or not self.agent.session or not self.agent.session.context_manager:
-            self.post_system("Context", "Context state is not available right now.", is_error=True)
+        if (
+            not self.agent
+            or not self.agent.session
+            or not self.agent.session.context_manager
+        ):
+            self.post_system(
+                "Context", "Context state is not available right now.", is_error=True
+            )
             return
         session = self.agent.session
         stats = session.get_stats()
@@ -2008,7 +2081,11 @@ class ReupApp(App):
         await self.ensure_agent()
         payload = get_activity(self.config)
         if not payload:
-            self.post_system("Activity", "Usage analytics are not available right now.", is_error=True)
+            self.post_system(
+                "Activity",
+                "Usage analytics are not available right now.",
+                is_error=True,
+            )
             return
         await self._open_modal(ActivityModal(payload))
 
@@ -2182,7 +2259,11 @@ class ReupApp(App):
         session_tabs.display = in_chat and len(self._open_session_order) > 1
         footer.display = in_chat
         header.display = in_chat
-        chat_body.styles.padding = (0, 0, 0, 0) if (in_startup or in_signed_out or in_onboarding) else (0, 2, 0, 2)
+        chat_body.styles.padding = (
+            (0, 0, 0, 0)
+            if (in_startup or in_signed_out or in_onboarding)
+            else (0, 2, 0, 2)
+        )
         prompt.disabled = not in_chat
         sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
@@ -2312,7 +2393,11 @@ class ReupApp(App):
             session = self.agent.session if self.agent else None
             if session is None:
                 self.query_one("#onboarding-status", Static).update(
-                    Text("Could not prepare onboarding right now.", style="bold #ffcf92", justify="center")
+                    Text(
+                        "Could not prepare onboarding right now.",
+                        style="bold #ffcf92",
+                        justify="center",
+                    )
                 )
                 return
 
@@ -2349,7 +2434,9 @@ class ReupApp(App):
             self.config.onboarding_completed = True
         except Exception as exc:
             self.query_one("#onboarding-status", Static).update(
-                Text(f"Onboarding failed: {exc}", style="bold #ffcf92", justify="center")
+                Text(
+                    f"Onboarding failed: {exc}", style="bold #ffcf92", justify="center"
+                )
             )
             return
         finally:
@@ -3034,7 +3121,6 @@ class ReupApp(App):
             value=event.value,
         )
 
-
     @on(Button.Pressed, "#changes-toggle")
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
         has_content = bool(
@@ -3420,6 +3506,7 @@ class ReupApp(App):
         self.config.base_url = result["base_url"]
         self.config.model.name = result["model_name"]
         self.config.approval = ApprovalPolicy(result["approval"])
+        await self._reset_active_provider_client()
         self.refresh_header()
         self.post_notice("Setup complete", "Credentials saved and applied.")
 
@@ -3431,6 +3518,14 @@ class ReupApp(App):
             return False
         await self._apply_setup_result(result)
         return True
+
+    async def _reset_active_provider_client(self) -> None:
+        if not self.agent or not self.agent.session or not self.agent.session.client:
+            return
+        try:
+            await self.agent.session.client.close()
+        except Exception:
+            pass
 
     def _tick_top_indicator(self) -> None:
         has_pending_command_spinner = any(
@@ -4204,7 +4299,9 @@ class ReupApp(App):
         else:
             run_state.retryable_turn_payload = None
 
-    def _build_followup_recovery_payload(self, session_id: str) -> dict[str, Any] | None:
+    def _build_followup_recovery_payload(
+        self, session_id: str
+    ) -> dict[str, Any] | None:
         run_state = self._run_state(session_id)
         if not run_state.last_turn_payload:
             return None
@@ -4226,7 +4323,9 @@ class ReupApp(App):
             return
         run_state = self._run_state(session_id)
         if self._is_turn_running:
-            self.post_system("Retry", "Wait for the current turn to finish first.", is_error=True)
+            self.post_system(
+                "Retry", "Wait for the current turn to finish first.", is_error=True
+            )
             return
         payload = run_state.retryable_turn_payload
         if payload is None:
@@ -5195,9 +5294,7 @@ class ReupApp(App):
         try:
             baseline_context_pct = int(
                 round(
-                    float(
-                        active_agent.session.get_stats().get("context_used_pct", 0.0)
-                    )
+                    float(active_agent.session.get_stats().get("context_used_pct", 0.0))
                 )
             )
         except Exception:
@@ -5282,10 +5379,10 @@ class ReupApp(App):
                 str(self.config.model_name or "").endswith(":cloud")
                 and not self._bundled_access_announced
             ):
-                self.post_notice(
-                    "Bundled Access",
-                    "You're now using bundled access.",
-                )
+                # self.post_notice(
+                #     "Bundled Access",
+                #     "You're now using bundled access.",
+                # )
                 self._bundled_access_announced = True
             run_state.failure_recovery_payload = None
             await self._dispatch_queued_payload_if_ready()
@@ -5473,9 +5570,7 @@ class ReupApp(App):
                         busy=True,
                     )
                     return
-                scope = self._resolve_todo_scope_for_event(
-                    arguments=arguments
-                )
+                scope = self._resolve_todo_scope_for_event(arguments=arguments)
                 if self._should_hide_todo_scope(scope):
                     self._set_loading_state(
                         self._progress_state_label(
@@ -6782,6 +6877,7 @@ class ReupApp(App):
         spinner_index: int,
     ) -> Group:
         styles = self._render_styles()
+
         def compact_result_line(value: str) -> str:
             text = str(value or "").strip()
             if not text:
@@ -6832,7 +6928,9 @@ class ReupApp(App):
         header.append("Waiting on specialists", style=f"bold {self._style('fg')}")
         header.append("  running", style=self._style("muted"))
 
-        blocks: list[Any] = [Text("Watching active specialist runs.", style=self._style("muted"))]
+        blocks: list[Any] = [
+            Text("Watching active specialist runs.", style=self._style("muted"))
+        ]
         summary = Text()
         if selected_ids:
             summary.append(f"{len(selected_ids)} selected", style=self._style("muted"))
@@ -6926,24 +7024,36 @@ class ReupApp(App):
                             recent.append(line)
                     if not recent:
                         continue
-                    history_header = Text(str(run.run_id), style=f"bold {self._style('accent')}")
+                    history_header = Text(
+                        str(run.run_id), style=f"bold {self._style('accent')}"
+                    )
                     if goal_label:
                         history_header.append(" · ", style=self._style("disabled"))
                         history_header.append(goal_label, style=self._style("muted"))
-                    history_header.append(" recent activity", style=f"bold {self._style('accent')}")
+                    history_header.append(
+                        " recent activity", style=f"bold {self._style('accent')}"
+                    )
                     history_lines.append(history_header)
                     for index, line in enumerate(recent):
-                        style = self._style("fg") if index == len(recent) - 1 else self._style("muted")
+                        style = (
+                            self._style("fg")
+                            if index == len(recent) - 1
+                            else self._style("muted")
+                        )
                         history_lines.append(Text(f"• {line}", style=style))
                 if history_lines:
                     blocks.append(Text(""))
                 blocks.extend(history_lines)
             else:
                 blocks.append(
-                    Text("No matching specialist runs found.", style=self._style("muted"))
+                    Text(
+                        "No matching specialist runs found.", style=self._style("muted")
+                    )
                 )
         else:
-            blocks.append(Text("Specialist runtime unavailable.", style=self._style("muted")))
+            blocks.append(
+                Text("Specialist runtime unavailable.", style=self._style("muted"))
+            )
 
         return Group(header, *blocks)
 
@@ -6956,6 +7066,7 @@ class ReupApp(App):
         spinner_index: int,
     ) -> Group:
         styles = self._render_styles()
+
         def age_label(value: Any) -> str:
             if not isinstance(value, str) or not value.strip():
                 return ""
@@ -7005,11 +7116,15 @@ class ReupApp(App):
                 blocks.append(Text(details, style=self._style("muted")))
             if child_session_id:
                 blocks.append(
-                    Text(f"child session {child_session_id}", style=self._style("muted"))
+                    Text(
+                        f"child session {child_session_id}", style=self._style("muted")
+                    )
                 )
             history = live.get("activity_history")
             if isinstance(history, list) and history:
-                blocks.append(Text("Recent activity", style=f"bold {self._style('accent')}"))
+                blocks.append(
+                    Text("Recent activity", style=f"bold {self._style('accent')}")
+                )
                 for entry in history[-3:]:
                     if not isinstance(entry, dict):
                         continue
@@ -7017,10 +7132,18 @@ class ReupApp(App):
                     freshness = age_label(entry.get("at"))
                     line = "  •  ".join(part for part in [freshness, message] if part)
                     if line:
-                        style = self._style("fg") if entry is history[-1] else self._style("secondary")
+                        style = (
+                            self._style("fg")
+                            if entry is history[-1]
+                            else self._style("secondary")
+                        )
                         blocks.append(Text(f"• {line}", style=style))
         elif not blocks:
-            blocks.append(Text("Starting specialist session.", style=self._render_styles()["muted"]))
+            blocks.append(
+                Text(
+                    "Starting specialist session.", style=self._render_styles()["muted"]
+                )
+            )
 
         return Group(header, *blocks)
 
@@ -7059,7 +7182,9 @@ class ReupApp(App):
 
         blocks: list[Any] = []
         if name == "todos":
-            blocks.append(Text(todo_start_hint(arguments), style=self._render_styles()["fg"]))
+            blocks.append(
+                Text(todo_start_hint(arguments), style=self._render_styles()["fg"])
+            )
         elif tool_kind == "mcp":
             blocks.extend(
                 render_mcp_start_payload(
@@ -7261,7 +7386,9 @@ class ReupApp(App):
                             code_display,
                             language,
                             theme=self._syntax_theme_name(),
-                            background_color=syntax_background_color(self._theme_tokens()),
+                            background_color=syntax_background_color(
+                                self._theme_tokens()
+                            ),
                             line_numbers=True,
                             start_line=start_line,
                             word_wrap=False,
@@ -7345,7 +7472,9 @@ class ReupApp(App):
             if hunk_ranges:
                 summary_parts.append("  |  ".join(hunk_ranges[:2]))
             if summary_parts:
-                blocks.append(Text("  •  ".join(summary_parts), style=self._style("muted")))
+                blocks.append(
+                    Text("  •  ".join(summary_parts), style=self._style("muted"))
+                )
             diff_display, was_truncated = truncate_for_tool(name, diff)
             local_truncated = local_truncated or was_truncated
             blocks.append(
@@ -7421,7 +7550,8 @@ class ReupApp(App):
             if primary_path:
                 blocks.append(
                     Text(
-                        display_path(primary_path, cwd=self.config.cwd), style=self._style("muted")
+                        display_path(primary_path, cwd=self.config.cwd),
+                        style=self._style("muted"),
                     )
                 )
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -7438,7 +7568,8 @@ class ReupApp(App):
             if primary_path:
                 blocks.append(
                     Text(
-                        display_path(primary_path, cwd=self.config.cwd), style=self._style("muted")
+                        display_path(primary_path, cwd=self.config.cwd),
+                        style=self._style("muted"),
                     )
                 )
             summary_parts: list[str] = []
@@ -7460,7 +7591,9 @@ class ReupApp(App):
                 if md.get("ocr_requested"):
                     summary_parts.append("ocr")
             if summary_parts:
-                blocks.append(Text("  •  ".join(summary_parts), style=self._style("muted")))
+                blocks.append(
+                    Text("  •  ".join(summary_parts), style=self._style("muted"))
+                )
         elif name in {"read_json", "read_toml", "read_yaml", "read_env"} and success:
             if primary_path:
                 target = display_path(primary_path, cwd=self.config.cwd)
@@ -7535,7 +7668,9 @@ class ReupApp(App):
             if isinstance(provider, str) and provider.strip():
                 summary_parts.append(provider)
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
+                blocks.append(
+                    Text(" • ".join(summary_parts), style=self._style("muted"))
+                )
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(
@@ -7559,7 +7694,9 @@ class ReupApp(App):
             if isinstance(url, str) and url.strip():
                 summary_parts.append(url.strip())
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
+                blocks.append(
+                    Text(" • ".join(summary_parts), style=self._style("muted"))
+                )
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             blocks.append(
@@ -7575,7 +7712,11 @@ class ReupApp(App):
             output_display, was_truncated = truncate_for_tool(name, payload)
             local_truncated = local_truncated or was_truncated
             if name == "list_dir":
-                blocks.append(render_list_dir_output(output_display, theme_variables=self._theme_tokens()))
+                blocks.append(
+                    render_list_dir_output(
+                        output_display, theme_variables=self._theme_tokens()
+                    )
+                )
             elif name == "grep":
                 blocks.append(
                     render_grep_output(
@@ -7607,7 +7748,9 @@ class ReupApp(App):
                     f"{diff_count} file{'s' if diff_count != 1 else ''}"
                 )
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
+                blocks.append(
+                    Text(" • ".join(summary_parts), style=self._style("muted"))
+                )
             if isinstance(files, list) and files:
                 for entry in files[:6]:
                     if not isinstance(entry, dict):
@@ -7656,8 +7799,12 @@ class ReupApp(App):
             if isinstance(ref, str) and ref.strip():
                 summary_parts.append(ref.strip())
             if summary_parts:
-                blocks.append(Text(" • ".join(summary_parts), style=self._style("muted")))
-            blocks.append(render_git_log_output(md, theme_variables=self._theme_tokens()))
+                blocks.append(
+                    Text(" • ".join(summary_parts), style=self._style("muted"))
+                )
+            blocks.append(
+                render_git_log_output(md, theme_variables=self._theme_tokens())
+            )
         elif name == "todos" and success:
             blocks.append(Text(narrative, style=self._style("muted")))
             todo_blocks, was_truncated = render_todo_payload(
@@ -7742,7 +7889,9 @@ class ReupApp(App):
             else:
                 summary = str(md.get("ui_summary") or "The MCP request failed.").strip()
                 detail = str(md.get("ui_detail") or "").strip()
-                summary_style = self._style("warning") if recoverable else self._style("error")
+                summary_style = (
+                    self._style("warning") if recoverable else self._style("error")
+                )
                 blocks.append(Text(summary, style=summary_style))
                 if detail and detail != summary:
                     blocks.append(Text(detail, style=self._style("muted")))
@@ -7878,7 +8027,9 @@ class ReupApp(App):
                 pass
             except Exception:
                 pass
-        runtime = getattr(getattr(self.agent, "session", None), "subagent_runtime", None)
+        runtime = getattr(
+            getattr(self.agent, "session", None), "subagent_runtime", None
+        )
         if runtime is not None and hasattr(runtime, "cancel"):
             try:
                 await runtime.cancel(run_ids=None)

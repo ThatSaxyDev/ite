@@ -390,6 +390,57 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_open_model_picker_clears_custom_provider_credentials_for_bundled_cloud_model(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "arcee-ai/trinity-large-preview:free"
+            app.config.api_key = "openrouter-key"
+            app.config.base_url = "https://openrouter.ai/api/v1"
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(client=SimpleNamespace(close=AsyncMock()))
+            )
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "arcee-ai/trinity-large-preview:free": {
+                        "api_key": "openrouter-key",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "model_name": "arcee-ai/trinity-large-preview:free",
+                    }
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models",
+                return_value=[
+                    {
+                        "model_name": "glm-5.1:cloud",
+                        "label": "GLM-5.1",
+                        "provider": "Bundled",
+                        "available": True,
+                        "unavailable_reason": "",
+                    }
+                ],
+            ), patch(
+                "ite.ui.reup.app.save_system_config"
+            ) as save_system_config, patch.object(
+                app,
+                "_open_modal",
+                AsyncMock(return_value={"action": "select", "model_name": "glm-5.1:cloud"}),
+            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                await app._open_model_picker_from_meta()
+
+            save_system_config.assert_called_once()
+            _, kwargs = save_system_config.call_args
+            self.assertEqual(kwargs["api_key"], "")
+            self.assertEqual(kwargs["base_url"], "")
+            self.assertEqual(kwargs["model_name"], "glm-5.1:cloud")
+            self.assertEqual(app.config.api_key, "")
+            self.assertEqual(app.config.base_url, "")
+            self.assertEqual(app.config.model.name, "glm-5.1:cloud")
+            app.agent.session.client.close.assert_awaited_once()
+
+        asyncio.run(run_test())
+
     def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
         app = self._app()
 
