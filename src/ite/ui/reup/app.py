@@ -4677,6 +4677,10 @@ class ReupApp(App):
         display_message: str | None = None,
         suppress_user_echo: bool = False,
     ) -> None:
+        rendered_message = display_message or message
+        if not suppress_user_echo:
+            await self.add_user_message(rendered_message)
+
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
             self.post_system("Error", "Agent is not initialized", is_error=True)
@@ -4729,8 +4733,6 @@ class ReupApp(App):
             prepared
         )
         active_agent.session.pending_attachment_paths = []
-        if not suppress_user_echo:
-            await self.add_user_message(display_message or message)
         run_state.active_turn_task = asyncio.create_task(
             self._agent_turn(
                 active_agent,
