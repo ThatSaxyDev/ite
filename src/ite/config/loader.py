@@ -151,6 +151,12 @@ def _merge_dicts(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, A
     return result
 
 
+def _remove_persisted_cloud_api_url(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    normalized.pop("cloud_api_url", None)
+    return normalized
+
+
 def load_config(
     cwd: Path | None,
 ) -> Config:
@@ -164,6 +170,12 @@ def load_config(
     if system_path.is_file():
         try:
             system_config_dict = _parse_toml(system_path)
+            normalized_system_config = _remove_persisted_cloud_api_url(system_config_dict)
+            if normalized_system_config != system_config_dict:
+                system_config_dict = normalized_system_config
+                lines = _render_system_config(system_config_dict)
+                system_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                os.chmod(system_path, 0o600)
             config_dict = system_config_dict.copy()
         except ConfigError:
             logger.warning(f"Skipping invalid system config: {system_path}")
@@ -173,6 +185,7 @@ def load_config(
     if project_path:
         try:
             project_config_dict = _parse_toml(project_path)
+            project_config_dict = _remove_persisted_cloud_api_url(project_config_dict)
             config_dict = _merge_dicts(config_dict, project_config_dict)
         except ConfigError:
             logger.warning(f"Skipping invalid project config: {project_path}")
@@ -263,8 +276,7 @@ def save_system_config(
 
     if cloud_auth_enabled is not None:
         existing["cloud_auth_enabled"] = cloud_auth_enabled
-    if cloud_api_url is not None:
-        existing["cloud_api_url"] = cloud_api_url
+    existing.pop("cloud_api_url", None)
     if cloud_client_id is not None:
         existing["cloud_client_id"] = cloud_client_id
 
@@ -386,8 +398,7 @@ def save_cloud_settings(
 
     if enabled is not None:
         existing["cloud_auth_enabled"] = enabled
-    if api_url is not None:
-        existing["cloud_api_url"] = api_url
+    existing.pop("cloud_api_url", None)
     if client_id is not None:
         existing["cloud_client_id"] = client_id
 
@@ -405,7 +416,6 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
         "base_url",
         "approval",
         "cloud_auth_enabled",
-        "cloud_api_url",
         "cloud_client_id",
         "hooks_enabled",
         "max_turns",

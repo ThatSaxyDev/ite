@@ -438,6 +438,7 @@ class ReupApp(App):
         self._empty_state_cached_thread_count: int = 0
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
+        self._cloud_bootstrap_busy: bool = False
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -491,6 +492,7 @@ class ReupApp(App):
         self._open_session_workspaces: dict[str, Path] = {}
         self._session_tabs_version: int = 0
         self._shutdown_started: bool = False
+        self._suppress_theme_prompt_sync: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -573,10 +575,18 @@ class ReupApp(App):
 
     async def on_mount(self) -> None:
         saved_theme = load_theme()
-        if saved_theme:
-            self.theme = saved_theme
-        elif self.theme == "textual-dark":
-            self.theme = detect_host_textual_theme()
+        self._suppress_theme_prompt_sync = True
+        try:
+            if self.theme == "textual-dark":
+                host_theme = detect_host_textual_theme()
+                if host_theme and host_theme != "textual-dark":
+                    self.theme = host_theme
+                elif saved_theme:
+                    self.theme = saved_theme
+            elif saved_theme:
+                self.theme = saved_theme
+        finally:
+            self._suppress_theme_prompt_sync = False
         self.query_one("#aside-toggle", Button).display = False
         self.query_one("#changes-toggle", Button).display = False
         self.refresh_header()
@@ -589,12 +599,16 @@ class ReupApp(App):
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(1.0, self._poll_change_review_panel)
         if self.config.cloud_auth_enabled:
+            self._cloud_bootstrap_busy = True
+            self._set_signed_out_state(True)
             has_cloud_session = await asyncio.to_thread(
                 has_valid_cloud_auth, self.config
             )
+            self._cloud_bootstrap_busy = False
             if not has_cloud_session:
                 self._set_signed_out_state(True)
                 return
+            self._set_signed_out_state(False)
         await self.ensure_agent()
         self._schedule_usage_meta_refresh()
         await self._refresh_change_review_source()
@@ -648,10 +662,10 @@ class ReupApp(App):
         self._update_composer_meta_line()
         try:
             prompt = self.query_one("#prompt", TextArea)
-        except NoMatches:
+        except Exception:
             prompt = None
-        if prompt is not None:
-            self._sync_command_palette(prompt.text)
+        if prompt is not None and not self._suppress_theme_prompt_sync:
+            self._sync_command_palette(str(getattr(prompt, "text", "") or ""))
         if self._cloud_signed_out:
             try:
                 self.query_one("#signed-out-copy", Static).update(
@@ -1899,13 +1913,23 @@ class ReupApp(App):
         self.query_one("#signed-out-status", Static).update(
             self._signed_out_status_text()
         )
+        if not enabled:
+            self._refresh_empty_state()
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self.refresh_header()
 
     def _signed_out_status_text(self) -> Text:
         status = Text(justify="center")
-        if self._cloud_auth_busy:
+        if self._cloud_bootstrap_busy:
+            frame = self._top_spinner_frames[
+                self._top_spinner_index % len(self._top_spinner_frames)
+            ]
+            status.append(
+                f"{frame} Checking iTE Cloud",
+                style=f"bold {self._render_styles()['fg']}",
+            )
+        elif self._cloud_auth_busy:
             frame = self._top_spinner_frames[
                 self._top_spinner_index % len(self._top_spinner_frames)
             ]
@@ -4909,7 +4933,7 @@ class ReupApp(App):
             self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
-            await self._start_live_compaction_card("Automatically compacting context...")
+            await self._start_live_compaction_card("Compacting context")
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
@@ -5951,8 +5975,8 @@ class ReupApp(App):
             return "▫️", "bold #dfe4ea"
         return "▫️", "bold #dfe4ea"
 
+    @staticmethod
     def _tool_completion_icon_and_style(
-        self,
         name: str,
         *,
         success: bool,
@@ -6002,7 +6026,7 @@ class ReupApp(App):
             "memory": "🧠",
             "shell": "▫️",
         }
-        return icon_by_tool.get(name, "✅"), f"bold {self._style('fg')}"
+        return icon_by_tool.get(name, "✅"), "bold #dfe4ea"
 
     @staticmethod
     def _normalize_tool_start_arguments(

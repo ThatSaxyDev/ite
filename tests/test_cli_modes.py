@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from ite.config.config import Config
+from ite.config.config import Config, DEFAULT_CLOUD_API_URL
+from ite.config.loader import load_config
 from ite.main import main
 
 
@@ -208,6 +209,30 @@ class CLIModeRoutingTests(unittest.TestCase):
         self.assertIn('url = "https://mcp.figma.com/mcp"', written)
         self.assertIn('transport = "streamable_http"', written)
         self.assertNotIn('transport = "http"', written)
+
+    def test_load_config_ignores_persisted_cloud_api_url(self) -> None:
+        system_dir = self.cwd / "system5"
+        system_dir.mkdir(parents=True, exist_ok=True)
+        config_path = system_dir / "config.toml"
+        config_path.write_text(
+            '\n'.join(
+                [
+                    'api_key = "test-key"',
+                    'base_url = "http://localhost:11434/v1"',
+                    'cloud_auth_enabled = true',
+                    'cloud_api_url = "http://127.0.0.1:4000"',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+            config = load_config(self.cwd)
+
+        self.assertEqual(config.cloud_api_url, DEFAULT_CLOUD_API_URL)
+        rewritten = config_path.read_text(encoding="utf-8")
+        self.assertNotIn("cloud_api_url", rewritten)
 
 
 if __name__ == "__main__":

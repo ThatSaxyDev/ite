@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import ssl
 import time
 import webbrowser
 from dataclasses import dataclass
@@ -9,6 +11,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import certifi
 from rich.console import Console
 
 from ite.config.config import Config
@@ -17,6 +20,10 @@ from ite.config.loader import get_data_dir
 
 class CloudAuthError(RuntimeError):
     pass
+
+
+_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+_CLOUD_HTTP_TIMEOUT_SEC = 10
 
 
 @dataclass
@@ -111,13 +118,21 @@ def _post_json(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=15) as response:
+        with urlopen(
+            request,
+            timeout=_CLOUD_HTTP_TIMEOUT_SEC,
+            context=_SSL_CONTEXT,
+        ) as response:
             body = response.read().decode("utf-8")
             return int(response.status), json.loads(body) if body else {}
     except HTTPError as exc:
         body = exc.read().decode("utf-8")
         payload = json.loads(body) if body else {}
         return int(exc.code), payload
+    except (TimeoutError, socket.timeout) as exc:
+        raise CloudAuthError(
+            "iTE Cloud API took too long to respond. Check your connection and try again."
+        ) from exc
     except URLError as exc:
         raise CloudAuthError(f"Could not reach iTE Cloud API: {exc}") from exc
 
@@ -128,13 +143,21 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
         headers["authorization"] = f"Bearer {access_token}"
     request = Request(url, headers=headers, method="GET")
     try:
-        with urlopen(request, timeout=15) as response:
+        with urlopen(
+            request,
+            timeout=_CLOUD_HTTP_TIMEOUT_SEC,
+            context=_SSL_CONTEXT,
+        ) as response:
             body = response.read().decode("utf-8")
             return int(response.status), json.loads(body) if body else {}
     except HTTPError as exc:
         body = exc.read().decode("utf-8")
         payload = json.loads(body) if body else {}
         return int(exc.code), payload
+    except (TimeoutError, socket.timeout) as exc:
+        raise CloudAuthError(
+            "iTE Cloud API took too long to respond. Check your connection and try again."
+        ) from exc
     except URLError as exc:
         raise CloudAuthError(f"Could not reach iTE Cloud API: {exc}") from exc
 

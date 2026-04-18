@@ -19,7 +19,7 @@ from ite.memory import (
     resolve_response_intent,
 )
 from ite.prompts.system import create_loop_breaker_prompt
-from ite.tools.base import ToolConfirmation, ToolResult
+from ite.tools.base import ToolConfirmation, ToolKind, ToolResult
 from ite.utils.paths import resolve_path
 from ite.utils.errors import is_context_overflow_error
 
@@ -1821,15 +1821,27 @@ class Agent:
                 in_plan_questioning = (
                     session.plan_mode_enabled and session.plan_phase != "executing"
                 )
-                if not in_plan_questioning:
+                has_non_read_tool_call = False
+                for tool_call in tool_calls:
+                    tool_obj = session.tool_registry.get(tool_call.name)
+                    tool_kind = getattr(tool_obj, "kind", None)
+                    if tool_kind is None:
+                        if tool_call.name not in self.DUPLICATE_DISCOVERY_TOOL_NAMES:
+                            has_non_read_tool_call = True
+                            break
+                        continue
+                    if tool_kind != ToolKind.READ:
+                        has_non_read_tool_call = True
+                        break
+                session.loop_detector.record_action(
+                    "response", text=controlled_response_text
+                )
+                if in_plan_questioning or has_non_read_tool_call:
                     yield AgentEvent.text_complete(
                         controlled_response_text,
                         final=False,
                         continue_after=True,
                     )
-                session.loop_detector.record_action(
-                    "response", text=controlled_response_text
-                )
 
             tool_call_results: list[tuple[str, ToolResultMessage, ToolResult]] = []
             skipped_plan_validation_errors: list[str] = []

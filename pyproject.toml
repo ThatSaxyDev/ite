@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 license = "MIT"
 keywords = ["ai", "agent", "terminal", "cli", "llm"]
 classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Intended Audience :: Developers", "Programming Language :: Python :: 3", "Topic :: Software Development :: Libraries"]
-dependencies = ["click", "rich", "openai", "pydantic", "tiktoken", "html2text", "beautifulsoup4", "PyYAML", "pypdf", "Pillow", "pytesseract", "ddgs", "tomli", "platformdirs", "fastmcp", "lxml", "flet", "textual[syntax]>=0.70.0", "prompt_toolkit>=3.0.52"]
+dependencies = ["click", "rich", "openai", "pydantic", "tiktoken", "html2text", "beautifulsoup4", "PyYAML", "pypdf", "Pillow", "pytesseract", "ddgs", "tomli", "platformdirs", "fastmcp", "lxml", "flet", "textual[syntax]>=0.70.0", "prompt_toolkit>=3.0.52", "certifi"]
 
 [project.scripts]
 ite = "ite.main:main"

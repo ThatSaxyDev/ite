@@ -1,15 +1,29 @@
 # iTE - Interactive Terminal Environment
 
-An AI coding agent for your terminal. **BYOK-first** — bring your own model provider.
+An AI coding agent for your terminal. Connect the model service you want to use and get to work.
 
 ## Installation
+
+### Recommended public install
+
+Install `ite` globally with `pipx`:
+
+```bash
+pipx install ite-agent
+```
+
+Then launch it:
+
+```bash
+ite
+```
 
 ### Option 1: Development Install (Local)
 
 Clone the repository and install in editable mode:
 
 ```bash
-git clone https://github.com/yourusername/ite.git
+git clone https://github.com/ThatSaxyDev/ite.git
 cd ite
 pip install -e .
 ```
@@ -18,39 +32,31 @@ pip install -e .
 
 Install globally using `pipx` (recommended) or `pip`:
 
+### Method 1: `pipx` (recommended)
+
+We recommend `pipx` so the `ite` command is available globally without conflicting with other Python packages.
+
 ```bash
-### Method 1: The Best Experience (Recommended)
-We recommend using **pipx** to install `ite`. This ensures the `ite` command is available globally without conflicting with other Python packages.
+brew install pipx
+pipx ensurepath
+pipx install ite-agent
+ite
+```
 
-1. **Install pipx** (if you haven't already):
-   ```bash
-   brew install pipx
-   pipx ensurepath
-   ```
-   *(Restart your terminal after this)*
+### Method 2: Standard pip
 
-2. **Install ite-agent**:
-   ```bash
-   pipx install ite-agent
-   ```
-
-3. **Run it**:
-   ```bash
-   ite
-   ```
-
-### Method 2: Standard Pip
 If you prefer standard pip:
+
 ```bash
 pip install ite-agent
 ```
-*Note: You may need to add your Python binary location to your PATH to run the `ite` command directly.*
-```
+
+Note: you may need to add your Python binary location to your `PATH` to run `ite` directly.
 
 ### Option 3: Install from Git
 
 ```bash
-pipx install git+https://github.com/yourusername/ite.git
+pipx install git+https://github.com/ThatSaxyDev/ite.git
 ```
 
 ## Distribution
@@ -80,6 +86,28 @@ pipx install ite_agent-0.0.22-py3-none-any.whl
 ite
 ```
 
+## Quickstart
+
+The launch path is intentionally narrow:
+
+1. Install `ite`.
+2. Start the app with `ite`.
+3. Sign in through the hosted browser flow at `https://ite.kiishi.space`.
+4. Run `/setup`.
+5. Enter your OpenAI-compatible `base_url`, `api_key`, and `model`.
+6. Send a prompt.
+
+By default, `ite` now talks to the hosted cloud API at `https://ite-cloud-api.onrender.com`.
+For local API development, override it with `ITE_CLOUD_API_URL=http://127.0.0.1:4000`.
+
+Supported setup:
+
+- OpenAI-compatible provider endpoint
+- provider API key
+- exact model name exposed by that provider
+
+Examples include OpenAI-compatible hosted providers and self-hosted gateways that expose the same chat API shape.
+
 ### Skills
 
 `ite` supports interoperable `SKILL.md` bundles for reusable specialist behavior.
@@ -94,7 +122,7 @@ See [docs/SKILLS.md](docs/SKILLS.md) for the supported roots, frontmatter, and c
 
 ## Configuration
 
-iTE is **BYOK-first** (Bring Your Own Key). You provide your own model provider credentials.
+iTE works with the model service and credentials you choose.
 
 ```bash
 # Start iTE
@@ -107,9 +135,22 @@ ite
 # Then start prompting immediately
 ```
 
+If sign-in fails:
+
+- verify that the browser opened the real hosted app
+- verify that the API origin and web origin match the deployed environment
+- sign out and run the hosted login flow again
+
+If setup fails:
+
+- confirm the provider uses an OpenAI-compatible API shape
+- confirm the base URL is correct, including `/v1` when required
+- confirm the model name is exactly what the provider exposes
+- confirm the API key is valid for that provider
+
 **What's available now:**
 - Sign in with GitHub for session management
-- BYOK setup with any OpenAI-compatible provider
+- setup with any OpenAI-compatible provider
 - Full terminal AI coding experience
 
 **Coming soon:**
