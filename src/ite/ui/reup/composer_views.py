@@ -27,7 +27,8 @@ def composer_meta_text(
     usage_remaining_percent: int | None = None,
     context_used_percent: int | None = None,
     styles: dict[str, str] | None = None,
-) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int]]:
+    show_usage: bool = True,
+) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int] | None, tuple[int, int], tuple[int, int]]:
     theme = styles or {}
     fg = theme.get("fg", "#d1d5db")
     secondary = theme.get("secondary", fg)
@@ -82,43 +83,46 @@ def composer_meta_text(
     branch_end = cell_pos
     text.append(spacer)
     cell_pos += cell_len(spacer)
-    usage_start = cell_pos
-    usage_label = "usage "
-    text.append(usage_label, style=f"bold {muted}")
-    cell_pos += cell_len(usage_label)
-    usage_text = (
-        f"{usage_remaining_percent}%"
-        if usage_remaining_percent is not None
-        else "--"
-    )
-    text.append(usage_text, style=f"bold {fg}")
-    cell_pos += cell_len(usage_text)
-    text.append(" ")
-    cell_pos += 1
-    meter_width = 6
-    if usage_remaining_percent is None:
-        filled = 0
-    else:
-        remaining_percent = max(0, min(100, usage_remaining_percent))
-        filled = max(0, min(meter_width, round((remaining_percent / 100) * meter_width)))
-    empty = meter_width - filled
-    if usage_remaining_percent is None:
-        usage_meter_style = disabled
-    elif usage_remaining_percent >= 60:
-        usage_meter_style = success
-    elif usage_remaining_percent >= 30:
-        usage_meter_style = warning
-    else:
-        usage_meter_style = error
-    if filled:
-        text.append("━" * filled, style=f"bold {usage_meter_style}")
-        cell_pos += filled
-    if empty:
-        text.append("━" * empty, style=disabled)
-        cell_pos += empty
-    usage_end = cell_pos
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
+    usage_start = -1
+    usage_end = -1
+    if show_usage:
+        usage_start = cell_pos
+        usage_label = "usage "
+        text.append(usage_label, style=f"bold {muted}")
+        cell_pos += cell_len(usage_label)
+        usage_text = (
+            f"{usage_remaining_percent}%"
+            if usage_remaining_percent is not None
+            else "--"
+        )
+        text.append(usage_text, style=f"bold {fg}")
+        cell_pos += cell_len(usage_text)
+        text.append(" ")
+        cell_pos += 1
+        meter_width = 6
+        if usage_remaining_percent is None:
+            filled = 0
+        else:
+            remaining_percent = max(0, min(100, usage_remaining_percent))
+            filled = max(0, min(meter_width, round((remaining_percent / 100) * meter_width)))
+        empty = meter_width - filled
+        if usage_remaining_percent is None:
+            usage_meter_style = disabled
+        elif usage_remaining_percent >= 60:
+            usage_meter_style = success
+        elif usage_remaining_percent >= 30:
+            usage_meter_style = warning
+        else:
+            usage_meter_style = error
+        if filled:
+            text.append("━" * filled, style=f"bold {usage_meter_style}")
+            cell_pos += filled
+        if empty:
+            text.append("━" * empty, style=disabled)
+            cell_pos += empty
+        usage_end = cell_pos
+        text.append(spacer)
+        cell_pos += cell_len(spacer)
     context_start = cell_pos
     context_label = "context "
     text.append(context_label, style=f"bold {muted}")
@@ -155,13 +159,14 @@ def composer_meta_text(
     text.append(activity_label, style=f"bold {secondary}")
     cell_pos += cell_len(activity_label)
     activity_end = cell_pos
+    usage_hitbox = (usage_start, usage_end) if show_usage else None
     return (
         text,
         (attach_start, attach_end),
         (model_start, model_end),
         (branch_start, branch_end),
         (plan_start, plan_end),
-        (usage_start, usage_end),
+        usage_hitbox,
         (context_start, context_end),
         (activity_start, activity_end),
     )

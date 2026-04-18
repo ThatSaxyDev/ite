@@ -507,7 +507,7 @@ class ReupApp(App):
         self._composer_model_hitbox: tuple[int, int] = (0, 0)
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
-        self._composer_usage_hitbox: tuple[int, int] = (0, 0)
+        self._composer_usage_hitbox: tuple[int, int] | None = None
         self._composer_context_hitbox: tuple[int, int] = (0, 0)
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
         self._usage_remaining_percent: int | None = None
@@ -1316,6 +1316,7 @@ class ReupApp(App):
             usage_remaining_percent=self._usage_remaining_percent,
             context_used_percent=context_used_percent,
             styles=self._render_styles(),
+            show_usage=self._is_bundled_model(),
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -1346,8 +1347,22 @@ class ReupApp(App):
             return
         self.run_worker(self._refresh_usage_meta(), exclusive=False)
 
+    def _is_bundled_model(self) -> bool:
+        """Check if current model is a bundled (backend-provided) model.
+
+        Returns False for user keys (Ollama, OpenRouter, custom providers).
+        """
+        model = str(self.config.model_name or "").strip()
+        saved_providers = load_saved_custom_provider()
+        if model in saved_providers:
+            return False
+        return True
+
     def _schedule_usage_meta_refresh_for_cloud_model(self) -> None:
-        if not str(self.config.model_name or "").endswith(":cloud"):
+        if not self._is_bundled_model():
+            if self._usage_remaining_percent is not None:
+                self._usage_remaining_percent = None
+                self.refresh_header()
             return
         self._schedule_usage_meta_refresh()
 
@@ -1744,7 +1759,9 @@ class ReupApp(App):
         attach_start, attach_end = self._composer_attach_hitbox
         model_start, model_end = self._composer_model_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
-        usage_start, usage_end = self._composer_usage_hitbox
+        usage_hitbox = self._composer_usage_hitbox
+        usage_start = usage_hitbox[0] if usage_hitbox else -1
+        usage_end = usage_hitbox[1] if usage_hitbox else -1
         context_start, context_end = self._composer_context_hitbox
         activity_start, activity_end = self._composer_activity_hitbox
         start, end = self._composer_plan_hitbox
@@ -1760,7 +1777,7 @@ class ReupApp(App):
             self.run_worker(self._open_branch_picker_from_meta(), exclusive=False)
             event.stop()
             return
-        if usage_start <= event.x < usage_end:
+        if usage_hitbox is not None and 0 <= usage_start <= event.x < usage_end:
             self.run_worker(self._open_usage_modal_from_meta(), exclusive=False)
             event.stop()
             return
@@ -2038,6 +2055,11 @@ class ReupApp(App):
 
     async def _open_usage_modal_from_meta(self) -> None:
         await self.ensure_agent()
+        if not self._is_bundled_model():
+            self.post_system(
+                "Usage", "Usage tracking is only available for bundled models.", is_error=True
+            )
+            return
         summary = get_usage_summary(self.config)
         if not summary:
             self.post_system(
