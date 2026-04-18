@@ -1114,9 +1114,10 @@ class ReupApp(App):
         floor_pct = self._run_state().context_meter_floor_pct
         if context_used_percent is not None and floor_pct is not None:
             context_used_percent = max(context_used_percent, floor_pct)
+        model_display_name = self._model_display_name()
         text, attach_hitbox, model_hitbox, branch_hitbox, plan_hitbox, usage_hitbox, context_hitbox, activity_hitbox = composer_meta_text(
             cwd=Path(self.config.cwd),
-            model_name=self.config.model_name,
+            model_name=model_display_name,
             plan_enabled=plan_enabled,
             branch_label=branch_label,
             usage_remaining_percent=self._usage_remaining_percent,
@@ -1131,6 +1132,21 @@ class ReupApp(App):
         self._composer_context_hitbox = context_hitbox
         self._composer_activity_hitbox = activity_hitbox
         return text
+
+    def _setup_required_for_model_selection(self) -> bool:
+        current_model = str(self.config.model_name or "").strip()
+        if not current_model.endswith(":cloud"):
+            return False
+        if load_saved_custom_provider():
+            return False
+        if get_bundled_models(self.config):
+            return False
+        return True
+
+    def _model_display_name(self) -> str:
+        if self._setup_required_for_model_selection():
+            return "/setup"
+        return self.config.model_name
 
     def _schedule_usage_meta_refresh(self) -> None:
         if self._usage_refresh_in_flight or self._cloud_signed_out:
@@ -1615,6 +1631,9 @@ class ReupApp(App):
 
     async def _open_model_picker_from_meta(self) -> None:
         await self.ensure_agent()
+        if self._setup_required_for_model_selection():
+            await self._open_setup_modal()
+            return
         while True:
             current_model = self.config.model_name
             bundled_items = get_bundled_models(self.config)
@@ -1652,9 +1671,13 @@ class ReupApp(App):
                     "Saved custom",
                 )
 
-            if current_model and current_model not in {
-                item.get("model_name", "") for item in bundled_items
-            }:
+            if (
+                current_model
+                and not str(current_model).endswith(":cloud")
+                and current_model not in {
+                    item.get("model_name", "") for item in bundled_items
+                }
+            ):
                 _append(current_model, current_model, "Custom")
 
             for item in bundled_items:
