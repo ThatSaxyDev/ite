@@ -93,10 +93,16 @@ class LLMClient:
                 f"Your {window_label} is full. Use your own key or a local model for now."
             )
 
+        if code == "entitlement_denied":
+            return (
+                "This account does not have bundled model access yet. "
+                "Run `/setup` to connect your own model provider, then try again."
+            )
+
         if code == "provider_not_configured":
             return (
                 "Bundled usage is not available yet for this model. "
-                "Use your own key or a local model for now."
+                "Run `/setup` to connect your own model provider, or use a local model for now."
             )
 
         if code == "provider_request_failed":
