@@ -460,6 +460,7 @@ class ReupApp(App):
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
+        self._bundled_access_announced: bool = False
         self._command_palette_options = self._build_command_palette_options()
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
@@ -4789,6 +4790,15 @@ class ReupApp(App):
                 self._set_loading_state("idle", busy=False)
 
         if completed_normally and self._active_session_id() == session_id:
+            if (
+                str(self.config.model_name or "").endswith(":cloud")
+                and not self._bundled_access_announced
+            ):
+                self.post_notice(
+                    "Bundled Access",
+                    "You're now using bundled access.",
+                )
+                self._bundled_access_announced = True
             run_state.failure_recovery_payload = None
             await self._dispatch_queued_payload_if_ready()
         elif (
