@@ -1116,8 +1116,11 @@ class UsageSummaryModal(ModalScreen[None]):
         except ValueError:
             return "Resets soon"
         if label == "5h":
-            return f"Resets {dt.strftime('%-I:%M%p').lower()}"
-        return f"Resets {dt.strftime('%B %-d at %-I:%M%p').lower()}"
+            time_str = dt.strftime('%I:%M%p').lstrip('0').lower()
+            return f"Resets {time_str}"
+        day_str = str(dt.day)
+        time_str = dt.strftime('%I:%M%p').lstrip('0').lower()
+        return f"Resets {dt.strftime('%B')} {day_str} at {time_str}"
 
     @staticmethod
     def _build_bar(remaining_percent: int, width: int = 92) -> Text:
