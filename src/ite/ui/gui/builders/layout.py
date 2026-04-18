@@ -201,7 +201,7 @@ class LayoutBuilderMixin:
                     ),
                     ft.Text(
                         (
-                            "Connect your provider credentials to start using the GUI."
+                            "Choose Ollama, OpenRouter, or another compatible API to start using the GUI."
                             if self.config.needs_setup
                             else "Update provider and approval settings."
                         ),

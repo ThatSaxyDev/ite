@@ -618,7 +618,7 @@ class ReupApp(App):
                                     id="onboarding-title",
                                 )
                                 yield Static(
-                                    "A quick setup before you start. Tell iTE a little about you, then connect the model service you want to use.",
+                                    "A quick setup before you start. Tell iTE a little about you, then choose how you want iTE to reach your model: Ollama on this computer, OpenRouter, or another compatible API.",
                                     id="onboarding-copy",
                                 )
                                 yield Input(

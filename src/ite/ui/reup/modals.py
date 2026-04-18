@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 from rich.console import Group
 from rich.rule import Rule
 from rich.table import Table
@@ -16,8 +17,16 @@ from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, DataTable, DirectoryTree, Input, Label, Select, Static
 from textual.theme import BUILTIN_THEMES
+from textual.widgets import (
+    Button,
+    DataTable,
+    DirectoryTree,
+    Input,
+    Label,
+    Select,
+    Static,
+)
 from textual.widgets.directory_tree import DirEntry
 
 from ite.attachments import MAX_ATTACHMENTS
@@ -29,7 +38,6 @@ from ite.config.config import (
     Config,
 )
 from ite.git.branches import BranchInfo, is_valid_branch_name
-
 
 SETUP_PROVIDER_OLLAMA = "ollama"
 SETUP_PROVIDER_OPENROUTER = "openrouter"
@@ -924,7 +932,9 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="models", classes="resume-table", cursor_type="row")
             with Horizontal(classes="modal-actions resume-actions"):
-                yield Button("Delete saved", id="delete", variant="default", disabled=True)
+                yield Button(
+                    "Delete saved", id="delete", variant="default", disabled=True
+                )
                 yield Button("Select", id="select", variant="primary", disabled=True)
                 yield Button("Cancel", id="cancel", variant="default")
 
@@ -996,8 +1006,13 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
 
     @on(DataTable.RowSelected, "#models")
     def on_row_selected(self, event: DataTable.RowSelected) -> None:
-        if 0 <= event.cursor_row < len(self._model_names) and self._model_available[event.cursor_row]:
-            self.dismiss({"action": "select", "model_name": self._model_names[event.cursor_row]})
+        if (
+            0 <= event.cursor_row < len(self._model_names)
+            and self._model_available[event.cursor_row]
+        ):
+            self.dismiss(
+                {"action": "select", "model_name": self._model_names[event.cursor_row]}
+            )
 
     @on(Button.Pressed, "#select")
     def on_select_pressed(self, _event: Button.Pressed) -> None:
@@ -1010,7 +1025,10 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
     def on_delete_pressed(self, _event: Button.Pressed) -> None:
         table = self.query_one("#models", DataTable)
         row = table.cursor_row
-        if 0 <= row < len(self._model_names) and self._model_sources[row] == "Saved custom":
+        if (
+            0 <= row < len(self._model_names)
+            and self._model_sources[row] == "Saved custom"
+        ):
             self.dismiss({"action": "delete", "model_name": self._model_names[row]})
 
     @on(Button.Pressed, "#cancel")
@@ -1046,7 +1064,11 @@ class ThemePickerModal(ModalScreen[str | None]):
         initial_row = 0
         for index, name in enumerate(self._theme_names):
             theme = BUILTIN_THEMES[name]
-            table.add_row(name, "Dark" if theme.dark else "Light", "✓" if name == self._current else "")
+            table.add_row(
+                name,
+                "Dark" if theme.dark else "Light",
+                "✓" if name == self._current else "",
+            )
             if name == self._current:
                 initial_row = index
         if self._theme_names:
@@ -1657,22 +1679,101 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
     def __init__(self, config: Config) -> None:
         super().__init__()
         self._config = config
+        self._validating = False
+
+    def _infer_provider(self) -> str:
+        base_url = str(self._config.base_url or "").strip().lower()
+        api_key = str(self._config.api_key or "").strip().lower()
+        if (
+            not base_url
+            or "localhost:11434" in base_url
+            or "127.0.0.1:11434" in base_url
+        ):
+            return SETUP_PROVIDER_OLLAMA
+        if "openrouter.ai" in base_url:
+            return SETUP_PROVIDER_OPENROUTER
+        if api_key == DEFAULT_API_KEY and not base_url:
+            return SETUP_PROVIDER_OLLAMA
+        return SETUP_PROVIDER_GENERIC
+
+    def _provider_defaults(self, provider: str) -> tuple[str, str, str]:
+        current_model = self._config.model_name or DEFAULT_MODEL_NAME
+        if provider == SETUP_PROVIDER_OLLAMA:
+            return (
+                self._config.base_url or DEFAULT_BASE_URL,
+                self._config.api_key or DEFAULT_API_KEY,
+                current_model,
+            )
+        if provider == SETUP_PROVIDER_OPENROUTER:
+            return (
+                self._config.base_url
+                if "openrouter.ai" in str(self._config.base_url or "").lower()
+                else OPENROUTER_BASE_URL,
+                ""
+                if str(self._config.api_key or "").strip().lower() == DEFAULT_API_KEY
+                else (self._config.api_key or ""),
+                current_model,
+            )
+        return (
+            self._config.base_url or "",
+            ""
+            if str(self._config.api_key or "").strip().lower() == DEFAULT_API_KEY
+            else (self._config.api_key or ""),
+            current_model,
+        )
+
+    def _provider_copy(self, provider: str) -> tuple[str, str, str]:
+        if provider == SETUP_PROVIDER_OLLAMA:
+            return (
+                "Use a model running on this computer through Ollama.",
+                "Before you continue, start Ollama and make sure the model you want is available.",
+                "Paste the exact model name you pulled locally, for example `kimi-k2.5:cloud`, `gemma4:31b-cloud` or your own Ollama-hosted alias.",
+            )
+        if provider == SETUP_PROVIDER_OPENROUTER:
+            return (
+                "Use your own OpenRouter key with iTE.",
+                "iTE will talk to OpenRouter's OpenAI-compatible API using your key. Create the key in OpenRouter first, then paste it here.",
+                "Use the exact model id that OpenRouter exposes on your account.",
+            )
+        return (
+            "Use any OpenAI-compatible provider by pasting its API base URL.",
+            "This path is for custom gateways, self-hosted proxies, or direct providers with an OpenAI-compatible `/v1` API.",
+            "Use the exact model name that provider expects for chat completions.",
+        )
 
     def compose(self) -> ComposeResult:
+        provider = self._infer_provider()
+        base_url, api_key, model_name = self._provider_defaults(provider)
+        provider_copy, provider_help, model_help = self._provider_copy(provider)
         with Container(classes="modal setup-modal"):
             yield Label("Setup iTE", classes="modal-title setup-title")
             yield Static(
-                "Connect your provider credentials to start using iTE.",
+                "Choose how iTE should reach your model. You can use Ollama on this machine, OpenRouter with your own key, or another OpenAI-compatible API.",
                 classes="modal-body setup-body",
             )
+            yield Static("Provider", classes="setup-label")
+            yield Select(
+                [
+                    ("Ollama on this computer", SETUP_PROVIDER_OLLAMA),
+                    ("OpenRouter", SETUP_PROVIDER_OPENROUTER),
+                    ("Other OpenAI-compatible provider", SETUP_PROVIDER_GENERIC),
+                ],
+                value=provider,
+                allow_blank=False,
+                id="setup-provider",
+            )
+            yield Static(provider_copy, id="setup-provider-copy", classes="setup-help")
+            yield Static("Base URL", classes="setup-label")
             yield Input(
-                value=self._config.base_url or DEFAULT_BASE_URL,
+                value=base_url,
                 placeholder=DEFAULT_BASE_URL,
                 id="setup-base-url",
             )
+            yield Static(provider_help, id="setup-base-url-help", classes="setup-help")
+            yield Static("API key", classes="setup-label")
             with Horizontal(classes="setup-secret-row"):
                 yield Input(
-                    value=self._config.api_key or DEFAULT_API_KEY,
+                    value=api_key,
                     placeholder="API key",
                     password=True,
                     id="setup-api-key",
@@ -1683,22 +1784,25 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                     variant="default",
                     classes="setup-eye",
                 )
+            yield Static("Model", classes="setup-label")
             yield Input(
-                value=self._config.model_name or DEFAULT_MODEL_NAME,
+                value=model_name,
                 placeholder="Model",
                 id="setup-model",
             )
+            yield Static(model_help, id="setup-model-help", classes="setup-help")
+            yield Static("", id="setup-status", classes="setup-status")
             yield Static("", id="setup-error", classes="setup-error")
             with Horizontal(classes="modal-actions setup-actions"):
                 yield Button("Cancel", id="cancel", variant="default")
                 yield Button("Continue", id="continue", variant="primary")
 
     async def on_mount(self) -> None:
-        self.query_one("#setup-api-key", Input).focus()
+        self.query_one("#setup-provider", Select).focus()
 
     @on(Button.Pressed, "#continue")
     def on_continue_pressed(self, _event: Button.Pressed) -> None:
-        self._submit()
+        self.run_worker(self._submit_async(), exclusive=False)
 
     @on(Button.Pressed, "#setup-toggle-api-key")
     def on_toggle_api_key_pressed(self, event: Button.Pressed) -> None:
@@ -1710,32 +1814,214 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
         self.dismiss(None)
 
+    @on(Select.Changed, "#setup-provider")
+    def on_provider_changed(self, event: Select.Changed) -> None:
+        provider = str(event.value or "").strip() or SETUP_PROVIDER_GENERIC
+        base_url, api_key, model_name = self._provider_defaults(provider)
+        provider_copy, provider_help, model_help = self._provider_copy(provider)
+        self.query_one("#setup-provider-copy", Static).update(provider_copy)
+        self.query_one("#setup-base-url", Input).value = base_url
+        self.query_one("#setup-base-url-help", Static).update(provider_help)
+        self.query_one("#setup-api-key", Input).value = api_key
+        self.query_one("#setup-model", Input).value = model_name
+        self.query_one("#setup-model-help", Static).update(model_help)
+        self.query_one("#setup-status", Static).update("")
+        self.query_one("#setup-error", Static).update("")
+
     @on(Input.Submitted, "#setup-base-url")
     @on(Input.Submitted, "#setup-api-key")
     @on(Input.Submitted, "#setup-model")
     def on_input_submitted(self, _event: Input.Submitted) -> None:
-        self._submit()
+        self.run_worker(self._submit_async(), exclusive=False)
 
     def _set_error(self, message: str) -> None:
         self.query_one("#setup-error", Static).update(message)
 
-    def _submit(self) -> None:
-        base_url = (
-            self.query_one("#setup-base-url", Input).value.strip() or DEFAULT_BASE_URL
+    def _set_status(self, message: str) -> None:
+        self.query_one("#setup-status", Static).update(message)
+
+    def _set_validating(self, busy: bool) -> None:
+        self._validating = busy
+        self.query_one("#continue", Button).disabled = busy
+        self.query_one("#cancel", Button).disabled = busy
+        self.query_one("#setup-provider", Select).disabled = busy
+        self.query_one("#setup-base-url", Input).disabled = busy
+        self.query_one("#setup-api-key", Input).disabled = busy
+        self.query_one("#setup-model", Input).disabled = busy
+        self.query_one("#setup-toggle-api-key", Button).disabled = busy
+
+    @staticmethod
+    def _ollama_api_root(base_url: str) -> str:
+        normalized = base_url.rstrip("/")
+        if normalized.endswith("/v1"):
+            return normalized[:-3]
+        return normalized
+
+    async def _probe_openai_compatible(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+    ) -> str | None:
+        normalized = base_url.rstrip("/")
+        headers = {
+            "authorization": f"Bearer {api_key}",
+            "content-type": "application/json",
+        }
+        timeout = httpx.Timeout(10.0, connect=5.0)
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                response = await client.get(f"{normalized}/models", headers=headers)
+            except httpx.HTTPError as exc:
+                return f"Could not reach the provider at {normalized}: {exc}"
+
+            if response.status_code in {401, 403}:
+                return (
+                    "The provider rejected this API key. Check the key and try again."
+                )
+            if response.status_code == 404:
+                return (
+                    "This base URL does not expose a compatible /models endpoint. "
+                    "Check the provider URL and make sure it is an OpenAI-compatible API."
+                )
+            if response.status_code >= 400:
+                return (
+                    f"Provider check failed with status {response.status_code}. "
+                    "Verify the base URL and API key."
+                )
+
+            try:
+                payload = response.json()
+            except ValueError:
+                return "The provider returned invalid JSON while checking available models."
+
+        data = payload.get("data")
+        if not isinstance(data, list):
+            return None
+
+        model_ids = {
+            str(item.get("id") or "").strip() for item in data if isinstance(item, dict)
+        }
+        if model_ids and model_name not in model_ids:
+            return (
+                f"The model `{model_name}` is not available on this provider. "
+                "Use the exact model id exposed by the provider."
+            )
+        return None
+
+    async def _probe_ollama(self, *, base_url: str, model_name: str) -> str | None:
+        api_root = self._ollama_api_root(base_url)
+        timeout = httpx.Timeout(5.0, connect=3.0)
+
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                response = await client.get(f"{api_root}/api/tags")
+            except httpx.HTTPError as exc:
+                return (
+                    f"Could not reach Ollama at {api_root}. Start Ollama first, then try again. "
+                    f"Details: {exc}"
+                )
+
+            if response.status_code >= 400:
+                return (
+                    f"Ollama responded with status {response.status_code}. "
+                    "Make sure Ollama is running locally and the base URL is correct."
+                )
+
+            try:
+                payload = response.json()
+            except ValueError:
+                return "Ollama returned invalid JSON while listing local models."
+
+        models = payload.get("models")
+        if not isinstance(models, list):
+            return "Ollama did not return a model list. Make sure the local Ollama API is healthy."
+
+        available = {
+            str(item.get("model") or item.get("name") or "").strip()
+            for item in models
+            if isinstance(item, dict)
+        }
+        if model_name not in available:
+            return (
+                f"The model `{model_name}` is not available in Ollama yet. "
+                f"Pull it first with `ollama pull {model_name}`."
+            )
+        return None
+
+    async def _validate_provider_connection(
+        self,
+        *,
+        provider: str,
+        base_url: str,
+        api_key: str,
+        model_name: str,
+    ) -> str | None:
+        if provider == SETUP_PROVIDER_OLLAMA:
+            return await self._probe_ollama(base_url=base_url, model_name=model_name)
+        return await self._probe_openai_compatible(
+            base_url=base_url,
+            api_key=api_key,
+            model_name=model_name,
         )
-        api_key = (
-            self.query_one("#setup-api-key", Input).value.strip() or DEFAULT_API_KEY
+
+    async def _submit_async(self) -> None:
+        if self._validating:
+            return
+        provider = (
+            str(self.query_one("#setup-provider", Select).value or "").strip()
+            or SETUP_PROVIDER_GENERIC
         )
+        base_url = self.query_one("#setup-base-url", Input).value.strip()
+        api_key = self.query_one("#setup-api-key", Input).value.strip()
         model_name = (
             self.query_one("#setup-model", Input).value.strip()
             or self._config.model_name
             or DEFAULT_MODEL_NAME
         )
 
+        if provider == SETUP_PROVIDER_OLLAMA:
+            base_url = base_url or DEFAULT_BASE_URL
+            api_key = api_key or DEFAULT_API_KEY
+        elif provider == SETUP_PROVIDER_OPENROUTER:
+            base_url = base_url or OPENROUTER_BASE_URL
+
+        if not base_url:
+            self._set_error("Base URL is required.")
+            return
+        if not api_key:
+            self._set_error("API key is required for the selected provider.")
+            return
+        if not model_name:
+            self._set_error("Model name is required.")
+            return
+
         parsed = urlparse(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             self._set_error("Base URL must be a valid http/https URL.")
             return
+
+        self._set_error("")
+        self._set_status("Checking provider connection...")
+        self._set_validating(True)
+        try:
+            error = await self._validate_provider_connection(
+                provider=provider,
+                base_url=base_url,
+                api_key=api_key,
+                model_name=model_name,
+            )
+        finally:
+            self._set_validating(False)
+
+        if error:
+            self._set_status("")
+            self._set_error(error)
+            return
+
+        self._set_status("Provider verified.")
 
         self.dismiss(
             {

@@ -2046,11 +2046,24 @@ SetupModal #continue:hover {
     color: #07140f;
 }
 
+SetupModal .setup-label {
+    margin-top: 1;
+    margin-bottom: 0;
+    color: $text-primary;
+    text-style: bold;
+}
+
 SetupModal Input {
     margin-bottom: 1;
     height: 3;
     min-height: 3;
     padding: 0 1;
+}
+
+SetupModal Select {
+    margin-bottom: 1;
+    height: 3;
+    min-height: 3;
 }
 
 .setup-secret-row {
@@ -2082,6 +2095,17 @@ SetupModal #setup-api-key {
 
 .setup-error {
     color: #f1998e;
+    min-height: 1;
+    margin-bottom: 1;
+}
+
+.setup-help {
+    color: $text-secondary;
+    margin-bottom: 1;
+}
+
+.setup-status {
+    color: $text-secondary;
     min-height: 1;
     margin-bottom: 1;
 }
