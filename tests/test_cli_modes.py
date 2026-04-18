@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from ite.config.config import Config, DEFAULT_CLOUD_API_URL
-from ite.config.loader import load_config
+from ite.config.config import Config, DEFAULT_CLOUD_API_URL, DEFAULT_CLOUD_CLIENT_ID
+from ite.config.loader import load_config, save_onboarding_settings
 from ite.main import main
 
 
@@ -233,6 +233,23 @@ class CLIModeRoutingTests(unittest.TestCase):
         self.assertEqual(config.cloud_api_url, DEFAULT_CLOUD_API_URL)
         rewritten = config_path.read_text(encoding="utf-8")
         self.assertNotIn("cloud_api_url", rewritten)
+
+    def test_save_onboarding_settings_persists_completion_flag(self) -> None:
+        system_dir = self.cwd / "system6"
+        system_dir.mkdir(parents=True, exist_ok=True)
+
+        with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+            save_onboarding_settings(completed=True)
+            config = load_config(self.cwd)
+
+        self.assertTrue(config.onboarding_completed)
+
+    def test_config_uses_hostname_for_default_cloud_device_name(self) -> None:
+        with patch("ite.config.config.socket.gethostname", return_value="My-MacBook-Pro.local"):
+            config = Config(cwd=self.cwd)
+
+        self.assertEqual(config.cloud_client_id, DEFAULT_CLOUD_CLIENT_ID)
+        self.assertEqual(config.cloud_device_name, "My-MacBook-Pro.local")
 
 
 if __name__ == "__main__":

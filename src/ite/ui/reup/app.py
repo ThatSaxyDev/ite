@@ -62,6 +62,7 @@ from ite.cloud import (
     get_activity,
     get_bundled_models,
     get_usage_summary,
+    has_stored_cloud_auth,
     has_valid_cloud_auth,
 )
 from ite.commands import build_registry
@@ -73,6 +74,7 @@ from ite.config.loader import (
     remove_saved_custom_provider,
     save_cloud_settings,
     save_global_approval_mode,
+    save_onboarding_settings,
     save_saved_custom_provider,
     save_system_config,
     save_theme,
@@ -395,7 +397,9 @@ class ReupApp(App):
         self._session_agents: dict[str, Agent] = {}
         self._session_run_states: dict[str, SessionRunState] = {}
         self._fallback_run_state = SessionRunState()
-        self._command_registry = build_registry()
+        self._command_registry = None
+        self._command_registry_ready: bool = False
+        self._command_registry_loading: bool = False
         self._streaming_widget: Static | None = None
         self._streaming_buffer: str = ""
         self._tool_widgets: dict[str, Static] = {}
@@ -440,6 +444,9 @@ class ReupApp(App):
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
+        self._startup_active: bool = True
+        self._onboarding_active: bool = False
+        self._onboarding_busy: bool = False
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -462,7 +469,7 @@ class ReupApp(App):
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
         self._bundled_access_announced: bool = False
-        self._command_palette_options = self._build_command_palette_options()
+        self._command_palette_options: list[SlashCommandOption] = []
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
         self._command_palette_rows: int = 0
@@ -552,6 +559,14 @@ class ReupApp(App):
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
                         yield Static("", id="empty-state")
+                        with Container(id="startup-state"):
+                            with Vertical(id="startup-stack"):
+                                yield Static("Launching iTE", id="startup-title")
+                                yield Static(
+                                    "Preparing your workspace and checking your session.",
+                                    id="startup-copy",
+                                )
+                                yield Static("", id="startup-status")
                         with Container(id="signed-out-state"):
                             with Vertical(id="signed-out-stack"):
                                 yield Static("", id="signed-out-copy")
@@ -563,6 +578,40 @@ class ReupApp(App):
                                         "Exit", id="cloud-exit", variant="default"
                                     )
                                 yield Static("", id="signed-out-status")
+                        with Container(id="onboarding-state"):
+                            with Vertical(id="onboarding-stack"):
+                                yield Static(
+                                    "Welcome to iTE",
+                                    id="onboarding-title",
+                                )
+                                yield Static(
+                                    "A quick setup before you start. Tell iTE a little about you, then connect the model service you want to use.",
+                                    id="onboarding-copy",
+                                )
+                                yield Input(
+                                    placeholder="Your name",
+                                    id="onboarding-name",
+                                )
+                                yield Input(
+                                    placeholder="What do you do? e.g. software engineer, doctor, founder",
+                                    id="onboarding-role",
+                                )
+                                yield Input(
+                                    placeholder="What are you using iTE for right now?",
+                                    id="onboarding-use-case",
+                                )
+                                with Horizontal(id="onboarding-actions"):
+                                    yield Button(
+                                        "Skip",
+                                        id="onboarding-skip",
+                                        variant="default",
+                                    )
+                                    yield Button(
+                                        "Continue",
+                                        id="onboarding-continue",
+                                        variant="primary",
+                                    )
+                                yield Static("", id="onboarding-status")
                     with Container(id="aside-panel"):
                         with Horizontal(id="aside-panel-header"):
                             yield Static("Aside", id="aside-panel-title")
@@ -579,14 +628,7 @@ class ReupApp(App):
         saved_theme = load_theme()
         self._suppress_theme_prompt_sync = True
         try:
-            if self.theme == "textual-dark":
-                host_theme = detect_host_textual_theme()
-                if host_theme and host_theme != "textual-dark":
-                    self.theme = host_theme
-                elif saved_theme:
-                    self.theme = saved_theme
-            elif saved_theme:
-                self.theme = saved_theme
+            self.theme = saved_theme or detect_host_textual_theme()
         finally:
             self._suppress_theme_prompt_sync = False
         self.query_one("#aside-toggle", Button).display = False
@@ -604,26 +646,88 @@ class ReupApp(App):
         if self.config.cloud_auth_enabled:
             self._cloud_bootstrap_busy = True
             self._set_signed_out_state(True)
+        self.run_worker(self._initialize_command_palette(), exclusive=False)
         self.run_worker(self._bootstrap_after_mount(), exclusive=False)
+
+    async def _initialize_command_palette(self) -> None:
+        if self._command_registry_ready or self._command_registry_loading:
+            return
+        self._command_registry_loading = True
+        try:
+            self._command_registry = await asyncio.to_thread(build_registry)
+            self._command_palette_options = self._build_command_palette_options()
+            self._command_registry_ready = True
+            if self.is_mounted:
+                try:
+                    prompt = self.query_one("#prompt", TextArea)
+                except Exception:
+                    prompt = None
+                if prompt is not None:
+                    self._sync_command_palette(str(getattr(prompt, "text", "") or ""))
+        finally:
+            self._command_registry_loading = False
+
+    async def _ensure_command_registry(self) -> None:
+        if self._command_registry_ready and self._command_registry is not None:
+            return
+        await self._initialize_command_palette()
 
     async def _bootstrap_after_mount(self) -> None:
         if self.config.cloud_auth_enabled:
             has_cloud_session = await asyncio.to_thread(
-                has_valid_cloud_auth, self.config
+                has_stored_cloud_auth, self.config
             )
-            self._cloud_bootstrap_busy = False
             if not has_cloud_session:
+                self._cloud_bootstrap_busy = False
+                self._set_startup_state(False)
                 self._set_signed_out_state(True)
                 self._set_loading_state("idle", busy=False)
                 return
-            self._set_signed_out_state(False)
 
+            # First-run onboarding must only appear after cloud auth is fully verified.
+            if self._should_show_onboarding():
+                is_valid = await asyncio.to_thread(has_valid_cloud_auth, self.config)
+                self._cloud_bootstrap_busy = False
+                if not is_valid:
+                    self._set_startup_state(False)
+                    self._set_signed_out_state(True)
+                    self._set_loading_state("idle", busy=False)
+                    return
+                self._set_signed_out_state(False)
+                self._set_startup_state(False)
+                self._set_onboarding_state(True)
+                self._set_loading_state("idle", busy=False)
+                self.query_one("#onboarding-name", Input).focus()
+                return
+
+            self._set_signed_out_state(False)
+            self._cloud_bootstrap_busy = False
+            self.run_worker(self._verify_cloud_auth_after_startup(), exclusive=False)
+
+        if self._should_show_onboarding():
+            self._set_startup_state(False)
+            self._set_onboarding_state(True)
+            self._set_loading_state("idle", busy=False)
+            self.query_one("#onboarding-name", Input).focus()
+            return
         await self.ensure_agent()
+        self._set_startup_state(False)
         self._schedule_usage_meta_refresh()
         await self._refresh_change_review_source()
         self._set_loading_state("idle", busy=False)
         self.query_one("#prompt", TextArea).focus()
         self._sync_command_palette("")
+
+    def _should_show_onboarding(self) -> bool:
+        return not bool(self.config.onboarding_completed)
+
+    async def _verify_cloud_auth_after_startup(self) -> None:
+        is_valid = await asyncio.to_thread(has_valid_cloud_auth, self.config)
+        if not is_valid:
+            self._set_onboarding_state(False)
+            self._set_signed_out_state(True)
+            self.post_notice("Cloud", "Your cloud session expired. Sign in again.")
+            return
 
     def _syntax_theme_name(self) -> str:
         syntax_theme = getattr(self.current_theme, "syntax_theme", None)
@@ -1178,7 +1282,10 @@ class ReupApp(App):
             self._usage_refresh_in_flight = False
 
     def _build_command_palette_options(self) -> list[SlashCommandOption]:
-        options = build_command_palette_options(self._command_registry)
+        registry = self._command_registry
+        if registry is None:
+            return []
+        options = build_command_palette_options(registry)
         if not any(option.name == "/theme" for option in options):
             options.append(
                 SlashCommandOption(
@@ -1904,7 +2011,7 @@ class ReupApp(App):
             empty = self.query_one("#empty-state", Static)
         except (NoMatches, ScreenStackError):
             return
-        if self._cloud_signed_out:
+        if self._cloud_signed_out or self._startup_active or self._onboarding_active:
             empty.display = False
             return
         if self._message_count > 0 or self._is_turn_running:
@@ -1937,14 +2044,33 @@ class ReupApp(App):
             prompt = self.query_one("#prompt", TextArea)
         except NoMatches:
             return
-        prompt.disabled = self._cloud_signed_out
+        prompt.disabled = (
+            self._cloud_signed_out or self._startup_active or self._onboarding_active
+        )
         self._refresh_empty_state()
 
     def _set_signed_out_state(self, enabled: bool) -> None:
         self._cloud_signed_out = enabled
+        if enabled:
+            self._onboarding_active = False
+        self._apply_shell_surface()
+
+    def _set_startup_state(self, enabled: bool) -> None:
+        self._startup_active = enabled
+        self._apply_shell_surface()
+
+    def _set_onboarding_state(self, enabled: bool) -> None:
+        self._onboarding_active = enabled
+        if enabled:
+            self._cloud_signed_out = False
+        self._apply_shell_surface()
+
+    def _apply_shell_surface(self) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         empty = self.query_one("#empty-state", Static)
+        startup = self.query_one("#startup-state", Container)
         signed_out = self.query_one("#signed-out-state", Container)
+        onboarding = self.query_one("#onboarding-state", Container)
         composer = self.query_one("#composer", Horizontal)
         topbar = self.query_one("#topbar", Horizontal)
         chat_body = self.query_one("#chat-body", Horizontal)
@@ -1954,29 +2080,72 @@ class ReupApp(App):
         footer = self.query_one(Footer)
         header = self.query_one(Header)
 
-        signed_out.display = enabled
-        conversation.display = not enabled
-        empty.display = False if enabled else empty.display
-        composer.display = not enabled
-        topbar.display = not enabled
-        session_tabs.display = (not enabled) and len(self._open_session_order) > 1
-        footer.display = not enabled
-        header.display = not enabled
-        chat_body.styles.padding = (0, 0, 0, 0) if enabled else (0, 2, 0, 2)
-        prompt.disabled = enabled
+        in_startup = self._startup_active
+        in_signed_out = (not in_startup) and self._cloud_signed_out
+        in_onboarding = (not in_signed_out) and self._onboarding_active
+        in_chat = (not in_startup) and (not in_signed_out) and (not in_onboarding)
+
+        startup.display = in_startup
+        signed_out.display = in_signed_out
+        onboarding.display = in_onboarding
+        conversation.display = in_chat
+        empty.display = False if not in_chat else empty.display
+        composer.display = in_chat
+        topbar.display = in_chat
+        session_tabs.display = in_chat and len(self._open_session_order) > 1
+        footer.display = in_chat
+        header.display = in_chat
+        chat_body.styles.padding = (0, 0, 0, 0) if (in_startup or in_signed_out or in_onboarding) else (0, 2, 0, 2)
+        prompt.disabled = not in_chat
         sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
+        self.query_one("#startup-status", Static).update(self._startup_status_text())
         self.query_one("#signed-out-copy", Static).update(
             build_signed_out_state_renderable(styles=self._render_styles())
         )
         self.query_one("#signed-out-status", Static).update(
             self._signed_out_status_text()
         )
-        if not enabled:
+        if in_onboarding:
+            self.query_one("#onboarding-status", Static).update(
+                self._onboarding_status_text()
+            )
+        if in_chat:
             self._refresh_empty_state()
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self.refresh_header()
+
+    def _startup_status_text(self) -> Text:
+        status = Text(justify="center")
+        frame = self._top_spinner_frames[
+            self._top_spinner_index % len(self._top_spinner_frames)
+        ]
+        if self._cloud_bootstrap_busy:
+            status.append(
+                f"{frame} Checking iTE Cloud",
+                style=f"bold {self._render_styles()['fg']}",
+            )
+        else:
+            status.append(
+                f"{frame} Starting runtime",
+                style=f"bold {self._render_styles()['fg']}",
+            )
+        return status
+
+    def _onboarding_status_text(self) -> Text:
+        status = Text(justify="center")
+        if self._onboarding_busy:
+            frame = self._top_spinner_frames[
+                self._top_spinner_index % len(self._top_spinner_frames)
+            ]
+            status.append(
+                f"{frame} Saving your first-run setup",
+                style=f"bold {self._render_styles()['fg']}",
+            )
+        else:
+            status.append(" ", style=self._render_styles()["muted"])
+        return status
 
     def _signed_out_status_text(self) -> Text:
         status = Text(justify="center")
@@ -2020,11 +2189,15 @@ class ReupApp(App):
 
         self._cloud_auth_busy = False
         self._set_signed_out_state(False)
-        await self.ensure_agent()
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
         self._message_count = 0
         self._reset_session_local_ui_state()
+        if self._should_show_onboarding():
+            self._set_onboarding_state(True)
+            self.query_one("#onboarding-name", Input).focus()
+            return
+        await self.ensure_agent()
         self._refresh_empty_state()
         self.query_one("#prompt", TextArea).focus()
 
@@ -2033,6 +2206,74 @@ class ReupApp(App):
             await self.cancel_active_turn()
         clear_cloud_auth()
         self._set_signed_out_state(True)
+
+    async def _finish_onboarding_flow(self, *, skip: bool) -> None:
+        if self._onboarding_busy:
+            return
+        self._onboarding_busy = True
+        self._apply_shell_surface()
+
+        try:
+            await self.ensure_agent()
+            session = self.agent.session if self.agent else None
+            if session is None:
+                self.query_one("#onboarding-status", Static).update(
+                    Text("Could not prepare onboarding right now.", style="bold #ffcf92", justify="center")
+                )
+                return
+
+            if not skip:
+                name = self.query_one("#onboarding-name", Input).value.strip()
+                role = self.query_one("#onboarding-role", Input).value.strip()
+                use_case = self.query_one("#onboarding-use-case", Input).value.strip()
+
+                entries: list[tuple[str, str]] = []
+                if name:
+                    entries.append(("user_name", name))
+                if role:
+                    entries.append(("user_role", role))
+                if use_case:
+                    entries.append(("user_use_case", use_case))
+
+                for key, value in entries:
+                    await asyncio.to_thread(
+                        session.memory_manager.set_entry,
+                        "long_term",
+                        key,
+                        value,
+                        source="onboarding",
+                        metadata={"memory_type": "user"},
+                    )
+
+            await asyncio.to_thread(save_onboarding_settings, completed=True)
+            self.config.onboarding_completed = True
+        except Exception as exc:
+            self.query_one("#onboarding-status", Static).update(
+                Text(f"Onboarding failed: {exc}", style="bold #ffcf92", justify="center")
+            )
+            return
+        finally:
+            self._onboarding_busy = False
+            if self._onboarding_active:
+                self._apply_shell_surface()
+
+        self._set_onboarding_state(False)
+        if self.config.needs_setup:
+            await self._open_setup_modal(exit_on_cancel=False)
+        self._apply_shell_surface()
+        self._refresh_empty_state()
+        self.query_one("#prompt", TextArea).focus()
+
+    def _focus_next_onboarding_field(self, current_id: str | None) -> bool:
+        order = ["onboarding-name", "onboarding-role", "onboarding-use-case"]
+        if not current_id or current_id not in order:
+            return False
+        current_index = order.index(current_id)
+        if current_index >= len(order) - 1:
+            return False
+        next_id = f"#{order[current_index + 1]}"
+        self.query_one(next_id, Input).focus()
+        return True
 
     def _apply_aside_panel_state(self) -> None:
         panel = self.query_one("#aside-panel", Container)
@@ -2615,6 +2856,22 @@ class ReupApp(App):
     @on(Button.Pressed, "#cloud-exit")
     def on_cloud_exit_pressed(self, _event: Button.Pressed) -> None:
         self.exit()
+
+    @on(Button.Pressed, "#onboarding-continue")
+    def on_onboarding_continue_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._finish_onboarding_flow(skip=False), exclusive=False)
+
+    @on(Button.Pressed, "#onboarding-skip")
+    def on_onboarding_skip_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._finish_onboarding_flow(skip=True), exclusive=False)
+
+    @on(Input.Submitted, "#onboarding-name")
+    @on(Input.Submitted, "#onboarding-role")
+    @on(Input.Submitted, "#onboarding-use-case")
+    def on_onboarding_input_submitted(self, event: Input.Submitted) -> None:
+        if self._focus_next_onboarding_field(getattr(event.input, "id", None)):
+            return
+        self.run_worker(self._finish_onboarding_flow(skip=False), exclusive=False)
 
     @on(Button.Pressed, "#changes-toggle")
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
@@ -4366,7 +4623,16 @@ class ReupApp(App):
         )
 
         try:
-            await self._command_registry.dispatch(command, args, ctx)
+            await self._ensure_command_registry()
+            registry = self._command_registry
+            if registry is None:
+                self.post_system(
+                    "Command Error",
+                    "Command registry is not ready yet. Try again.",
+                    is_error=True,
+                )
+                return
+            await registry.dispatch(command, args, ctx)
         except SystemExit:
             self.exit()
             return

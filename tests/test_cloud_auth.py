@@ -3,7 +3,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from ite.cloud.auth import CloudSession, get_activity, get_bundled_models, get_cloud_session, get_usage_summary
+from ite.cloud.auth import (
+    CloudSession,
+    ensure_cloud_auth,
+    get_activity,
+    get_bundled_models,
+    get_cloud_session,
+    has_stored_cloud_auth,
+    get_usage_summary,
+)
 from ite.config.config import Config
 
 
@@ -23,7 +31,7 @@ class CloudAuthTests(unittest.TestCase):
             refresh_token="refresh",
             access_expires_at=9999999999,
             api_url="http://127.0.0.1:4000",
-            client_id="ite-cli",
+            client_id="test-device",
         )
 
     def test_cloud_accessors_return_empty_when_cloud_auth_errors(self) -> None:
@@ -63,3 +71,54 @@ class CloudAuthTests(unittest.TestCase):
             models[0]["unavailable_reason"],
             "Local bundled provider returned 500.",
         )
+
+    def test_ensure_cloud_auth_waits_for_browser_ready_signal(self) -> None:
+        start_payload = {
+            "ok": True,
+            "authUrl": "https://example.com/auth",
+            "pollToken": "poll-token",
+            "expiresIn": 60,
+            "interval": 1,
+        }
+        pending_payload = {
+            "ok": True,
+            "browserReady": False,
+            "accessToken": "too-early",
+            "refreshToken": "too-early-refresh",
+            "expiresIn": 3600,
+        }
+        complete_payload = {
+            "ok": True,
+            "browserReady": True,
+            "accessToken": "access",
+            "refreshToken": "refresh",
+            "expiresIn": 3600,
+        }
+
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=None),
+            patch(
+                "ite.cloud.auth._post_json",
+                side_effect=[
+                    (200, start_payload),
+                    (200, pending_payload),
+                    (200, complete_payload),
+                ],
+            ) as post_json,
+            patch("ite.cloud.auth.webbrowser.open", return_value=True),
+            patch("ite.cloud.auth.time.sleep"),
+            patch("ite.cloud.auth._save_cloud_session") as save_session,
+        ):
+            ensure_cloud_auth(None, self.config)
+
+        self.assertEqual(post_json.call_count, 3)
+        saved_session = save_session.call_args.args[0]
+        self.assertEqual(saved_session.access_token, "access")
+        self.assertEqual(saved_session.refresh_token, "refresh")
+        start_call_payload = post_json.call_args_list[0].args[1]
+        self.assertIn("deviceName", start_call_payload)
+        self.assertIn("deviceLabel", start_call_payload)
+
+    def test_has_stored_cloud_auth_checks_local_session_only(self) -> None:
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session):
+            self.assertTrue(has_stored_cloud_auth(self.config))

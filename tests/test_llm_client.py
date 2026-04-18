@@ -128,6 +128,16 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("500", message)
         self.assertIn("abc-123", message)
 
+    def test_cloud_suffix_uses_local_provider_when_user_base_url_is_configured(self) -> None:
+        config = Config(
+            model={"name": "kimi-k2.5:cloud"},
+            api_key="ollama",
+            base_url="http://localhost:11434/v1",
+        )
+        client = LLMClient(config)
+
+        self.assertFalse(client._is_cloud_model())
+
     async def test_cloud_chat_completion_retries_transient_provider_failure(self) -> None:
         captured: list[dict] = []
         config = Config()
@@ -199,6 +209,152 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(text, "continued")
         self.assertEqual(len(captured), 2)
+
+    async def test_cloud_chat_completion_falls_back_to_saved_provider_on_entitlement_denied(self) -> None:
+        captured: list[dict] = []
+        config = Config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+
+        def _fake_async_client(*args, **kwargs):
+            return _FakeAsyncClient(
+                capture=captured,
+                responses=[
+                    _FakeResponse(
+                        status_code=403,
+                        payload={
+                            "ok": False,
+                            "error": {
+                                "code": "entitlement_denied",
+                                "message": "Bundled access is not enabled for this account.",
+                            },
+                        },
+                    )
+                ],
+            )
+
+        async def _fake_stream_response(_client, kwargs):
+            self.assertEqual(kwargs["model"], "ollama/deepseek-r1")
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(content="Recovered locally."),
+            )
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE)
+
+        client.get_client = lambda: object()
+        client._stream_response = _fake_stream_response
+
+        with (
+            patch("ite.client.llm_client.get_cloud_session", return_value=session),
+            patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client),
+            patch(
+                "ite.client.llm_client.load_saved_custom_provider",
+                return_value={
+                    "ollama/deepseek-r1": {
+                        "model_name": "ollama/deepseek-r1",
+                        "api_key": "ollama",
+                        "base_url": "http://localhost:11434/v1",
+                    }
+                },
+            ),
+        ):
+            events = []
+            async for event in client.chat_completion(
+                [{"role": "user", "content": "hello"}],
+                tools=None,
+            ):
+                events.append(event)
+
+        self.assertEqual(events[0].text_delta.content, "Recovered locally.")
+        self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+        self.assertEqual(client.config.model_name, "ollama/deepseek-r1")
+        self.assertEqual(client.config.base_url, "http://localhost:11434/v1")
+
+    async def test_cloud_complete_text_falls_back_to_saved_provider_on_entitlement_denied(self) -> None:
+        captured: list[dict] = []
+        config = Config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+
+        def _fake_async_client(*args, **kwargs):
+            return _FakeAsyncClient(
+                capture=captured,
+                responses=[
+                    _FakeResponse(
+                        status_code=403,
+                        payload={
+                            "ok": False,
+                            "error": {
+                                "code": "entitlement_denied",
+                                "message": "Bundled access is not enabled for this account.",
+                            },
+                        },
+                    )
+                ],
+            )
+
+        client.get_client = lambda: object()
+        client._non_stream_response = AsyncMock(
+            return_value=StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                text_delta=TextDelta(content="Recovered locally."),
+            )
+        )
+
+        with (
+            patch("ite.client.llm_client.get_cloud_session", return_value=session),
+            patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client),
+            patch(
+                "ite.client.llm_client.load_saved_custom_provider",
+                return_value={
+                    "ollama/deepseek-r1": {
+                        "model_name": "ollama/deepseek-r1",
+                        "api_key": "ollama",
+                        "base_url": "http://localhost:11434/v1",
+                    }
+                },
+            ),
+        ):
+            text = await client.complete_text([{"role": "user", "content": "hello"}])
+
+        self.assertEqual(text, "Recovered locally.")
+        self.assertEqual(client.config.model_name, "ollama/deepseek-r1")
+        self.assertEqual(client.config.base_url, "http://localhost:11434/v1")
+
+    async def test_chat_completion_preserves_model_name_for_user_provider_requests(self) -> None:
+        config = Config(
+            model={"name": "kimi-k2.5:cloud"},
+            api_key="ollama",
+            base_url="http://localhost:11434/v1",
+        )
+        client = LLMClient(config)
+
+        captured_kwargs: dict = {}
+
+        async def _fake_stream_response(_client, kwargs):
+            captured_kwargs.update(kwargs)
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE)
+
+        client.get_client = lambda: object()
+        client._stream_response = _fake_stream_response
+
+        events = []
+        async for event in client.chat_completion(
+            [{"role": "user", "content": "hello"}],
+            tools=None,
+        ):
+            events.append(event)
+
+        self.assertEqual(captured_kwargs["model"], "kimi-k2.5:cloud")
+        self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
 
 
 if __name__ == "__main__":

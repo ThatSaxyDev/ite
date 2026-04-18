@@ -350,6 +350,49 @@ Screen {
     padding: 0 8;
 }
 
+#startup-state {
+    display: block;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#startup-stack {
+    width: auto;
+    height: auto;
+    align-horizontal: center;
+    align-vertical: middle;
+    padding: 0 8;
+}
+
+#startup-title {
+    width: auto;
+    text-style: bold;
+    color: $text-primary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#startup-copy {
+    width: auto;
+    max-width: 68;
+    margin-top: 1;
+    color: $text-secondary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#startup-status {
+    width: auto;
+    height: 1;
+    margin-top: 2;
+    color: $text-secondary;
+    text-style: bold;
+    text-align: center;
+}
+
 #signed-out-copy {
     width: auto;
     max-width: 76;
@@ -411,6 +454,101 @@ Screen {
 #cloud-exit:focus {
     background: $panel-lighten-1;
     color: $foreground;
+}
+
+#onboarding-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#onboarding-stack {
+    width: 72;
+    max-width: 84;
+    height: auto;
+    align-horizontal: center;
+    align-vertical: middle;
+    padding: 0 4;
+}
+
+#onboarding-title {
+    width: 100%;
+    text-style: bold;
+    color: $text-primary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#onboarding-copy {
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-secondary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#onboarding-name,
+#onboarding-role,
+#onboarding-use-case {
+    width: 100%;
+    margin-top: 1;
+    background: $surface-darken-1;
+    color: $foreground;
+    border: round $border;
+}
+
+#onboarding-actions {
+    width: 100%;
+    height: auto;
+    align-horizontal: right;
+    margin-top: 2;
+}
+
+#onboarding-skip,
+#onboarding-continue {
+    width: 16;
+    min-width: 16;
+    height: 3;
+    margin-left: 1;
+    padding: 0 2;
+    border: none;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#onboarding-skip {
+    background: $panel;
+    color: $foreground;
+}
+
+#onboarding-skip:hover,
+#onboarding-skip:focus {
+    background: $panel-lighten-1;
+    color: $foreground;
+}
+
+#onboarding-continue {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+#onboarding-continue:hover,
+#onboarding-continue:focus {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+#onboarding-status {
+    width: 100%;
+    height: 1;
+    margin-top: 2;
+    color: $text-secondary;
+    text-style: bold;
+    text-align: center;
 }
 
 #composer {

@@ -20,11 +20,26 @@ class ReupStartupTests(unittest.TestCase):
     def _app(self) -> ReupApp:
         return ReupApp(Config(cwd=self.cwd))
 
+    def test_app_init_defers_command_registry_build(self) -> None:
+        with patch("ite.ui.reup.app.build_registry") as build_registry:
+            ReupApp(Config(cwd=self.cwd))
+
+        build_registry.assert_not_called()
+
     def test_on_mount_allows_signed_in_user_without_byok_setup(self) -> None:
         async def run_test() -> None:
             app = self._app()
+            app.config.onboarding_completed = True
             prompt = SimpleNamespace(focus=lambda: None)
             toggle = SimpleNamespace(display=True)
+
+            def _consume(coro, **_kwargs):
+                qualname = getattr(coro, "__qualname__", "")
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+                return qualname
 
             with (
                 patch.object(app, "refresh_header"),
@@ -34,9 +49,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_apply_aside_panel_state"),
                 patch.object(app, "_apply_change_review_panel_state"),
                 patch.object(app, "set_interval"),
-                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
-                patch.object(app, "_refresh_change_review_source", AsyncMock()) as refresh_change_review,
-                patch.object(app, "_sync_command_palette") as sync_command_palette,
+                patch.object(app, "set_timer"),
+                patch.object(app, "_set_signed_out_state"),
+                patch.object(app, "run_worker", side_effect=_consume) as run_worker,
                 patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
                 patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)),
                 patch.object(
@@ -52,17 +67,37 @@ class ReupStartupTests(unittest.TestCase):
                 await app.on_mount()
 
             open_setup_modal.assert_not_called()
-            ensure_agent.assert_awaited_once()
-            refresh_change_review.assert_awaited_once()
-            sync_command_palette.assert_called_once_with("")
+            self.assertTrue(
+                any(
+                    "_bootstrap_after_mount"
+                    in getattr(call.args[0], "__qualname__", "")
+                    for call in run_worker.call_args_list
+                )
+            )
+            self.assertTrue(
+                any(
+                    "_initialize_command_palette"
+                    in getattr(call.args[0], "__qualname__", "")
+                    for call in run_worker.call_args_list
+                )
+            )
 
         asyncio.run(run_test())
 
     def test_on_mount_uses_detected_light_theme_when_still_on_default_dark(self) -> None:
         async def run_test() -> None:
-            app = self._app()
+            with patch("ite.ui.reup.app.detect_host_textual_theme", return_value="textual-light"):
+                app = self._app()
+            app.config.onboarding_completed = True
             prompt = SimpleNamespace(focus=lambda: None)
             toggle = SimpleNamespace(display=True)
+
+            def _consume(coro, **_kwargs):
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+                return None
 
             with (
                 patch.object(app, "refresh_header"),
@@ -72,10 +107,11 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_apply_aside_panel_state"),
                 patch.object(app, "_apply_change_review_panel_state"),
                 patch.object(app, "set_interval"),
+                patch.object(app, "_set_signed_out_state"),
+                patch.object(app, "run_worker", side_effect=_consume),
                 patch.object(app, "ensure_agent", AsyncMock()),
                 patch.object(app, "_refresh_change_review_source", AsyncMock()),
                 patch.object(app, "_sync_command_palette"),
-                patch("ite.ui.reup.app.detect_host_textual_theme", return_value="textual-light"),
                 patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)),
                 patch.object(
                     app,
@@ -96,6 +132,7 @@ class ReupStartupTests(unittest.TestCase):
     def test_cloud_login_allows_manual_setup_after_sign_in(self) -> None:
         async def run_test() -> None:
             app = self._app()
+            app.config.onboarding_completed = True
             prompt = SimpleNamespace(focus=lambda: None)
             conversation = SimpleNamespace(remove_children=AsyncMock())
 
@@ -120,6 +157,92 @@ class ReupStartupTests(unittest.TestCase):
             open_setup_modal.assert_not_called()
             ensure_agent.assert_awaited_once()
             conversation.remove_children.assert_awaited_once()
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_shows_onboarding_without_starting_agent(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            app.config.onboarding_completed = False
+            name_input = SimpleNamespace(focus=lambda: None)
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "_set_signed_out_state"),
+                patch.object(app, "_set_onboarding_state") as set_onboarding_state,
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch.object(app, "run_worker"),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread",
+                    AsyncMock(side_effect=[True, True]),
+                ),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#onboarding-name": name_input,
+                    }[selector],
+                ),
+            ):
+                await app._bootstrap_after_mount()
+
+            set_onboarding_state.assert_called_once_with(True)
+            ensure_agent.assert_not_awaited()
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_does_not_show_onboarding_before_cloud_auth_verifies(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            app.config.onboarding_completed = False
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+                patch.object(app, "_set_onboarding_state") as set_onboarding_state,
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "run_worker"),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread",
+                    AsyncMock(side_effect=[True, False]),
+                ),
+            ):
+                await app._bootstrap_after_mount()
+
+            set_onboarding_state.assert_not_called()
+            set_signed_out_state.assert_called_once_with(True)
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_clears_startup_surface_after_agent_ready(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            prompt = SimpleNamespace(focus=lambda: None)
+
+            with (
+                patch.object(app, "_apply_shell_surface") as apply_shell_surface,
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_sync_command_palette"),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#prompt": prompt,
+                    }[selector],
+                ),
+            ):
+                await app._bootstrap_after_mount()
+
+            self.assertFalse(app._startup_active)
+            apply_shell_surface.assert_called()
 
         asyncio.run(run_test())
 
@@ -149,6 +272,7 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_apply_aside_panel_state"),
                 patch.object(app, "_apply_change_review_panel_state"),
                 patch.object(app, "set_interval"),
+                patch.object(app, "set_timer"),
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
                 patch.object(app, "_refresh_change_review_source", AsyncMock()) as refresh_change_review,
@@ -171,6 +295,63 @@ class ReupStartupTests(unittest.TestCase):
             sync_command_palette.assert_not_called()
 
         asyncio.run(run_test())
+
+    def test_onboarding_submit_advances_to_next_field_before_finishing(self) -> None:
+        app = self._app()
+        name_input = SimpleNamespace(id="onboarding-name")
+        role_input = SimpleNamespace(focus=lambda: None)
+
+        with (
+            patch.object(app, "query_one", return_value=role_input) as query_one,
+            patch.object(app, "run_worker") as run_worker,
+        ):
+            app.on_onboarding_input_submitted(SimpleNamespace(input=name_input))
+
+        query_one.assert_called_once_with("#onboarding-role", unittest.mock.ANY)
+        run_worker.assert_not_called()
+
+    def test_cloud_login_shows_onboarding_before_starting_agent(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.onboarding_completed = False
+            name_input = SimpleNamespace(focus=lambda: None)
+            conversation = SimpleNamespace(remove_children=AsyncMock())
+
+            with (
+                patch.object(app, "_set_signed_out_state"),
+                patch.object(app, "_set_onboarding_state") as set_onboarding_state,
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch.object(app, "_reset_session_local_ui_state"),
+                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#conversation": conversation,
+                        "#onboarding-name": name_input,
+                    }[selector],
+                ),
+            ):
+                await app._run_cloud_login_flow()
+
+            set_onboarding_state.assert_called_once_with(True)
+            ensure_agent.assert_not_awaited()
+            conversation.remove_children.assert_awaited_once()
+
+        asyncio.run(run_test())
+
+    def test_onboarding_submit_finishes_on_last_field(self) -> None:
+        app = self._app()
+        use_case_input = SimpleNamespace(id="onboarding-use-case")
+
+        def _consume(coro, **_kwargs):
+            coro.close()
+            return None
+
+        with patch.object(app, "run_worker", side_effect=_consume) as run_worker:
+            app.on_onboarding_input_submitted(SimpleNamespace(input=use_case_input))
+
+        run_worker.assert_called_once()
 
 
 if __name__ == "__main__":

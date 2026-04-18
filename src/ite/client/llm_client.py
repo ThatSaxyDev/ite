@@ -15,6 +15,7 @@ from typing import Any
 from openai import AsyncOpenAI
 from ite.utils.errors import format_provider_error
 from ite.cloud import get_cloud_session
+from ite.config.loader import load_saved_custom_provider
 import httpx
 from datetime import datetime
 
@@ -36,7 +37,62 @@ class LLMClient:
         return self._client
 
     def _is_cloud_model(self) -> bool:
-        return self.config.model_name.endswith(":cloud")
+        return (
+            self.config.model_name.endswith(":cloud")
+            and not self._has_user_provider_credentials()
+        )
+
+    def _has_user_provider_credentials(self) -> bool:
+        return bool(
+            str(self.config.base_url or "").strip()
+            and str(self.config.api_key or "").strip()
+        )
+
+    def _cloud_error_code(self, payload: dict[str, Any]) -> str:
+        error = payload.get("error") or {}
+        return str(error.get("code") or "").strip().lower()
+
+    def _saved_provider_fallback(self) -> dict[str, str] | None:
+        profiles = load_saved_custom_provider()
+        if not profiles:
+            return None
+
+        if not isinstance(profiles, dict):
+            return None
+
+        for profile in profiles.values():
+            if not isinstance(profile, dict):
+                continue
+            model_name = str(profile.get("model_name") or "").strip()
+            api_key = str(profile.get("api_key") or "").strip()
+            base_url = str(profile.get("base_url") or "").strip()
+            if not model_name or not api_key or not base_url:
+                continue
+            return {
+                "model_name": model_name,
+                "api_key": api_key,
+                "base_url": base_url,
+            }
+        return None
+
+    def _should_bypass_bundled_error(self, payload: dict[str, Any]) -> bool:
+        if self._cloud_error_code(payload) not in {
+            "entitlement_denied",
+            "provider_not_configured",
+        }:
+            return False
+        return self._saved_provider_fallback() is not None
+
+    async def _activate_saved_provider_fallback(self) -> bool:
+        fallback = self._saved_provider_fallback()
+        if fallback is None:
+            return False
+
+        await self.close()
+        self.config.model_name = fallback["model_name"]
+        self.config.api_key = fallback["api_key"]
+        self.config.base_url = fallback["base_url"]
+        return True
 
     def _resolve_cloud_model_name(self) -> str:
         model_name = self.config.model_name.removesuffix(":cloud")
@@ -450,6 +506,15 @@ class LLMClient:
             return
 
         if status_code != 200 or not payload.get("ok"):
+            if await self._activate_saved_provider_fallback() if self._should_bypass_bundled_error(payload) else False:
+                async for event in self.chat_completion(
+                    messages,
+                    tools=tools,
+                    stream=True,
+                    visual_budget=visual_budget,
+                ):
+                    yield event
+                return
             message = self._format_cloud_error(payload)
             yield StreamEvent(type=StreamEventType.ERROR, error=message)
             return
@@ -511,6 +576,8 @@ class LLMClient:
             raise RuntimeError(f"Could not reach iTE bundled inference: {exc}") from exc
 
         if status_code != 200 or not payload.get("ok"):
+            if await self._activate_saved_provider_fallback() if self._should_bypass_bundled_error(payload) else False:
+                return await self.complete_text(messages)
             raise RuntimeError(self._format_cloud_error(payload))
 
         output = str(payload.get("output") or "").strip()

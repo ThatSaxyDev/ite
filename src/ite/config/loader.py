@@ -409,6 +409,28 @@ def save_cloud_settings(
     return config_path
 
 
+def save_onboarding_settings(*, completed: bool) -> Path:
+    """Persist first-run onboarding completion in the system config file."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
+
+    existing["onboarding_completed"] = completed
+
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
+    logger.info("Saved onboarding settings to %s", config_path)
+    return config_path
+
+
 def _render_system_config(config: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     top_level_keys = [
@@ -417,6 +439,7 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
         "approval",
         "cloud_auth_enabled",
         "cloud_client_id",
+        "onboarding_completed",
         "hooks_enabled",
         "max_turns",
         "debug",

@@ -2,6 +2,7 @@ from __future__ import annotations
 from pydantic import field_validator, model_validator
 from typing import Any, ClassVar
 import os
+import socket
 import re
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -11,6 +12,14 @@ DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_API_KEY = "ollama"
 DEFAULT_MODEL_NAME = "minimax-m2.7:cloud"
 DEFAULT_CLOUD_API_URL = "https://ite-cloud-api.onrender.com"
+DEFAULT_CLOUD_CLIENT_ID = "ite-cli"
+
+
+def default_cloud_device_name() -> str:
+    hostname = str(socket.gethostname() or "").strip()
+    if hostname:
+        return hostname
+    return DEFAULT_CLOUD_CLIENT_ID
 
 
 class ModelConfig(BaseModel):
@@ -238,7 +247,9 @@ class Config(BaseModel):
     base_url: str | None = None
     cloud_auth_enabled: bool = True
     cloud_api_url: str | None = DEFAULT_CLOUD_API_URL
-    cloud_client_id: str = "ite-cli"
+    cloud_client_id: str = DEFAULT_CLOUD_CLIENT_ID
+    cloud_device_name: str = Field(default_factory=default_cloud_device_name)
+    onboarding_completed: bool = False
 
     @model_validator(mode="after")
     def resolve_credentials(self) -> "Config":
@@ -258,6 +269,8 @@ class Config(BaseModel):
             self.cloud_api_url = env_cloud_api
         if env_cloud_client := os.environ.get("ITE_CLOUD_CLIENT_ID"):
             self.cloud_client_id = env_cloud_client
+        if env_cloud_device := os.environ.get("ITE_CLOUD_DEVICE_NAME"):
+            self.cloud_device_name = env_cloud_device
         return self
 
     @property

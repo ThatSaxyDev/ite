@@ -15,6 +15,7 @@ import certifi
 from rich.console import Console
 
 from ite.config.config import Config
+from ite.config.config import DEFAULT_CLOUD_CLIENT_ID
 from ite.config.loader import get_data_dir
 
 
@@ -54,7 +55,7 @@ class CloudSession:
             refresh_token=str(data.get("refresh_token") or ""),
             access_expires_at=float(data.get("access_expires_at") or 0),
             api_url=str(data.get("api_url") or ""),
-            client_id=str(data.get("client_id") or "ite-cli"),
+            client_id=str(data.get("client_id") or DEFAULT_CLOUD_CLIENT_ID),
         )
 
 
@@ -180,6 +181,42 @@ def _refresh_cloud_session(session: CloudSession) -> CloudSession | None:
     return refreshed
 
 
+def _coerce_optional_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "ready", "complete", "completed"}:
+            return True
+        if normalized in {"false", "0", "no", "pending", "waiting"}:
+            return False
+    return None
+
+
+def _cloud_browser_ready(payload: dict[str, Any]) -> bool:
+    readiness_keys = (
+        "browserReady",
+        "browserAuthenticated",
+        "browserSessionReady",
+        "webSessionReady",
+        "sessionReady",
+    )
+    containers: list[dict[str, Any]] = [payload]
+    for key in ("browser", "status", "details", "data"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            containers.append(nested)
+
+    for container in containers:
+        for key in readiness_keys:
+            ready = _coerce_optional_bool(container.get(key))
+            if ready is None:
+                continue
+            if not ready:
+                return False
+    return True
+
+
 def _verify_cloud_session(session: CloudSession) -> bool:
     if session.is_access_valid:
         status, payload = _get_json(
@@ -204,6 +241,18 @@ def has_valid_cloud_auth(config: Config) -> bool:
         return _verify_cloud_session(existing)
     except CloudAuthError:
         return False
+
+
+def has_stored_cloud_auth(config: Config) -> bool:
+    if not config.cloud_auth_enabled:
+        return True
+    cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
+    if not cloud_api_url:
+        return False
+    existing = _load_cloud_session()
+    if existing is None or existing.api_url != cloud_api_url:
+        return False
+    return bool(existing.access_token and existing.refresh_token)
 
 
 def get_cloud_session(config: Config) -> CloudSession | None:
@@ -327,6 +376,8 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
         f"{cloud_api_url}/auth/cli/start",
         {
             "clientId": config.cloud_client_id,
+            "deviceName": str(config.cloud_device_name or "").strip(),
+            "deviceLabel": str(config.cloud_device_name or "").strip(),
             "scope": "openid profile email",
         },
     )
@@ -356,6 +407,8 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
             },
         )
         if poll_status == 200 and poll_payload.get("ok"):
+            if not _cloud_browser_ready(poll_payload):
+                continue
             session = CloudSession(
                 access_token=str(poll_payload.get("accessToken") or ""),
                 refresh_token=str(poll_payload.get("refreshToken") or ""),
