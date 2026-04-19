@@ -371,12 +371,16 @@ class ReupTUIAdapter:
         )
 
     def change_spinner(self, message: str) -> None:
-        """Update spinner with new status line."""
+        """Update spinner with new status."""
         if not self._spinner_handle:
             return
-        # Append line to the card
-        self._spinner_lines.append(message)
-        self._app.post_streaming_command_result(self._spinner_handle, f"→ {message}")
+        # Update the pending text on the existing card - this changes what the
+        # spinner shows (e.g., "Analyzing project" -> "Generating AGENTS.md")
+        # instead of appending lines below
+        self._app.run_worker(
+            self._app.start_streaming_command_result(self._spinner_handle, pending_text=message),
+            exclusive=False,
+        )
 
     def stop_spinner(self) -> None:
         """Finalize spinner card."""
