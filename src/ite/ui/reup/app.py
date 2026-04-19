@@ -283,6 +283,8 @@ class ReupTUIAdapter:
 
     def __init__(self, app: "ReupApp") -> None:
         self._app = app
+        self._spinner_handle: str | None = None
+        self._spinner_pending_text: str = "Thinking"
 
     @property
     def cwd(self) -> Path:
@@ -356,6 +358,27 @@ class ReupTUIAdapter:
 
     async def _close_current_thread(self) -> None:
         await self._app.close_current_thread()
+
+    def start_spinner(self, message: str = "Thinking") -> None:
+        """Show streaming command card with spinner."""
+        import uuid
+        self._spinner_handle = f"spinner_{uuid.uuid4().hex[:8]}"
+        self._spinner_pending_text = message
+        asyncio.create_task(
+            self._app.start_streaming_command_result(self._spinner_handle, pending_text=message)
+        )
+
+    def change_spinner(self, message: str) -> None:
+        """Update spinner text - appends status line."""
+        if self._spinner_handle:
+            self._spinner_pending_text = message
+            self._app.post_streaming_command_result(self._spinner_handle, f"→ {message}")
+
+    def stop_spinner(self) -> None:
+        """Finalize spinner card."""
+        if self._spinner_handle:
+            self._app.finalize_streaming_command_result(self._spinner_handle)
+            self._spinner_handle = None
 
 
 @dataclass

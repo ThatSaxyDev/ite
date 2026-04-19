@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 CONFIG_FILE_NAME = "config.toml"
 SECRETS_FILE_NAME = "secrets.toml"
-AGENT_MD_FILE = "AGENT.MD"
+AGENTS_MD_FILE = "AGENTS.md"
 WORKSPACE_DIR_NAME = ".ite"
 SAVED_CUSTOM_PROVIDERS_TABLE = "saved_custom_providers"
 
@@ -125,20 +125,51 @@ def _get_project_config(cwd: Path) -> Path | None:
     return None
 
 
-def _get_agent_md_files(cwd: Path) -> str | None:
+def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
+    """
+    Collect all AGENTS.md files from cwd up to root.
+    Returns list of (path, content) tuples, ordered from root to cwd (least to most specific).
+    Most specific (deepest) files take precedence when merging.
+    """
     current = cwd.resolve()
-
-    if current.is_dir():
-        agent_md_file = current / AGENT_MD_FILE
-        if agent_md_file.is_file():
+    files: list[tuple[Path, str]] = []
+    
+    # Walk from root down to cwd (so we can reverse for precedence later)
+    paths_to_check: list[Path] = []
+    while current != current.parent:
+        paths_to_check.append(current)
+        current = current.parent
+    paths_to_check.append(current)  # Root
+    
+    # Reverse so we go root -> ... -> cwd
+    for path in reversed(paths_to_check):
+        agents_md_file = path / AGENTS_MD_FILE
+        if agents_md_file.is_file():
             try:
-                content = agent_md_file.read_text(encoding="utf-8")
-                return content
+                content = agents_md_file.read_text(encoding="utf-8")
+                files.append((agents_md_file, content))
             except (OSError, UnicodeDecodeError) as e:
-                logger.warning(f"Failed to read {agent_md_file}: {e}")
-                return None
+                logger.warning(f"Failed to read {agents_md_file}: {e}")
+    
+    return files
 
-    return None
+
+def _merge_agents_md_instructions(files: list[tuple[Path, str]]) -> str | None:
+    """
+    Merge AGENTS.md content with precedence: most specific (deepest) overrides parent.
+    Returns None if no files found.
+    """
+    if not files:
+        return None
+    
+    # Files are ordered root -> ... -> cwd, so later files are more specific
+    # Build merged content with source annotations
+    parts = []
+    for file_path, content in files:
+        parts.append(f"<!-- From: {file_path} -->")
+        parts.append(content)
+    
+    return "\n\n".join(parts)
 
 
 def _merge_dicts(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -209,9 +240,10 @@ def load_config(
         config_dict["cwd"] = cwd
 
     if "developer_instructions" not in config_dict:
-        agent_md_content = _get_agent_md_files(cwd)
-        if agent_md_content:
-            config_dict["developer_instructions"] = agent_md_content
+        agents_md_files = _get_agents_md_files(cwd)
+        merged_instructions = _merge_agents_md_instructions(agents_md_files)
+        if merged_instructions:
+            config_dict["developer_instructions"] = merged_instructions
 
     config_dict = _drop_invalid_mcp_servers(config_dict)
 

@@ -88,8 +88,11 @@ def build_registry() -> CommandRegistry:
     from ite.commands.cloud import register as register_cloud
     from ite.commands.skills import register as register_skills
 
+    from ite.commands.init import register as register_init
+
     registry = CommandRegistry()
     register_general(registry)
+    register_init(registry)  # /init command
     register_branch(registry)
     register_publish(registry)
     register_model(registry)

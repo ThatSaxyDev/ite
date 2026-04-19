@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "title": "iTE Documentation",
+    "description": "Interactive Terminal Environment - AI coding agent for your terminal",
+    "version": "0.0.27"
+  },
+  "sections": [
+    {
+      "id": "intro",
+      "title": "Introduction",
+      "content": "iTE is an AI coding agent for your terminal. Connect your model service and start coding.\n\niTE runs as a chat interface in your terminal. You prompt, it responds, and together you build software. It can read files, run commands, search code, and edit files—safely, with your approval."
+    },
+    {
+      "id": "prerequisites",
+      "title": "Prerequisites",
+      "content": "- Python 3.11+\n- macOS, Linux, or Windows\n- OpenAI-compatible model provider (local or cloud)\n\niTE uses pipx for installation to keep it isolated from your system Python."
+    },
+    {
+      "id": "install",
+      "title": "Install",
+      "installMethods": [
+        {
+          "name": "pipx (recommended)",
+          "platforms": ["macOS", "Linux", "Windows"],
+          "command": "pipx install ite-agent"
+        },
+        {
+          "name": "uv",
+          "platforms": ["macOS", "Linux", "Windows"],
+          "command": "uv tool install ite-agent"
+        }
+      ],
+      "verification": "ite --version",
+      "upgrade": "pipx upgrade ite-agent",
+      "uninstall": "pipx uninstall ite-agent"
+    },
+    {
+      "id": "configure",
+      "title": "Configure Your Provider",
+      "content": "Run `/setup` inside iTE to configure your model provider:\n\n- Base URL: Your OpenAI-compatible endpoint\n- API Key: Your provider key\n- Model: The exact model name\n\nSupported providers: Ollama (local), OpenRouter, OpenAI-compatible APIs.",
+      "providers": [
+        {
+          "name": "Ollama",
+          "baseUrl": "http://localhost:11434/v1",
+          "note": "Local models, no API key needed for basic setup"
+        },
+        {
+          "name": "OpenRouter",
+          "baseUrl": "https://openrouter.ai/api/v1",
+          "note": "Access to many models via single endpoint"
+        },
+        {
+          "name": "OpenAI",
+          "baseUrl": "https://api.openai.com/v1",
+          "note": "GPT-4, GPT-4o, etc."
+        }
+      ]
+    },
+    {
+      "id": "init",
+      "title": "Initialize Your Project",
+      "content": "Use `/init` to analyze your project and create an AGENTS.md file. iTE reads AGENTS.md for instructions on how to work with your codebase.\n\nThe `/init` command detects:\n- Language/framework (Python, JavaScript, Rust, etc.)\n- Test/build setup\n- Key directory structure\n\nAGENTS.md supports scope hierarchy: nested files override parent instructions, allowing different rules for different parts of your project.",
+      "commands": [
+        "/init — Analyze and create AGENTS.md",
+        "/init --force — Overwrite existing AGENTS.md"
+      ]
+    },
+    {
+      "id": "usage",
+      "title": "Usage",
+      "content": "Start iTE from any project directory:\n\n```\nite\n```\n\nAsk questions, request changes, or discuss architecture. iTE uses tools to explore and modify your codebase.",
+      "keyFeatures": [
+        {
+          "title": "Ask",
+          "description": "Ask about code, architecture, or how things work. iTE searches and explains."
+        },
+        {
+          "title": "Plan Mode",
+          "description": "Use /plan on to enter planning mode. iTE asks questions and produces a plan before implementing. Type /plan off to execute."
+        },
+        {
+          "title": "Undo/Redo",
+          "description": "Type /undo to revert file changes from the last turn. /redo to reapply."
+        },
+        {
+          "title": "Sessions",
+          "description": "Conversations auto-save. Use /sessions to resume previous conversations."
+        }
+      ]
+    },
+    {
+      "id": "commands",
+      "title": "Commands",
+      "categories": [
+        {
+          "name": "Session",
+          "commands": [
+            "/new — Start a new thread",
+            "/sessions — List and resume saved sessions",
+            "/rename — Rename current session",
+            "/exit or /quit — Close iTE"
+          ]
+        },
+        {
+          "name": "Configuration",
+          "commands": [
+            "/setup — Configure model provider",
+            "/config — Show current configuration",
+            "/model — Change model",
+            "/approval — Set approval mode (on_request, on_failure, auto, yolo)"
+          ]
+        },
+        {
+          "name": "Workflow",
+          "commands": [
+            "/plan — Toggle plan mode",
+            "/todos — Manage task lists",
+            "/aside — Ask in side panel without interrupting",
+            "/attach — Queue files for next message"
+          ]
+        },
+        {
+          "name": "Version Control",
+          "commands": [
+            "/branch — List or switch git branches",
+            "/undo — Revert last turn's file changes",
+            "/redo — Reapply reverted changes",
+            "/sandbox — Manage filesystem sandboxing"
+          ]
+        },
+        {
+          "name": "Project",
+          "commands": [
+            "/init — Create AGENTS.md",
+            "/skills — Manage skills",
+            "/mcp — Manage MCP servers",
+            "/workboard — Show plan and todos"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "agents",
+      "title": "AGENTS.md",
+      "content": "AGENTS.md files provide project-specific instructions to iTE. They work like README files but for AI agents.\n\n- Place in any directory—the scope covers that directory and all subdirectories\n- Multiple files: deeper files override parent instructions\n- Create with `/init` or manually\n\nTypical contents:\n- Coding conventions\n- Architecture overview\n- Testing approach\n- Tool preferences",
+      "example": "# My Project\n\n## Architecture\n- Python/FastAPI backend in src/api/\n- React frontend in src/web/\n\n## Guidelines\n- Use pytest for tests\n- Prefer specialized tools (read_json, edit_toml) for structured files\n- Run tests after implementing changes"
+    },
+    {
+      "id": "skills",
+      "title": "Skills",
+      "content": "Skills are instruction bundles that shape iTE's behavior. Install from git repos, GitHub, or local directories.\n\niTE supports interoperable skills from .agents/skills, .codex/skills, .cursor/skills, and other common locations.\n\nTrust model:\n- Global skills (~/.config/ite/skills) are trusted by default\n- Project skills (.agents/skills) require `/skills trust` to activate",
+      "commands": [
+        "/skills — List available skills",
+        "/skills show <name> — Inspect a skill",
+        "/skills use <name> — Activate a skill",
+        "/skills add <path> — Install a skill pack",
+        "/skills trust — Trust project skills"
+      ]
+    },
+    {
+      "id": "mcp",
+      "title": "MCP Servers",
+      "content": "iTE supports Model Context Protocol (MCP) servers for extended capabilities—databases, APIs, custom tools.\n\nConfigure MCP servers in .ite/config.toml, then connect with /mcp.",
+      "commands": [
+        "/mcp — Show MCP server status",
+        "/mcp start <server> — Connect an MCP server",
+        "/mcp stop <server> — Disconnect an MCP server"
+      ]
+    }
+  ]
+}
