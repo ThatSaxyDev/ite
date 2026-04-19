@@ -3109,6 +3109,10 @@ class ReupApp(App):
 
     @on(Button.Pressed, "#cloud-exit")
     def on_cloud_exit_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._exit_app(), exclusive=False)
+
+    async def _exit_app(self) -> None:
+        await self._shutdown_agents()
         self.exit()
 
     @on(Button.Pressed, "#onboarding-continue")
