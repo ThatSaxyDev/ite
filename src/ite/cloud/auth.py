@@ -235,14 +235,24 @@ class CloudSessionState:
 
 
 def _verify_cloud_session(session: CloudSession) -> bool:
+    """Verify session is valid, refreshing if needed. Returns True if valid.
+    
+    Raises CloudAuthError for auth failures, CloudConnectionError for network issues.
+    """
     if session.is_access_valid:
         status, payload = _get_json(
             f"{session.api_url.rstrip('/')}/auth/me",
             access_token=session.access_token,
         )
         return status == 200 and bool(payload.get("ok"))
-    refreshed = _refresh_cloud_session(session)
-    return refreshed is not None
+    # Try to refresh
+    try:
+        refreshed = _refresh_cloud_session(session)
+        return refreshed is not None
+    except CloudConnectionError:
+        raise  # Propagate connection errors
+    except Exception:
+        return False
 
 
 def check_cloud_session(session: CloudSession) -> str:
@@ -290,7 +300,7 @@ def has_valid_cloud_auth(config: Config) -> bool:
         return False
     try:
         return _verify_cloud_session(existing)
-    except CloudAuthError:
+    except (CloudAuthError, CloudConnectionError):
         return False
 
 
@@ -329,7 +339,7 @@ def get_cloud_session(config: Config) -> CloudSession | None:
 
         refreshed = _refresh_cloud_session(existing)
         return refreshed
-    except CloudAuthError:
+    except (CloudAuthError, CloudConnectionError):
         return None
 
 

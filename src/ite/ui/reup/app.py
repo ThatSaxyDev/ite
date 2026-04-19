@@ -285,6 +285,7 @@ class ReupTUIAdapter:
         self._app = app
         self._spinner_handle: str | None = None
         self._spinner_pending_text: str = "Thinking"
+        self._spinner_lines: list[str] = []
 
     @property
     def cwd(self) -> Path:
@@ -364,21 +365,29 @@ class ReupTUIAdapter:
         import uuid
         self._spinner_handle = f"spinner_{uuid.uuid4().hex[:8]}"
         self._spinner_pending_text = message
-        asyncio.create_task(
-            self._app.start_streaming_command_result(self._spinner_handle, pending_text=message)
+        self._spinner_lines: list[str] = []
+        # Queue the card creation
+        self._app.run_worker(
+            self._app.start_streaming_command_result(self._spinner_handle, pending_text=message),
+            exclusive=False,
         )
 
     def change_spinner(self, message: str) -> None:
         """Update spinner text - appends status line."""
-        if self._spinner_handle:
-            self._spinner_pending_text = message
-            self._app.post_streaming_command_result(self._spinner_handle, f"→ {message}")
+        if not self._spinner_handle:
+            return
+        self._spinner_pending_text = message
+        self._spinner_lines.append(f"→ {message}")
+        self._app.post_streaming_command_result(
+            self._spinner_handle, self._spinner_lines[-1]
+        )
 
     def stop_spinner(self) -> None:
         """Finalize spinner card."""
         if self._spinner_handle:
             self._app.finalize_streaming_command_result(self._spinner_handle)
             self._spinner_handle = None
+            self._spinner_lines = []
 
 
 @dataclass
@@ -784,7 +793,12 @@ class ReupApp(App):
                     self._set_signed_out_state(True)
                     self._set_loading_state("idle", busy=False)
                     return
-                session_state = await asyncio.to_thread(check_cloud_session, existing)
+                try:
+                    session_state = await asyncio.to_thread(check_cloud_session, existing)
+                except CloudConnectionError:
+                    # Network error during startup check - don't crash
+                    session_state = CloudSessionState.NETWORK_ERROR
+
                 self._cloud_bootstrap_busy = False
                 if session_state == CloudSessionState.INVALID:
                     self._set_startup_state(False)
@@ -797,8 +811,8 @@ class ReupApp(App):
                     self._set_startup_state(False)
                     self._set_onboarding_state(True)
                     self._set_loading_state("idle", busy=False)
-                    # Schedule a retry later
-                    self.set_timer(30, self._verify_cloud_auth_after_startup)
+                    # REMOVED: Timer-based retry - now on-demand only
+                    self.post_notice("Cloud", "Connection delayed. Cloud features will work when available.")
                     self.query_one("#onboarding-name", Input).focus()
                     return
                 self._set_signed_out_state(False)
@@ -810,7 +824,7 @@ class ReupApp(App):
 
             self._set_signed_out_state(False)
             self._cloud_bootstrap_busy = False
-            self.run_worker(self._verify_cloud_auth_after_startup(), exclusive=False)
+            # REMOVED: Background timer-based auth checks - now on-demand only
 
         if self._should_show_onboarding():
             self._set_startup_state(False)
@@ -829,26 +843,9 @@ class ReupApp(App):
     def _should_show_onboarding(self) -> bool:
         return not bool(self.config.onboarding_completed)
 
-    async def _verify_cloud_auth_after_startup(self) -> None:
-        from ite.cloud.auth import _load_cloud_session
-
-        session = _load_cloud_session()
-        if session is None:
-            # Session was cleared, this is a logout
-            self._set_onboarding_state(False)
-            self._set_signed_out_state(True)
-            self.post_notice("Cloud", "Your cloud session expired. Sign in again.")
-            return
-
-        session_state = await asyncio.to_thread(check_cloud_session, session)
-        if session_state == CloudSessionState.INVALID:
-            self._set_onboarding_state(False)
-            self._set_signed_out_state(True)
-            self.post_notice("Cloud", "Your cloud session expired. Sign in again.")
-        elif session_state == CloudSessionState.NETWORK_ERROR:
-            # API unreachable, but session may still be valid - don't log out
-            # Just schedule a retry
-            self.set_timer(60, self._verify_cloud_auth_after_startup)
+    # REMOVED: _verify_cloud_auth_after_startup()
+    # Background timer-based auth checks removed.
+    # Cloud auth is now handled on-demand via ensure_cloud_auth() before cloud API calls.
 
     def _syntax_theme_name(self) -> str:
         syntax_theme = getattr(self.current_theme, "syntax_theme", None)
@@ -2426,6 +2423,13 @@ class ReupApp(App):
         self._set_signed_out_state(True)
         try:
             await asyncio.to_thread(ensure_cloud_auth, None, self.config)
+        except CloudConnectionError as exc:
+            self._cloud_auth_busy = False
+            self._set_signed_out_state(True)
+            self.query_one("#signed-out-status", Static).update(
+                Text(f"Cloud API unreachable: {exc}", style="bold #ffcf92", justify="center")
+            )
+            return
         except CloudAuthError as exc:
             self._cloud_auth_busy = False
             self._set_signed_out_state(True)

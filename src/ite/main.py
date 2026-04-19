@@ -1249,9 +1249,8 @@ def _run_main_app(
     if desktop or legacy:
         try:
             ensure_cloud_auth(console, config)
-        except CloudAuthError as exc:
-            console.print(f"[error]Cloud auth error: {exc}[/error]")
-            sys.exit(1)
+        except (CloudAuthError, CloudConnectionError) as exc:
+            console.print(f"[warning]Cloud API unavailable: {exc}. Continuing with local provider.[/warning]")
 
     # Setup routing:
     # - Legacy TUI: keep terminal wizard behavior.

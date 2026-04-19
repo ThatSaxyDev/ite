@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ite.commands import Command, CommandContext, CommandRegistry
-from ite.cloud import CloudAuthError, clear_cloud_auth, ensure_cloud_auth, get_usage_summary, get_activity
+from ite.cloud import CloudAuthError, CloudConnectionError, clear_cloud_auth, ensure_cloud_auth, get_usage_summary, get_activity
 from ite.config.loader import save_cloud_settings
 from rich.panel import Panel
 from rich.table import Table
@@ -45,6 +45,9 @@ async def cmd_cloud(ctx: CommandContext, args: list[str]) -> None:
         clear_cloud_auth()
         try:
             ensure_cloud_auth(ctx.console, ctx.config)
+        except CloudConnectionError as exc:
+            ctx.console.print(f"[error]Cloud API unreachable:[/error] {exc}")
+            return
         except CloudAuthError as exc:
             ctx.console.print(f"[error]Cloud login failed:[/error] {exc}")
             return
