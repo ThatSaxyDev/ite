@@ -89,10 +89,12 @@ def build_registry() -> CommandRegistry:
     from ite.commands.skills import register as register_skills
 
     from ite.commands.init import register as register_init
+    from ite.commands.remind import register as register_remind
 
     registry = CommandRegistry()
     register_general(registry)
     register_init(registry)  # /init command
+    register_remind(registry)  # /remind command
     register_branch(registry)
     register_publish(registry)
     register_model(registry)

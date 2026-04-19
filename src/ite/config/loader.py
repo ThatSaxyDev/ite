@@ -16,6 +16,22 @@ from pydantic import ValidationError
 CONFIG_FILE_NAME = "config.toml"
 SECRETS_FILE_NAME = "secrets.toml"
 AGENTS_MD_FILE = "AGENTS.md"
+AGENTS_OVERRIDE_FILE = "AGENTS.override.md"
+
+# Fallback filenames to check when AGENTS.md doesn't exist (in order of preference)
+AGENTS_FALLBACK_FILENAMES = [
+    ".agents.md",
+    "CLAUDE.md",
+    "claude.md",
+    "CURSOR.md",
+    "cursor.md",
+    "TEAM_GUIDE.md",
+    "CONTRIBUTING.md",
+]
+
+# Maximum combined size for AGENTS.md files (32 KiB default)
+AGENTS_MAX_BYTES = 32 * 1024
+
 WORKSPACE_DIR_NAME = ".ite"
 SAVED_CUSTOM_PROVIDERS_TABLE = "saved_custom_providers"
 
@@ -125,16 +141,78 @@ def _get_project_config(cwd: Path) -> Path | None:
     return None
 
 
+AGENTS_OVERRIDE_FILE = "AGENTS.override.md"
+
+
+def _load_agents_file(path: Path) -> tuple[Path, str] | None:
+    """Load a single AGENTS.md file, return None if not found/readable."""
+    if not path.is_file():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8")
+        return (path, content)
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _get_agents_md_at_path(path: Path) -> list[tuple[Path, str]]:
+    """
+    Get AGENTS.md files at a specific path.
+    Checks for override first: AGENTS.override.md > AGENTS.md
+    """
+    files: list[tuple[Path, str]] = []
+    
+    # Check for override file first (higher precedence at this level)
+    override_file = path / AGENTS_OVERRIDE_FILE
+    override_result = _load_agents_file(override_file)
+    if override_result:
+        files.append(override_result)
+        return files  # Override takes precedence, skip regular AGENTS.md
+    
+    # Check for regular AGENTS.md
+    agents_md_file = path / AGENTS_MD_FILE
+    agents_result = _load_agents_file(agents_md_file)
+    if agents_result:
+        files.append(agents_result)
+        return files  # Found main file, skip fallbacks
+    
+    # Check fallback filenames (in order, first wins)
+    for fallback_name in AGENTS_FALLBACK_FILENAMES:
+        fallback_file = path / fallback_name
+        fallback_result = _load_agents_file(fallback_file)
+        if fallback_result:
+            files.append(fallback_result)
+            return files  # First fallback found wins
+    
+    return files
+
+
 def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
     """
-    Collect all AGENTS.md files from cwd up to root.
-    Returns list of (path, content) tuples, ordered from root to cwd (least to most specific).
-    Most specific (deepest) files take precedence when merging.
+    Collect all AGENTS.md files from global config, then from root up to cwd.
+    Returns list of (path, content) tuples, ordered from global -> root -> cwd
+    (least to most specific). Most specific (deepest) files take precedence when merging.
+    
+    At each level, AGENTS.override.md takes precedence over AGENTS.md.
     """
     current = cwd.resolve()
     files: list[tuple[Path, str]] = []
     
-    # Walk from root down to cwd (so we can reverse for precedence later)
+    # First: Global AGENTS.md from ~/.config/ite/
+    global_path = get_data_dir()
+    files.extend(_get_agents_md_at_path(global_path))
+    
+    # Also check ~/.agents/ as alternative global location
+    home = Path.home()
+    alt_global_path = home / ".agents"
+    if alt_global_path != global_path:
+        alt_files = _get_agents_md_at_path(alt_global_path)
+        # Avoid duplicates if same file
+        for f in alt_files:
+            if f[0] not in [existing[0] for existing in files]:
+                files.append(f)
+    
+    # Walk from root down to cwd
     paths_to_check: list[Path] = []
     while current != current.parent:
         paths_to_check.append(current)
@@ -143,13 +221,7 @@ def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
     
     # Reverse so we go root -> ... -> cwd
     for path in reversed(paths_to_check):
-        agents_md_file = path / AGENTS_MD_FILE
-        if agents_md_file.is_file():
-            try:
-                content = agents_md_file.read_text(encoding="utf-8")
-                files.append((agents_md_file, content))
-            except (OSError, UnicodeDecodeError) as e:
-                logger.warning(f"Failed to read {agents_md_file}: {e}")
+        files.extend(_get_agents_md_at_path(path))
     
     return files
 
@@ -158,16 +230,38 @@ def _merge_agents_md_instructions(files: list[tuple[Path, str]]) -> str | None:
     """
     Merge AGENTS.md content with precedence: most specific (deepest) overrides parent.
     Returns None if no files found.
+    
+    Enforces AGENTS_MAX_BYTES (32 KiB) combined size limit - truncates silently when exceeded.
+    Later files (cwd files) are preserved when truncating, earlier ones are dropped.
     """
     if not files:
         return None
     
-    # Files are ordered root -> ... -> cwd, so later files are more specific
-    # Build merged content with source annotations
-    parts = []
-    for file_path, content in files:
-        parts.append(f"<!-- From: {file_path} -->")
-        parts.append(content)
+    # Build merged content with source annotations (start from most specific)
+    # Work backwards from most specific to least, so we can track size
+    parts: list[str] = []
+    current_size = 0
+    truncated_files: list[Path] = []
+    
+    # Files are ordered root -> ... -> cwd. Process in reverse (cwd -> ... -> root)
+    # so we prioritize most specific instructions when close to limit
+    for file_path, content in reversed(files):
+        separator = f"<!-- From: {file_path} -->\n\n"
+        section = separator + content
+        section_bytes = len(section.encode("utf-8"))
+        
+        if current_size + section_bytes > AGENTS_MAX_BYTES:
+            truncated_files.append(file_path)
+            continue
+        
+        parts.insert(0, section)  # Insert at beginning to maintain root -> cwd order
+        current_size += section_bytes
+    
+    if truncated_files:
+        logger.warning(
+            f"AGENTS.md files exceeded {AGENTS_MAX_BYTES} byte limit. "
+            f"Skipped: {[str(f) for f in truncated_files]}"
+        )
     
     return "\n\n".join(parts)
 
