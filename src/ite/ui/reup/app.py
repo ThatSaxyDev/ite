@@ -360,27 +360,23 @@ class ReupTUIAdapter:
     async def _close_current_thread(self) -> None:
         await self._app.close_current_thread()
 
-    def start_spinner(self, message: str = "Thinking") -> None:
-        """Show streaming command card with spinner."""
-        import uuid
-        self._spinner_handle = f"spinner_{uuid.uuid4().hex[:8]}"
-        self._spinner_pending_text = message
-        self._spinner_lines: list[str] = []
-        # Queue the card creation
+    def start_spinner(self, command: str, message: str = "Thinking") -> None:
+        """Show streaming command card like /mcp start - fixed title with spinner."""
+        self._spinner_handle = command  # Use command as handle (/init, /mcp, etc.)
+        self._spinner_lines = []
+        # Create card with the actual command name as title
         self._app.run_worker(
-            self._app.start_streaming_command_result(self._spinner_handle, pending_text=message),
+            self._app.start_streaming_command_result(command, pending_text=message),
             exclusive=False,
         )
 
     def change_spinner(self, message: str) -> None:
-        """Update spinner text - appends status line."""
+        """Update spinner with new status line."""
         if not self._spinner_handle:
             return
-        self._spinner_pending_text = message
-        self._spinner_lines.append(f"→ {message}")
-        self._app.post_streaming_command_result(
-            self._spinner_handle, self._spinner_lines[-1]
-        )
+        # Append line to the card
+        self._spinner_lines.append(message)
+        self._app.post_streaming_command_result(self._spinner_handle, f"→ {message}")
 
     def stop_spinner(self) -> None:
         """Finalize spinner card."""

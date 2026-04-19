@@ -82,7 +82,7 @@ class TUI:
         self._spinner_live: Live | None = None
         self._spinner_running = False
 
-    def start_spinner(self, message: str = "Thinking") -> None:
+    def start_spinner(self, command: str, message: str = "Thinking") -> None:
         """Show an animated spinner with a message."""
         if self._spinner_running:
             return

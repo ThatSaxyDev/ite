@@ -37,9 +37,9 @@ Respond with ONLY the AGENTS.md content, starting with a level-1 heading (# Proj
 
 
 async def _explore_project(ctx: CommandContext) -> dict:
-    """Explore the project directory structure using tools."""
+    """Explore the project directory structure using direct filesystem calls."""
+    import os
     cwd = ctx.config.cwd
-    registry = ctx.agent.session.tool_registry
 
     findings = {
         "root_files": [],
@@ -50,85 +50,59 @@ async def _explore_project(ctx: CommandContext) -> dict:
 
     # List root directory
     try:
-        result = await registry.invoke("list_dir", {"path": str(cwd)}, {})
-        if result.success:
-            findings["root_files"] = result.output.split("\n") if result.output else []
-    except Exception:
-        pass
+        entries = os.listdir(cwd)
+        findings["root_files"] = sorted(entries)
+    except Exception as e:
+        findings["root_files"] = [f"Error: {e}"]
 
-    # Read key project files if they exist
+    # Read key project files
     key_files = [
-        "README.md",
-        "pyproject.toml",
-        "package.json",
-        "pubspec.yaml",
-        "Cargo.toml",
-        "go.mod",
-        "Gemfile",
-        "composer.json",
-        "CMakeLists.txt",
-        "build.gradle",
-        "pom.xml",
-        "setup.py",
-        "requirements.txt",
-        "Makefile",
-        "justfile",
-        "tox.ini",
+        "README.md", "pyproject.toml", "package.json", "pubspec.yaml",
+        "Cargo.toml", "go.mod", "Gemfile", "composer.json", "CMakeLists.txt",
+        "build.gradle", "pom.xml", "setup.py", "requirements.txt",
+        "Makefile", "justfile", "tox.ini",
     ]
 
     for filename in key_files:
         filepath = cwd / filename
         try:
-            result = await registry.invoke(
-                "read_file", {"path": str(filepath), "limit": 100}, {}
-            )
-            if result.success:
-                findings["project_files_content"][filename] = result.output
+            if filepath.is_file():
+                content = filepath.read_text(encoding="utf-8", errors="replace")
+                findings["project_files_content"][filename] = content[:3000]
         except Exception:
             pass
 
-    # Explore directory structure (first few levels)
+    # Find directories
     try:
-        result = await registry.invoke("glob", {"pattern": "*/", "path": str(cwd)}, {})
-        if result.success:
-            findings["directories"] = (
-                result.output.split("\n")[:20] if result.output else []
-            )
+        dirs = [d for d in os.listdir(cwd) if (cwd / d).is_dir() and not d.startswith(".")]
+        findings["directories"] = sorted(dirs)[:20]
     except Exception:
         pass
 
-    # Sample a few source files to understand code patterns
+    # Sample source files from common directories
     source_dirs = ["src", "lib", "app", "cmd", "internal", "pkg"]
     for src_dir in source_dirs:
         src_path = cwd / src_dir
-        if src_path.exists():
+        if src_path.is_dir():
             try:
-                # Find files in the source directory
-                result = await registry.invoke(
-                    "glob", {"pattern": f"{src_dir}/**/*", "path": str(cwd)}, {}
-                )
-                if result.success:
-                    files = [
-                        f
-                        for f in result.output.split("\n")
-                        if f and not f.endswith("/")
-                    ][:5]
-                    for filepath in files:
-                        try:
-                            content_result = await registry.invoke(
-                                "read_file",
-                                {"path": str(cwd / filepath), "limit": 50},
-                                {},
-                            )
-                            if content_result.success:
-                                findings["sample_files"][filepath] = (
-                                    content_result.output
-                                )
-                        except Exception:
-                            pass
+                # Walk and find files
+                for root, _dirs, files in os.walk(src_path):
+                    for filename in files:
+                        filepath = Path(root) / filename
+                        if filepath.stat().st_size < 50000:  # Skip large files
+                            try:
+                                content = filepath.read_text(encoding="utf-8", errors="replace")
+                                rel_path = str(filepath.relative_to(cwd))
+                                findings["sample_files"][rel_path] = content[:2000]
+                                if len(findings["sample_files"]) >= 5:
+                                    break
+                            except Exception:
+                                pass
+                    if len(findings["sample_files"]) >= 5:
+                        break
             except Exception:
                 pass
-            break  # Only process first existing source dir
+            break  # Only process first found source dir
 
     return findings
 
@@ -207,7 +181,7 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
         )
         return
 
-    ctx.tui.start_spinner("Analyzing project")
+    ctx.tui.start_spinner("/init", "Analyzing project")
 
     try:
         # Phase 1: Explore using tools

@@ -97,7 +97,7 @@ async def cmd_aside(ctx: CommandContext, args: list[str]) -> None:
         return
 
     session = ctx.agent.session
-    ctx.tui.start_spinner("Thinking")
+    ctx.tui.start_spinner("/aside", "Thinking")
     try:
         result = await execute_aside(session, question)
     finally:
