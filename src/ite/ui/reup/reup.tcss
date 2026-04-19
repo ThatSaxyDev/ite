@@ -934,15 +934,15 @@ Screen {
 }
 
 .block.plan {
-    border: round #353942;
-    background: #1d1f23 84%;
+    border: round $border;
+    background: $surface-darken-1;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.plan .card-title {
-    color: #b7c8e1;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 0;
 }
@@ -1078,7 +1078,6 @@ Screen {
 }
 
 .plan-ready-body {
-    color: #dfe4ea;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -1093,7 +1092,6 @@ Screen {
 }
 
 .plan-question-prompt {
-    color: #dfe4ea;
     margin-top: 0;
     margin-bottom: 1;
 }
@@ -1109,24 +1107,24 @@ Screen {
 .plan-question-option {
     margin-bottom: 1;
     border: none;
-    background: #2a2a2c;
-    color: #edf1f7;
+    background: $surface-darken-1;
+    color: $foreground;
     text-style: bold;
 }
 
 .plan-question-option:hover {
-    background: #313337;
+    background: $surface;
 }
 
 .plan-question-option.-primary,
 .plan-question-option.selected {
-    background: #4edea3;
-    color: #07140f;
+    background: $success;
+    color: $text-primary;
 }
 
 .plan-question-option.-primary:hover,
 .plan-question-option.selected:hover {
-    background: #6ae7b5;
+    background: $success-lighten-1;
 }
 
 .plan-question-custom-row {
@@ -1143,13 +1141,13 @@ Screen {
 
 #pq-custom-submit {
     border: none;
-    background: #2a2a2c;
-    color: #edf1f7;
+    background: $surface-darken-1;
+    color: $foreground;
     text-style: bold;
 }
 
 #pq-custom-submit:hover {
-    background: #313337;
+    background: $surface;
 }
 
 .plan-question-status {

@@ -8278,9 +8278,6 @@ class ReupApp(App):
 
 
 def run_reup(config: Config) -> None:
-    if sys.stdout.isatty():
-        sys.stdout.write("Launching iTE...\n")
-        sys.stdout.flush()
     app = ReupApp(config)
     app.run()
     if sys.stdout.isatty():
