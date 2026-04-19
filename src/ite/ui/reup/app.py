@@ -67,6 +67,9 @@ from ite.attachments import (
 )
 from ite.cloud import (
     CloudAuthError,
+    CloudConnectionError,
+    CloudSessionState,
+    check_cloud_session,
     clear_cloud_auth,
     ensure_cloud_auth,
     get_activity,
@@ -748,14 +751,32 @@ class ReupApp(App):
                 self._set_loading_state("idle", busy=False)
                 return
 
-            # First-run onboarding must only appear after cloud auth is fully verified.
+             # First-run onboarding must only appear after cloud auth is fully verified.
             if self._should_show_onboarding():
-                is_valid = await asyncio.to_thread(has_valid_cloud_auth, self.config)
-                self._cloud_bootstrap_busy = False
-                if not is_valid:
+                from ite.cloud.auth import check_cloud_session, _load_cloud_session
+                existing = _load_cloud_session()
+                if existing is None:
+                    self._cloud_bootstrap_busy = False
                     self._set_startup_state(False)
                     self._set_signed_out_state(True)
                     self._set_loading_state("idle", busy=False)
+                    return
+                session_state = await asyncio.to_thread(check_cloud_session, existing)
+                self._cloud_bootstrap_busy = False
+                if session_state == CloudSessionState.INVALID:
+                    self._set_startup_state(False)
+                    self._set_signed_out_state(True)
+                    self._set_loading_state("idle", busy=False)
+                    return
+                if session_state == CloudSessionState.NETWORK_ERROR:
+                    # Keep user signed in, but show a notice about connection issues
+                    self._set_signed_out_state(False)
+                    self._set_startup_state(False)
+                    self._set_onboarding_state(True)
+                    self._set_loading_state("idle", busy=False)
+                    # Schedule a retry later
+                    self.set_timer(30, self._verify_cloud_auth_after_startup)
+                    self.query_one("#onboarding-name", Input).focus()
                     return
                 self._set_signed_out_state(False)
                 self._set_startup_state(False)
@@ -786,12 +807,25 @@ class ReupApp(App):
         return not bool(self.config.onboarding_completed)
 
     async def _verify_cloud_auth_after_startup(self) -> None:
-        is_valid = await asyncio.to_thread(has_valid_cloud_auth, self.config)
-        if not is_valid:
+        from ite.cloud.auth import _load_cloud_session
+
+        session = _load_cloud_session()
+        if session is None:
+            # Session was cleared, this is a logout
             self._set_onboarding_state(False)
             self._set_signed_out_state(True)
             self.post_notice("Cloud", "Your cloud session expired. Sign in again.")
             return
+
+        session_state = await asyncio.to_thread(check_cloud_session, session)
+        if session_state == CloudSessionState.INVALID:
+            self._set_onboarding_state(False)
+            self._set_signed_out_state(True)
+            self.post_notice("Cloud", "Your cloud session expired. Sign in again.")
+        elif session_state == CloudSessionState.NETWORK_ERROR:
+            # API unreachable, but session may still be valid - don't log out
+            # Just schedule a retry
+            self.set_timer(60, self._verify_cloud_auth_after_startup)
 
     def _syntax_theme_name(self) -> str:
         syntax_theme = getattr(self.current_theme, "syntax_theme", None)

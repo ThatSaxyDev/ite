@@ -23,6 +23,11 @@ class CloudAuthError(RuntimeError):
     pass
 
 
+class CloudConnectionError(RuntimeError):
+    """Raised when there's a network/connection issue but credentials may still be valid."""
+    pass
+
+
 _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 _CLOUD_HTTP_TIMEOUT_SEC = 10
 
@@ -131,11 +136,11 @@ def _post_json(
         payload = json.loads(body) if body else {}
         return int(exc.code), payload
     except (TimeoutError, socket.timeout) as exc:
-        raise CloudAuthError(
+        raise CloudConnectionError(
             "iTE Cloud API took too long to respond. Check your connection and try again."
         ) from exc
     except URLError as exc:
-        raise CloudAuthError(f"Could not reach iTE Cloud API: {exc}") from exc
+        raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
 
 
 def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str, Any]]:
@@ -156,11 +161,11 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
         payload = json.loads(body) if body else {}
         return int(exc.code), payload
     except (TimeoutError, socket.timeout) as exc:
-        raise CloudAuthError(
+        raise CloudConnectionError(
             "iTE Cloud API took too long to respond. Check your connection and try again."
         ) from exc
     except URLError as exc:
-        raise CloudAuthError(f"Could not reach iTE Cloud API: {exc}") from exc
+        raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
 
 
 def _refresh_cloud_session(session: CloudSession) -> CloudSession | None:
@@ -169,6 +174,10 @@ def _refresh_cloud_session(session: CloudSession) -> CloudSession | None:
         {"refreshToken": session.refresh_token},
     )
     if status != 200 or not payload.get("ok"):
+        # Server errors (5xx) when server is down/spinning up - raise connection error
+        if status >= 500:
+            raise CloudConnectionError(f"iTE Cloud API returned server error {status}")
+        # Auth errors (401/403) - session expired or revoked
         return None
     refreshed = CloudSession(
         access_token=str(payload.get("accessToken") or ""),
@@ -217,6 +226,14 @@ def _cloud_browser_ready(payload: dict[str, Any]) -> bool:
     return True
 
 
+class CloudSessionState:
+    """Result of cloud session verification."""
+
+    VALID = "valid"
+    INVALID = "invalid"  # Expired or revoked
+    NETWORK_ERROR = "network_error"  # Can't reach API, credentials may still be valid
+
+
 def _verify_cloud_session(session: CloudSession) -> bool:
     if session.is_access_valid:
         status, payload = _get_json(
@@ -226,6 +243,40 @@ def _verify_cloud_session(session: CloudSession) -> bool:
         return status == 200 and bool(payload.get("ok"))
     refreshed = _refresh_cloud_session(session)
     return refreshed is not None
+
+
+def check_cloud_session(session: CloudSession) -> str:
+    """Check session state without raising on network errors.
+
+    Returns: one of CloudSessionState.VALID, .INVALID, .NETWORK_ERROR
+    """
+    if session.is_access_valid:
+        try:
+            status, payload = _get_json(
+                f"{session.api_url.rstrip('/')}/auth/me",
+                access_token=session.access_token,
+            )
+            if status == 200 and bool(payload.get("ok")):
+                return CloudSessionState.VALID
+            # Server errors (5xx) when server is down/spinning up - keep session
+            if status >= 500:
+                return CloudSessionState.NETWORK_ERROR
+            # Auth errors (401/403) - session is invalid
+            return CloudSessionState.INVALID
+        except CloudConnectionError:
+            return CloudSessionState.NETWORK_ERROR
+        except CloudAuthError:
+            return CloudSessionState.INVALID
+    # Need to refresh
+    try:
+        refreshed = _refresh_cloud_session(session)
+        if refreshed is not None:
+            return CloudSessionState.VALID
+        return CloudSessionState.INVALID
+    except CloudConnectionError:
+        return CloudSessionState.NETWORK_ERROR
+    except CloudAuthError:
+        return CloudSessionState.INVALID
 
 
 def has_valid_cloud_auth(config: Config) -> bool:
