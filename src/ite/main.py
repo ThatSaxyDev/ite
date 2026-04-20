@@ -2,46 +2,11 @@ from ite.config.config import Config
 from pathlib import Path
 from typing import Any
 from ite.config.loader import load_config, ensure_workspace_layout
-from ite.cloud import ensure_cloud_auth, CloudAuthError
 import logging
 import sys
-import re
-import shlex
-import select
 
-# termios is POSIX-only (Unix/Linux/macOS). Windows does not have this module.
-try:
-    import termios
-except ImportError:
-    termios = None  # type: ignore
-from ite.ui.tui import TUI, get_console
-from ite.agent.events import AgentEventType
-from ite.agent.agent import Agent
-from ite.agent.session_manager import SessionSnapshot, SessionManager
-from ite.attachment_refs import resolve_inline_attachment_refs
-from ite.attachments import (
-    AttachmentManager,
-    MAX_ATTACHMENTS,
-    build_user_model_content,
-    build_user_text_with_manifest,
-)
+from ite.ui.tui import get_console
 import click
-import asyncio
-import signal
-from rich.panel import Panel
-from rich.text import Text
-from rich import box
-from ite.ui.tool_narrative import progress_label
-from dataclasses import dataclass
-from ite.config.loader import save_mcp_server_config
-
-try:
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.completion import Completer, Completion
-except ImportError:
-    PromptSession = None  # type: ignore[assignment]
-    Completer = object  # type: ignore[assignment]
-    Completion = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 console = get_console()
@@ -49,10 +14,8 @@ console = get_console()
 
 class _HintingMixin:
     _hint_map = {
-        "c": "Use `ite` for reup. Use `ite -l` for legacy or `ite -d` for desktop.",
-        "chat": "Use `ite` for reup. Use `ite -l` for legacy or `ite -d` for desktop.",
-        "tui": "Use `ite --legacy` or `ite -l` for the legacy terminal UI.",
-        "gui": "Use `ite --desktop` or `ite -d` for the desktop app.",
+        "c": "Use `ite` to start.",
+        "chat": "Use `ite` to start.",
     }
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
@@ -73,12 +36,6 @@ class IteCommand(_HintingMixin, click.Command):
 
 class IteGroup(_HintingMixin, click.Group):
     pass
-
-
-@dataclass(frozen=True)
-class CommandPromptEntry:
-    name: str
-    description: str
 
 
 class CLI:
@@ -1199,13 +1156,11 @@ class CLI:
                     self.config.cwd,
                 )
 
-            return final_response
         finally:
             self._flush_pending_tool_failures()
             self.tui.stop_spinner()
             if attachment_turn_id:
                 AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
-
 
 def _load_runtime_config(
     *,
@@ -1236,8 +1191,6 @@ def _run_main_app(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
-    desktop: bool,
-    legacy: bool,
 ) -> None:
     config = _load_runtime_config(
         workspace_dir=workspace_dir,
@@ -1245,21 +1198,6 @@ def _run_main_app(
         api_key=api_key,
         base_url=base_url,
     )
-
-    if desktop or legacy:
-        try:
-            ensure_cloud_auth(console, config)
-        except (CloudAuthError, CloudConnectionError) as exc:
-            console.print(f"[warning]Cloud API unavailable: {exc}. Continuing with local provider.[/warning]")
-
-    # Setup routing:
-    # - Legacy TUI: keep terminal wizard behavior.
-    # - GUI: launch GUI setup view instead of forcing terminal wizard first.
-    # - Reup (default): owns its own signed-out/setup states.
-    if legacy and config.needs_setup:
-        from ite.config.setup import run_setup_wizard
-
-        config = run_setup_wizard(console, config)
 
     errors = config.validate()
     if errors:
@@ -1270,16 +1208,9 @@ def _run_main_app(
                 console.print(f"[error]{error}[/error]")
             sys.exit(1)
 
-    if desktop:
-        from ite.ui.gui import run_gui
-        run_gui(config)
-    elif legacy:
-        cli = CLI(config)
-        asyncio.run(cli.run_interactive())
-    else:
-        from ite.ui.reup import run_reup
+    from ite.ui.reup import run_reup
 
-        run_reup(config)
+    run_reup(config)
 
 
 @click.group(cls=IteGroup, invoke_without_command=True)
@@ -1293,18 +1224,6 @@ def _run_main_app(
 @click.option("--model", "-m", help="Model name to use")
 @click.option("--api-key", "-k", help="API key for the LLM provider")
 @click.option("--base-url", "-u", help="Base URL for the OpenAI-compatible API")
-@click.option(
-    "--desktop",
-    "-d",
-    is_flag=True,
-    help="Launch the desktop app",
-)
-@click.option(
-    "--legacy",
-    "-l",
-    is_flag=True,
-    help="Launch the legacy terminal UI",
-)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -1312,8 +1231,6 @@ def main(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
-    desktop: bool = False,
-    legacy: bool = False,
 ):
     workspace_dir = cwd or Path.cwd()
     ctx.ensure_object(dict)
@@ -1327,8 +1244,6 @@ def main(
             model=model,
             api_key=api_key,
             base_url=base_url,
-            desktop=desktop,
-            legacy=legacy,
         )
 
 
