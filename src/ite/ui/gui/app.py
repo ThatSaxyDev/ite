@@ -1828,7 +1828,7 @@ class GUIApp(
                 tight=True,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             )
-            self._safe_control_update(self.plan_toggle_button)
+            self._safe_page_update()
 
     async def _toggle_plan_mode(self):
         await self._run_plan_mode_toggle_flow(target_enabled=None)

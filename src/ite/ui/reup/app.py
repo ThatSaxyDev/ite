@@ -5873,6 +5873,7 @@ class ReupApp(App):
                     self.agent.session.pending_plan_text
                 )
                 self.agent.session.promote_pending_plan_to_active()
+                self.agent.session.set_plan_mode(False)
                 self.agent.session.set_plan_phase("executing")
                 self.refresh_header()
                 await self.run_agent_message(Agent.PLAN_EXECUTE_PROMPT)
