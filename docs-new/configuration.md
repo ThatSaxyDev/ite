@@ -57,6 +57,14 @@ Credentials are stored securely and project settings can be customized in `.ite/
 
 ---
 
+## iTE Cloud (Coming Soon)
+
+Bundled model access is on the roadmap. iTE Cloud will offer a curated selection of high-quality models, managed directly within the platform. This eliminates the need for external API keys while providing reliable, integrated access to models optimized for coding workflows.
+
+When available, you will be able to connect instantly without configuring third-party providers.
+
+---
+
 ## Next Steps
 
 [Initialize your project →](initialization.md)

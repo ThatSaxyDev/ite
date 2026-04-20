@@ -21,12 +21,20 @@
       "installMethods": [
         {
           "name": "pipx (recommended)",
-          "platforms": ["macOS", "Linux", "Windows"],
+          "platforms": [
+            "macOS",
+            "Linux",
+            "Windows"
+          ],
           "command": "pipx install ite-agent"
         },
         {
           "name": "uv",
-          "platforms": ["macOS", "Linux", "Windows"],
+          "platforms": [
+            "macOS",
+            "Linux",
+            "Windows"
+          ],
           "command": "uv tool install ite-agent"
         }
       ],
@@ -59,7 +67,7 @@
     {
       "id": "init",
       "title": "Initialize Your Project",
-      "content": "Use `/init` to analyze your project and create an AGENTS.md file. iTE reads AGENTS.md for instructions on how to work with your codebase.\n\nThe `/init` command detects:\n- Language/framework (Python, JavaScript, Rust, etc.)\n- Test/build setup\n- Key directory structure\n\nAGENTS.md supports scope hierarchy: nested files override parent instructions, allowing different rules for different parts of your project.",
+      "content": "Use `/init` to analyze your project and create an AGENTS.md file. iTE reads AGENTS.md for instructions on how to work with your codebase.\n\nThe `/init` command spawns an init_investigator subagent that:\n- Scans project structure (max 10 turns, 3 minute timeout)\n- Detects architecture and tech stack\n- Identifies build/test commands\n- Extracts code style patterns\n- Maps entry points\n\nResults are synthesized into AGENTS.md documentation.\n\nAGENTS.md supports scope hierarchy: nested files override parent instructions, allowing different rules for different parts of your project.",
       "commands": [
         "/init — Analyze and create AGENTS.md",
         "/init --force — Overwrite existing AGENTS.md"
@@ -68,7 +76,7 @@
     {
       "id": "usage",
       "title": "Usage",
-      "content": "Start iTE from any project directory:\n\n```\nite\n```\n\nAsk questions, request changes, or discuss architecture. iTE uses tools to explore and modify your codebase.",
+      "content": "**Configuration commands:**\n/setup — Configure model provider\n/config — View current configuration\n/model <name> — Change model\n/approval <mode> — Set approval mode (on_request, on_failure, auto, auto_edit, yolo)\n/approval help — Show all approval modes\n/stats — Show token usage statistics\n/tools — List available tools\n/theme — Change UI theme\n\n**Session commands:**\n/new — Start new conversation\n/sessions — List saved conversations\n/rename <name> — Rename conversation\n/compact — Compact conversation history\n/exit, /quit — Close iTE\n/close — Close current thread\n\n**Git commands:**\n/branch — List or switch branches\n/branch <name> — Switch to branch\n/branch --create <name> — Create new branch\n/history — Show file change history\n/undo — Revert last changes\n/redo — Reapply reverted changes\n\n**Project commands:**\n/init — Create AGENTS.md\n/skills — Manage skills (list, show, use, add, trust)\n/mcp — Manage MCP servers (start, stop, env, add, doctor)\n\n**Subagent commands:**\n/subagent list — List subagents\n/subagent create — Create custom subagent\n/subagent delete <name> — Delete subagent\n/list — Alias for /subagent list\n\n**Cloud commands:**\n/cloud status — Show cloud auth\n/cloud login — Log in to iTE Cloud\n/cloud logout — Log out\n/usage — Show usage summary\n/activity — Show recent activity\n\n**Memory:**\n/memory — Inspect memory and controls\n/memory prompt <query> — Debug prompt memory",
       "keyFeatures": [
         {
           "title": "Ask",
@@ -166,6 +174,16 @@
         "/mcp start <server> — Connect an MCP server",
         "/mcp stop <server> — Disconnect an MCP server"
       ]
+    },
+    {
+      "content": "iTE includes built-in tools for reading, writing, searching, executing, and managing your codebase.\n\n**Read tools**: read_file, read_json, read_toml, read_yaml, read_env, read_pdf, read_image, list_dir, glob, grep\n\n**Write tools**: write_file, edit, apply_patch, edit_json, edit_toml, edit_yaml, write_env\n\n**Execute tools**: shell, shell_start, shell_poll, shell_send, shell_stop\n\n**Meta tools**: todos, memory, plan_question, skills\n\n**Git tools**: git_status, git_diff, git_log, git_branch, git_commit, git_push, git_remote\n\n**Web tools**: web_search, web_fetch, http_request\n\n**Verification tools**: run_tests, run_linter, run_typecheck\n\n**Subagent tools**: spawn_subagent, spawn_subagents, wait_subagent, list_subagents, cancel_subagent\n\nTools are categorized by risk level (LOW, MEDIUM, HIGH) and access type (read, write). Use /tools to see all available tools.",
+      "id": "tools",
+      "title": "Tools"
+    },
+    {
+      "content": "Subagents are specialized AI agents that handle specific tasks independently. They run in parallel and return structured results to the main agent.\n\n**Built-in subagents:**\n- security_auditor — Security vulnerability analysis\n- code_reviewer — Code quality review\n- codebase_investigator — Explore code structure and patterns\n- tooling_guardian — Validate tool configurations\n- verification_reviewer — Regression-focused change validation\n- init_investigator — Generate AGENTS.md for projects\n\n**Commands:**\n/spawn_subagent subagent=\"name\" goal=\"task\"\n/spawn_subagents requests=[{subagent: \"name\", goal: \"task\"}, ...]\n/wait_subagent run_ids=[\"...\"]\n/subagent list — List available subagents\n/subagent create — Create custom subagent\n/subagent delete <name> — Delete a subagent\n\nCustom subagents are saved to .ite/subagents/<name>.toml",
+      "id": "subagents",
+      "title": "Subagents"
     }
   ]
 }

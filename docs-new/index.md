@@ -29,6 +29,8 @@ iTE runs as a chat interface in your terminal. You prompt, it responds, and toge
 - [Initialization](initialization.md) — Project setup with AGENTS.md
 - [Usage](usage.md) — Everyday workflows
 - [Commands](commands.md) — Full command reference
+- [Tools](tools.md) — Built-in tools reference
+- [Subagents](subagents.md) — Specialist agents for parallel tasks
 - [AGENTS.md](agents.md) — Project instructions for the AI
 - [Skills](skills.md) — Bundles of expertise
 - [MCP](mcp.md) — External tool servers
