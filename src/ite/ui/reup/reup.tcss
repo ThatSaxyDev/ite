@@ -1245,7 +1245,7 @@ Screen {
 .command-card-scroll {
     height: auto;
     max-height: 20;
-    min-height: 4;
+    min-height: 2;
     overflow-y: auto;
 }
 
