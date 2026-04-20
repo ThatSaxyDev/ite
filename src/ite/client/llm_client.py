@@ -375,6 +375,21 @@ class LLMClient:
                         ),
                     )
                     return
+            except httpx.ReadTimeout as e:
+                if attempt < self._max_retries:
+                    wait_time = 2**attempt
+                    await asyncio.sleep(wait_time)
+                else:
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=format_provider_error(
+                            kind="timeout",
+                            message="The request timed out while streaming. Try again.",
+                            model_name=self.config.model_name,
+                            base_url=self.config.base_url,
+                        ),
+                    )
+                    return
             except APIError as e:
                 status_code = getattr(e, "status_code", None)
                 is_server_error = isinstance(status_code, int) and status_code >= 500
@@ -438,6 +453,18 @@ class LLMClient:
                     format_provider_error(
                         kind="connection",
                         message=str(e),
+                        model_name=self.config.model_name,
+                        base_url=self.config.base_url,
+                    )
+                ) from e
+            except httpx.ReadTimeout as e:
+                if attempt < self._max_retries:
+                    await asyncio.sleep(2**attempt)
+                    continue
+                raise RuntimeError(
+                    format_provider_error(
+                        kind="timeout",
+                        message="The request timed out while streaming. Try again.",
                         model_name=self.config.model_name,
                         base_url=self.config.base_url,
                     )
