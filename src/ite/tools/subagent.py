@@ -265,6 +265,7 @@ class SubagentTool(Tool):
         return terminate_response, final_response, error, child_session_id, child_turn_count
 
     def _normalize_response_payload(self, response_text: str) -> tuple[str, list[str], list[str]]:
+        """Extract summary, findings, actions from subagent response."""
         text = (response_text or "").strip()
         if not text:
             return "No response", [], []
@@ -274,6 +275,21 @@ class SubagentTool(Tool):
         except Exception:
             parsed = None
 
+        # Special case: init_investigator returns AGENTS.md content which may look like JSON
+        # but should be treated as raw text (the markdown contains code blocks that parse as JSON)
+        # If "# AGENTS.md" appears anywhere in the text, treat it as the raw summary
+        if "# AGENTS.md" in text or text.startswith("# "):
+            findings: list[str] = []
+            actions: list[str] = []
+            for line in text.splitlines():
+                stripped = line.strip()
+                lower = stripped.lower()
+                if lower.startswith(("finding:", "- finding:", "* finding:")):
+                    findings.append(stripped.split(":", 1)[-1].strip())
+                if lower.startswith(("action:", "- action:", "* action:", "next:", "- next:")):
+                    actions.append(stripped.split(":", 1)[-1].strip())
+            return text, findings, actions
+
         if isinstance(parsed, dict):
             summary = str(parsed.get("summary") or parsed.get("answer") or text).strip() or "No response"
             raw_findings = parsed.get("findings") or []
@@ -282,8 +298,8 @@ class SubagentTool(Tool):
             actions = [str(item).strip() for item in raw_actions if str(item).strip()]
             return summary, findings, actions
 
-        findings: list[str] = []
-        actions: list[str] = []
+        findings = []
+        actions = []
         for line in text.splitlines():
             stripped = line.strip()
             lower = stripped.lower()
@@ -403,9 +419,21 @@ class SubagentTool(Tool):
         goal: str,
         prior_attempts: list[dict[str, Any]],
     ) -> str:
+        # Special handling for init_investigator to ensure it acts decisively
+        init_directive = ""
+        if self.definition.name == "init_investigator":
+            init_directive = """
+MANDATORY DIRECTIVE FOR INITIALIZATION:
+- You MUST immediately investigate the project and output AGENTS.md
+- Do NOT ask the user any questions
+- Do NOT say "I need more information" - discover what you can from the files
+- Do NOT apologize or explain your limitations
+- Simply do your best with what you can find and output the AGENTS.md file
+"""
+
         prompt = f"""You are a specialized sub-agent with a specific task to complete.
 
-        {self.definition.goal_prompt}
+        {self.definition.goal_prompt}{init_directive}
 
         YOUR TASK:
         {goal}
@@ -798,6 +826,78 @@ Return concrete findings and actions in concise bullets.""",
     retry_attempts=2,
 )
 
+INIT_INVESTIGATOR = SubagentDefinition(
+    name="init_investigator",
+    description="Fast-scan codebase investigator that generates AGENTS.md directly for /init command",
+    goal_prompt="""You are an AGENTS.md generator for the /init command.
+
+CRITICAL: Your ONLY task is to investigate the project and output the complete AGENTS.md content. Do NOT ask clarifying questions or defer to the user. Generate AGENTS.md based on what you discover.
+
+INVESTIGATION WORKFLOW (scan quickly, max 10 turns):
+1. Use list_dir and glob to understand directory structure
+2. Read key config files to find:
+   - Project name, description from pyproject.toml/package.json/README
+   - Build/test/lint commands from scripts section
+   - Dependencies and tech stack
+3. Sample 2-3 source files to identify code patterns (imports, naming conventions, etc.)
+4. Return the complete AGENTS.md file content
+
+OUTPUT RULES:
+- Start your response with "# AGENTS.md" as the first line
+- Include these sections: Project Overview, Architecture, Development Guidelines, Configuration
+- Be SPECIFIC: include actual file paths and commands you found
+- Be CONCISE: aim for under 5KB; skip verbose examples
+- Use markdown tables for tool preferences per file type
+- If info is missing, omit the section rather than guess
+
+EXAMPLE OUTPUT START:
+# AGENTS.md
+
+## Project Overview
+
+**Project:** `actual_project_name`
+
+Brief description based on README or package config.
+
+## Architecture
+
+```
+src/
+  package/
+    __init__.py
+    main.py
+```
+
+- Entry point: `src/package/main.py`
+- Main package: `package`
+
+## Development Guidelines
+
+**Build Commands:**
+| Command | Script |
+|---------|--------|
+| Build | `python -m build` |
+| Test | `pytest` |
+
+**Code Patterns:**
+- Imports: `from __future__ import annotations`
+- Constants: UPPER_CASE pattern
+
+## Configuration
+
+- Config: `pyproject.toml`
+- Settings: `[tool.package]`
+
+EXAMPLE OUTPUT END
+
+Be fast. Output ONLY the AGENTS.md file content, starting with "# AGENTS.md".""",
+    allowed_tools=["read_file", "glob", "list_dir"],
+    max_turns=10,
+    timeout_seconds=180,
+    inactivity_timeout_seconds=60,
+    retry_attempts=2,
+)
+
 VERIFICATION_REVIEWER = SubagentDefinition(
     name="verification_reviewer",
     description="Validates proposed or implemented changes with regression-focused verification guidance",
@@ -818,5 +918,6 @@ def get_default_subagent_definitions() -> list[SubagentDefinition]:
         CODEBASE_INVESTIGATOR,
         CODE_REVIEWER,
         TOOLING_GUARDIAN,
+        INIT_INVESTIGATOR,
         VERIFICATION_REVIEWER,
     ]

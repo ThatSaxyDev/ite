@@ -1,126 +1,97 @@
-# iTE - Interactive Terminal Environment
+# AGENTS.md
 
 ## Project Overview
 
-iTE is an AI coding agent for the terminal that connects to LLM model services (OpenAI-compatible). Users configure a model provider via `/setup` command and interact with the agent through natural language prompts. The agent reads code files, executes commands, and assists with development tasks.
+**Project:** `ite-agent` (iTE - Interactive Terminal Environment)
+
+An AI coding agent for the terminal. Users connect their model service and start coding via a TUI interface. Distributed via pipx/uv as `ite-agent`.
 
 ## Architecture
 
 ```
-src/ite/              # Main Python package
-├── __init__.py       # Empty package marker
-├── main.py           # Entry point (ite command)
-├── attachments.py    # File attachment handling (images, PDFs, text)
-├── attachment_refs.py # Inline @file reference parsing
-├── setup.py          # Configuration management
-├── prompts/          # System prompts and message handling
-└── [other modules]
-
-tests/                # Test suite
-docs/                 # Documentation
-ite-cloud-api/        # Backend API service
-ite-cloud-web/        # Web frontend
-landing-site/         # Marketing site
+src/ite/                    # Python CLI runtime
+  __init__.py
+  main.py                   # Entry point (click CLI)
+  agent/
+    agent.py                # Core agent logic
+    events.py               # Event system
+    session.py              # Session management
+  client/                   # LLM client abstraction
+  commands/                 # Slash command registry
+  config/                   # Configuration loading
+  context/                  # Context management
+  memory/                   # Memory system
+  prompts/                  # System prompts
+  skills/                   # Agent skills
+  tools/                    # Tool implementations
+  ui/                       # TUI/GUI interfaces
+ite-cloud-api/              # Fastify TypeScript backend
+  src/
+    index.ts                # API entry point
+ite-cloud-web/              # React TypeScript frontend
+  src/
+    App.tsx                 # Web app entry
+landing-site/               # Marketing site
 ```
 
-**Key Dependencies:**
-- CLI: `click`, `prompt_toolkit>=3.0.52`
-- UI: `rich`, `textual[syntax]>=0.70.0`, `flet`
-- AI: `openai`, `tiktoken`
-- Parsing: `beautifulsoup4`, `html2text`, `lxml`, `pypdf`, `pytesseract`
-- Config: `pydantic`, `PyYAML`, `platformdirs`, `fastmcp`
-- Utils: `ddgs` (search), `Pillow`
-
-**Python Requirement:** >=3.11
+- **Entry point:** `src/ite/main.py:main()` (click group)
+- **Version:** 0.0.27
+- **Agent class:** `src/ite/agent/agent.py:Agent`
 
 ## Development Guidelines
 
-### Build & Package
+**Python Patterns:**
+| Pattern | Convention |
+|---------|------------|
+| Imports | `from __future__ import annotations` |
+| Internal imports | `from ite.module.submodule import Name` |
+| Constants | `UPPER_CASE` (e.g., `PLAN_EXECUTE_PROMPT`) |
+| Classes | `PascalCase` |
+| Functions/vars | `snake_case` |
+| Async | Extensive use of `async/await` |
 
-```bash
-# Development install with editable mode
-pip install -e .
+**TypeScript Patterns:**
+| Pattern | Convention |
+|---------|------------|
+| Imports | ES modules with explicit paths |
+| Types | Strict TypeScript with interfaces |
 
-# Or using hatch
-hatch run pip install -e .
+**Build Commands:**
 
-# Build wheel
-hatch build
+Python:
+| Command | Usage |
+|---------|-------|
+| Install | `pipx install ite-agent` or `uv tool install ite-agent` |
+| Run | `ite` |
 
-# Install published version
-pipx install ite-agent
-# or
-uv tool install ite-agent
-```
+Cloud API:
+| Command | Script |
+|---------|--------|
+| Install | `npm install` |
+| Dev | `npm run dev` |
+| Migrate | `npm run auth:migrate` |
 
-### Entry Point
+Cloud Web:
+| Command | Script |
+|---------|--------|
+| Install | `npm install` |
+| Dev | `npm run dev` |
 
-The `ite` command is provided by the `ite` package's `main:main` function:
-```python
-# pyproject.toml
-[project.scripts]
-ite = "ite.main:main"
-```
-
-### Code Patterns
-
-**Imports:**
-```python
-from __future__ import annotations  # Required in all modules
-```
-
-**Immutable Data Classes:**
-```python
-from dataclasses import dataclass
-
-@dataclass(frozen=True)
-class InlineAttachmentRef:
-    raw: str
-    value: str
-    start: int
-    end: int
-    trailing: str = ""
-```
-
-**File Extensions (from `attachments.py`):**
-```python
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
-TEXT_EXTS = {".txt", ".md", ".json", ".yaml", ".yml", ".toml", ".xml", ".csv", ...}
-PDF_EXTS = {".pdf"}
-```
-
-**Constants Pattern:**
-- `MAX_ATTACHMENTS = 3`
-- `MAX_FILE_SIZE_BYTES = 35 * 1024 * 1024` (35MB limit)
-
-**Skipped Directories (attachment discovery):**
-```python
-_SKIP_DIRS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", ".next",
-    "dist", "build", "coverage", ".idea", ".vscode"
-}
-```
-
-**Inline Reference Pattern:**
-Files can be referenced inline using `@filename.ext` syntax (parsed by `attachment_refs.py`)
-
-### Testing
-
-Tests are located in the `tests/` directory. Run with pytest or hatch.
-
-## Tool Preferences
-
-| File Type | Tool | Notes |
-|-----------|------|-------|
-| `.py` | ruff, ruff format | Primary linting/formatting |
-| `.txt`, `.md` | plain text | Documentation |
-| `.json`, `.yaml`, `.toml` | native parsers | Config files |
-| `.pdf` | pypdf + pytesseract | Document parsing |
-| Images | Pillow + pytesseract | OCR support |
+**Testing:**
+- Python tests in `tests/`
+- pytest framework
 
 ## Configuration
 
-- User config stored via `platformdirs` (cross-platform config directory)
-- Provider configuration via `/setup` command in session
-- Workspace stored at `.ite/tmp_attachments` (gitignored)
+- **Python config:** `pyproject.toml` (root)
+- **User config:** `.ite/config.toml`
+- **API env:** `ite-cloud-api/.env.local`
+- **Key dependencies:**
+  - Python: `click`, `rich`, `prompt_toolkit`, `litellm`
+  - API: `fastify`, `better-auth`, `drizzle-orm`, `@libsql/client`
+  - Web: `react`, `react-router-dom`, `vite`, `better-auth`
+
+**Runtime Modes:**
+- Default: Reup TUI (`ite`)
+- Legacy: Terminal wizard (`ite --legacy` / `ite -l`)
+- Desktop: GUI app (`ite --desktop` / `ite -d`)

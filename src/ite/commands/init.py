@@ -1,170 +1,187 @@
-"""Project initialization command: /init — analyzes project using tools and creates AGENTS.md."""
+"""Project initialization command: /init — analyzes project using init_investigator subagent and creates AGENTS.md."""
 
+import asyncio
+import json
 from pathlib import Path
 
 from ite.commands import CommandContext
 from ite.config.loader import AGENTS_MD_FILE
 
-INIT_ANALYSIS_PROMPT = """You are analyzing a codebase to create an AGENTS.md file.
 
-AGENTS.md is a project instructions file that tells AI agents how to work with this codebase. It should be concrete and grounded, not generic.
+async def _run_init_investigator(
+    ctx: CommandContext,
+) -> str:
+    """Spawn init_investigator via subagent tools and return the AGENTS.md content."""
+    from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool, WaitSubagentTool
+    from ite.tools.base import ToolInvocation
 
-Use the tool results below to understand the project, then generate AGENTS.md content.
+    subagent_runtime = ctx.agent.session.subagent_runtime
+    if subagent_runtime is None:
+        raise RuntimeError("Subagent runtime not available")
 
-## TASK
-
-Generate an AGENTS.md file based on the project analysis. Include:
-
-1. **Project Overview**: What this project does (based on README, package.json, pyproject.toml, etc.)
-2. **Architecture**: Directory structure, key modules/packages, tech stack
-3. **Development Guidelines**:
-   - Build/test commands (specific, not generic)
-   - Code style/conventions visible in the existing code
-   - Important patterns used
-4. **Tool Preferences**:
-   - Which tools to use for which file types
-   - Any project-specific verification steps
-
-## Rules:
-- Be specific and grounded. Don't guess.
-- If you don't know something, don't include it.
-- Focus on patterns that differ from defaults.
-- Include actual file names, commands, and patterns discovered.
-
-## Output Format
-
-Respond with ONLY the AGENTS.md content, starting with a level-1 heading (# Project Name). No explanation, no markdown wrapping, just the AGENTS.md content."""
-
-
-async def _explore_project(ctx: CommandContext) -> dict:
-    """Explore the project directory structure using direct filesystem calls."""
-    import os
     cwd = ctx.config.cwd
+    goal = f"Write AGENTS.md for project at {cwd}"
 
-    findings = {
-        "root_files": [],
-        "directories": [],
-        "project_files_content": {},
-        "sample_files": {},
-    }
+    # Create tools (pass config required by Tool base class)
+    spawn_tool = SpawnSubagentTool(ctx.config)
+    spawn_tool.set_runtime(subagent_runtime)
 
-    # List root directory (fast sync operation)
-    try:
-        entries = os.listdir(cwd)
-        findings["root_files"] = sorted(entries)
-    except Exception as e:
-        findings["root_files"] = [f"Error: {e}"]
+    wait_tool = WaitSubagentTool(ctx.config)
+    wait_tool.set_runtime(subagent_runtime)
 
-    # Read key project files (fast sync operation)
-    key_files = [
-        "README.md", "pyproject.toml", "package.json", "pubspec.yaml",
-        "Cargo.toml", "go.mod", "Gemfile", "composer.json", "CMakeLists.txt",
-        "build.gradle", "pom.xml", "setup.py", "requirements.txt",
-        "Makefile", "justfile", "tox.ini",
-    ]
-
-    for filename in key_files:
-        filepath = cwd / filename
-        try:
-            if filepath.is_file():
-                content = filepath.read_text(encoding="utf-8", errors="replace")
-                findings["project_files_content"][filename] = content[:3000]
-        except Exception:
-            pass
-
-    # Find directories (fast sync operation)
-    try:
-        dirs = [d for d in os.listdir(cwd) if (cwd / d).is_dir() and not d.startswith(".")]
-        findings["directories"] = sorted(dirs)[:20]
-    except Exception:
-        pass
-
-    # Sample source files from common directories (fast sync operation)
-    source_dirs = ["src", "lib", "app", "cmd", "internal", "pkg"]
-    for src_dir in source_dirs:
-        src_path = cwd / src_dir
-        if src_path.is_dir():
-            try:
-                for root, _dirs, files in os.walk(src_path):
-                    for filename in files:
-                        filepath = Path(root) / filename
-                        if filepath.stat().st_size < 50000:
-                            try:
-                                content = filepath.read_text(encoding="utf-8", errors="replace")
-                                rel_path = str(filepath.relative_to(cwd))
-                                findings["sample_files"][rel_path] = content[:2000]
-                                if len(findings["sample_files"]) >= 5:
-                                    break
-                            except Exception:
-                                pass
-                    if len(findings["sample_files"]) >= 5:
-                        break
-            except Exception:
-                pass
-            break
-
-    return findings
-
-
-async def _generate_agents_md(ctx: CommandContext, findings: dict) -> str:
-    """Generate AGENTS.md content by querying the LLM with findings."""
-    from ite.client.response import StreamEventType
-
-    # Build the prompt with findings
-    findings_text = []
-
-    if findings["root_files"]:
-        findings_text.append("## Root Directory Files\n```")
-        findings_text.append("\n".join(findings["root_files"][::20]))
-        findings_text.append("```")
-
-    if findings["project_files_content"]:
-        for filename, content in findings["project_files_content"].items():
-            findings_text.append(f"\n## {filename}\n```")
-            findings_text.append(content[:2000])
-            findings_text.append("```")
-
-    if findings["directories"]:
-        findings_text.append("\n## Directory Structure")
-        findings_text.append("\n".join(findings["directories"]))
-
-    if findings["sample_files"]:
-        for filepath, content in findings["sample_files"].items():
-            findings_text.append(f"\n## {filepath}\n```")
-            findings_text.append(content[:1500])
-            findings_text.append("```")
-
-    full_prompt = (
-        f"{INIT_ANALYSIS_PROMPT}\n\n---\n\n## Project Analysis Results\n\n"
-        + "\n".join(findings_text)
+    # Spawn the investigator
+    spawn_invocation = ToolInvocation(
+        params={"subagent": "init_investigator", "goal": goal},
+        cwd=cwd,
+        call_id=f"init_spawn_{id(asyncio.current_task())}",
     )
 
-    # Make the LLM call
-    messages = [{"role": "user", "content": full_prompt}]
+    ctx.tui.change_spinner("Scanning project structure...")
+    spawn_result = await spawn_tool.execute(spawn_invocation)
+    if not spawn_result.success:
+        raise RuntimeError(f"Failed to spawn investigator: {spawn_result.message}")
 
-    response_parts = []
-    async for event in ctx.agent.session.client.chat_completion(
-        messages, tools=None, stream=True
-    ):
-        if event.type == StreamEventType.TEXT_DELTA and event.text_delta:
-            if event.text_delta.content:
-                # Stream the content directly to the card
-                ctx.tui.stream_content(event.text_delta.content)
-                response_parts.append(event.text_delta.content)
+    # Extract run_id from result
+    try:
+        spawn_data = json.loads(spawn_result.output or "{}")
+        run = spawn_data.get("run", {})
+        run_id = run.get("run_id")
+        if not run_id:
+            raise ValueError("No run_id in spawn result")
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        raise RuntimeError(f"Invalid spawn result: {e}")
 
-    return "".join(response_parts).strip()
+    # Poll for completion with spinner updates
+    start_time = asyncio.get_running_loop().time()
+    timeout = 180  # 3 minutes
+
+    while True:
+        elapsed = asyncio.get_running_loop().time() - start_time
+        if elapsed > timeout:
+            raise TimeoutError(f"Investigation timed out after {timeout}s")
+
+        # Update spinner with progress
+        if elapsed < 5:
+            ctx.tui.change_spinner("Scanning project structure...")
+        elif elapsed < 15:
+            ctx.tui.change_spinner("Analyzing tech stack...")
+        elif elapsed < 30:
+            ctx.tui.change_spinner("Discovering code patterns...")
+        else:
+            ctx.tui.change_spinner("Generating AGENTS...")
+
+        # Wait for completion (short poll)
+        wait_invocation = ToolInvocation(
+            params={"run_ids": [run_id], "return_when": "all_completed", "timeout_seconds": 2},
+            cwd=cwd,
+            call_id=f"init_wait_{id(asyncio.current_task())}",
+        )
+
+        wait_result = await wait_tool.execute(wait_invocation)
+        if not wait_result.success:
+            # Wait operation itself failed
+            raise RuntimeError(f"Wait failed: {wait_result.message}")
+
+        # Parse wait result
+        try:
+            wait_data = json.loads(wait_result.output or "{}")
+            completed_ids = wait_data.get("completed_run_ids", [])
+            
+            # If no runs completed yet, continue polling
+            if not completed_ids:
+                await asyncio.sleep(0.5)
+                continue
+            
+            runs = wait_data.get("runs", [])
+            # Find the completed run
+            run_data = None
+            for run in runs:
+                if run.get("run_id") in completed_ids:
+                    run_data = run
+                    break
+            
+            if not run_data:
+                raise ValueError("No matching completed run found")
+            
+            summary = run_data.get("summary", "")
+            status = run_data.get("status", "unknown")
+            
+            if status == "timeout":
+                raise TimeoutError("Subagent timed out")
+            if status == "cancelled":
+                raise RuntimeError("Subagent was cancelled")
+            if status == "failed":
+                error = run_data.get("error", "Unknown error")
+                raise RuntimeError(f"Subagent failed: {error}")
+            if status != "completed":
+                # Shouldn't happen if in completed_run_ids, but handle anyway
+                raise RuntimeError(f"Subagent ended with unexpected status: {status}")
+            
+            # The init_investigator returns AGENTS.md content directly
+            if not summary:
+                raise RuntimeError("Subagent returned empty response")
+            
+            return summary.strip()
+            
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            raise RuntimeError(f"Invalid wait result: {e}")
+
+
+def _extract_agents_md(content: str) -> str:
+    """Extract AGENTS.md content from subagent response."""
+    content = content.strip()
+    
+    # If it already starts with a header, use it as-is
+    if content.startswith("# AGENTS.md") or content.startswith("# "):
+        return content
+    
+    # Try to extract content from markdown code blocks
+    if "```markdown" in content:
+        parts = content.split("```markdown")
+        if len(parts) > 1:
+            content = parts[1].split("```")[0].strip()
+    elif "```" in content:
+        # Extract first code block if it looks like AGENTS.md
+        blocks = content.split("```")
+        for i in range(1, len(blocks), 2):
+            block = blocks[i].strip()
+            if block.startswith("# AGENTS.md") or block.startswith("# "):
+                # Remove language identifier if present
+                lines = block.splitlines()
+                if lines and not lines[0].startswith("#"):
+                    content = "\n".join(lines[1:]).strip()
+                else:
+                    content = block
+                break
+    
+    return content
+
+
+def _truncate_agents_md(content: str, max_bytes: int = 32 * 1024 - 500) -> str:
+    """Truncate AGENTS.md to fit within size limit, preserving later sections."""
+    content_bytes = content.encode("utf-8")
+    if len(content_bytes) <= max_bytes:
+        return content
+
+    truncated = content_bytes[:max_bytes].decode("utf-8", errors="ignore")
+
+    # Find last newline to avoid cutting mid-line
+    if "\n" in truncated:
+        truncated = truncated[:truncated.rfind("\n")]
+
+    return f"{truncated}\n\n... [truncated for 32KB limit]"
 
 
 async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
     """
-    Initialize a project with grounded AGENTS.md analysis.
+    Initialize a project with grounded AGENTS.md analysis using init_investigator.
 
     Usage: /init [--force]
 
-    Analyzes the current workspace using tools, then uses the LLM to generate
-    a grounded AGENTS.md file with:
+    Spawns init_investigator to quickly scan the codebase (max 10 turns, 3 min),
+    then generates a focused AGENTS.md with:
     - Detected architecture and tech stack
-    - Actual build/test commands
+    - Actual build/test commands found
     - Code style patterns from existing code
     - Specific file/directory structure
     """
@@ -185,38 +202,50 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
         )
         return
 
-    ctx.tui.start_spinner("/init", "Analyzing project")
+    ctx.tui.start_spinner("/init", "Spawning codebase investigator")
 
     try:
-        # Phase 1: Explore using tools (fast synchronous fs operations)
-        findings = await _explore_project(ctx)
+        # Phase 1: Run init_investigator subagent to generate AGENTS.md content
+        content = await _run_init_investigator(ctx)
 
-        # Phase 2: Generate content via LLM (this streams content live)
-        ctx.tui.change_spinner("Generating AGENTS.md")
-        content = await _generate_agents_md(ctx, findings)
-
-        # Phase 3: Write the file
         if not content:
             ctx.console.print("[error]Failed to generate AGENTS.md content.[/error]")
             return
 
-        # Ensure proper markdown format
+        ctx.tui.change_spinner("Finalizing...")
+
+        # Phase 2: Extract and clean content
+        content = _extract_agents_md(content)
+
+        # Phase 3: Ensure proper format
         if not content.startswith("#"):
             content = f"# {cwd.name}\n\n{content}"
 
+        # Phase 4: Respect size limit
+        content = _truncate_agents_md(content)
+
+        # Phase 5: Write file
         agents_md_path.write_text(content + "\n", encoding="utf-8")
 
-        # Post completion card
         ctx.tui.post_success_card(
             "AGENTS.md Created",
             f"AGENTS.md has been created at {agents_md_path}",
-            f"Analyzed {len(findings['root_files'])} root files, "
-            f"{len(findings['project_files_content'])} configs, "
-            f"{len(findings['sample_files'])} samples"
+            f"Size: {len(content.encode('utf-8')) / 1024:.1f}KB",
         )
 
+    except TimeoutError:
+        ctx.console.print(
+            "[error]Investigation timed out.[/error]\n"
+            "[dim]The codebase may be too large or complex for fast-scanning.[/dim]\n"
+            "[dim]Try running with a more specific subdirectory or create AGENTS.md manually.[/dim]"
+        )
+    except RuntimeError as e:
+        ctx.console.print(f"[error]Subagent error:[/error] {e}")
+        return
     except Exception as e:
         ctx.console.print(f"[error]Error during initialization:[/error] {e}")
+        import traceback
+        ctx.console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise
     finally:
         ctx.tui.stop_spinner()
@@ -228,7 +257,7 @@ def register(registry):
     registry.register(
         Command(
             name="/init",
-            description="Initialize project with AGENTS.md (analyzes codebase, generates grounded instructions)",
+            description="Initialize project with AGENTS.md using fast codebase investigation",
             handler=cmd_init,
         )
     )
