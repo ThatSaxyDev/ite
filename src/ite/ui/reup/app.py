@@ -894,7 +894,11 @@ class ReupApp(App):
         syntax_theme = getattr(self.current_theme, "syntax_theme", None)
         if isinstance(syntax_theme, str) and syntax_theme.strip():
             return syntax_theme.strip()
-        return "textual-dark" if self.current_theme.dark else "textual-light"
+        # Map Textual themes to appropriate Pygments code themes
+        light_themes = {"atom-one-light", "rose-pine-dawn", "solarized-light", "textual-light"}
+        if self.theme in light_themes or getattr(self.current_theme, "dark", not True) is False:
+            return "default"  # Pygments light theme
+        return "monokai"  # Pygments dark theme
 
     def _theme_tokens(self) -> dict[str, str]:
         return {
@@ -6135,7 +6139,12 @@ class ReupApp(App):
             await conversation.mount(self._streaming_widget)
             self._message_count += 1
             self._refresh_empty_state()
-        self._streaming_widget.update(RichMarkdown(self._streaming_buffer))
+        code_theme = self._syntax_theme_name()
+        markdown = RichMarkdown(
+            self._streaming_buffer,
+            code_theme=code_theme,
+        )
+        self._streaming_widget.update(markdown)
         await self._pin_activity_indicator_to_end()
 
     async def finalize_streaming_message(self, final_text: str | None = None) -> None:
@@ -6154,7 +6163,13 @@ class ReupApp(App):
                 await conversation.mount(new_widget)
             except Exception:
                 # Fallback: just update the existing widget with RichMarkdown
-                old_widget.update(RichMarkdown(rendered_text))
+                code_theme = self._syntax_theme_name()
+                old_widget.update(
+                    RichMarkdown(
+                        rendered_text,
+                        code_theme=code_theme,
+                    )
+                )
             await self._pin_activity_indicator_to_end()
         self._streaming_widget = None
         self._streaming_buffer = ""
