@@ -49,9 +49,11 @@ async def _explore_project(ctx: CommandContext) -> dict:
     }
 
     # List root directory
+    ctx.tui.change_spinner("Scanning root directory...")
     try:
         entries = os.listdir(cwd)
         findings["root_files"] = sorted(entries)
+        ctx.tui.change_spinner(f"Found {len(entries)} items in root")
     except Exception as e:
         findings["root_files"] = [f"Error: {e}"]
 
@@ -63,24 +65,33 @@ async def _explore_project(ctx: CommandContext) -> dict:
         "Makefile", "justfile", "tox.ini",
     ]
 
+    found_configs = []
     for filename in key_files:
         filepath = cwd / filename
         try:
             if filepath.is_file():
+                ctx.tui.change_spinner(f"Reading {filename}...")
                 content = filepath.read_text(encoding="utf-8", errors="replace")
                 findings["project_files_content"][filename] = content[:3000]
+                found_configs.append(filename)
         except Exception:
             pass
+    if found_configs:
+        ctx.tui.change_spinner(f"Read {len(found_configs)} config files")
 
     # Find directories
+    ctx.tui.change_spinner("Mapping directory structure...")
     try:
         dirs = [d for d in os.listdir(cwd) if (cwd / d).is_dir() and not d.startswith(".")]
         findings["directories"] = sorted(dirs)[:20]
+        ctx.tui.change_spinner(f"Found {len(dirs)} directories")
     except Exception:
         pass
 
     # Sample source files from common directories
+    ctx.tui.change_spinner("Sampling source files...")
     source_dirs = ["src", "lib", "app", "cmd", "internal", "pkg"]
+    samples_found = 0
     for src_dir in source_dirs:
         src_path = cwd / src_dir
         if src_path.is_dir():
@@ -94,6 +105,8 @@ async def _explore_project(ctx: CommandContext) -> dict:
                                 content = filepath.read_text(encoding="utf-8", errors="replace")
                                 rel_path = str(filepath.relative_to(cwd))
                                 findings["sample_files"][rel_path] = content[:2000]
+                                samples_found += 1
+                                ctx.tui.change_spinner(f"Sampling source files ({samples_found})...")
                                 if len(findings["sample_files"]) >= 5:
                                     break
                             except Exception:
@@ -104,6 +117,7 @@ async def _explore_project(ctx: CommandContext) -> dict:
                 pass
             break  # Only process first found source dir
 
+    ctx.tui.change_spinner(f"Done - sampled {len(findings['sample_files'])} files")
     return findings
 
 

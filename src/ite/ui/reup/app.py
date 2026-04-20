@@ -279,13 +279,14 @@ ONBOARDING_OTHER_VALUE = "__other__"
 
 
 class ReupTUIAdapter:
-    """Adapter for existing command handlers expecting a TUI-like object."""
+    """Adapter that wraps ReupApp to provide TUI-like interface."""
 
     def __init__(self, app: "ReupApp") -> None:
         self._app = app
+        # Track spinner state locally to avoid race conditions with async workers
         self._spinner_handle: str | None = None
-        self._spinner_pending_text: str = "Thinking"
         self._spinner_lines: list[str] = []
+        self._spinner_started: bool = False
 
     @property
     def cwd(self) -> Path:
@@ -364,23 +365,19 @@ class ReupTUIAdapter:
         """Show streaming command card like /mcp start - fixed title with spinner."""
         self._spinner_handle = command  # Use command as handle (/init, /mcp, etc.)
         self._spinner_lines = []
-        # Create card with the actual command name as title
+        # Create card with message as pending_text - this displays with spinner
+        # but isn't a persistent line, so it can be replaced
         self._app.run_worker(
             self._app.start_streaming_command_result(command, pending_text=message),
             exclusive=False,
         )
 
     def change_spinner(self, message: str) -> None:
-        """Update spinner with new status."""
+        """Update spinner status - replaces current line with new status (like tool calls)."""
         if not self._spinner_handle:
             return
-        # Update the pending text on the existing card - this changes what the
-        # spinner shows (e.g., "Analyzing project" -> "Generating AGENTS.md")
-        # instead of appending lines below
-        self._app.run_worker(
-            self._app.start_streaming_command_result(self._spinner_handle, pending_text=message),
-            exclusive=False,
-        )
+        # Update pending text and clear lines so spinner shows with new message
+        self._app.start_streaming_command_result_update_pending(self._spinner_handle, message)
 
     def stop_spinner(self) -> None:
         """Finalize spinner card."""
@@ -491,6 +488,8 @@ class ReupApp(App):
         self._streaming_command_cards: dict[
             str, tuple[Container, Static, list[str], bool, str | None]
         ] = {}
+        # Lock to prevent race conditions on streaming card operations
+        self._streaming_cards_lock = asyncio.Lock()
         self._composer_history: list[str] = []
         self._composer_history_index: int | None = None
         self._composer_history_draft: str = ""
@@ -6289,50 +6288,51 @@ class ReupApp(App):
     async def start_streaming_command_result(
         self, command: str, pending_text: str | None = None
     ) -> None:
-        existing = self._streaming_command_cards.get(command)
-        if existing is not None:
-            card, body_widget, lines, _old_pending_active, _old_pending = existing
-            self._streaming_command_cards[command] = (
-                card,
-                body_widget,
-                lines,
-                True,
-                pending_text,
-            )
+        async with self._streaming_cards_lock:
+            existing = self._streaming_command_cards.get(command)
+            if existing is not None:
+                card, body_widget, lines, _old_pending_active, _old_pending = existing
+                self._streaming_command_cards[command] = (
+                    card,
+                    body_widget,
+                    lines,
+                    True,
+                    pending_text,
+                )
+                body_widget.update(
+                    self._build_streaming_command_renderable(
+                        lines,
+                        pending_active=True,
+                        pending_text=pending_text,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
+                await self._pin_activity_indicator_to_end()
+                return
+
+            body_widget = Static(classes="card-body command-body")
             body_widget.update(
                 self._build_streaming_command_renderable(
-                    lines,
+                    [],
                     pending_active=True,
                     pending_text=pending_text,
                     spinner_index=self._top_spinner_index,
                 )
             )
-            await self._pin_activity_indicator_to_end()
-            return
-
-        body_widget = Static(classes="card-body command-body")
-        body_widget.update(
-            self._build_streaming_command_renderable(
-                [],
-                pending_active=True,
-                pending_text=pending_text,
-                spinner_index=self._top_spinner_index,
+            card = Container(
+                self._build_command_title_widget(command),
+                body_widget,
+                classes="block command",
             )
-        )
-        card = Container(
-            self._build_command_title_widget(command),
-            body_widget,
-            classes="block command",
-        )
-        conversation = self.query_one("#conversation", VerticalScroll)
-        await conversation.mount(card)
-        self._streaming_command_cards[command] = (
-            card,
-            body_widget,
-            [],
-            True,
-            pending_text,
-        )
+            conversation = self.query_one("#conversation", VerticalScroll)
+            await conversation.mount(card)
+            self._streaming_command_cards[command] = (
+                card,
+                body_widget,
+                [],
+                True,
+                pending_text,
+            )
         self._message_count += 1
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
@@ -6385,6 +6385,77 @@ class ReupApp(App):
         await conversation.mount(card)
         self._message_count += 1
         self._refresh_empty_state()
+        await self._pin_activity_indicator_to_end()
+
+    def start_streaming_command_result_update_pending(
+        self, command: str, pending_text: str | None = None
+    ) -> None:
+        """Update just the pending text of an existing streaming card (clear lines)."""
+        self.run_worker(
+            self._update_streaming_command_pending(command, pending_text),
+            exclusive=False,
+        )
+
+    async def _update_streaming_command_pending(
+        self, command: str, pending_text: str | None = None
+    ) -> None:
+        """Update streaming card to show only pending text with spinner (like tool calls do)."""
+        async with self._streaming_cards_lock:
+            existing = self._streaming_command_cards.get(command)
+            if existing is not None:
+                card, body_widget, _lines, _pending_active, _old_pending = existing
+                # Clear lines and set new pending text so spinner shows with pending_text
+                self._streaming_command_cards[command] = (
+                    card,
+                    body_widget,
+                    [],  # Clear lines - this causes pending_text to show
+                    True,
+                    pending_text,
+                )
+                body_widget.update(
+                    self._build_streaming_command_renderable(
+                        [],
+                        pending_active=True,
+                        pending_text=pending_text,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
+                await self._pin_activity_indicator_to_end()
+                return
+            else:
+                # Fall through to create new card outside the lock to avoid deadlock
+                pass
+        # Create new if doesn't exist (outside the lock)
+        await self.start_streaming_command_result(command, pending_text=pending_text)
+
+    async def _replace_last_command_result_line(self, command: str, message: str) -> None:
+        """Replace the most recent line in the streaming command card."""
+        text = str(message).strip()
+        if not text:
+            return
+
+        existing = self._streaming_command_cards.get(command)
+        if existing is None:
+            # Create new streaming card with this message as pending text
+            await self.start_streaming_command_result(command, pending_text=text)
+            return
+
+        card, body_widget, lines, _pending_active, _pending_text = existing
+        if lines:
+            # Replace the last line
+            lines[-1] = text
+        else:
+            lines.append(text)
+        if self._looks_like_command_error(text):
+            card.add_class("command-error")
+        body_widget.update(
+            self._build_streaming_command_renderable(
+                lines,
+                pending_active=True,
+                pending_text=None,  # No pending text, all lines shown
+                spinner_index=self._top_spinner_index,
+            )
+        )
         await self._pin_activity_indicator_to_end()
 
     async def _append_command_result_card(self, command: str, message: str) -> None:
