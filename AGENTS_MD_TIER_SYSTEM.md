@@ -161,6 +161,7 @@ Analyze the codebase and generate AGENTS.md with:
 **Personal AGENTS.md Prompt:**
 ```
 Ask the user: "What personal preferences would you like AI assistants to know for this project?"
+(You might want to adapt the question system used by PLAN mode)
 
 Examples:
 - Preferred coding style (functional vs OOP)
@@ -175,6 +176,7 @@ Generate AGENTS.md focused on personal conventions.
 **Global AGENTS.md Prompt:**
 ```
 Ask the user: "What are your global coding preferences that apply across all projects?"
+(You might want to adapt the question system used by PLAN mode)
 
 Examples:
 - Preferred languages/frameworks

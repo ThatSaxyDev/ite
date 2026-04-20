@@ -178,6 +178,7 @@ _BULLET_PHRASES: tuple[str, ...] = (
 )
 
 _EXECUTION_PHRASES: tuple[str, ...] = (
+    # Explicit action phrases - these unambiguously mean "implement now"
     "make the change",
     "write the code",
     "implement this",
@@ -189,6 +190,56 @@ _EXECUTION_PHRASES: tuple[str, ...] = (
     "build this",
     "finish the",
     "complete the",
+    "go ahead",
+    "go ahead and",
+    "proceed with",
+    "proceed to",
+    "continue and",
+    "continue to",
+    "continue with",
+    "let's implement",
+    "lets implement",
+    "let's fix",
+    "lets fix",
+    "let's build",
+    "lets build",
+    "let's add",
+    "lets add",
+    "let's update",
+    "lets update",
+    "let's edit",
+    "lets edit",
+    "please implement",
+    "please fix",
+    "please add",
+    "please update",
+    "please edit",
+    "do it",
+    "do that",
+    "do this now",
+    "do this",
+    "apply the changes",
+    "apply the fix",
+    "apply changes",
+    "apply fix",
+    "get on with it",
+    "get on with this",
+    "move forward",
+    "get this done",
+    "make it so",
+    "ship it",
+    "can you implement",
+    "can you fix",
+    "can you add",
+    "can you update",
+    "can you edit",
+    "help me implement",
+    "help me fix",
+    "help me add",
+    "now implement",
+    "now fix",
+    "now add",
+    "now update",
 )
 
 _READ_ONLY_PHRASES: tuple[str, ...] = (
@@ -200,6 +251,17 @@ _READ_ONLY_PHRASES: tuple[str, ...] = (
     "summarize this file",
     "explain this file",
     "review this md file",
+    "check on this",
+    "check this",
+    "check in the",
+    "research",
+    "investigate",
+    "analyze the",
+    "audit the",
+    "investigate the",
+    "find out about",
+    "look into",
+    "examine the",
 )
 
 
@@ -277,31 +339,45 @@ def _resolve_task_mode(
     tokens: list[str],
     contexts: tuple[str, ...],
 ) -> str:
+    """Determine if user wants research-only or code execution.
+
+    Defaults to "read_only" for safety. Only returns "execute" for explicit
+    action phrases or high-confidence execution signals.
+    """
     context_set = set(contexts)
 
+    # Explicit read-only phrases take highest precedence
     if any(phrase in text for phrase in _READ_ONLY_PHRASES):
         return "read_only"
 
+    # Explicit write phrases trigger execution
     if any(phrase in text for phrase in _EXECUTION_PHRASES):
         return "execute"
 
-    if "debugging" in context_set:
-        return "execute"
-
-    if "implementation" in context_set and not (
-        "architecture" in context_set or "explanation" in context_set
-    ):
-        return "execute"
-
+    # Architecture/explanation requests are research-only (unless overwritten by EXECUTION_PHRASES above)
     if "architecture" in context_set or "explanation" in context_set:
         return "read_only"
 
-    imperative_execution_tokens = {"fix", "implement", "edit", "update", "change", "build", "add", "remove", "refactor", "patch", "finish", "complete", "setup"}
-    if any(token in imperative_execution_tokens for token in tokens):
-        return "execute"
-
-    read_only_tokens = {"read", "explain", "describe", "summarize", "overview", "understand"}
+    # Read-only tokens require only one match to trigger
+    read_only_tokens = {"read", "explain", "describe", "summarize", "overview", "understand", "check", "look", "find", "search", "audit", "analyze", "review", "investigate"}
     if any(token in read_only_tokens for token in tokens):
         return "read_only"
 
-    return "general"
+    # Execution tokens require TWO+ matches or strong context to trigger
+    # This prevents false positives from single keywords like "fix" in research contexts
+    imperative_execution_tokens = {"fix", "implement", "edit", "update", "change", "build", "add", "remove", "refactor", "patch", "write", "create", "delete"}
+    execution_matches = sum(1 for token in tokens if token in imperative_execution_tokens)
+    if execution_matches >= 2:
+        return "execute"
+
+    # "Implementation" context alone is not enough - needs explicit write phrase above
+    if "implementation" in context_set:
+        return "read_only"
+
+    # "Debugging" context needs explicit action phrase or strong signal
+    if "debugging" in context_set:
+        # Debugging questions are research, "fix the bug" would trigger EXECUTION_PHRASES
+        return "read_only"
+
+    # Default to safe mode
+    return "read_only"

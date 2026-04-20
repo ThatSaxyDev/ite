@@ -610,10 +610,13 @@ class Agent:
             return False
 
         intent = resolve_response_intent(user_message)
+        # Only force execution for explicit execution requests
         if intent.task_mode == "read_only":
             return False
+        # Only force continuation when user explicitly asks for implementation
         if intent.task_mode == "execute":
             return True
+        # For "general" or unspecified requests, require explicit confirmation
         return False
 
     def _is_transient_post_compaction_error(self, error: str) -> bool:
@@ -835,6 +838,12 @@ class Agent:
         text = (message or "").strip().lower()
         if len(text) < 24:
             return False
+
+        # Use task mode detection instead of fragile pattern matching
+        intent = resolve_response_intent(message)
+        if intent.task_mode == "read_only":
+            return False
+
         trivial_starts = (
             "what is",
             "show me",
@@ -1788,17 +1797,20 @@ class Agent:
                             was_streamed=streamed_visible_text,
                         )
                     )
+                    # Only retry incomplete responses for code changes, not research requests
                     if should_retry_incomplete:
-                        incomplete_response_retries += 1
-                        incomplete_response_prefix = controlled_response_text
-                        session.context_manager.add_system_message(
-                            "The previous assistant response appears incomplete. "
-                            "Continue exactly where you left off, finish the structure, "
-                            "and do not repeat already written content. "
-                            f"Retry reason: {retry_reason}. "
-                            f"Confidence score: {retry_score}."
-                        )
-                        continue
+                        intent = resolve_response_intent(latest_user_text)
+                        if intent.task_mode != "read_only":
+                            incomplete_response_retries += 1
+                            incomplete_response_prefix = controlled_response_text
+                            session.context_manager.add_system_message(
+                                "The previous assistant response appears incomplete. "
+                                "Continue exactly where you left off, finish the structure, "
+                                "and do not repeat already written content. "
+                                f"Retry reason: {retry_reason}. "
+                                f"Confidence score: {retry_score}."
+                            )
+                            continue
                     if execution_progress_made:
                         async for progress_event in self._complete_execution_stage_todo(
                             session,
