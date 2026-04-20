@@ -12,8 +12,11 @@ async def _run_init_investigator(
     ctx: CommandContext,
 ) -> str:
     """Spawn init_investigator via subagent tools and return the AGENTS.md content."""
-    from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool, WaitSubagentTool
     from ite.tools.base import ToolInvocation
+    from ite.tools.builtin.subagent_runtime_tools import (
+        SpawnSubagentTool,
+        WaitSubagentTool,
+    )
 
     subagent_runtime = ctx.agent.session.subagent_runtime
     if subagent_runtime is None:
@@ -63,16 +66,30 @@ async def _run_init_investigator(
         # Update spinner with progress
         if elapsed < 5:
             ctx.tui.change_spinner("Scanning project structure...")
-        elif elapsed < 15:
+        elif elapsed < 12:
             ctx.tui.change_spinner("Analyzing tech stack...")
-        elif elapsed < 30:
+        elif elapsed < 20:
+            ctx.tui.change_spinner("Mapping entry points...")
+        elif elapsed < 28:
             ctx.tui.change_spinner("Discovering code patterns...")
+        elif elapsed < 36:
+            ctx.tui.change_spinner("Extracting conventions...")
+        elif elapsed < 44:
+            ctx.tui.change_spinner("Resolving dependencies...")
+        elif elapsed < 52:
+            ctx.tui.change_spinner("Synthesizing context...")
+        elif elapsed < 60:
+            ctx.tui.change_spinner("Encoding guidelines...")
         else:
-            ctx.tui.change_spinner("Generating AGENTS...")
+            ctx.tui.change_spinner("Generating AGENTS.md...")
 
         # Wait for completion (short poll)
         wait_invocation = ToolInvocation(
-            params={"run_ids": [run_id], "return_when": "all_completed", "timeout_seconds": 2},
+            params={
+                "run_ids": [run_id],
+                "return_when": "all_completed",
+                "timeout_seconds": 2,
+            },
             cwd=cwd,
             call_id=f"init_wait_{id(asyncio.current_task())}",
         )
@@ -86,12 +103,12 @@ async def _run_init_investigator(
         try:
             wait_data = json.loads(wait_result.output or "{}")
             completed_ids = wait_data.get("completed_run_ids", [])
-            
+
             # If no runs completed yet, continue polling
             if not completed_ids:
                 await asyncio.sleep(0.5)
                 continue
-            
+
             runs = wait_data.get("runs", [])
             # Find the completed run
             run_data = None
@@ -99,13 +116,13 @@ async def _run_init_investigator(
                 if run.get("run_id") in completed_ids:
                     run_data = run
                     break
-            
+
             if not run_data:
                 raise ValueError("No matching completed run found")
-            
+
             summary = run_data.get("summary", "")
             status = run_data.get("status", "unknown")
-            
+
             if status == "timeout":
                 raise TimeoutError("Subagent timed out")
             if status == "cancelled":
@@ -116,13 +133,13 @@ async def _run_init_investigator(
             if status != "completed":
                 # Shouldn't happen if in completed_run_ids, but handle anyway
                 raise RuntimeError(f"Subagent ended with unexpected status: {status}")
-            
+
             # The init_investigator returns AGENTS.md content directly
             if not summary:
                 raise RuntimeError("Subagent returned empty response")
-            
+
             return summary.strip()
-            
+
         except (json.JSONDecodeError, ValueError, KeyError) as e:
             raise RuntimeError(f"Invalid wait result: {e}")
 
@@ -130,11 +147,11 @@ async def _run_init_investigator(
 def _extract_agents_md(content: str) -> str:
     """Extract AGENTS.md content from subagent response."""
     content = content.strip()
-    
+
     # If it already starts with a header, use it as-is
     if content.startswith("# AGENTS.md") or content.startswith("# "):
         return content
-    
+
     # Try to extract content from markdown code blocks
     if "```markdown" in content:
         parts = content.split("```markdown")
@@ -153,7 +170,7 @@ def _extract_agents_md(content: str) -> str:
                 else:
                     content = block
                 break
-    
+
     return content
 
 
@@ -167,7 +184,7 @@ def _truncate_agents_md(content: str, max_bytes: int = 32 * 1024 - 500) -> str:
 
     # Find last newline to avoid cutting mid-line
     if "\n" in truncated:
-        truncated = truncated[:truncated.rfind("\n")]
+        truncated = truncated[: truncated.rfind("\n")]
 
     return f"{truncated}\n\n... [truncated for 32KB limit]"
 
@@ -245,6 +262,7 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
     except Exception as e:
         ctx.console.print(f"[error]Error during initialization:[/error] {e}")
         import traceback
+
         ctx.console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise
     finally:

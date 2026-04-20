@@ -1,97 +1,144 @@
+# ite
+
+Based on my investigation of the project, here is the complete AGENTS.md content:
+
 # AGENTS.md
 
 ## Project Overview
 
-**Project:** `ite-agent` (iTE - Interactive Terminal Environment)
+**iTE** - Interactive Terminal Environment
 
-An AI coding agent for the terminal. Users connect their model service and start coding via a TUI interface. Distributed via pipx/uv as `ite-agent`.
+An AI coding agent for your terminal. Connect your model service and start coding.
+
+- **Package:** `ite-agent`
+- **Version:** 0.0.27
+- **Install:** `pipx install ite-agent` or `uv tool install ite-agent`
 
 ## Architecture
 
 ```
-src/ite/                    # Python CLI runtime
-  __init__.py
-  main.py                   # Entry point (click CLI)
-  agent/
-    agent.py                # Core agent logic
-    events.py               # Event system
-    session.py              # Session management
-  client/                   # LLM client abstraction
-  commands/                 # Slash command registry
-  config/                   # Configuration loading
-  context/                  # Context management
-  memory/                   # Memory system
-  prompts/                  # System prompts
-  skills/                   # Agent skills
-  tools/                    # Tool implementations
-  ui/                       # TUI/GUI interfaces
-ite-cloud-api/              # Fastify TypeScript backend
-  src/
-    index.ts                # API entry point
-ite-cloud-web/              # React TypeScript frontend
-  src/
-    App.tsx                 # Web app entry
-landing-site/               # Marketing site
+src/ite/
+├── main.py              # CLI entry point
+├── agent/               # Agent orchestration
+│   ├── agent.py         # Core agent implementation
+│   ├── session.py       # Session management
+│   └── events.py        # Agent event types
+├── client/              # LLM client
+├── cloud/               # Cloud auth/integration
+├── commands/            # Slash commands (/, plan, skills, etc)
+├── config/              # Configuration models
+├── context/             # Context management
+├── git/                 # Git utilities
+├── hooks/               # Custom hooks
+├── memory/              # Memory management (short, long, semantic, episodic)
+├── prompts/             # System prompts
+├── safety/              # Sandbox & approval
+├── skills/              # Extensible skills
+├── tools/               # Built-in tools
+│   ├── base.py
+│   ├── builtin/
+│   │   ├── read_file.py
+│   │   ├── write_file.py
+│   │   ├── edit_file.py
+│   │   ├── apply_patch.py
+│   │   ├── list_dir.py
+│   │   ├── glob.py
+│   │   ├── grep.py
+│   │   ├── shell.py
+│   │   ├── git_tools.py
+│   │   ├── web_search.py
+│   │   ├── web_fetch.py
+│   │   ├── http_tools.py
+│   │   ├── memory.py
+│   │   ├── todo.py
+│   │   └── ...
+│   └── mcp/             # MCP client tools
+├── ui/                  # Three UI modes
+│   ├── tui.py          # Legacy terminal UI
+│   ├── reup/           # Modern default UI
+│   └── gui/            # Desktop GUI
+└── utils/               # Utilities
 ```
 
-- **Entry point:** `src/ite/main.py:main()` (click group)
-- **Version:** 0.0.27
-- **Agent class:** `src/ite/agent/agent.py:Agent`
+**Entry Points:**
+| Mode | Command | Description |
+|------|---------|-------------|
+| Default | `ite` | Modern Reup UI |
+| Legacy | `ite -l` or `ite --legacy` | Original terminal UI |
+| Desktop | `ite -d` or `ite --desktop` | Desktop GUI app |
 
 ## Development Guidelines
 
-**Python Patterns:**
-| Pattern | Convention |
-|---------|------------|
-| Imports | `from __future__ import annotations` |
-| Internal imports | `from ite.module.submodule import Name` |
-| Constants | `UPPER_CASE` (e.g., `PLAN_EXECUTE_PROMPT`) |
-| Classes | `PascalCase` |
-| Functions/vars | `snake_case` |
-| Async | Extensive use of `async/await` |
-
-**TypeScript Patterns:**
-| Pattern | Convention |
-|---------|------------|
-| Imports | ES modules with explicit paths |
-| Types | Strict TypeScript with interfaces |
-
 **Build Commands:**
 
-Python:
-| Command | Usage |
-|---------|-------|
-| Install | `pipx install ite-agent` or `uv tool install ite-agent` |
-| Run | `ite` |
+| Command | Purpose |
+|---------|---------|
+| `python -m build` | Build distribution |
+| `pytest` | Run tests |
+| `ruff check .` | Lint |
+| `mypy src/ite` | Type check |
 
-Cloud API:
-| Command | Script |
-|---------|--------|
-| Install | `npm install` |
-| Dev | `npm run dev` |
-| Migrate | `npm run auth:migrate` |
+**Code Patterns:**
 
-Cloud Web:
-| Command | Script |
-|---------|--------|
-| Install | `npm install` |
-| Dev | `npm run dev` |
+| Convention | Pattern |
+|------------|---------|
+| Imports | `from __future__ import annotations` |
+| Async | Extensive asyncio usage with `async for` generators |
+| Pydantic | All config uses Pydantic BaseModel |
+| Enums | Use `str, Enum` for policies (e.g., ApprovalPolicy) |
+| Type hints | Full typing with `|` union syntax |
+| Constants | UPPER_CASE pattern |
 
-**Testing:**
-- Python tests in `tests/`
-- pytest framework
+**Key Types:**
+
+```python
+# Agent events for streaming responses
+class AgentEventType(Enum):
+    TEXT_DELTA = "text_delta"
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_COMPLETE = "tool_call_complete"
+    CONTEXT_COMPACTED = "context_compacted"
+
+# Tool result pattern
+class ToolResult(BaseModel):
+    success: bool
+    output: str
+    error: str | None = None
+```
+
+**Tool Categories:**
+| Kind | Tools |
+|------|-------|
+| READ | list_dir, glob, grep, read_file, read_pdf, read_image |
+| WRITE | write_file, edit, apply_patch |
+| EXECUTE | shell |
+| META | todos, memory, plan_question, skills |
 
 ## Configuration
 
-- **Python config:** `pyproject.toml` (root)
-- **User config:** `.ite/config.toml`
-- **API env:** `ite-cloud-api/.env.local`
-- **Key dependencies:**
-  - Python: `click`, `rich`, `prompt_toolkit`, `litellm`
-  - API: `fastify`, `better-auth`, `drizzle-orm`, `@libsql/client`
-  - Web: `react`, `react-router-dom`, `vite`, `better-auth`
+**File:** `pyproject.toml`
 
-**Runtime Modes:**
-- Default: Reup TUI (`ite`)
-- Legacy: Terminal wizard (`ite --legacy` / `ite -l`)
-- Desktop: GUI app (`ite --desktop` / `ite -d`)
+**Key Sections:**
+```toml
+[project]
+name = "ite-agent"
+version = "0.0.27"
+dependencies = [
+    "click",
+    "pydantic",
+    "rich",
+    "prompt-toolkit",
+    "fastmcp",
+    "httpx",
+]
+```
+
+**Config Loading:**
+- User config: `~/.ite/config.toml`
+- Project config: `.ite/config.toml`
+- CLI flags override file config
+- Env vars: `API_KEY`, `BASE_URL`, `ITE_CLOUD_AUTH_ENABLED`
+
+**Python Path:** `src/ite`
+
+**Tests:** `tests/` directory, pytest-based
