@@ -22,6 +22,14 @@ iTE runs as a chat interface in your terminal. You prompt, it responds, and toge
 
 ---
 
+## Model Providers
+
+iTE Cloud brings bundled models—no API keys required. A curated selection of high-quality models, managed directly within the platform. [Learn more →](configuration.md#ite-cloud-coming-soon)
+
+Or bring your own: Ollama (local), OpenRouter, OpenAI, or any OpenAI-compatible provider.
+
+---
+
 ## Documentation
 
 - [Installation](installation.md) — Install via pipx

@@ -13,7 +13,7 @@
     {
       "id": "prerequisites",
       "title": "Prerequisites",
-      "content": "- Python 3.11+\n- macOS, Linux, or Windows\n- OpenAI-compatible model provider (local or cloud)\n\niTE uses pipx for installation to keep it isolated from your system Python."
+      "content": "- Python 3.11+\n- macOS, Linux, or Windows\n- A terminal emulator (any works; Terminal.app, Windows Terminal, iTerm2, Alacritty, etc.)\n- API keys for LLM providers (or use iTE Cloud when available)\n\niTE uses pipx for installation to keep it isolated from your system Python."
     },
     {
       "id": "install",
