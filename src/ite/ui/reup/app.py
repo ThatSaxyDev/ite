@@ -377,7 +377,9 @@ class ReupTUIAdapter:
         if not self._spinner_handle:
             return
         # Update pending text and clear lines so spinner shows with new message
-        self._app.start_streaming_command_result_update_pending(self._spinner_handle, message)
+        self._app.start_streaming_command_result_update_pending(
+            self._spinner_handle, message
+        )
 
     def step_spinner(self, message: str) -> None:
         """Commit current step as completed line, start new pending step with spinner.
@@ -392,7 +394,9 @@ class ReupTUIAdapter:
             return
         # Commit current pending as a line, start new pending
         self._app.run_worker(
-            self._app._commit_and_update_streaming_pending(self._spinner_handle, message),
+            self._app._commit_and_update_streaming_pending(
+                self._spinner_handle, message
+            ),
             exclusive=False,
         )
 
@@ -826,9 +830,10 @@ class ReupApp(App):
                 self._set_loading_state("idle", busy=False)
                 return
 
-             # First-run onboarding must only appear after cloud auth is fully verified.
+            # First-run onboarding must only appear after cloud auth is fully verified.
             if self._should_show_onboarding():
-                from ite.cloud.auth import check_cloud_session, _load_cloud_session
+                from ite.cloud.auth import _load_cloud_session, check_cloud_session
+
                 existing = _load_cloud_session()
                 if existing is None:
                     self._cloud_bootstrap_busy = False
@@ -837,7 +842,9 @@ class ReupApp(App):
                     self._set_loading_state("idle", busy=False)
                     return
                 try:
-                    session_state = await asyncio.to_thread(check_cloud_session, existing)
+                    session_state = await asyncio.to_thread(
+                        check_cloud_session, existing
+                    )
                 except CloudConnectionError:
                     # Network error during startup check - don't crash
                     session_state = CloudSessionState.NETWORK_ERROR
@@ -855,7 +862,10 @@ class ReupApp(App):
                     self._set_onboarding_state(True)
                     self._set_loading_state("idle", busy=False)
                     # REMOVED: Timer-based retry - now on-demand only
-                    self.post_notice("Cloud", "Connection delayed. Cloud features will work when available.")
+                    self.post_notice(
+                        "Cloud",
+                        "Connection delayed. Cloud features will work when available.",
+                    )
                     self.query_one("#onboarding-name", Input).focus()
                     return
                 self._set_signed_out_state(False)
@@ -895,8 +905,17 @@ class ReupApp(App):
         if isinstance(syntax_theme, str) and syntax_theme.strip():
             return syntax_theme.strip()
         # Map Textual themes to appropriate Pygments code themes
-        light_themes = {"atom-one-light", "rose-pine-dawn", "solarized-light", "textual-light"}
-        if self.theme in light_themes or getattr(self.current_theme, "dark", not True) is False:
+        light_themes = {
+            "atom-one-light",
+            "rose-pine-dawn",
+            "solarized-light",
+            "textual-light",
+            "catppuccin-latte",
+        }
+        if (
+            self.theme in light_themes
+            or getattr(self.current_theme, "dark", not True) is False
+        ):
             return "default"  # Pygments light theme
         return "monokai"  # Pygments dark theme
 
@@ -2158,7 +2177,9 @@ class ReupApp(App):
         await self.ensure_agent()
         if not self._is_bundled_model():
             self.post_system(
-                "Usage", "Usage tracking is only available for bundled models.", is_error=True
+                "Usage",
+                "Usage tracking is only available for bundled models.",
+                is_error=True,
             )
             return
         summary = get_usage_summary(self.config)
@@ -2474,7 +2495,11 @@ class ReupApp(App):
             self._cloud_auth_busy = False
             self._set_signed_out_state(True)
             self.query_one("#signed-out-status", Static).update(
-                Text(f"Cloud API unreachable: {exc}", style="bold #ffcf92", justify="center")
+                Text(
+                    f"Cloud API unreachable: {exc}",
+                    style="bold #ffcf92",
+                    justify="center",
+                )
             )
             return
         except CloudAuthError as exc:
@@ -6351,7 +6376,14 @@ class ReupApp(App):
         async with self._streaming_cards_lock:
             existing = self._streaming_command_cards.get(command)
             if existing is not None:
-                card, body_widget, scroll_widget, lines, _old_pending_active, _old_pending = existing
+                (
+                    card,
+                    body_widget,
+                    scroll_widget,
+                    lines,
+                    _old_pending_active,
+                    _old_pending,
+                ) = existing
                 self._streaming_command_cards[command] = (
                     card,
                     body_widget,
@@ -6466,7 +6498,14 @@ class ReupApp(App):
         async with self._streaming_cards_lock:
             existing = self._streaming_command_cards.get(command)
             if existing is not None:
-                card, body_widget, scroll_widget, _lines, _pending_active, _old_pending = existing
+                (
+                    card,
+                    body_widget,
+                    scroll_widget,
+                    _lines,
+                    _pending_active,
+                    _old_pending,
+                ) = existing
                 # Clear lines and set new pending text so spinner shows with pending_text
                 self._streaming_command_cards[command] = (
                     card,
@@ -6492,12 +6531,21 @@ class ReupApp(App):
         # Create new if doesn't exist (outside the lock)
         await self.start_streaming_command_result(command, pending_text=pending_text)
 
-    async def _commit_and_update_streaming_pending(self, command: str, pending_text: str | None = None) -> None:
+    async def _commit_and_update_streaming_pending(
+        self, command: str, pending_text: str | None = None
+    ) -> None:
         """Commit current pending as a completed line, start new pending step with spinner."""
         async with self._streaming_cards_lock:
             existing = self._streaming_command_cards.get(command)
             if existing is not None:
-                card, body_widget, scroll_widget, lines, _pending_active, old_pending = existing
+                (
+                    card,
+                    body_widget,
+                    scroll_widget,
+                    lines,
+                    _pending_active,
+                    old_pending,
+                ) = existing
                 # Commit the old pending as a completed line (with checkmark)
                 if old_pending:
                     lines.append(f"✓ {old_pending}")
@@ -6538,7 +6586,9 @@ class ReupApp(App):
             existing = self._streaming_command_cards.get(command)
             if existing is None:
                 return
-            card, body_widget, scroll_widget, lines, _pending_active, pending_text = existing
+            card, body_widget, scroll_widget, lines, _pending_active, pending_text = (
+                existing
+            )
             # Combine accumulated content as the last line
             content = "".join(buffer)
             # Split into lines, keep last partial line as streaming
@@ -6574,7 +6624,9 @@ class ReupApp(App):
         await self._scroll_streaming_card_to_end(scroll_widget)
         await self._pin_activity_indicator_to_end()
 
-    async def _scroll_streaming_card_to_end(self, scroll_widget: VerticalScroll) -> None:
+    async def _scroll_streaming_card_to_end(
+        self, scroll_widget: VerticalScroll
+    ) -> None:
         """Auto-scroll the streaming card to show latest content."""
         try:
             if scroll_widget.is_mounted:
@@ -6582,7 +6634,9 @@ class ReupApp(App):
         except Exception:
             pass
 
-    async def _replace_last_command_result_line(self, command: str, message: str) -> None:
+    async def _replace_last_command_result_line(
+        self, command: str, message: str
+    ) -> None:
         """Replace the most recent line in the streaming command card."""
         text = str(message).strip()
         if not text:
@@ -6594,7 +6648,9 @@ class ReupApp(App):
             await self.start_streaming_command_result(command, pending_text=text)
             return
 
-        card, body_widget, scroll_widget, lines, _pending_active, _pending_text = existing
+        card, body_widget, scroll_widget, lines, _pending_active, _pending_text = (
+            existing
+        )
         if lines:
             # Replace the last line
             lines[-1] = text
@@ -6624,7 +6680,9 @@ class ReupApp(App):
             if existing is None:
                 return
 
-        card, body_widget, scroll_widget, lines, _pending_active, pending_text = existing
+        card, body_widget, scroll_widget, lines, _pending_active, pending_text = (
+            existing
+        )
         lines.append(text)
         if self._looks_like_command_error(text):
             card.add_class("command-error")
@@ -6642,7 +6700,9 @@ class ReupApp(App):
         existing = self._streaming_command_cards.pop(command, None)
         if existing is None:
             return
-        card, body_widget, scroll_widget, lines, _pending_active, _pending_text = existing
+        card, body_widget, scroll_widget, lines, _pending_active, _pending_text = (
+            existing
+        )
         if any(self._looks_like_command_error(line) for line in lines):
             card.add_class("command-error")
         body_widget.update(
