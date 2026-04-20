@@ -206,23 +206,14 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
 
         agents_md_path.write_text(content + "\n", encoding="utf-8")
 
-        ctx.console.print(
-            f"[success]Created AGENTS.md[/success] at {agents_md_path}\n"
-            f"[dim]Analyzed {len(findings['root_files'])} root files, "
-            f"{len(findings['project_files_content'])} project configs, "
-            f"{len(findings['sample_files'])} sample files[/dim]"
+        # Post completion card
+        ctx.tui.post_success_card(
+            "AGENTS.md Created",
+            f"AGENTS.md has been created at {agents_md_path}",
+            f"Analyzed {len(findings['root_files'])} root files, "
+            f"{len(findings['project_files_content'])} configs, "
+            f"{len(findings['sample_files'])} samples"
         )
-
-        ctx.console.print(
-            "\n[grey42]Edit this file to refine instructions for the AI.[/grey42]"
-        )
-
-        # Show a preview of what was generated
-        preview_lines = content.split("\n")[:20]
-        ctx.console.print("\n[cyan]Preview:[/cyan]")
-        ctx.console.print("[dim]" + "\n".join(preview_lines) + "[/dim]")
-        if len(content.split("\n")) > 20:
-            ctx.console.print("[dim]...[/dim]")
 
     except Exception as e:
         ctx.console.print(f"[error]Error during initialization:[/error] {e}")

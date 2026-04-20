@@ -415,6 +415,21 @@ class ReupTUIAdapter:
             self._spinner_handle = None
             self._spinner_lines = []
 
+    def post_success_card(self, title: str, message: str, details: str = "") -> None:
+        """Post a professional success notification card."""
+        from rich.text import Text
+
+        body = Text()
+        body.append(message, style=self._app._style("success"))
+        if details:
+            body.append("\n", style=self._app._style("muted"))
+            body.append(details, style=self._app._style("muted"))
+
+        self._app.run_worker(
+            self._app.add_assistant_card(title, body, css_class="system"),
+            exclusive=False,
+        )
+
 
 @dataclass
 class SessionRunState:
