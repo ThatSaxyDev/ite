@@ -48,16 +48,14 @@ async def _explore_project(ctx: CommandContext) -> dict:
         "sample_files": {},
     }
 
-    # List root directory
-    ctx.tui.change_spinner("Scanning root directory...")
+    # List root directory (fast sync operation)
     try:
         entries = os.listdir(cwd)
         findings["root_files"] = sorted(entries)
-        ctx.tui.change_spinner(f"Found {len(entries)} items in root")
     except Exception as e:
         findings["root_files"] = [f"Error: {e}"]
 
-    # Read key project files
+    # Read key project files (fast sync operation)
     key_files = [
         "README.md", "pyproject.toml", "package.json", "pubspec.yaml",
         "Cargo.toml", "go.mod", "Gemfile", "composer.json", "CMakeLists.txt",
@@ -65,48 +63,36 @@ async def _explore_project(ctx: CommandContext) -> dict:
         "Makefile", "justfile", "tox.ini",
     ]
 
-    found_configs = []
     for filename in key_files:
         filepath = cwd / filename
         try:
             if filepath.is_file():
-                ctx.tui.change_spinner(f"Reading {filename}...")
                 content = filepath.read_text(encoding="utf-8", errors="replace")
                 findings["project_files_content"][filename] = content[:3000]
-                found_configs.append(filename)
         except Exception:
             pass
-    if found_configs:
-        ctx.tui.change_spinner(f"Read {len(found_configs)} config files")
 
-    # Find directories
-    ctx.tui.change_spinner("Mapping directory structure...")
+    # Find directories (fast sync operation)
     try:
         dirs = [d for d in os.listdir(cwd) if (cwd / d).is_dir() and not d.startswith(".")]
         findings["directories"] = sorted(dirs)[:20]
-        ctx.tui.change_spinner(f"Found {len(dirs)} directories")
     except Exception:
         pass
 
-    # Sample source files from common directories
-    ctx.tui.change_spinner("Sampling source files...")
+    # Sample source files from common directories (fast sync operation)
     source_dirs = ["src", "lib", "app", "cmd", "internal", "pkg"]
-    samples_found = 0
     for src_dir in source_dirs:
         src_path = cwd / src_dir
         if src_path.is_dir():
             try:
-                # Walk and find files
                 for root, _dirs, files in os.walk(src_path):
                     for filename in files:
                         filepath = Path(root) / filename
-                        if filepath.stat().st_size < 50000:  # Skip large files
+                        if filepath.stat().st_size < 50000:
                             try:
                                 content = filepath.read_text(encoding="utf-8", errors="replace")
                                 rel_path = str(filepath.relative_to(cwd))
                                 findings["sample_files"][rel_path] = content[:2000]
-                                samples_found += 1
-                                ctx.tui.change_spinner(f"Sampling source files ({samples_found})...")
                                 if len(findings["sample_files"]) >= 5:
                                     break
                             except Exception:
@@ -115,9 +101,8 @@ async def _explore_project(ctx: CommandContext) -> dict:
                         break
             except Exception:
                 pass
-            break  # Only process first found source dir
+            break
 
-    ctx.tui.change_spinner(f"Done - sampled {len(findings['sample_files'])} files")
     return findings
 
 
@@ -129,22 +114,25 @@ async def _generate_agents_md(ctx: CommandContext, findings: dict) -> str:
     findings_text = []
 
     if findings["root_files"]:
-        findings_text.append("## Root Directory Files")
-        findings_text.append("\n".join(findings["root_files"]))
+        findings_text.append("## Root Directory Files\n```")
+        findings_text.append("\n".join(findings["root_files"][::20]))
+        findings_text.append("```")
 
     if findings["project_files_content"]:
-        findings_text.append("\n## Key Project Files")
         for filename, content in findings["project_files_content"].items():
-            findings_text.append(f"\n### {filename}\n```\n{content[:3000]}\n```")
+            findings_text.append(f"\n## {filename}\n```")
+            findings_text.append(content[:2000])
+            findings_text.append("```")
 
     if findings["directories"]:
         findings_text.append("\n## Directory Structure")
         findings_text.append("\n".join(findings["directories"]))
 
     if findings["sample_files"]:
-        findings_text.append("\n## Sample Source Files")
         for filepath, content in findings["sample_files"].items():
-            findings_text.append(f"\n### {filepath}\n```\n{content[:2000]}\n```")
+            findings_text.append(f"\n## {filepath}\n```")
+            findings_text.append(content[:1500])
+            findings_text.append("```")
 
     full_prompt = (
         f"{INIT_ANALYSIS_PROMPT}\n\n---\n\n## Project Analysis Results\n\n"
@@ -160,6 +148,8 @@ async def _generate_agents_md(ctx: CommandContext, findings: dict) -> str:
     ):
         if event.type == StreamEventType.TEXT_DELTA and event.text_delta:
             if event.text_delta.content:
+                # Stream the content directly to the card
+                ctx.tui.stream_content(event.text_delta.content)
                 response_parts.append(event.text_delta.content)
 
     return "".join(response_parts).strip()
@@ -198,10 +188,10 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
     ctx.tui.start_spinner("/init", "Analyzing project")
 
     try:
-        # Phase 1: Explore using tools
+        # Phase 1: Explore using tools (fast synchronous fs operations)
         findings = await _explore_project(ctx)
 
-        # Phase 2: Generate content via LLM
+        # Phase 2: Generate content via LLM (this streams content live)
         ctx.tui.change_spinner("Generating AGENTS.md")
         content = await _generate_agents_md(ctx, findings)
 

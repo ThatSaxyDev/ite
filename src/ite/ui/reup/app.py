@@ -379,6 +379,35 @@ class ReupTUIAdapter:
         # Update pending text and clear lines so spinner shows with new message
         self._app.start_streaming_command_result_update_pending(self._spinner_handle, message)
 
+    def step_spinner(self, message: str) -> None:
+        """Commit current step as completed line, start new pending step with spinner.
+
+        Unlike change_spinner() which replaces the current line, step_spinner()
+        appends the current pending message as a completed line and starts a
+        new pending step. This creates a progress trail like subagents show.
+        """
+        if not self._spinner_handle:
+            # No active spinner, just start one
+            self.start_spinner(self._spinner_handle or "/init", message)
+            return
+        # Commit current pending as a line, start new pending
+        self._app.run_worker(
+            self._app._commit_and_update_streaming_pending(self._spinner_handle, message),
+            exclusive=False,
+        )
+
+    def stream_content(self, chunk: str) -> None:
+        """Stream content into the card body (like LLM token streaming).
+
+        This appends text incrementally to show live generation progress.
+        """
+        if not self._spinner_handle:
+            return
+        self._app.run_worker(
+            self._app._append_streaming_content(self._spinner_handle, chunk),
+            exclusive=False,
+        )
+
     def stop_spinner(self) -> None:
         """Finalize spinner card."""
         if self._spinner_handle:
@@ -6428,6 +6457,84 @@ class ReupApp(App):
         # Create new if doesn't exist (outside the lock)
         await self.start_streaming_command_result(command, pending_text=pending_text)
 
+    async def _commit_and_update_streaming_pending(self, command: str, pending_text: str | None = None) -> None:
+        """Commit current pending as a completed line, start new pending step with spinner."""
+        async with self._streaming_cards_lock:
+            existing = self._streaming_command_cards.get(command)
+            if existing is not None:
+                card, body_widget, lines, _pending_active, old_pending = existing
+                # Commit the old pending as a completed line (with checkmark)
+                if old_pending:
+                    lines.append(f"✓ {old_pending}")
+                # Start new pending
+                self._streaming_command_cards[command] = (
+                    card,
+                    body_widget,
+                    lines,
+                    True,
+                    pending_text,
+                )
+                body_widget.update(
+                    self._build_streaming_command_renderable(
+                        lines,
+                        pending_active=True,
+                        pending_text=pending_text,
+                        spinner_index=self._top_spinner_index,
+                    )
+                )
+                await self._pin_activity_indicator_to_end()
+            else:
+                # Fall through to create new card outside the lock
+                pass
+        # Create new if doesn't exist (outside the lock)
+        await self.start_streaming_command_result(command, pending_text=pending_text)
+
+    async def _append_streaming_content(self, command: str, chunk: str) -> None:
+        """Append streaming content to the card body (for live LLM tokens)."""
+        # Accumulate content in a separate buffer keyed by command
+        attr_name = f"_streaming_content_buffer_{command.replace('/', '_')}"
+        if not hasattr(self, attr_name):
+            setattr(self, attr_name, [])
+        buffer: list[str] = getattr(self, attr_name)
+        buffer.append(chunk)
+
+        async with self._streaming_cards_lock:
+            existing = self._streaming_command_cards.get(command)
+            if existing is None:
+                return
+            card, body_widget, lines, _pending_active, pending_text = existing
+            # Combine accumulated content as the last line
+            content = "".join(buffer)
+            # Split into lines, keep last partial line as streaming
+            content_lines = content.split("\n")
+            # Build up lines list: previous committed lines + current streaming lines
+            if len(content_lines) > 1:
+                # Commit completed lines (all but last)
+                lines.extend(content_lines[:-1])
+                # Keep last partial in buffer
+                buffer[:] = [content_lines[-1]]
+            # Update display with accumulated lines
+            self._streaming_command_cards[command] = (
+                card,
+                body_widget,
+                lines,
+                True,  # Still pending
+                pending_text,
+            )
+            # Build renderable showing lines + streaming buffer
+            display_lines = lines.copy()
+            if buffer and buffer[0]:
+                display_lines.append(buffer[0])  # Current streaming line
+            body_widget.update(
+                self._build_streaming_command_renderable(
+                    display_lines,
+                    pending_active=True,
+                    pending_text=pending_text,
+                    spinner_index=self._top_spinner_index,
+                )
+            )
+        await self._pin_activity_indicator_to_end()
+
     async def _replace_last_command_result_line(self, command: str, message: str) -> None:
         """Replace the most recent line in the streaming command card."""
         text = str(message).strip()
@@ -6533,8 +6640,6 @@ class ReupApp(App):
         spinner_index: int = 0,
     ) -> Group:
         styles = self._render_styles()
-        styles = self._render_styles()
-        styles = self._render_styles()
         blocks: list[Any] = []
         show_pending_row = pending_active and not lines
         if show_pending_row:
@@ -6548,19 +6653,21 @@ class ReupApp(App):
             blocks.append(status)
         if lines:
             if pending_active:
-                first_line = Text()
-                first_line.append(
-                    f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
-                    style=f"bold {self._style('primary')}",
-                )
-                first_line.append(lines[0], style=self._style("fg"))
-                blocks.append(first_line)
+                # All lines except last are completed, last has spinner
                 if len(lines) > 1:
                     blocks.extend(
                         self._build_command_result_renderable(
-                            "\n".join(lines[1:])
+                            "\n".join(lines[:-1])
                         ).renderables
                     )
+                # Last line gets the spinner (content being streamed)
+                last_line = Text()
+                last_line.append(
+                    f"{self._top_spinner_frames[spinner_index % len(self._top_spinner_frames)]} ",
+                    style=f"bold {self._style('primary')}",
+                )
+                last_line.append(lines[-1], style=self._style("fg"))
+                blocks.append(last_line)
             else:
                 blocks.extend(
                     self._build_command_result_renderable("\n".join(lines)).renderables
