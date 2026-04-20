@@ -6339,8 +6339,8 @@ class ReupApp(App):
                 await self._pin_activity_indicator_to_end()
                 return
 
-            body_widget = Static(classes="card-body command-body")
-            body_widget.update(
+            body_static = Static(classes="card-body command-body")
+            body_static.update(
                 self._build_streaming_command_renderable(
                     [],
                     pending_active=True,
@@ -6348,6 +6348,7 @@ class ReupApp(App):
                     spinner_index=self._top_spinner_index,
                 )
             )
+            body_widget = VerticalScroll(body_static, classes="command-card-scroll")
             card = Container(
                 self._build_command_title_widget(command),
                 body_widget,
@@ -6357,7 +6358,7 @@ class ReupApp(App):
             await conversation.mount(card)
             self._streaming_command_cards[command] = (
                 card,
-                body_widget,
+                body_static,  # Store the Static widget, not the VerticalScroll
                 [],
                 True,
                 pending_text,

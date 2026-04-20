@@ -1241,6 +1241,14 @@ Screen {
     overflow-y: auto;
 }
 
+/* Streaming command card scrollable body */
+.command-card-scroll {
+    height: auto;
+    max-height: 20;
+    min-height: 4;
+    overflow-y: auto;
+}
+
 .shell-card-body {
     color: $foreground;
 }
