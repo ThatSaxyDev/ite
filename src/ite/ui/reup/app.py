@@ -515,7 +515,7 @@ class ReupApp(App):
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
         self._streaming_command_cards: dict[
-            str, tuple[Container, Static, list[str], bool, str | None]
+            str, tuple[Container, Static, VerticalScroll, list[str], bool, str | None]
         ] = {}
         # Lock to prevent race conditions on streaming card operations
         self._streaming_cards_lock = asyncio.Lock()
@@ -3645,7 +3645,7 @@ class ReupApp(App):
     def _tick_top_indicator(self) -> None:
         has_pending_command_spinner = any(
             pending_active
-            for _card, _body_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
+            for _card, _body_widget, _scroll_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
         )
         if (
             not self._top_busy
@@ -3679,7 +3679,7 @@ class ReupApp(App):
             pending_text = self._render_aside_pending_text()
             for widget in list(self._aside_pending_widgets.values()):
                 widget.update(pending_text)
-        for _card, body_widget, lines, pending_active, pending_text in list(
+        for _card, body_widget, _scroll, lines, pending_active, pending_text in list(
             self._streaming_command_cards.values()
         ):
             if pending_active:
@@ -4969,8 +4969,8 @@ class ReupApp(App):
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
-        live_stream_command = (
-            command == "/mcp" and bool(args) and args[0].lower() == "start"
+        live_stream_command = command in {"/mcp", "/init"} and (
+            not args or args[0].lower() != "status"
         )
         output = (
             StreamingCommandOutput(
@@ -6320,10 +6320,11 @@ class ReupApp(App):
         async with self._streaming_cards_lock:
             existing = self._streaming_command_cards.get(command)
             if existing is not None:
-                card, body_widget, lines, _old_pending_active, _old_pending = existing
+                card, body_widget, scroll_widget, lines, _old_pending_active, _old_pending = existing
                 self._streaming_command_cards[command] = (
                     card,
                     body_widget,
+                    scroll_widget,
                     lines,
                     True,
                     pending_text,
@@ -6359,6 +6360,7 @@ class ReupApp(App):
             self._streaming_command_cards[command] = (
                 card,
                 body_static,  # Store the Static widget, not the VerticalScroll
+                body_widget,  # Also store the VerticalScroll for auto-scrolling
                 [],
                 True,
                 pending_text,
@@ -6433,11 +6435,12 @@ class ReupApp(App):
         async with self._streaming_cards_lock:
             existing = self._streaming_command_cards.get(command)
             if existing is not None:
-                card, body_widget, _lines, _pending_active, _old_pending = existing
+                card, body_widget, scroll_widget, _lines, _pending_active, _old_pending = existing
                 # Clear lines and set new pending text so spinner shows with pending_text
                 self._streaming_command_cards[command] = (
                     card,
                     body_widget,
+                    scroll_widget,
                     [],  # Clear lines - this causes pending_text to show
                     True,
                     pending_text,
@@ -6463,7 +6466,7 @@ class ReupApp(App):
         async with self._streaming_cards_lock:
             existing = self._streaming_command_cards.get(command)
             if existing is not None:
-                card, body_widget, lines, _pending_active, old_pending = existing
+                card, body_widget, scroll_widget, lines, _pending_active, old_pending = existing
                 # Commit the old pending as a completed line (with checkmark)
                 if old_pending:
                     lines.append(f"✓ {old_pending}")
@@ -6471,6 +6474,7 @@ class ReupApp(App):
                 self._streaming_command_cards[command] = (
                     card,
                     body_widget,
+                    scroll_widget,
                     lines,
                     True,
                     pending_text,
@@ -6503,7 +6507,7 @@ class ReupApp(App):
             existing = self._streaming_command_cards.get(command)
             if existing is None:
                 return
-            card, body_widget, lines, _pending_active, pending_text = existing
+            card, body_widget, scroll_widget, lines, _pending_active, pending_text = existing
             # Combine accumulated content as the last line
             content = "".join(buffer)
             # Split into lines, keep last partial line as streaming
@@ -6518,6 +6522,7 @@ class ReupApp(App):
             self._streaming_command_cards[command] = (
                 card,
                 body_widget,
+                scroll_widget,
                 lines,
                 True,  # Still pending
                 pending_text,
@@ -6534,7 +6539,17 @@ class ReupApp(App):
                     spinner_index=self._top_spinner_index,
                 )
             )
+        # Auto-scroll to follow the stream
+        await self._scroll_streaming_card_to_end(scroll_widget)
         await self._pin_activity_indicator_to_end()
+
+    async def _scroll_streaming_card_to_end(self, scroll_widget: VerticalScroll) -> None:
+        """Auto-scroll the streaming card to show latest content."""
+        try:
+            if scroll_widget.is_mounted:
+                scroll_widget.scroll_end(animate=False)
+        except Exception:
+            pass
 
     async def _replace_last_command_result_line(self, command: str, message: str) -> None:
         """Replace the most recent line in the streaming command card."""
@@ -6548,7 +6563,7 @@ class ReupApp(App):
             await self.start_streaming_command_result(command, pending_text=text)
             return
 
-        card, body_widget, lines, _pending_active, _pending_text = existing
+        card, body_widget, scroll_widget, lines, _pending_active, _pending_text = existing
         if lines:
             # Replace the last line
             lines[-1] = text
@@ -6578,7 +6593,7 @@ class ReupApp(App):
             if existing is None:
                 return
 
-        card, body_widget, lines, _pending_active, pending_text = existing
+        card, body_widget, scroll_widget, lines, _pending_active, pending_text = existing
         lines.append(text)
         if self._looks_like_command_error(text):
             card.add_class("command-error")
@@ -6596,7 +6611,7 @@ class ReupApp(App):
         existing = self._streaming_command_cards.pop(command, None)
         if existing is None:
             return
-        card, body_widget, lines, _pending_active, _pending_text = existing
+        card, body_widget, scroll_widget, lines, _pending_active, _pending_text = existing
         if any(self._looks_like_command_error(line) for line in lines):
             card.add_class("command-error")
         body_widget.update(
