@@ -5,8 +5,10 @@ from unittest.mock import patch
 import httpx
 
 from ite.config.config import Config
+from ite.config.config import DEFAULT_API_KEY, DEFAULT_BASE_URL, ModelConfig
 from ite.ui.reup.modals import (
     RECOMMENDED_OLLAMA_MODELS,
+    SETUP_PROVIDER_OLLAMA,
     SETUP_MODEL_OTHER,
     SETUP_MODEL_SELECT,
     SetupModal,
@@ -204,6 +206,24 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(api_key_label.display)
         self.assertFalse(api_key_row.display)
+
+    def test_ollama_custom_model_is_stored_as_manual_and_defaults_select_to_recommended(self) -> None:
+        modal = SetupModal(
+            Config(
+                base_url=DEFAULT_BASE_URL,
+                api_key=DEFAULT_API_KEY,
+                model=ModelConfig(name="custom-model"),
+            )
+        )
+
+        self.assertEqual(
+            modal._provider_selected_model[SETUP_PROVIDER_OLLAMA],
+            RECOMMENDED_OLLAMA_MODELS[0],
+        )
+        self.assertEqual(
+            modal._provider_manual_model[SETUP_PROVIDER_OLLAMA],
+            "custom-model",
+        )
 
     def test_provider_visibility_defaults_ollama_to_recommended_model(self) -> None:
         modal = SetupModal(Config(model_name="custom-model"))

@@ -1961,6 +1961,19 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         provider = self._infer_provider()
         base_url, api_key, model_name = self._provider_defaults(provider)
         provider_copy, provider_help, model_help = self._provider_copy(provider)
+        if provider == SETUP_PROVIDER_OLLAMA:
+            model_options = [(model, model) for model in RECOMMENDED_OLLAMA_MODELS]
+            model_value = (
+                model_name
+                if model_name in RECOMMENDED_OLLAMA_MODELS
+                else RECOMMENDED_OLLAMA_MODELS[0]
+            )
+        elif provider == SETUP_PROVIDER_OPENROUTER:
+            model_options = [("Select a model", SETUP_MODEL_SELECT)]
+            model_value = SETUP_MODEL_SELECT
+        else:
+            model_options = [(model_name, model_name)] if model_name else []
+            model_value = model_name
         with Container(classes="modal setup-modal"):
             yield Label("Setup iTE", classes="modal-title setup-title")
             yield Static(
@@ -2003,8 +2016,8 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             yield Static("Model", classes="setup-label", id="setup-model-label")
             with Horizontal(classes="setup-model-row", id="setup-model-select-row"):
                 yield Select(
-                    [(model_name, model_name), ("Other", SETUP_MODEL_OTHER)],
-                    value=model_name if model_name in RECOMMENDED_OLLAMA_MODELS else RECOMMENDED_OLLAMA_MODELS[0],
+                    model_options + [("Other", SETUP_MODEL_OTHER)],
+                    value=model_value,
                     allow_blank=False,
                     id="setup-model-select",
                 )
