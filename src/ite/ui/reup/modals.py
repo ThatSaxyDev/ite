@@ -1224,14 +1224,15 @@ class UsageSummaryModal(ModalScreen[None]):
         if isinstance(app, ReupApp):
             styles = app._render_styles()
             fg = styles.get("fg", "#f3f4f6")
-            muted = styles.get("muted", "#34363a")
+            # Use border color for empty portion - more visible than muted
+            empty_color = styles.get("border", "#7d8591")
         else:
             fg = "#f3f4f6"
-            muted = "#34363a"
+            empty_color = "#7d8591"
         if filled:
             bar.append("━" * filled, style=f"bold {fg}")
         if empty:
-            bar.append("━" * empty, style=muted)
+            bar.append("━" * empty, style=empty_color)
         return bar
 
     def _build_renderable(self) -> Group:
@@ -1303,14 +1304,15 @@ class ContextSummaryModal(ModalScreen[None]):
         if isinstance(app, ReupApp):
             styles = app._render_styles()
             fg = styles.get("fg", "#f3f4f6")
-            muted = styles.get("muted", "#34363a")
+            # Use border color for empty portion - more visible than muted
+            empty_color = styles.get("border", "#7d8591")
         else:
             fg = "#f3f4f6"
-            muted = "#34363a"
+            empty_color = "#7d8591"
         if filled:
             bar.append("━" * filled, style=f"bold {fg}")
         if empty:
-            bar.append("━" * empty, style=muted)
+            bar.append("━" * empty, style=empty_color)
         return bar
 
     @staticmethod

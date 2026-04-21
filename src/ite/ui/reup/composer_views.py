@@ -145,12 +145,13 @@ def composer_meta_text(
             min(context_meter_width, round((context_used_percent / 100) * context_meter_width)),
         )
     context_empty = context_meter_width - context_filled
+    # Use border color for empty bar for visibility in both themes
+    border = theme.get("border", "#7d8591")
     if context_filled:
         text.append("━" * context_filled, style=f"bold {primary}")
         cell_pos += context_filled
     if context_empty:
-        # Use muted instead of disabled for better visibility
-        text.append("━" * context_empty, style=muted)
+        text.append("━" * context_empty, style=border)
         cell_pos += context_empty
     context_end = cell_pos
     text.append(spacer)
