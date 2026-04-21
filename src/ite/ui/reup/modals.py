@@ -5,7 +5,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import httpx
@@ -1623,7 +1623,15 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
     def _refresh_status(self) -> None:
         status = self.query_one("#attach-status", Static)
         count = len(self._selected_paths)
-        tone = "#4edea3" if count <= MAX_ATTACHMENTS else "#ffb95f"
+        # Use theme-aware colors via app
+        app = self.app
+        # Local import to avoid circular dependency
+        from ite.ui.reup.app import ReupApp
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            tone = styles.get("success", "#4edea3") if count <= MAX_ATTACHMENTS else styles.get("warning", "#ffb95f")
+        else:
+            tone = "#4edea3" if count <= MAX_ATTACHMENTS else "#ffb95f"
         summary = self._selection_summary()
         status.update(
             Text(
@@ -1634,16 +1642,25 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
 
     def _refresh_preview(self) -> None:
         preview = self.query_one("#attach-preview", Static)
+        # Use theme-aware muted color via app
+        app = self.app
+        # Local import to avoid circular dependency
+        from ite.ui.reup.app import ReupApp
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            muted = styles.get("muted", "#8c97ab")
+        else:
+            muted = "#8c97ab"
         if not self._highlighted_path:
             preview.update(
-                Text("Navigate the tree, press space to select files.", style="#8c97ab")
+                Text("Navigate the tree, press space to select files.", style=muted)
             )
             return
         path = Path(self._highlighted_path)
         kind = "directory" if path.is_dir() else "file"
         selected = self._path_key(path) in self._selected_paths
         status = "selected" if selected else "not selected"
-        preview.update(Text(f"{path}  •  {kind}  •  {status}", style="#8c97ab"))
+        preview.update(Text(f"{path}  •  {kind}  •  {status}", style=muted))
 
     def _current_tree_path(self) -> Path | None:
         tree = self.query_one("#attachment-tree", self.AttachDirectoryTree)

@@ -532,6 +532,7 @@ class ReupApp(App):
         self._tool_name_by_call_id: dict[str, str] = {}
         self._tool_completion_state: dict[str, dict[str, Any]] = {}
         self._assistant_card_rich_states: dict[str, dict[str, Any]] = {}  # Track cards that need re-render on theme change
+        self._change_card_states: dict[int, dict[str, Any]] = {}  # Track change cards by message index for theme re-rendering
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
@@ -996,8 +997,26 @@ class ReupApp(App):
                 except Exception:
                     pass
 
-            # Re-render change cards - these are harder, skip for now
-            # Change cards require the original change_set which we don't store
+            # Re-render change cards
+            if child.has_class("change"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    # Find stored state for this change card
+                    card_index = conversation.children.index(child)
+                    state = self._change_card_states.get(card_index)
+                    if state:
+                        from ite.ui.reup.change_views import build_change_card_body
+                        new_body = build_change_card_body(
+                            state["change_set"],
+                            cwd=self.config.cwd,
+                            verb=state["verb"],
+                            footer=state["footer"],
+                            mode=state["mode"],
+                            is_light=is_light,
+                        )
+                        body_widget.update(new_body)
+                except Exception:
+                    pass
 
     async def _rerender_change_review_for_theme(self) -> None:
         """Re-render change review panel when theme changes."""

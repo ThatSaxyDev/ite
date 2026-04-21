@@ -2268,18 +2268,18 @@ AttachPickerModal #attach-go:hover {
 
 AttachPickerModal #attachment-tree {
     height: 1fr;
-    background: #151618;
-    color: #edf1f7;
+    background: $surface;
+    color: $foreground;
     padding: 0 1;
 }
 
 AttachPickerModal #attachment-tree:focus {
     border: none;
-    background: #17191c;
+    background: $surface-darken-1;
 }
 
 AttachPickerModal #attach-preview {
-    color: #8c97ab;
+    color: $foreground-muted;
     margin-top: 1;
 }
 
