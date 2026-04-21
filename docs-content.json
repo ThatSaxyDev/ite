@@ -13,7 +13,7 @@
     {
       "id": "prerequisites",
       "title": "Prerequisites",
-      "content": "- Python 3.11+\n- macOS, Linux, or Windows\n- A terminal emulator (any works; Terminal.app, Windows Terminal, iTerm2, Alacritty, etc.)\n- API keys for LLM providers (or use iTE Cloud when available)\n\niTE uses pipx for installation to keep it isolated from your system Python."
+      "content": "- Python 3.11+\n- macOS or Windows\n- A terminal emulator (any works; Terminal.app, iTerm2, Windows Terminal, Alacritty, etc.)\n- API keys for LLM providers (or use iTE Cloud when available)\n\niTE uses pipx for installation to keep it isolated from your system Python."
     },
     {
       "id": "install",
@@ -23,7 +23,6 @@
           "name": "pipx (recommended)",
           "platforms": [
             "macOS",
-            "Linux",
             "Windows"
           ],
           "command": "pipx install ite-agent"
@@ -32,7 +31,6 @@
           "name": "uv",
           "platforms": [
             "macOS",
-            "Linux",
             "Windows"
           ],
           "command": "uv tool install ite-agent"

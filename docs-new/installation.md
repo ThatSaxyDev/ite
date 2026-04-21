@@ -3,13 +3,12 @@
 **Prerequisites:**
 
 - Python 3.11+
-- macOS, Linux, or Windows
+- macOS or Windows
 - A terminal emulator
 
 **Supported terminals:**
 
 - **macOS:** Terminal.app, iTerm2, Ghostty, Kitty, Alacritty, WezTerm
-- **Linux:** GNOME Terminal, Konsole, Ghostty, Kitty, Alacritty, WezTerm
 - **Windows:** Windows Terminal, PowerShell, CMD
 
 **Note:** Terminal.app, Windows Terminal, and other default terminals work perfectly fine. You don't need a specific terminal.
