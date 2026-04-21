@@ -1822,9 +1822,9 @@ ThemePickerModal .theme-picker-modal {
 
 ApprovalPickerModal .approval-picker-modal {
     width: 96;
-    height: 32;
+    height: 20;
     max-height: 86%;
-    min-height: 24;
+    min-height: 14;
     border: heavy $border;
     background: $surface;
     padding: 1 2;
