@@ -5224,6 +5224,7 @@ class ReupApp(App):
             verb="Reverted",
             footer="Run /redo to reapply.",
             mode="undone",
+            is_light=self._prefer_terminal_safe_source_rendering(),
         )
         await self.add_assistant_card("Undid changes", body, css_class="change")
         await self._open_change_review_panel(
@@ -5249,6 +5250,7 @@ class ReupApp(App):
             verb="Reapplied",
             footer="Run /undo to revert again.",
             mode="redone",
+            is_light=self._prefer_terminal_safe_source_rendering(),
         )
         await self.add_assistant_card("Reapplied changes", body, css_class="change")
         await self._open_change_review_panel(
@@ -5979,6 +5981,7 @@ class ReupApp(App):
             verb="Changed",
             footer="Run /undo to revert.",
             mode="changed",
+            is_light=self._prefer_terminal_safe_source_rendering(),
         )
         await self.add_assistant_card("Changed", body, css_class="change")
         if self._change_review_visible:

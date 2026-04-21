@@ -8,26 +8,45 @@ from rich.text import Text
 from ite.agent.change_history import change_entries_with_stats
 
 
-def change_entry_label(diff: Any, *, mode: str) -> tuple[str, str]:
+def change_entry_label(diff: Any, *, mode: str, is_light: bool = False) -> tuple[str, str]:
+    """Return (label, color) for a change entry, adapting to theme."""
+    # Theme-aware colors
+    if is_light:
+        # Darker colors for light backgrounds
+        created = "#2c7a55"
+        deleted = "#9a6415"
+        updated = "#38506a"
+        restored = "#2c7a55"
+        reapplied = "#38506a"
+        reverted = "#38506a"
+    else:
+        # Original colors for dark backgrounds
+        created = "#4edea3"
+        deleted = "#ffb95f"
+        updated = "#b7c8e1"
+        restored = "#4edea3"
+        reapplied = "#b7c8e1"
+        reverted = "#b7c8e1"
+
     if mode == "undone":
         if getattr(diff, "is_new_file", False) and not getattr(diff, "is_deletion", False):
-            return "deleted", "#ffb95f"
+            return "deleted", deleted
         if getattr(diff, "is_deletion", False):
-            return "restored", "#4edea3"
-        return "reverted", "#b7c8e1"
+            return "restored", restored
+        return "reverted", reverted
 
     if mode == "redone":
         if getattr(diff, "is_deletion", False):
-            return "deleted", "#ffb95f"
+            return "deleted", deleted
         if getattr(diff, "is_new_file", False) and not getattr(diff, "is_deletion", False):
-            return "created", "#4edea3"
-        return "reapplied", "#b7c8e1"
+            return "created", created
+        return "reapplied", reapplied
 
     if getattr(diff, "is_deletion", False):
-        return "deleted", "#ffb95f"
+        return "deleted", deleted
     if getattr(diff, "is_new_file", False):
-        return "created", "#4edea3"
-    return "updated", "#b7c8e1"
+        return "created", created
+    return "updated", updated
 
 
 def build_change_card_body(
@@ -37,6 +56,7 @@ def build_change_card_body(
     verb: str,
     footer: str,
     mode: str,
+    is_light: bool = False,
 ) -> Text:
     diffs = list(getattr(change_set, "changes", []) or [])
     entries, _extra = change_entries_with_stats(
@@ -47,21 +67,37 @@ def build_change_card_body(
     count = len(diffs)
     files_text = f"{count} file" if count == 1 else f"{count} files"
 
+    # Theme-aware colors
+    if is_light:
+        fg = "#253243"
+        muted = "#51657d"
+        dim = "#6b7b8e"
+        bullet = "#7d8591"
+        additions = "#2c7a55"
+        deletions = "#9a6415"
+    else:
+        fg = "#edf1f7"
+        muted = "#d7deea"
+        dim = "#8c93a1"
+        bullet = "#7d8591"
+        additions = "#4edea3"
+        deletions = "#ffb95f"
+
     body = Text()
-    for (name, additions, deletions), diff in zip(entries, diffs[: len(entries)], strict=False):
-        action_label, action_color = change_entry_label(diff, mode=mode)
-        body.append("• ", style="#7d8591")
-        body.append(name, style="bold #edf1f7")
+    for (name, file_additions, file_deletions), diff in zip(entries, diffs[: len(entries)], strict=False):
+        action_label, action_color = change_entry_label(diff, mode=mode, is_light=is_light)
+        body.append("• ", style=bullet)
+        body.append(name, style=f"bold {fg}")
         body.append(f"  {action_label}", style=f"bold {action_color}")
-        if mode == "changed" and (additions or deletions):
-            if additions:
-                body.append(f"  +{additions}", style="bold #4edea3")
-            if deletions:
-                body.append(f"  -{deletions}", style="bold #ffb95f")
+        if mode == "changed" and (file_additions or file_deletions):
+            if file_additions:
+                body.append(f"  +{file_additions}", style=f"bold {additions}")
+            if file_deletions:
+                body.append(f"  -{file_deletions}", style=f"bold {deletions}")
         body.append("\n")
     if entries:
         body.append("\n")
-    body.append(f"{verb} {files_text}.", style="#c6c6cd")
+    body.append(f"{verb} {files_text}.", style=muted)
     body.append("\n")
-    body.append(footer, style="#7d8591")
+    body.append(footer, style=dim)
     return body
