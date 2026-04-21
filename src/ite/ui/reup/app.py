@@ -999,6 +999,17 @@ class ReupApp(App):
             # Re-render change cards - these are harder, skip for now
             # Change cards require the original change_set which we don't store
 
+    async def _rerender_change_review_for_theme(self) -> None:
+        """Re-render change review panel when theme changes."""
+        if not self._change_review_visible or not self._change_review_change_set:
+            return
+        tree = self.query_one("#change-review-tree", ChangedFilesTree)
+        # Update tree styles
+        tree._styles = self._render_styles()
+        # Re-populate with current selection
+        current_selection = self._change_review_selected_rel_path
+        await self._populate_change_review_panel()
+
     def watch_theme(self, _old_theme: str, _new_theme: str) -> None:
         self.refresh_header()
         self._refresh_empty_state()
@@ -1025,6 +1036,11 @@ class ReupApp(App):
         self.run_worker(
             self._rerender_assistant_cards_for_theme(), exclusive=False
         )
+        # Re-render change review panel if visible
+        if self._change_review_visible:
+            self.run_worker(
+                self._rerender_change_review_for_theme(), exclusive=False
+            )
 
     async def _rerender_completed_tool_cards_for_theme(self) -> None:
         for call_id, state in list(self._tool_completion_state.items()):
@@ -3003,11 +3019,11 @@ class ReupApp(App):
         rendered = Text(no_wrap=True)
         old_lineno = 0
         new_lineno = 0
-        gutter_style = "#7d8591"
+        gutter_style = self._style("muted")
         context_style = self._style("fg")
-        add_style = "#4edea3"
-        del_style = "#ffb95f"
-        hunk_style = "#b7c8e1"
+        add_style = self._style("success")
+        del_style = self._style("warning")
+        hunk_style = self._style("primary")
 
         def append_line(
             old_label: str,
