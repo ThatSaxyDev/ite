@@ -1819,6 +1819,17 @@ ThemePickerModal .theme-picker-modal {
     overflow: hidden;
 }
 
+ApprovalPickerModal .approval-picker-modal {
+    width: 96;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
 UsageSummaryModal .modal {
     width: 108;
     height: 24;
@@ -1876,6 +1887,7 @@ SessionResumeModal .modal-list,
 BranchPickerModal .modal-list,
 ModelPickerModal .modal-list,
 ThemePickerModal .modal-list,
+ApprovalPickerModal .modal-list,
 ActivityModal .modal-list,
 AttachPickerModal .modal-list {
     height: 1fr;
@@ -1893,6 +1905,7 @@ SessionResumeModal .modal-title,
 BranchPickerModal .modal-title,
 ModelPickerModal .modal-title,
 ThemePickerModal .modal-title,
+ApprovalPickerModal .modal-title,
 UsageSummaryModal .modal-title,
 ContextSummaryModal .modal-title,
 ActivityModal .modal-title,
@@ -1910,6 +1923,7 @@ SessionResumeModal .modal-body,
 BranchPickerModal .modal-body,
 ModelPickerModal .modal-body,
 ThemePickerModal .modal-body,
+ApprovalPickerModal .modal-body,
 UsageSummaryModal .modal-body,
 ContextSummaryModal .modal-body,
 ActivityModal .modal-body,
@@ -1932,6 +1946,7 @@ SessionResumeModal .modal-actions,
 BranchPickerModal .modal-actions,
 ModelPickerModal .modal-actions,
 ThemePickerModal .modal-actions,
+ApprovalPickerModal .modal-actions,
 UsageSummaryModal .modal-actions,
 ContextSummaryModal .modal-actions,
 ActivityModal .modal-actions,
@@ -1965,6 +1980,7 @@ SessionResumeModal #cancel,
 BranchPickerModal #cancel,
 ModelPickerModal #cancel,
 ThemePickerModal #cancel,
+ApprovalPickerModal #cancel,
 UsageSummaryModal #cancel,
 ContextSummaryModal #cancel,
 ActivityModal #cancel,
@@ -1983,6 +1999,7 @@ SessionResumeModal #cancel:hover,
 BranchPickerModal #cancel:hover,
 ModelPickerModal #cancel:hover,
 ThemePickerModal #cancel:hover,
+ApprovalPickerModal #cancel:hover,
 UsageSummaryModal #cancel:hover,
 ContextSummaryModal #cancel:hover,
 ActivityModal #cancel:hover,
@@ -2330,7 +2347,8 @@ ModelPickerModal #delete:hover {
     color: $foreground;
 }
 
-ThemePickerModal #select {
+ThemePickerModal #select,
+ApprovalPickerModal #select {
     width: 14;
     min-width: 14;
     text-style: bold;
@@ -2339,7 +2357,8 @@ ThemePickerModal #select {
     border: none;
 }
 
-ThemePickerModal #select:hover {
+ThemePickerModal #select:hover,
+ApprovalPickerModal #select:hover {
     background: $primary-lighten-1;
     color: $button-color-foreground;
 }

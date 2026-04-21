@@ -1048,6 +1048,71 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
+class ApprovalPickerModal(ModalScreen[str | None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    _MODE_DESCRIPTIONS: dict[str, str] = {
+        "on_request": "Ask before every mutating action",
+        "on_failure": "Auto-approve, ask only on failure",
+        "auto": "Auto-approve all safe operations",
+        "auto_edit": "Auto-approve edits, confirm commands",
+        "never": "Only allow safe commands, reject all else",
+        "yolo": "Approve everything — no guardrails",
+    }
+
+    def __init__(self, current: str) -> None:
+        super().__init__()
+        self._current = current
+        from ite.config.config import ApprovalPolicy
+
+        self._modes = [p.value for p in ApprovalPolicy]
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal approval-picker-modal"):
+            yield Label("Select approval mode", classes="modal-title resume-title")
+            yield Static(
+                "Choose when iTE should ask for approval before running commands.",
+                classes="modal-body resume-body",
+                id="approval-picker-help",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(id="approvals", classes="resume-table", cursor_type="row")
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Select", id="select", variant="primary")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#approvals", DataTable)
+        table.add_columns("Mode", "Description", "Current")
+        initial_row = 0
+        for index, mode in enumerate(self._modes):
+            table.add_row(
+                mode,
+                self._MODE_DESCRIPTIONS.get(mode, ""),
+                "✓" if mode == self._current else "",
+            )
+            if mode == self._current:
+                initial_row = index
+        if self._modes:
+            table.move_cursor(row=initial_row, column=0)
+
+    @on(DataTable.RowSelected, "#approvals")
+    def on_row_selected(self, event: DataTable.RowSelected) -> None:
+        if 0 <= event.cursor_row < len(self._modes):
+            self.dismiss(self._modes[event.cursor_row])
+
+    @on(Button.Pressed, "#select")
+    def on_select_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#approvals", DataTable)
+        row = table.cursor_row
+        if 0 <= row < len(self._modes):
+            self.dismiss(self._modes[row])
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
 class ThemePickerModal(ModalScreen[str | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 

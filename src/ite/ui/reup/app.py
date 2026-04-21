@@ -147,6 +147,7 @@ from .composer_views import (
 )
 from .modals import (
     ActivityModal,
+    ApprovalPickerModal,
     AttachPickerModal,
     BranchPickerModal,
     CommitModal,
@@ -2171,7 +2172,52 @@ class ReupApp(App):
         save_theme(selected)
         self.refresh_header()
         self._sync_command_palette(self.query_one("#prompt", TextArea).text)
-        self.post_notice("Theme", f"{old_theme} → {selected}")
+        self.post_notice("Theme", f"{old_theme} → selected")
+
+    async def _open_approval_picker_from_meta(self, args: list[str] | None = None) -> None:
+        """Open the approval mode picker modal."""
+        from ite.config.config import ApprovalPolicy
+        from ite.config.loader import save_global_approval_mode
+
+        old_approval = self.config.approval.value
+        selected = await self._open_modal(ApprovalPickerModal(old_approval))
+
+        # Handle command with arguments (e.g., `/approval on_request`)
+        if args:
+            new_mode = args[0].lower() if args else ""
+            valid_modes = [p.value for p in ApprovalPolicy]
+            if new_mode not in valid_modes:
+                self.post_system(
+                    "Approval",
+                    f"Invalid mode. Valid modes: {', '.join(valid_modes)}",
+                    is_error=True,
+                )
+                return
+            if new_mode == old_approval:
+                self.post_notice("Approval", f"Already set to {new_mode}")
+                return
+            # Apply the change
+            selected_policy = ApprovalPolicy(new_mode)
+            self.config.approval = selected_policy
+            if self.agent and self.agent.session:
+                self.agent.session.approval_manager.approval_policy = selected_policy
+            save_global_approval_mode(selected_policy)
+            self.refresh_header()
+            self.post_notice("Approval", f"{old_approval} → {new_mode}")
+            return
+
+        # Handle modal selection (no args or `args` is None)
+        if not selected or selected == old_approval:
+            return
+
+        # Apply the change from modal
+        selected_policy = ApprovalPolicy(selected)
+        self.config.approval = selected_policy
+        if self.agent and self.agent.session:
+            self.agent.session.approval_manager.approval_policy = selected_policy
+        save_global_approval_mode(selected_policy)
+        self.refresh_header()
+        self.post_notice("Approval", f"{old_approval} → {selected}")
 
     async def _open_usage_modal_from_meta(self) -> None:
         await self.ensure_agent()
@@ -5004,6 +5050,10 @@ class ReupApp(App):
             await self._open_theme_picker_from_meta()
             return
 
+        if command == "/approval" and not args:
+            await self._open_approval_picker_from_meta(args)
+            return
+
         if command == "/retry":
             await self._retry_last_turn()
             return
@@ -5063,7 +5113,7 @@ class ReupApp(App):
         if isinstance(output, StreamingCommandOutput):
             output.flush_pending()
         rendered = output.getvalue().strip()
-        if command in {"/branch", "/attach", "/model", "/rename", "/theme"}:
+        if command in {"/branch", "/attach", "/model", "/rename", "/theme", "/approval"}:
             self.refresh_header()
         had_live_output = (
             isinstance(output, StreamingCommandOutput) and output.had_live_output
