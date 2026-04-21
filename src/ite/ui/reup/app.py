@@ -531,6 +531,7 @@ class ReupApp(App):
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._tool_name_by_call_id: dict[str, str] = {}
         self._tool_completion_state: dict[str, dict[str, Any]] = {}
+        self._assistant_card_rich_states: dict[str, dict[str, Any]] = {}  # Track cards that need re-render on theme change
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
@@ -955,6 +956,49 @@ class ReupApp(App):
     def _style(self, key: str) -> str:
         return self._render_styles()[key]
 
+    async def _rerender_assistant_cards_for_theme(self) -> None:
+        """Re-render assistant cards that use Rich colors when theme changes."""
+        from ite.ui.reup.change_views import build_change_card_body
+        from ite.skills.rendering import (
+            build_skills_overview_renderable,
+            build_skill_detail_renderable,
+            build_skill_feedback_renderable,
+        )
+
+        conversation = self.query_one("#conversation", VerticalScroll)
+        styles = self._render_styles()
+        is_light = self._prefer_terminal_safe_source_rendering()
+
+        for child in list(conversation.children):
+            # Check if this is a Container widget with class checking capability
+            try:
+                if not hasattr(child, "has_class"):
+                    continue
+            except Exception:
+                continue
+
+            # Re-render skills cards
+            if child.has_class("skills"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    # Skills cards need session context - skip if no session
+                    if not self.agent or not self.agent.session:
+                        continue
+                    session = self.agent.session
+                    active_ids = {skill.identifier for skill in session.get_active_skills()}
+                    # Re-render overview
+                    new_body = build_skills_overview_renderable(
+                        session.skill_manager.list_skills(),
+                        active_ids,
+                        styles=styles,
+                    )
+                    body_widget.update(new_body)
+                except Exception:
+                    pass
+
+            # Re-render change cards - these are harder, skip for now
+            # Change cards require the original change_set which we don't store
+
     def watch_theme(self, _old_theme: str, _new_theme: str) -> None:
         self.refresh_header()
         self._refresh_empty_state()
@@ -977,6 +1021,9 @@ class ReupApp(App):
                 pass
         self.run_worker(
             self._rerender_completed_tool_cards_for_theme(), exclusive=False
+        )
+        self.run_worker(
+            self._rerender_assistant_cards_for_theme(), exclusive=False
         )
 
     async def _rerender_completed_tool_cards_for_theme(self) -> None:
@@ -6505,8 +6552,11 @@ class ReupApp(App):
         )
 
     async def add_assistant_card(
-        self, title: Any, body: Any, css_class: str = "assistant"
+        self, title: Any, body: Any, css_class: str = "assistant", *,
+        _track_state: dict[str, Any] | None = None,
     ) -> None:
+        """Add an assistant card to the conversation. If _track_state is provided, the card
+        can be re-rendered when theme changes."""
         conversation = self.query_one("#conversation", VerticalScroll)
 
         if isinstance(title, Widget):
@@ -6529,6 +6579,14 @@ class ReupApp(App):
             body_widget,
             classes=f"block {css_class}",
         )
+
+        # Track card for theme re-rendering if state provided
+        if _track_state is not None:
+            card_id = f"{css_class}_{id(card)}_{self._message_count}"
+            _track_state["id"] = card_id
+            _track_state["css_class"] = css_class
+            self._assistant_card_rich_states[card_id] = _track_state
+            card.set_reactive("data-card-id", card_id)
 
         await conversation.mount(card)
         self._message_count += 1
