@@ -1368,6 +1368,19 @@ class ActivityModal(ModalScreen[None]):
             else {}
         )
 
+    def _get_theme_colors(self) -> dict[str, str]:
+        """Get theme-aware colors."""
+        from ite.ui.reup.app import ReupApp
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            return {
+                "fg": styles.get("fg", "#f3f4f6"),
+                "muted": styles.get("muted", "#8f949d"),
+                "border": styles.get("border", "#2a2d31"),
+            }
+        return {"fg": "#f3f4f6", "muted": "#8f949d", "border": "#2a2d31"}
+
     @staticmethod
     def _format_when(value: str) -> str:
         try:
@@ -1438,8 +1451,13 @@ class ActivityModal(ModalScreen[None]):
 
     def _build_summary(self) -> Group:
         totals = self._analytics.get("totals")
+        colors = self._get_theme_colors()
+        fg = colors["fg"]
+        muted = colors["muted"]
+        border = colors["border"]
+
         if not isinstance(totals, dict):
-            return Group(Text("No bundled usage yet.", style="#8f949d"))
+            return Group(Text("No bundled usage yet.", style=muted))
 
         current_period = self._analytics.get("currentPeriod")
         if not isinstance(current_period, dict):
@@ -1451,36 +1469,36 @@ class ActivityModal(ModalScreen[None]):
         top.add_column(ratio=1)
         top.add_column(ratio=1)
         top.add_row(
-            Text("Today", style="#8f949d"),
-            Text("7 days", style="#8f949d"),
-            Text("Billing period", style="#8f949d"),
-            Text("All time", style="#8f949d"),
+            Text("Today", style=muted),
+            Text("7 days", style=muted),
+            Text("Billing period", style=muted),
+            Text("All time", style=muted),
         )
         top.add_row(
             Text(
                 self._format_usd(int(totals.get("todayUsdCents") or 0)),
-                style="bold #f3f4f6",
+                style=f"bold {fg}",
             ),
             Text(
                 self._format_usd(int(totals.get("sevenDayUsdCents") or 0)),
-                style="bold #f3f4f6",
+                style=f"bold {fg}",
             ),
             Text(
                 self._format_usd(int(totals.get("currentPeriodUsdCents") or 0)),
-                style="bold #f3f4f6",
+                style=f"bold {fg}",
             ),
             Text(
                 self._format_usd(int(totals.get("allTimeUsdCents") or 0)),
-                style="bold #f3f4f6",
+                style=f"bold {fg}",
             ),
         )
         top.add_row(
             Text(
-                self._format_ngn(int(totals.get("todayUsdCents") or 0)), style="#8f949d"
+                self._format_ngn(int(totals.get("todayUsdCents") or 0)), style=muted
             ),
             Text(
                 self._format_ngn(int(totals.get("sevenDayUsdCents") or 0)),
-                style="#8f949d",
+                style=muted,
             ),
             Text(
                 self._format_period(
@@ -1491,11 +1509,11 @@ class ActivityModal(ModalScreen[None]):
                     if isinstance(current_period.get("end"), str)
                     else None,
                 ),
-                style="#8f949d",
+                style=muted,
             ),
             Text(
                 f"{self._format_ngn(int(totals.get('allTimeUsdCents') or 0))}  ·  {int(totals.get('allTimeRequestCount') or 0)} requests",
-                style="#8f949d",
+                style=muted,
             ),
         )
 
@@ -1506,9 +1524,9 @@ class ActivityModal(ModalScreen[None]):
         model_table.add_column(justify="right", width=16)
         if isinstance(by_model, list) and by_model:
             model_table.add_row(
-                Text("Model", style="#8f949d"),
-                Text("Spend", style="#8f949d"),
-                Text("Share", style="#8f949d"),
+                Text("Model", style=muted),
+                Text("Spend", style=muted),
+                Text("Share", style=muted),
             )
             for row in by_model[:3]:
                 if not isinstance(row, dict):
@@ -1516,25 +1534,25 @@ class ActivityModal(ModalScreen[None]):
                 model_table.add_row(
                     Text(
                         self._model_label(str(row.get("modelKey") or "")),
-                        style="#f3f4f6",
+                        style=fg,
                     ),
                     Text(
-                        self._format_usd(int(row.get("usdCents") or 0)), style="#f3f4f6"
+                        self._format_usd(int(row.get("usdCents") or 0)), style=fg
                     ),
                     Text(
                         f"{self._format_ngn(int(row.get('usdCents') or 0))}  ·  {int(row.get('sharePercent') or 0)}%",
-                        style="#8f949d",
+                        style=muted,
                     ),
                 )
         else:
             model_table.add_row(
-                Text("No model spend yet.", style="#8f949d"), Text(""), Text("")
+                Text("No model spend yet.", style=muted), Text(""), Text("")
             )
 
         return Group(
             top,
-            Rule(style="#2a2d31"),
-            Text("Top models", style="bold #f3f4f6"),
+            Rule(style=border),
+            Text("Top models", style=f"bold {fg}"),
             model_table,
         )
 
