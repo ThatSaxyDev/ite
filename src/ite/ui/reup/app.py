@@ -6990,20 +6990,21 @@ class ReupApp(App):
             return "▫️", "bold #dfe4ea"
         return "▫️", "bold #dfe4ea"
 
-    @staticmethod
     def _tool_completion_icon_and_style(
+        self,
         name: str,
         *,
         success: bool,
         policy_redirect: bool,
         recoverable: bool,
     ) -> tuple[str, str]:
+        """Return icon and Rich style for tool completion state."""
         if policy_redirect:
-            return "↪", "bold #a9c7ff"
+            return "↪", f"bold {self._style('primary')}"
         if recoverable and not success:
-            return "↺", "bold #ffd27a"
+            return "↺", f"bold {self._style('warning')}"
         if not success:
-            return "❌", "bold #ffb0b0"
+            return "❌", f"bold {self._style('error')}"
 
         icon_by_tool = {
             "read_file": "📖",
@@ -7041,7 +7042,7 @@ class ReupApp(App):
             "memory": "🧠",
             "shell": "▫️",
         }
-        return icon_by_tool.get(name, "✅"), "bold #dfe4ea"
+        return icon_by_tool.get(name, "✅"), f"bold {self._style('fg')}"
 
     @staticmethod
     def _normalize_tool_start_arguments(
