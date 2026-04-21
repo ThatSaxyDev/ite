@@ -6910,6 +6910,7 @@ class ReupApp(App):
             body = build_skills_overview_renderable(
                 session.skill_manager.list_skills(),
                 active_ids,
+                styles=self._render_styles(),
             )
         elif action in {"show", "inspect"}:
             references = [item for item in args[1:] if not item.startswith("--")]
@@ -6919,13 +6920,14 @@ class ReupApp(App):
                 self.post_command_result("/skills", rendered)
                 return True
             title = f"/skills show {skill.identifier}"
-            body = build_skill_detail_renderable(skill, active_ids)
+            body = build_skill_detail_renderable(skill, active_ids, styles=self._render_styles())
         else:
             body = build_skill_feedback_renderable(
                 title=_skills_action_title(action),
                 message=rendered,
                 active_count=len(active_ids),
                 available_count=len(session.skill_manager.list_skills()),
+                styles=self._render_styles(),
             )
         self.run_worker(
             self.add_assistant_card(title, body, css_class="skills"),

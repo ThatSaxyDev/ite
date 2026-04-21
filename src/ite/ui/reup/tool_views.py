@@ -1084,7 +1084,8 @@ def render_skills_payload(
     if not isinstance(payload, dict):
         clipped, _ = truncate_for_tool("skills", output)
         return render_text_payload(clipped, success=True, theme_variables=theme_variables)
-    rendered = build_skills_tool_renderable(payload)
+    styles = render_palette(theme_variables)
+    rendered = build_skills_tool_renderable(payload, styles=styles)
     if rendered is None:
         clipped, _ = truncate_for_tool("skills", output)
         return render_text_payload(clipped, success=True, theme_variables=theme_variables)
