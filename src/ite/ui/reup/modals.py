@@ -5,7 +5,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 from urllib.parse import urlparse
 
 import httpx
@@ -1631,6 +1631,10 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
     ]
 
     class AttachDirectoryTree(DirectoryTree):
+        def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
+            """Filter out hidden paths (those starting with a dot)."""
+            return [p for p in paths if not p.name.startswith(".")]
+
         async def set_root_path(self, path: Path) -> None:
             resolved = path.expanduser().resolve()
             self.path = str(resolved)
