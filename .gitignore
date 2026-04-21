@@ -47,6 +47,8 @@ run/
 # Cloud repos (untracked sub-projects)
 ite-cloud-api/
 ite-cloud-web/
+ite_remote/
+landing-site/
 claw-code/
 csrc/
 auto-harness/
