@@ -1187,21 +1187,40 @@ class UsageSummaryModal(ModalScreen[None]):
         time_str = dt.strftime('%I:%M%p').lstrip('0').lower()
         return f"Resets {dt.strftime('%B')} {day_str} at {time_str}"
 
-    @staticmethod
-    def _build_bar(remaining_percent: int, width: int = 92) -> Text:
+    def _build_bar(self, remaining_percent: int, width: int = 92) -> Text:
         used_percent = max(0, min(100, 100 - remaining_percent))
         filled = max(0, min(width, round((used_percent / 100) * width)))
         empty = max(0, width - filled)
         bar = Text()
+        # Get theme-aware colors
+        from ite.ui.reup.app import ReupApp
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            fg = styles.get("fg", "#f3f4f6")
+            muted = styles.get("muted", "#34363a")
+        else:
+            fg = "#f3f4f6"
+            muted = "#34363a"
         if filled:
-            bar.append("━" * filled, style="bold #f3f4f6")
+            bar.append("━" * filled, style=f"bold {fg}")
         if empty:
-            bar.append("━" * empty, style="#34363a")
+            bar.append("━" * empty, style=muted)
         return bar
 
     def _build_renderable(self) -> Group:
         quotas = self._summary.get("quotas") or {}
         sections: list[object] = []
+        # Get theme-aware colors
+        from ite.ui.reup.app import ReupApp
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            fg = styles.get("fg", "#f3f4f6")
+            muted = styles.get("muted", "#8f949d")
+        else:
+            fg = "#f3f4f6"
+            muted = "#8f949d"
         for label, key in (("5h", "fiveHour"), ("Weekly", "sevenDay")):
             quota = quotas.get(key) or {}
             used = int(quota.get("usedUsdCents") or 0)
@@ -1212,14 +1231,14 @@ class UsageSummaryModal(ModalScreen[None]):
             row.add_column(ratio=1)
             row.add_column(justify="right", width=18)
             row.add_row(
-                Text(label, style="bold #f3f4f6"),
-                Text(f"{remaining}% remaining", style="bold #f3f4f6"),
+                Text(label, style=f"bold {fg}"),
+                Text(f"{remaining}% remaining", style=f"bold {fg}"),
             )
             sections.append(row)
             sections.append(
                 Text(
                     self._format_reset(str(quota.get("nextResetAt") or ""), label),
-                    style="#8f949d",
+                    style=muted,
                 )
             )
             sections.append(self._build_bar(remaining))
@@ -1247,16 +1266,25 @@ class ContextSummaryModal(ModalScreen[None]):
         super().__init__()
         self._payload = payload
 
-    @staticmethod
-    def _build_bar(used_percent: float, width: int = 92) -> Text:
+    def _build_bar(self, used_percent: float, width: int = 92) -> Text:
         normalized = max(0, min(100, round(used_percent)))
         filled = max(0, min(width, round((normalized / 100) * width)))
         empty = max(0, width - filled)
         bar = Text()
+        # Get theme-aware colors
+        from ite.ui.reup.app import ReupApp
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            fg = styles.get("fg", "#f3f4f6")
+            muted = styles.get("muted", "#34363a")
+        else:
+            fg = "#f3f4f6"
+            muted = "#34363a"
         if filled:
-            bar.append("━" * filled, style="bold #f3f4f6")
+            bar.append("━" * filled, style=f"bold {fg}")
         if empty:
-            bar.append("━" * empty, style="#34363a")
+            bar.append("━" * empty, style=muted)
         return bar
 
     @staticmethod
@@ -1276,21 +1304,34 @@ class ContextSummaryModal(ModalScreen[None]):
         trigger_at = int(self._payload.get("trigger_at") or 0)
         trigger_pct = (trigger_at / context_window * 100) if context_window else 0.0
 
+        # Get theme-aware colors
+        from ite.ui.reup.app import ReupApp
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            fg = styles.get("fg", "#f3f4f6")
+            muted = styles.get("muted", "#d1d5db")
+            dim = styles.get("disabled", "#8f949d")
+        else:
+            fg = "#f3f4f6"
+            muted = "#d1d5db"
+            dim = "#8f949d"
+
         summary = Table.grid(expand=True)
         summary.add_column(ratio=1)
         summary.add_column(justify="right", width=22)
         summary.add_row(
-            Text("Current context", style="bold #f3f4f6"),
-            Text(f"{latest_tokens}/{context_window} tokens", style="bold #f3f4f6"),
+            Text("Current context", style=f"bold {fg}"),
+            Text(f"{latest_tokens}/{context_window} tokens", style=f"bold {fg}"),
         )
         summary.add_row(
             Text(
                 f"{used_pct:.1f}% used",
-                style="bold #d1d5db",
+                style=f"bold {muted}",
             ),
             Text(
                 f"Auto-compact at {trigger_pct:.1f}%",
-                style="#8f949d",
+                style=dim,
             ),
         )
         return Group(summary, self._build_bar(used_pct))
