@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
-from ite.tools.base import Tool, ToolInvocation, ToolResult, ToolKind
+
+from ite.tools.base import Tool, ToolInvocation, ToolKind, ToolResult
 
 
 class TestToolParams(BaseModel):
@@ -10,7 +11,7 @@ class TestTool(Tool):
     name = "test_tool"
     description = (
         "A test tool that echoes back the input message. "
-        "This tool is discovered from .unified_agent/tool/test_tool.py"
+        "This tool is discovered from .ite/tools/test_tool.py"
     )
     kind = ToolKind.READ
     schema = TestToolParams
