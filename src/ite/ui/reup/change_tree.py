@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from rich.text import Text
 from textual.widgets import Tree
@@ -23,9 +24,15 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
         id: str | None = None,
         classes: str | None = None,
         disabled: bool = False,
+        styles: dict[str, str] | None = None,
     ) -> None:
+        # Theme-aware colors
+        fg = styles.get("fg", "#edf1f7") if styles else "#edf1f7"
+        primary = styles.get("primary", "#b7c8e1") if styles else "#b7c8e1"
+        muted = styles.get("muted", "#8c93a1") if styles else "#8c93a1"
+
         super().__init__(
-            Text("Files", style="bold #edf1f7"),
+            Text("Files", style=f"bold {fg}"),
             data=ChangeTreeNodeData(kind="root"),
             name=name,
             id=id,
@@ -34,6 +41,7 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
         )
         self.show_root = False
         self.auto_expand = True
+        self._styles = styles or {}
 
     def populate_groups(
         self,
@@ -41,6 +49,10 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
         *,
         selected_rel_path: str | None = None,
     ) -> str | None:
+        fg = self._styles.get("fg", "#edf1f7") if self._styles else "#edf1f7"
+        primary = self._styles.get("primary", "#b7c8e1") if self._styles else "#b7c8e1"
+        muted = self._styles.get("muted", "#8c93a1") if self._styles else "#8c93a1"
+
         self.clear()
         first_file_node = None
         selected_file_node = None
@@ -49,7 +61,7 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
             if not rel_paths:
                 continue
             group_node = self.root.add(
-                Text(label, style="bold #b7c8e1"),
+                Text(label, style=f"bold {primary}"),
                 data=ChangeTreeNodeData(kind="group"),
                 expand=True,
             )
@@ -64,14 +76,14 @@ class ChangedFilesTree(Tree[ChangeTreeNodeData]):
                     existing = directories.get(prefix)
                     if existing is None:
                         existing = parent.add(
-                            Text(part, style="#8c93a1"),
+                            Text(part, style=muted),
                             data=ChangeTreeNodeData(kind="dir"),
                             expand=True,
                         )
                         directories[prefix] = existing
                     parent = existing
                 file_node = parent.add_leaf(
-                    Text(path.name, style="bold #edf1f7"),
+                    Text(path.name, style=f"bold {fg}"),
                     data=ChangeTreeNodeData(kind="file", rel_path=rel_path),
                 )
                 if first_file_node is None:

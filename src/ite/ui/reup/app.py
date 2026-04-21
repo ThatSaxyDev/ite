@@ -3132,6 +3132,9 @@ class ReupApp(App):
             self._apply_change_review_panel_state()
             return
 
+        # Set theme-aware styles on tree
+        tree._styles = self._render_styles()
+
         first_diff: Any | None = None
         self._change_review_diff_lookup = {}
         for diff in getattr(change_set, "changes", []):

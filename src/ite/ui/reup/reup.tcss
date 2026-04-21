@@ -234,24 +234,24 @@ Screen {
 
 #change-review-stage-all,
 #change-review-stage-file {
-    color: #07140f;
-    background: #4edea3;
+    color: $foreground;
+    background: $success-muted;
 }
 
 #change-review-unstage-file {
-    color: #e3e7ee;
-    background: #2a2a2c;
+    color: $foreground;
+    background: $panel;
 }
 
 #change-review-discard-all,
 #change-review-discard-file {
-    color: #1a1207;
-    background: #ffb95f;
+    color: $foreground;
+    background: $warning-muted;
 }
 
 .change-review-action.-disabled {
-    color: #626875;
-    background: #202125;
+    color: $foreground-muted;
+    background: $surface-darken-1;
 }
 
 #change-review-body {
