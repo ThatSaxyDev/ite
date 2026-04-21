@@ -434,16 +434,40 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             else 0
         )
 
+    def _get_theme_colors(self) -> dict[str, str]:
+        """Get theme-aware colors."""
+        from ite.ui.reup.app import ReupApp
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            return {
+                "fg": styles.get("fg", "#dfe8f8"),
+                "muted": styles.get("muted", "#8c93a1"),
+                "success": styles.get("success", "#79d8a4"),
+                "error": styles.get("error", "#f29b9b"),
+                "primary": styles.get("primary", "#8fb7dc"),
+                "secondary": styles.get("secondary", "#aeb7c6"),
+            }
+        return {
+            "fg": "#dfe8f8",
+            "muted": "#8c93a1",
+            "success": "#79d8a4",
+            "error": "#f29b9b",
+            "primary": "#8fb7dc",
+            "secondary": "#aeb7c6",
+        }
+
     def _include_unstaged_text(self) -> Text:
+        colors = self._get_theme_colors()
         text = Text()
         if self._include_unstaged:
-            text.append("YES", style="bold #79d8a4")
+            text.append("YES", style=f"bold {colors['success']}")
             text.append("  ")
-            text.append("no", style="#8c93a1")
+            text.append("no", style=colors["muted"])
         else:
-            text.append("yes", style="#8c93a1")
+            text.append("yes", style=colors["muted"])
             text.append("  ")
-            text.append("NO", style="bold #f29b9b")
+            text.append("NO", style=f"bold {colors['error']}")
         return text
 
     def _suggest_commit_message(self) -> str:
@@ -579,23 +603,24 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             self._ai_spinner_index % len(self._AI_SPINNER_FRAMES)
         ]
         message = self._loading_copy(self._ai_loading_step)
+        colors = self._get_theme_colors()
         status = Text()
-        status.append(f"{frame} ", style="bold #8fb7dc")
-        status.append(message, style="italic #aeb7c6")
+        status.append(f"{frame} ", style=f"bold {colors['primary']}")
+        status.append(message, style=f"italic {colors['secondary']}")
         return status
 
-    @staticmethod
-    def _idle_status_text() -> Text:
+    def _idle_status_text(self) -> Text:
+        colors = self._get_theme_colors()
         status = Text()
-        status.append("✦ ", style="bold #8fb7dc")
-        status.append("draft with AI", style="#8c93a1")
+        status.append("✦ ", style=f"bold {colors['primary']}")
+        status.append("draft with AI", style=colors["muted"])
         return status
 
-    @staticmethod
-    def _success_status_text() -> Text:
+    def _success_status_text(self) -> Text:
+        colors = self._get_theme_colors()
         status = Text()
-        status.append("✓ ", style="bold #79d8a4")
-        status.append("draft ready", style="#9fb4a8")
+        status.append("✓ ", style=f"bold {colors['success']}")
+        status.append("draft ready", style=colors["secondary"])
         return status
 
     def _set_ai_status_idle(self) -> None:
@@ -610,17 +635,18 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                     yield Static(self._branch, classes="commit-branch")
                 with Horizontal(classes="commit-summary-row"):
                     yield Static("Changes", classes="commit-label")
+                    colors = self._get_theme_colors()
                     stats = Text()
                     file_label = (
                         f"{self._file_count} file"
                         if self._file_count == 1
                         else f"{self._file_count} files"
                     )
-                    stats.append(file_label, style="bold #dfe8f8")
+                    stats.append(file_label, style=f"bold {colors['fg']}")
                     stats.append("  ")
-                    stats.append(f"+{self._additions}", style="bold #79d8a4")
+                    stats.append(f"+{self._additions}", style=f"bold {colors['success']}")
                     stats.append("  ")
-                    stats.append(f"-{self._deletions}", style="bold #f29b9b")
+                    stats.append(f"-{self._deletions}", style=f"bold {colors['error']}")
                     yield Static(stats, classes="commit-stats")
                 with Horizontal(classes="commit-toggle-row"):
                     yield Static("Include unstaged", classes="commit-label")

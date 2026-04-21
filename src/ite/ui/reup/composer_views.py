@@ -149,7 +149,8 @@ def composer_meta_text(
         text.append("━" * context_filled, style=f"bold {primary}")
         cell_pos += context_filled
     if context_empty:
-        text.append("━" * context_empty, style=disabled)
+        # Use muted instead of disabled for better visibility
+        text.append("━" * context_empty, style=muted)
         cell_pos += context_empty
     context_end = cell_pos
     text.append(spacer)
