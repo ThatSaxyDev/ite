@@ -6068,7 +6068,16 @@ class ReupApp(App):
             mode="changed",
             is_light=self._prefer_terminal_safe_source_rendering(),
         )
+        # Capture index before add_assistant_card increments it
+        msg_index = self._message_count
         await self.add_assistant_card("Changed", body, css_class="change")
+        # Store state for theme re-rendering (use message index before increment as key)
+        self._change_card_states[msg_index] = {
+            "change_set": change_set,
+            "verb": "Changed",
+            "footer": "Run /undo to revert.",
+            "mode": "changed",
+        }
         if self._change_review_visible:
             await self._open_change_review_panel(
                 change_set, title="Changed", mode="changed"
