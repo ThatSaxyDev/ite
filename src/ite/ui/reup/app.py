@@ -114,6 +114,12 @@ from ite.git.working_tree import (
     working_tree_change_set,
 )
 from ite.memory import MemoryManager
+from ite.remote import RemoteRuntimeServer
+from ite.remote.protocol import (
+    build_remote_transcript,
+    serialize_agent_event,
+    serialize_approval_request,
+)
 from ite.skills import (
     build_skill_detail_renderable,
     build_skill_feedback_renderable,
@@ -631,6 +637,8 @@ class ReupApp(App):
         self._session_tabs_version: int = 0
         self._shutdown_started: bool = False
         self._suppress_theme_prompt_sync: bool = False
+        self._remote_server: RemoteRuntimeServer | None = None
+        self._remote_port_preference: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1087,6 +1095,7 @@ class ReupApp(App):
             )
 
     async def on_unmount(self) -> None:
+        await self._shutdown_remote_server()
         await self._shutdown_agents()
 
     async def _shutdown_agents(self) -> None:
@@ -1114,6 +1123,172 @@ class ReupApp(App):
 
         if self.agent is not None:
             self.agent = None
+
+    async def _shutdown_remote_server(self) -> None:
+        if self._remote_server is None:
+            return
+        try:
+            await self._remote_server.stop()
+        finally:
+            self._remote_server = None
+
+    async def _ensure_remote_server(self, *, port: int | None = None) -> dict[str, Any]:
+        if self._remote_server is None:
+            self._remote_server = RemoteRuntimeServer(
+                state_provider=self._build_remote_runtime_state,
+                submit_prompt=self._submit_remote_prompt,
+                cancel_turn=self._cancel_remote_turn,
+                switch_session=self._switch_remote_session,
+            )
+        selected_port = (
+            int(port)
+            if isinstance(port, int) and port >= 0
+            else int(self._remote_port_preference or 0)
+        )
+        info = await self._remote_server.start(port=selected_port)
+        self._remote_port_preference = int(info.get("port") or selected_port or 0)
+        return info
+
+    def _build_remote_runtime_state(self) -> dict[str, Any]:
+        session = self.agent.session if self.agent and self.agent.session else None
+        active_session_id = self._active_session_id()
+        run_state = self._run_state(active_session_id)
+        transcript: list[dict[str, Any]] = []
+        if session and session.context_manager is not None:
+            transcript = build_remote_transcript(
+                session.context_manager.get_snapshot_messages()
+            )
+
+        open_sessions: list[dict[str, Any]] = []
+        for session_id in self._open_session_order:
+            open_session = self._open_sessions.get(session_id)
+            if open_session is None:
+                continue
+            workspace = self._open_session_workspaces.get(session_id)
+            open_sessions.append(
+                {
+                    "session_id": session_id,
+                    "title": self._session_title(open_session),
+                    "turn_count": int(getattr(open_session, "turn_count", 0) or 0),
+                    "is_active": session_id == active_session_id,
+                    "workspace": str(workspace) if workspace is not None else "",
+                    "is_running": bool(self._run_state(session_id).is_turn_running),
+                }
+            )
+
+        return {
+            "app": {"name": "iTE", "surface": "reup"},
+            "current_session": {
+                "session_id": active_session_id or "",
+                "title": self._current_session_title(),
+                "workspace": str(self.config.cwd.resolve()),
+                "model": str(self.config.model_name or ""),
+                "plan_mode_enabled": bool(session.plan_mode_enabled) if session else False,
+                "plan_phase": str(session.plan_phase) if session else "idle",
+                "is_turn_running": bool(run_state.is_turn_running),
+            },
+            "open_sessions": open_sessions,
+            "transcript": transcript,
+        }
+
+    async def _broadcast_remote_state(self) -> None:
+        if self._remote_server is None or not self._remote_server.is_running:
+            return
+        await self._remote_server.publish_state()
+
+    async def _broadcast_remote_agent_event(
+        self,
+        session_id: str,
+        turn_id: int,
+        event: AgentEvent,
+    ) -> None:
+        if self._remote_server is None or not self._remote_server.is_running:
+            return
+        await self._remote_server.publish_event(
+            serialize_agent_event(event, session_id=session_id, turn_id=turn_id)
+        )
+
+    async def _submit_remote_prompt(self, message: str) -> None:
+        payload = self._build_turn_payload(message)
+        await self._dispatch_payload(payload)
+
+    async def _cancel_remote_turn(self) -> None:
+        if self._is_turn_running:
+            await self.cancel_active_turn()
+
+    async def _switch_remote_session(self, session_id: str) -> bool:
+        if not session_id:
+            return False
+        return await self._activate_open_session(session_id)
+
+    async def _run_remote_command_from_registry(self, args: list[str]) -> None:
+        await self._run_remote_command_native(args)
+
+    async def _run_remote_command_native(self, args: list[str]) -> None:
+        action = args[0].lower() if args else "start"
+        port_arg = args[1] if len(args) > 1 else None
+        if action.isdigit():
+            port_arg = action
+            action = "start"
+
+        if action in {"start", "on"}:
+            port = None
+            if port_arg:
+                try:
+                    port = int(port_arg)
+                except ValueError:
+                    self.post_system("Remote", "Port must be a number.", is_error=True)
+                    return
+            info = await self._ensure_remote_server(port=port)
+            self.post_system(
+                "Remote",
+                "Mobile bridge ready.\n"
+                f"Host: {info['display_host']}:{info['port']}\n"
+                f"Pair code: {info['pair_code']}\n"
+                "Open the mobile app, enter the host and pair code, then connect.",
+            )
+            return
+
+        if action in {"status"}:
+            if self._remote_server is None or not self._remote_server.is_running:
+                self.post_system("Remote", "Remote bridge is off.")
+                return
+            info = self._remote_server.connection_info()
+            self.post_system(
+                "Remote",
+                "Remote bridge is running.\n"
+                f"Host: {info['display_host']}:{info['port']}\n"
+                f"Pair code: {info['pair_code']}\n"
+                f"Connected phones: {info['authenticated_clients']}",
+            )
+            return
+
+        if action in {"code", "pair"}:
+            info = await self._ensure_remote_server()
+            assert self._remote_server is not None
+            self._remote_server.regenerate_pair_code()
+            info = self._remote_server.connection_info()
+            self.post_system(
+                "Remote",
+                f"New pair code: {info['pair_code']}\n"
+                f"Host: {info['display_host']}:{info['port']}",
+            )
+            await self._broadcast_remote_state()
+            return
+
+        if action in {"stop", "off"}:
+            if self._remote_server is None or not self._remote_server.is_running:
+                self.post_system("Remote", "Remote bridge is already off.")
+                return
+            await self._shutdown_remote_server()
+            self.post_system("Remote", "Remote bridge stopped.")
+            return
+
+        self.post_system(
+            "Remote",
+            "Usage: /remote\n/remote on [port]\n/remote status\n/remote code\n/remote off",
+            is_error=True,
+        )
 
     def _current_session_title(self) -> str:
         return self._session_title(self.agent.session if self.agent else None)
@@ -3978,12 +4153,14 @@ class ReupApp(App):
         if self.agent is not None:
             if self.agent.session is not None:
                 self._remember_open_session(self.agent.session, agent=self.agent)
+                await self._broadcast_remote_state()
             return
         fresh = Session(config=self.config)
         self.agent = self._build_session_agent(fresh)
         await self.agent.__aenter__()
         if self.agent.session is not None:
             self._remember_open_session(self.agent.session, agent=self.agent)
+        await self._broadcast_remote_state()
 
     def _build_session_agent(self, session: Session) -> Agent:
         session_id = self._session_id(session) or ""
@@ -4087,6 +4264,7 @@ class ReupApp(App):
             self._set_loading_state("idle", busy=False)
         if announce:
             self.post_notice("Thread", announce)
+        await self._broadcast_remote_state()
         return True
 
     async def _open_modal(self, screen: ModalScreen[Any]) -> Any:
@@ -4919,6 +5097,7 @@ class ReupApp(App):
         self.agent = resumed_agent
         self.refresh_header()
         await self._hydrate_chat_from_snapshot(restored_messages)
+        await self._broadcast_remote_state()
         await self._remove_cards_by_title({"Session Loaded"})
         if dropped_agent is not None:
             try:
@@ -5072,6 +5251,10 @@ class ReupApp(App):
 
         if command == "/publish":
             await self._run_publish_command_native(args)
+            return
+
+        if command == "/remote":
+            await self._run_remote_command_native(args)
             return
 
         if command == "/close":
@@ -5561,6 +5744,7 @@ class ReupApp(App):
         rendered_message = display_message or message
         if not suppress_user_echo:
             await self.add_user_message(rendered_message)
+            await self._broadcast_remote_state()
 
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
@@ -5625,6 +5809,7 @@ class ReupApp(App):
         run_state.is_turn_running = True
         self._set_loading_state(self._progress_state_label(), busy=True)
         self.refresh_header()
+        await self._broadcast_remote_state()
         completed_normally = False
 
         try:
@@ -5647,6 +5832,7 @@ class ReupApp(App):
                     await self.auto_save()
                 finally:
                     self.agent = previous_agent
+            await self._broadcast_remote_state()
             completed_normally = not run_state.turn_had_error
         except asyncio.CancelledError:
             if self._active_session_id() == session_id:
@@ -5657,6 +5843,7 @@ class ReupApp(App):
                 self.refresh_header()
                 self._set_loading_state("idle", busy=False)
                 await self.auto_save()
+                await self._broadcast_remote_state()
             return
         finally:
             run_state.active_turn_task = None
@@ -5669,6 +5856,7 @@ class ReupApp(App):
                 and run_state.auto_resume_payload is None
             ):
                 self._set_loading_state("idle", busy=False)
+            await self._broadcast_remote_state()
 
         if completed_normally and self._active_session_id() == session_id:
             if (
@@ -5717,6 +5905,7 @@ class ReupApp(App):
         run_state = self._run_state(session_id)
         if turn_id != run_state.active_turn_id:
             return
+        await self._broadcast_remote_agent_event(session_id, turn_id, event)
         if session_id != self._active_session_id():
             if event.type == AgentEventType.AGENT_ERROR:
                 run_state.turn_had_error = True
@@ -8501,6 +8690,26 @@ class ReupApp(App):
             await self._pin_activity_indicator_to_end()
 
     async def confirmation_callback(self, confirmation) -> bool:
+        if (
+            self._remote_server is not None
+            and self._remote_server.is_running
+            and self._remote_server.has_authenticated_clients()
+            and self.agent
+            and self.agent.session
+        ):
+            approved = await self._remote_server.request_approval(
+                serialize_approval_request(
+                    request_id="",
+                    tool_name=str(confirmation.tool_name or "tool"),
+                    description=str(confirmation.description or ""),
+                    command=confirmation.command,
+                    diff=confirmation.diff.to_diff() if confirmation.diff else None,
+                    session_id=self._active_session_id() or self.agent.session.session_id,
+                )
+            )
+            if approved is not None:
+                await self._broadcast_remote_state()
+                return approved
         body = confirmation.description
         if confirmation.command:
             body += f"\n\n$ {confirmation.command}"
@@ -8572,6 +8781,7 @@ class ReupApp(App):
         self._is_turn_running = False
         await self._clear_inflight_turn_ui()
         self._set_loading_state("idle", busy=False)
+        await self._broadcast_remote_state()
 
     async def start_new_thread(self) -> None:
         await self.ensure_agent()
@@ -8608,6 +8818,7 @@ class ReupApp(App):
         self._message_count = 0
         self._reset_session_local_ui_state()
         self._refresh_empty_state()
+        await self._broadcast_remote_state()
 
     async def close_current_thread(self) -> None:
         await self.ensure_agent()
@@ -8676,6 +8887,7 @@ class ReupApp(App):
                 await closed_agent.__aexit__(None, None, None)
             except Exception:
                 pass
+        await self._broadcast_remote_state()
 
     async def auto_save(self) -> None:
         if not self.agent or not self.agent.session:
