@@ -14,7 +14,8 @@ def create_connection_uri(host: str, port: int, pair_code: str) -> str:
 
 def create_simple_uri(host: str, port: int, pair_code: str) -> str:
     """Create a simpler URI format."""
-    return f"ite://c/{host}/{port}/{pair_code}"
+    # Use triple slash so c is in path, not hostname
+    return f"ite:///c/{host}/{port}/{pair_code}"
 
 
 def parse_connection_uri(uri: str) -> dict | None:
@@ -40,9 +41,9 @@ def parse_connection_uri(uri: str) -> dict | None:
         except (ValueError, IndexError):
             return None
     
-    # Format 2: ite://c/host/port/code
+    # Format 2: ite:///c/host/port/code
     if parsed.path.startswith("/c/"):
-        parts = parsed.path[3:].split("/")
+        parts = parsed.path[3:].split("/")  # Skip /c/ prefix
         if len(parts) >= 3:
             try:
                 return {
