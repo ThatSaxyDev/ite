@@ -7,8 +7,30 @@ import sys
 
 from ite.ui.tui import get_console
 import click
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from prompt_toolkit import PromptSession, Completion
+    from prompt_toolkit.completion import Completer
+
+try:
+    from prompt_toolkit import PromptSession, Completion
+    from prompt_toolkit.completion import Completer
+except ImportError:
+    PromptSession = None  # type: ignore[assignment, misc]
+    Completion = None  # type: ignore[assignment, misc]
+    Completer = None  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CommandPromptEntry:
+    name: str
+    description: str
+
+
 console = get_console()
 
 
@@ -1214,7 +1236,7 @@ def _run_main_app(
 
 
 @click.group(cls=IteGroup, invoke_without_command=True)
-@click.version_option(version="0.0.32", prog_name="ite")
+@click.version_option(version="0.0.33", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",

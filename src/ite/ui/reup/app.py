@@ -309,7 +309,7 @@ class ReupTUIAdapter:
         model: str = "",
         cwd: str = "",
         commands: list[str] | None = None,
-        version: str = "0.0.32",
+        version: str = "0.0.33",
     ) -> None:
         msg = f"iTE ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
         if commands:
