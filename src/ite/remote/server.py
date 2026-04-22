@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 
 from .protocol import REMOTE_PROTOCOL_VERSION, json_safe, utc_now_iso
+from .uri import create_connection_uri, create_simple_uri, parse_connection_uri
 
 
 MaybeAsync = Callable[..., Any] | Callable[..., Awaitable[Any]]
@@ -141,6 +142,7 @@ class RemoteRuntimeServer:
             if self._pair_code_expires_at
             else None,
             "authenticated_clients": self.authenticated_client_count,
+            "connect_uri": create_simple_uri(self._display_host, self._port, self.pair_code),
         }
 
     async def publish_state(self) -> None:

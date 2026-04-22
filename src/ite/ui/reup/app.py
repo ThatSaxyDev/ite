@@ -1245,7 +1245,8 @@ class ReupApp(App):
                 "Mobile bridge ready.\n"
                 f"Host: {info['display_host']}:{info['port']}\n"
                 f"Pair code: {info['pair_code']}\n"
-                "Open the mobile app, enter the host and pair code, then connect.",
+                f"Connect URL: {info['connect_uri']}\n"
+                "Open the mobile app, paste the connect URL, or enter the host and pair code.",
             )
             return
 
