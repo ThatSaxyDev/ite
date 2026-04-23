@@ -289,7 +289,12 @@ class RemoteRuntimeServer:
             request.future.set_result(answer)
         await self._broadcast(
             "plan_question_resolved",
-            {"request_id": request_id, "answered": True},
+            {
+                "request_id": request_id,
+                "answered": True,
+                "request": json_safe(request.payload),
+                "answer": json_safe(answer),
+            },
         )
         return True
 
@@ -575,7 +580,12 @@ class RemoteRuntimeServer:
                 request.future.set_result(answer)
             await self._broadcast(
                 "plan_question_resolved",
-                {"request_id": question_id, "answered": True},
+                {
+                    "request_id": question_id,
+                    "answered": True,
+                    "request": json_safe(request.payload),
+                    "answer": json_safe(answer),
+                },
             )
             await self._send(
                 client,
