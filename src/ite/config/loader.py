@@ -1,17 +1,19 @@
-from platformdirs import user_data_dir
+import json
 import logging
 import os
-import json
 import re
-from typing import Any
-import keyring
-from ite.utils.errors import ConfigError
-from ite.config.config import ApprovalPolicy
-import tomli
-from ite.config.config import Config, MCPServerConfig
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from platformdirs import user_config_dir
+from typing import Any
+
+import keyring
+import tomli
+from platformdirs import user_config_dir, user_data_dir
 from pydantic import ValidationError
+
+from ite.config.config import ApprovalPolicy, Config, MCPServerConfig
+from ite.utils.errors import ConfigError
 
 CONFIG_FILE_NAME = "config.toml"
 SECRETS_FILE_NAME = "secrets.toml"
@@ -31,6 +33,7 @@ AGENTS_FALLBACK_FILENAMES = [
 
 # Maximum combined size for AGENTS.md files (32 KiB default)
 AGENTS_MAX_BYTES = 32 * 1024
+AGENTS_STALE_AFTER_DAYS = 15
 
 WORKSPACE_DIR_NAME = ".ite"
 SAVED_CUSTOM_PROVIDERS_TABLE = "saved_custom_providers"
@@ -62,6 +65,31 @@ like SQL injection, XSS, and hardcoded secrets.
 logger = logging.getLogger(__name__)
 _TOML_TABLE_RE = re.compile(r"^\s*\[(.+?)\]\s*$")
 _TOML_BARE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+@dataclass(frozen=True)
+class WorkspaceAgentsRecommendation:
+    reason: str
+    command: str
+    workspace: Path
+    file_path: Path | None = None
+    age_days: int | None = None
+
+    def notice_title(self) -> str:
+        return "Hint"
+
+    def notice_message(self) -> str:
+        workspace_name = self.workspace.name or str(self.workspace)
+        if self.reason == "missing":
+            return (
+                f"No workspace instruction file was found for {workspace_name}. "
+                f"Run {self.command} to generate one before exploring the repo."
+            )
+        age = f"{self.age_days} day(s)" if self.age_days is not None else "a while"
+        return (
+            f"The workspace instruction file for {workspace_name} looks stale "
+            f"({age} old). Run {self.command} to regenerate it."
+        )
 
 
 def get_config_dir() -> Path:
@@ -161,21 +189,21 @@ def _get_agents_md_at_path(path: Path) -> list[tuple[Path, str]]:
     Checks for override first: AGENTS.override.md > AGENTS.md
     """
     files: list[tuple[Path, str]] = []
-    
+
     # Check for override file first (higher precedence at this level)
     override_file = path / AGENTS_OVERRIDE_FILE
     override_result = _load_agents_file(override_file)
     if override_result:
         files.append(override_result)
         return files  # Override takes precedence, skip regular AGENTS.md
-    
+
     # Check for regular AGENTS.md
     agents_md_file = path / AGENTS_MD_FILE
     agents_result = _load_agents_file(agents_md_file)
     if agents_result:
         files.append(agents_result)
         return files  # Found main file, skip fallbacks
-    
+
     # Check fallback filenames (in order, first wins)
     for fallback_name in AGENTS_FALLBACK_FILENAMES:
         fallback_file = path / fallback_name
@@ -183,8 +211,47 @@ def _get_agents_md_at_path(path: Path) -> list[tuple[Path, str]]:
         if fallback_result:
             files.append(fallback_result)
             return files  # First fallback found wins
-    
+
     return files
+
+
+def get_workspace_agents_recommendation(
+    cwd: Path,
+    *,
+    now: datetime | None = None,
+    stale_after_days: int = AGENTS_STALE_AFTER_DAYS,
+) -> WorkspaceAgentsRecommendation | None:
+    """Return a deterministic /init suggestion for the active workspace."""
+    workspace = cwd.resolve()
+    workspace_files = _get_agents_md_at_path(workspace)
+    if not workspace_files:
+        return WorkspaceAgentsRecommendation(
+            reason="missing",
+            command="/init",
+            workspace=workspace,
+        )
+
+    file_path, _content = workspace_files[0]
+    try:
+        modified_at = datetime.fromtimestamp(
+            file_path.stat().st_mtime,
+            tz=timezone.utc,
+        )
+    except OSError:
+        return None
+
+    current_time = now.astimezone(timezone.utc) if now else datetime.now(timezone.utc)
+    file_age = current_time - modified_at
+    if file_age < timedelta(days=max(stale_after_days, 1)):
+        return None
+
+    return WorkspaceAgentsRecommendation(
+        reason="stale",
+        command="/init --force",
+        workspace=workspace,
+        file_path=file_path,
+        age_days=max(file_age.days, 1),
+    )
 
 
 def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
@@ -192,16 +259,16 @@ def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
     Collect all AGENTS.md files from global config, then from root up to cwd.
     Returns list of (path, content) tuples, ordered from global -> root -> cwd
     (least to most specific). Most specific (deepest) files take precedence when merging.
-    
+
     At each level, AGENTS.override.md takes precedence over AGENTS.md.
     """
     current = cwd.resolve()
     files: list[tuple[Path, str]] = []
-    
+
     # First: Global AGENTS.md from ~/.config/ite/
     global_path = get_data_dir()
     files.extend(_get_agents_md_at_path(global_path))
-    
+
     # Also check ~/.agents/ as alternative global location
     home = Path.home()
     alt_global_path = home / ".agents"
@@ -211,18 +278,18 @@ def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
         for f in alt_files:
             if f[0] not in [existing[0] for existing in files]:
                 files.append(f)
-    
+
     # Walk from root down to cwd
     paths_to_check: list[Path] = []
     while current != current.parent:
         paths_to_check.append(current)
         current = current.parent
     paths_to_check.append(current)  # Root
-    
+
     # Reverse so we go root -> ... -> cwd
     for path in reversed(paths_to_check):
         files.extend(_get_agents_md_at_path(path))
-    
+
     return files
 
 
@@ -230,39 +297,39 @@ def _merge_agents_md_instructions(files: list[tuple[Path, str]]) -> str | None:
     """
     Merge AGENTS.md content with precedence: most specific (deepest) overrides parent.
     Returns None if no files found.
-    
+
     Enforces AGENTS_MAX_BYTES (32 KiB) combined size limit - truncates silently when exceeded.
     Later files (cwd files) are preserved when truncating, earlier ones are dropped.
     """
     if not files:
         return None
-    
+
     # Build merged content with source annotations (start from most specific)
     # Work backwards from most specific to least, so we can track size
     parts: list[str] = []
     current_size = 0
     truncated_files: list[Path] = []
-    
+
     # Files are ordered root -> ... -> cwd. Process in reverse (cwd -> ... -> root)
     # so we prioritize most specific instructions when close to limit
     for file_path, content in reversed(files):
         separator = f"<!-- From: {file_path} -->\n\n"
         section = separator + content
         section_bytes = len(section.encode("utf-8"))
-        
+
         if current_size + section_bytes > AGENTS_MAX_BYTES:
             truncated_files.append(file_path)
             continue
-        
+
         parts.insert(0, section)  # Insert at beginning to maintain root -> cwd order
         current_size += section_bytes
-    
+
     if truncated_files:
         logger.warning(
             f"AGENTS.md files exceeded {AGENTS_MAX_BYTES} byte limit. "
             f"Skipped: {[str(f) for f in truncated_files]}"
         )
-    
+
     return "\n\n".join(parts)
 
 
@@ -295,7 +362,9 @@ def load_config(
     if system_path.is_file():
         try:
             system_config_dict = _parse_toml(system_path)
-            normalized_system_config = _remove_persisted_cloud_api_url(system_config_dict)
+            normalized_system_config = _remove_persisted_cloud_api_url(
+                system_config_dict
+            )
             if normalized_system_config != system_config_dict:
                 system_config_dict = normalized_system_config
                 lines = _render_system_config(system_config_dict)
@@ -359,7 +428,9 @@ def _drop_invalid_mcp_servers(config_dict: dict[str, Any]) -> dict[str, Any]:
     valid_servers: dict[str, Any] = {}
     for name, raw in raw_servers.items():
         if not isinstance(raw, dict):
-            logger.warning("Skipping invalid MCP server '%s': entry must be a table", name)
+            logger.warning(
+                "Skipping invalid MCP server '%s': entry must be a table", name
+            )
             continue
         try:
             validated = MCPServerConfig(**raw)
@@ -617,7 +688,9 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
                 continue
             if lines:
                 lines.append("")
-            lines.extend(_render_mcp_server_section(str(server), server_config).splitlines())
+            lines.extend(
+                _render_mcp_server_section(str(server), server_config).splitlines()
+            )
 
     hooks = config.get("hooks")
     if isinstance(hooks, list):
@@ -650,7 +723,11 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     replaced = False
     out_lines: list[str] = []
     for line in lines:
-        if line.strip().startswith("approval") and "=" in line and not line.strip().startswith("#"):
+        if (
+            line.strip().startswith("approval")
+            and "=" in line
+            and not line.strip().startswith("#")
+        ):
             out_lines.append(f'approval = "{value}"')
             replaced = True
         else:
@@ -659,7 +736,9 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     if not replaced:
         # Keep it top-level and near the top for discoverability.
         insert_at = 0
-        while insert_at < len(out_lines) and out_lines[insert_at].strip().startswith("#"):
+        while insert_at < len(out_lines) and out_lines[insert_at].strip().startswith(
+            "#"
+        ):
             insert_at += 1
         out_lines.insert(insert_at, f'approval = "{value}"')
 
@@ -821,7 +900,9 @@ def _toml_value(value: Any) -> str:
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def load_mcp_env_store(cwd: Path | None, scope: str = "workspace") -> dict[str, dict[str, str]]:
+def load_mcp_env_store(
+    cwd: Path | None, scope: str = "workspace"
+) -> dict[str, dict[str, str]]:
     path = _mcp_secrets_path_for_scope(cwd, scope)
     return _load_mcp_secrets(path)
 
@@ -949,7 +1030,12 @@ def _load_global_mcp_secrets_from_keyring(path: Path) -> dict[str, dict[str, str
             try:
                 value = keyring.get_password(_mcp_keyring_service(server), key)
             except Exception as exc:
-                logger.warning("Failed to read MCP secret from keyring for %s:%s: %s", server, key, exc)
+                logger.warning(
+                    "Failed to read MCP secret from keyring for %s:%s: %s",
+                    server,
+                    key,
+                    exc,
+                )
                 continue
             if value is not None:
                 bucket[key] = value
@@ -975,8 +1061,12 @@ def _load_mcp_secret_metadata(path: Path) -> dict[str, list[str]]:
     return result
 
 
-def _write_global_mcp_secret_metadata(path: Path, secrets: dict[str, dict[str, str]]) -> None:
-    metadata = {server: sorted(values.keys()) for server, values in secrets.items() if values}
+def _write_global_mcp_secret_metadata(
+    path: Path, secrets: dict[str, dict[str, str]]
+) -> None:
+    metadata = {
+        server: sorted(values.keys()) for server, values in secrets.items() if values
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     lines: list[str] = [
         "# MCP secret metadata for iTE",

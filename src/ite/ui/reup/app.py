@@ -83,6 +83,7 @@ from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import ApprovalPolicy, Config
 from ite.config.loader import (
+    get_workspace_agents_recommendation,
     load_saved_custom_provider,
     load_theme,
     remove_saved_custom_provider,
@@ -801,6 +802,9 @@ class ReupApp(App):
         self._remote_server: RemoteRuntimeServer | None = None
         self._remote_port_preference: int = 0
         self._commands_panel: CommandsSidePanel | None = None
+        self._agents_recommendation_last_workspace_key: str | None = None
+        self._agents_recommendation_current_visit: tuple[str, str] | None = None
+        self._suppress_agents_recommendation_once: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1623,6 +1627,13 @@ class ReupApp(App):
             )
 
     def refresh_header(self) -> None:
+        current_workspace_key = str(Path(self.config.cwd).resolve())
+        if (
+            self._agents_recommendation_last_workspace_key is not None
+            and self._agents_recommendation_last_workspace_key != current_workspace_key
+        ):
+            self._agents_recommendation_current_visit = None
+        self._agents_recommendation_last_workspace_key = current_workspace_key
         title = self.query_one("#title", Static)
         meta = self.query_one("#header-meta", Static)
         if self._cloud_signed_out:
@@ -2875,12 +2886,34 @@ class ReupApp(App):
         self._empty_state_cached_thread_count = self._empty_state_thread_count()
         empty.update(self._empty_state_renderable())
         empty.display = True
+        if self._suppress_agents_recommendation_once:
+            self._suppress_agents_recommendation_once = False
+            return
+        self._maybe_post_workspace_agents_recommendation()
 
     def _empty_state_renderable(self) -> Any:
         return build_empty_state_renderable(
             cwd=Path(self.config.cwd),
             thread_count=self._empty_state_cached_thread_count,
             styles=self._render_styles(),
+        )
+
+    def _maybe_post_workspace_agents_recommendation(self) -> None:
+        if self._startup_active or self._cloud_signed_out or self._onboarding_active:
+            return
+        workspace = Path(self.config.cwd).resolve()
+        workspace_key = str(workspace)
+        recommendation = get_workspace_agents_recommendation(workspace)
+        if recommendation is None:
+            return
+        recommendation_key = (workspace_key, recommendation.reason)
+        if self._agents_recommendation_current_visit == recommendation_key:
+            return
+        self._agents_recommendation_current_visit = recommendation_key
+        self.post_notice(
+            recommendation.notice_title(),
+            recommendation.notice_message(),
+            timeout=8,
         )
 
     def _set_loading_state(self, state: str, busy: bool) -> None:
@@ -7127,8 +7160,8 @@ class ReupApp(App):
             exclusive=False,
         )
 
-    def post_notice(self, title: str, message: str) -> None:
-        self.notify(message, title=title, timeout=3)
+    def post_notice(self, title: str, message: str, *, timeout: float = 3) -> None:
+        self.notify(message, title=title, timeout=timeout)
 
     def post_recovery_status(
         self,
@@ -9321,6 +9354,7 @@ class ReupApp(App):
 
         self._message_count = 0
         self._reset_session_local_ui_state()
+        self._suppress_agents_recommendation_once = True
         self._refresh_empty_state()
         await self._broadcast_remote_state()
 

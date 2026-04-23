@@ -1,5 +1,7 @@
 import asyncio
+import os
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -247,6 +249,162 @@ class ReupStartupTests(unittest.TestCase):
 
             self.assertFalse(app._startup_active)
             apply_shell_surface.assert_called()
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_posts_workspace_hint_when_agents_file_is_missing(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            prompt = SimpleNamespace(focus=lambda: None)
+            empty_state = SimpleNamespace(display=False, update=lambda _value: None)
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_sync_command_palette"),
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#prompt": prompt,
+                        "#empty-state": empty_state,
+                    }[selector],
+                ),
+            ):
+                await app._bootstrap_after_mount()
+                app._refresh_empty_state()
+
+            post_notice.assert_called_once()
+            _, message = post_notice.call_args.args
+            self.assertIn("/init", message)
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_does_not_repeat_workspace_hint_during_same_visit(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            prompt = SimpleNamespace(focus=lambda: None)
+            empty_state = SimpleNamespace(display=False, update=lambda _value: None)
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_sync_command_palette"),
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#prompt": prompt,
+                        "#empty-state": empty_state,
+                    }[selector],
+                ),
+            ):
+                await app._bootstrap_after_mount()
+                app._refresh_empty_state()
+                app._refresh_empty_state()
+
+            post_notice.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_stale_workspace_hint_reappears_after_switching_away_and_back(self) -> None:
+        async def run_test() -> None:
+            stale_workspace = self.cwd / "stale"
+            fresh_workspace = self.cwd / "fresh"
+            stale_workspace.mkdir()
+            fresh_workspace.mkdir()
+            stale_agents = stale_workspace / "AGENTS.md"
+            stale_agents.write_text("# AGENTS.md\n", encoding="utf-8")
+            stale_time = datetime.now(timezone.utc) - timedelta(days=20)
+            stale_timestamp = stale_time.timestamp()
+            os.utime(str(stale_agents), (stale_timestamp, stale_timestamp))
+            (fresh_workspace / "AGENTS.md").write_text("# AGENTS.md\n", encoding="utf-8")
+
+            app = ReupApp(Config(cwd=stale_workspace))
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            prompt = SimpleNamespace(focus=lambda: None)
+            title = SimpleNamespace(update=lambda _value: None)
+            meta = SimpleNamespace(update=lambda _value: None)
+            composer_meta_line = SimpleNamespace(update=lambda _value: None)
+            empty_state = SimpleNamespace(display=False, update=lambda _value: None)
+
+            def _consume(coro, **_kwargs):
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+                return None
+
+            def _query(selector, *_args):
+                return {
+                    "#prompt": prompt,
+                    "#title": title,
+                    "#header-meta": meta,
+                    "#composer-meta-line": composer_meta_line,
+                    "#empty-state": empty_state,
+                }[selector]
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_sync_command_palette"),
+                patch.object(app, "_queue_session_tabs_refresh"),
+                patch.object(app, "run_worker", side_effect=_consume),
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(app, "query_one", side_effect=_query),
+            ):
+                await app._bootstrap_after_mount()
+                app._refresh_empty_state()
+                app.config.cwd = fresh_workspace
+                app.refresh_header()
+                app._refresh_empty_state()
+                app.config.cwd = stale_workspace
+                app.refresh_header()
+                app._refresh_empty_state()
+
+            self.assertEqual(post_notice.call_count, 2)
+
+        asyncio.run(run_test())
+
+    def test_new_thread_does_not_trigger_workspace_hint(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            app._startup_active = False
+            app._suppress_agents_recommendation_once = True
+            empty_state = SimpleNamespace(display=False, update=lambda _value: None)
+
+            with (
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#empty-state": empty_state,
+                    }[selector],
+                ),
+            ):
+                app._refresh_empty_state()
+
+            post_notice.assert_not_called()
+            self.assertFalse(app._suppress_agents_recommendation_once)
 
         asyncio.run(run_test())
 
