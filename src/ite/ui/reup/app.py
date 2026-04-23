@@ -213,7 +213,7 @@ class ReupPromptTextArea(TextArea):
     class Submitted(Message):
         pass
 
-    BINDINGS = []
+    BINDINGS = list(TextArea.BINDINGS)
 
     def action_submit(self) -> None:
         self.post_message(self.Submitted())
