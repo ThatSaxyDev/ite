@@ -68,8 +68,6 @@ from ite.attachments import (
 from ite.cloud import (
     CloudAuthError,
     CloudConnectionError,
-    CloudSessionState,
-    check_cloud_session,
     clear_cloud_auth,
     ensure_cloud_auth,
     get_activity,
@@ -580,6 +578,8 @@ class ReupApp(App):
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
         self._startup_active: bool = True
+        self._startup_phase_text: str = "Preparing your workspace"
+        self._startup_error_text: str | None = None
         self._onboarding_active: bool = False
         self._onboarding_busy: bool = False
         self._plan_ready_future: asyncio.Future[bool] | None = None
@@ -830,79 +830,42 @@ class ReupApp(App):
         await self._initialize_command_palette()
 
     async def _bootstrap_after_mount(self) -> None:
-        if self.config.cloud_auth_enabled:
-            has_cloud_session = await asyncio.to_thread(
-                has_stored_cloud_auth, self.config
-            )
-            if not has_cloud_session:
-                self._cloud_bootstrap_busy = False
-                self._set_startup_state(False)
-                self._set_signed_out_state(True)
-                self._set_loading_state("idle", busy=False)
-                return
-
-            # First-run onboarding must only appear after cloud auth is fully verified.
-            if self._should_show_onboarding():
-                from ite.cloud.auth import _load_cloud_session, check_cloud_session
-
-                existing = _load_cloud_session()
-                if existing is None:
+        try:
+            if self.config.cloud_auth_enabled:
+                self._set_startup_phase("Checking iTE Cloud")
+                has_cloud_session = await asyncio.to_thread(
+                    has_stored_cloud_auth, self.config
+                )
+                if not has_cloud_session:
                     self._cloud_bootstrap_busy = False
                     self._set_startup_state(False)
                     self._set_signed_out_state(True)
                     self._set_loading_state("idle", busy=False)
                     return
-                try:
-                    session_state = await asyncio.to_thread(
-                        check_cloud_session, existing
-                    )
-                except CloudConnectionError:
-                    # Network error during startup check - don't crash
-                    session_state = CloudSessionState.NETWORK_ERROR
 
-                self._cloud_bootstrap_busy = False
-                if session_state == CloudSessionState.INVALID:
-                    self._set_startup_state(False)
-                    self._set_signed_out_state(True)
-                    self._set_loading_state("idle", busy=False)
-                    return
-                if session_state == CloudSessionState.NETWORK_ERROR:
-                    # Keep user signed in, but show a notice about connection issues
-                    self._set_signed_out_state(False)
-                    self._set_startup_state(False)
-                    self._set_onboarding_state(True)
-                    self._set_loading_state("idle", busy=False)
-                    # REMOVED: Timer-based retry - now on-demand only
-                    self.post_notice(
-                        "Cloud",
-                        "Connection delayed. Cloud features will work when available.",
-                    )
-                    self.query_one("#onboarding-name", Input).focus()
-                    return
                 self._set_signed_out_state(False)
+                self._cloud_bootstrap_busy = False
+                # Cloud verification is on-demand; startup should not block on network reachability.
+
+            if self._should_show_onboarding():
                 self._set_startup_state(False)
                 self._set_onboarding_state(True)
                 self._set_loading_state("idle", busy=False)
                 self.query_one("#onboarding-name", Input).focus()
                 return
 
-            self._set_signed_out_state(False)
-            self._cloud_bootstrap_busy = False
-            # REMOVED: Background timer-based auth checks - now on-demand only
-
-        if self._should_show_onboarding():
+            self._set_startup_phase("Starting runtime")
+            await self.ensure_agent()
             self._set_startup_state(False)
-            self._set_onboarding_state(True)
+            self._schedule_usage_meta_refresh()
+            await self._refresh_change_review_source()
             self._set_loading_state("idle", busy=False)
-            self.query_one("#onboarding-name", Input).focus()
-            return
-        await self.ensure_agent()
-        self._set_startup_state(False)
-        self._schedule_usage_meta_refresh()
-        await self._refresh_change_review_source()
-        self._set_loading_state("idle", busy=False)
-        self.query_one("#prompt", TextArea).focus()
-        self._sync_command_palette("")
+            self.query_one("#prompt", TextArea).focus()
+            self._sync_command_palette("")
+        except Exception as exc:
+            self._cloud_bootstrap_busy = False
+            self._set_loading_state("idle", busy=False)
+            self._fail_startup(exc)
 
     def _should_show_onboarding(self) -> bool:
         return not bool(self.config.onboarding_completed)
@@ -1186,6 +1149,8 @@ class ReupApp(App):
                 "plan_mode_enabled": bool(session.plan_mode_enabled) if session else False,
                 "plan_phase": str(session.plan_phase) if session else "idle",
                 "is_turn_running": bool(run_state.is_turn_running),
+                "turn_had_error": bool(run_state.turn_had_error),
+                "last_error_message": str(run_state.last_error_message or ""),
             },
             "open_sessions": open_sessions,
             "transcript": transcript,
@@ -2664,6 +2629,17 @@ class ReupApp(App):
         self._startup_active = enabled
         self._apply_shell_surface()
 
+    def _set_startup_phase(self, message: str) -> None:
+        self._startup_phase_text = (message or "").strip() or "Preparing your workspace"
+        self._startup_error_text = None
+        if self.is_mounted:
+            self._apply_shell_surface()
+
+    def _fail_startup(self, exc: Exception) -> None:
+        self._startup_active = True
+        self._startup_error_text = str(exc).strip() or exc.__class__.__name__
+        self._apply_shell_surface()
+
     def _set_onboarding_state(self, enabled: bool) -> None:
         self._onboarding_active = enabled
         if enabled:
@@ -2734,19 +2710,20 @@ class ReupApp(App):
 
     def _startup_status_text(self) -> Text:
         status = Text(justify="center")
+        if self._startup_error_text:
+            status.append("Startup failed: ", style=f"bold {self._render_styles()['error']}")
+            status.append(
+                self._startup_error_text,
+                style=self._render_styles()["fg"],
+            )
+            return status
         frame = self._top_spinner_frames[
             self._top_spinner_index % len(self._top_spinner_frames)
         ]
-        if self._cloud_bootstrap_busy:
-            status.append(
-                f"{frame} Checking iTE Cloud",
-                style=f"bold {self._render_styles()['fg']}",
-            )
-        else:
-            status.append(
-                f"{frame} Starting runtime",
-                style=f"bold {self._render_styles()['fg']}",
-            )
+        status.append(
+            f"{frame} {self._startup_phase_text}",
+            style=f"bold {self._render_styles()['fg']}",
+        )
         return status
 
     def _onboarding_status_text(self) -> Text:

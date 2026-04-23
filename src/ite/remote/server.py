@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import ipaddress
 import json
 import socket
 import uuid
@@ -123,12 +124,57 @@ class RemoteRuntimeServer:
         self._approval_requests.clear()
 
     def _detect_display_host(self) -> str:
+        candidates: list[str] = []
+        candidates.extend(self._detect_route_hosts())
+        candidates.extend(self._detect_hostname_hosts())
+
+        seen: set[str] = set()
+        filtered: list[str] = []
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if self._is_reachable_display_host(candidate):
+                filtered.append(candidate)
+
+        if filtered:
+            private_hosts = [host for host in filtered if ipaddress.ip_address(host).is_private]
+            if private_hosts:
+                return private_hosts[0]
+            return filtered[0]
+        return "127.0.0.1"
+
+    def _detect_route_hosts(self) -> list[str]:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.connect(("8.8.8.8", 80))
-                return str(sock.getsockname()[0])
+                return [str(sock.getsockname()[0])]
         except Exception:
-            return "127.0.0.1"
+            return []
+
+    def _detect_hostname_hosts(self) -> list[str]:
+        try:
+            infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM)
+        except Exception:
+            return []
+        hosts: list[str] = []
+        for info in infos:
+            address = info[4][0]
+            if isinstance(address, str):
+                hosts.append(address)
+        return hosts
+
+    def _is_reachable_display_host(self, host: str) -> bool:
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return not (
+            ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_unspecified
+        )
 
     def connection_info(self) -> dict[str, Any]:
         return {
