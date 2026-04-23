@@ -500,6 +500,95 @@ class ShellToolCard(Vertical):
         viewport.scroll_end(animate=False)
 
 
+class RemoteBridgeField(Horizontal):
+    def __init__(
+        self,
+        label: str,
+        value: str,
+        *,
+        copy_value: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(classes=classes)
+        self._label = label
+        self._value = value
+        self._copy_value = copy_value if copy_value is not None else value
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._label, classes="remote-bridge-field-label")
+        yield Static(self._value, classes="remote-bridge-field-value")
+        yield Button("Copy", id="copy", classes="remote-bridge-copy", variant="default")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "copy":
+            return
+        event.stop()
+        value = self._copy_value.strip()
+        if not value:
+            return
+        try:
+            self.app.copy_to_clipboard(value)
+            self.notify("Copied to clipboard", timeout=2)
+        except Exception:
+            try:
+                import pyperclip
+
+                pyperclip.copy(value)
+                self.notify("Copied to clipboard", timeout=2)
+            except Exception:
+                self.notify("Failed to copy to clipboard", severity="error", title="Copy Error")
+
+
+class RemoteBridgeCard(Vertical):
+    def __init__(
+        self,
+        *,
+        intro: str,
+        host: str,
+        port: int | str,
+        pair_code: str,
+        connect_uri: str | None = None,
+        authenticated_clients: int | None = None,
+        footer: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(classes=classes)
+        self._intro = intro
+        self._host = str(host)
+        self._port = str(port)
+        self._pair_code = str(pair_code)
+        self._connect_uri = str(connect_uri or "").strip()
+        self._authenticated_clients = authenticated_clients
+        self._footer = str(footer or "").strip()
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._intro, classes="remote-bridge-intro")
+
+        yield RemoteBridgeField("Host", self._host, classes="remote-bridge-field")
+        yield RemoteBridgeField("Port", self._port, classes="remote-bridge-field")
+        yield RemoteBridgeField(
+            "Pair code",
+            self._pair_code,
+            classes="remote-bridge-field emph",
+        )
+        if self._authenticated_clients is not None:
+            yield RemoteBridgeField(
+                "Connected phones",
+                str(self._authenticated_clients),
+                classes="remote-bridge-field",
+            )
+
+        if self._connect_uri:
+            yield RemoteBridgeField(
+                "Connect URL",
+                self._connect_uri,
+                classes="remote-bridge-field wide",
+            )
+
+        if self._footer:
+            yield Static(self._footer, classes="remote-bridge-footer")
+
+
 class ReupApp(App):
     CSS_PATH = "reup.tcss"
     TITLE = "iTE"
@@ -1209,13 +1298,14 @@ class ReupApp(App):
                     self.post_system("Remote", "Port must be a number.", is_error=True)
                     return
             info = await self._ensure_remote_server(port=port)
-            self.post_system(
-                "Remote",
-                "Mobile bridge ready.\n"
-                f"Host: {info['display_host']}:{info['port']}\n"
-                f"Pair code: {info['pair_code']}\n"
-                f"Connect URL: {info['connect_uri']}\n"
-                "Open the mobile app, paste the connect URL, or enter the host and pair code.",
+            self.post_remote_bridge(
+                host=str(info["display_host"]),
+                port=int(info["port"]),
+                pair_code=str(info["pair_code"]),
+                connect_uri=str(info["connect_uri"]),
+                authenticated_clients=int(info.get("authenticated_clients") or 0),
+                intro="Mobile bridge ready.",
+                footer="Open the mobile app, paste the connect URL, or enter the host, port, and pair code.",
             )
             return
 
@@ -1224,12 +1314,14 @@ class ReupApp(App):
                 self.post_system("Remote", "Remote bridge is off.")
                 return
             info = self._remote_server.connection_info()
-            self.post_system(
-                "Remote",
-                "Remote bridge is running.\n"
-                f"Host: {info['display_host']}:{info['port']}\n"
-                f"Pair code: {info['pair_code']}\n"
-                f"Connected phones: {info['authenticated_clients']}",
+            self.post_remote_bridge(
+                host=str(info["display_host"]),
+                port=int(info["port"]),
+                pair_code=str(info["pair_code"]),
+                connect_uri=str(info["connect_uri"]),
+                authenticated_clients=int(info.get("authenticated_clients") or 0),
+                intro="Remote bridge is running.",
+                footer="Use the connect URL for quick pairing, or enter the host, port, and pair code manually.",
             )
             return
 
@@ -1238,10 +1330,14 @@ class ReupApp(App):
             assert self._remote_server is not None
             self._remote_server.regenerate_pair_code()
             info = self._remote_server.connection_info()
-            self.post_system(
-                "Remote",
-                f"New pair code: {info['pair_code']}\n"
-                f"Host: {info['display_host']}:{info['port']}",
+            self.post_remote_bridge(
+                host=str(info["display_host"]),
+                port=int(info["port"]),
+                pair_code=str(info["pair_code"]),
+                connect_uri=str(info["connect_uri"]),
+                authenticated_clients=int(info.get("authenticated_clients") or 0),
+                intro="Pair code refreshed.",
+                footer="Reconnect with the updated pair code if the app is not already authenticated.",
             )
             await self._broadcast_remote_state()
             return
@@ -6619,6 +6715,35 @@ class ReupApp(App):
         css_class = "system error" if is_error else "system"
         self.run_worker(
             self.add_assistant_card(title, message, css_class=css_class),
+            exclusive=False,
+        )
+
+    def post_remote_bridge(
+        self,
+        *,
+        host: str,
+        port: int,
+        pair_code: str,
+        connect_uri: str,
+        authenticated_clients: int | None,
+        intro: str,
+        footer: str,
+    ) -> None:
+        self.run_worker(
+            self.add_assistant_card(
+                "Remote",
+                RemoteBridgeCard(
+                    intro=intro,
+                    host=host,
+                    port=port,
+                    pair_code=pair_code,
+                    connect_uri=connect_uri,
+                    authenticated_clients=authenticated_clients,
+                    footer=footer,
+                    classes="remote-bridge-card",
+                ),
+                css_class="system",
+            ),
             exclusive=False,
         )
 

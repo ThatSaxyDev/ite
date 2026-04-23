@@ -708,6 +708,77 @@ Screen {
     background: $surface;
 }
 
+.block.system .remote-bridge-card {
+    width: 1fr;
+    height: auto;
+    padding-top: 1;
+}
+
+.block.system .remote-bridge-intro {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.block.system .remote-bridge-field {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    border: round $border;
+    background: $surface-darken-1;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.block.system .remote-bridge-field.emph {
+    border: round $primary;
+    background: $primary-muted;
+}
+
+.block.system .remote-bridge-field.wide {
+    width: 1fr;
+}
+
+.block.system .remote-bridge-field-label {
+    width: 16;
+    color: $foreground-muted;
+    text-style: bold;
+    content-align: left middle;
+}
+
+.block.system .remote-bridge-copy {
+    min-width: 8;
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+.block.system .remote-bridge-copy:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+.block.system .remote-bridge-copy:focus {
+    background: $primary;
+    color: $text-primary;
+}
+
+.block.system .remote-bridge-field-value {
+    width: 1fr;
+    height: auto;
+    color: $foreground;
+    content-align: left middle;
+}
+
+.block.system .remote-bridge-footer {
+    height: auto;
+    color: $foreground-muted;
+    margin-top: 1;
+}
+
 .block.system.error,
 .block.error {
     border: round $warning;
