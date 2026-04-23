@@ -46,6 +46,31 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["pending_plan_ready"]["request_id"], "pr-1")
         self.assertEqual(payload["pending_plan_ready"]["plan_text"], "1. Do it")
 
+    async def test_build_state_payload_preserves_runtime_command_feed(self) -> None:
+        server = RemoteRuntimeServer(
+            state_provider=lambda: {
+                "current_session": {"session_id": "session-1"},
+                "command_feed": [
+                    {
+                        "id": "cmd-1",
+                        "session_id": "session-1",
+                        "command": "/init --force",
+                        "timestamp": "2026-04-23T20:00:00+00:00",
+                        "status": "running",
+                        "output": "Scanning project structure...",
+                    }
+                ],
+            },
+            submit_prompt=lambda _message: None,
+            cancel_turn=lambda: None,
+        )
+
+        payload = await server._build_state_payload()
+
+        self.assertEqual(len(payload["command_feed"]), 1)
+        self.assertEqual(payload["command_feed"][0]["command"], "/init --force")
+        self.assertEqual(payload["command_feed"][0]["status"], "running")
+
     async def test_resolve_plan_question_request_completes_pending_future(self) -> None:
         server = RemoteRuntimeServer(
             state_provider=lambda: {},

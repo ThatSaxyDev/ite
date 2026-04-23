@@ -10,6 +10,7 @@ import shlex
 import sys
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -805,6 +806,8 @@ class ReupApp(App):
         self._agents_recommendation_last_workspace_key: str | None = None
         self._agents_recommendation_current_visit: tuple[str, str] | None = None
         self._suppress_agents_recommendation_once: bool = False
+        self._remote_command_feed: list[dict[str, Any]] = []
+        self._remote_command_seq: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1327,6 +1330,7 @@ class ReupApp(App):
             },
             "open_sessions": open_sessions,
             "transcript": transcript,
+            "command_feed": list(self._remote_command_feed),
         }
 
     async def _broadcast_remote_state(self) -> None:
@@ -5532,6 +5536,7 @@ class ReupApp(App):
         parts = command_line.split()
         command = parts[0].lower()
         args = parts[1:]
+        command_feed_id: str | None = None
 
         if command in {"/exit", "/quit"}:
             await self._confirm_quit()
@@ -5649,8 +5654,16 @@ class ReupApp(App):
             await self._retry_last_turn()
             return
 
+        command_feed_id = self._start_remote_command_feed_entry(command_line)
+
         await self.ensure_agent()
         if not self.agent:
+            if command_feed_id is not None:
+                self._finish_remote_command_feed_entry(
+                    command_feed_id,
+                    status="failed",
+                    output="Agent is not initialized",
+                )
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
@@ -5659,7 +5672,11 @@ class ReupApp(App):
         )
         output = (
             StreamingCommandOutput(
-                on_line=lambda line: self.post_streaming_command_result(command, line)
+                on_line=lambda line: self._handle_streaming_command_line(
+                    command,
+                    line,
+                    command_feed_id=command_feed_id,
+                )
             )
             if live_stream_command
             else io.StringIO()
@@ -5687,6 +5704,12 @@ class ReupApp(App):
             await self._ensure_command_registry()
             registry = self._command_registry
             if registry is None:
+                if command_feed_id is not None:
+                    self._finish_remote_command_feed_entry(
+                        command_feed_id,
+                        status="failed",
+                        output="Command registry is not ready yet. Try again.",
+                    )
                 self.post_system(
                     "Command Error",
                     "Command registry is not ready yet. Try again.",
@@ -5698,6 +5721,12 @@ class ReupApp(App):
             self.exit()
             return
         except Exception as exc:
+            if command_feed_id is not None:
+                self._finish_remote_command_feed_entry(
+                    command_feed_id,
+                    status="failed",
+                    output=str(exc),
+                )
             self.post_system("Command Error", str(exc), is_error=True)
             return
 
@@ -5718,6 +5747,12 @@ class ReupApp(App):
         )
         if live_stream_command:
             self.finalize_streaming_command_result(command)
+            if command_feed_id is not None:
+                self._finish_remote_command_feed_entry(
+                    command_feed_id,
+                    status="completed",
+                    output=rendered,
+                )
         if (
             is_manual_compact
             and self.agent
@@ -5731,15 +5766,46 @@ class ReupApp(App):
                     "Context compacted",
                     "Context compacted.",
                 )
+                if command_feed_id is not None:
+                    self._finish_remote_command_feed_entry(
+                        command_feed_id,
+                        status="completed",
+                        output="Context compacted.",
+                    )
                 return
         if rendered and not had_live_output:
             if command == "/skills" and self._post_skills_command_result(
                 args, rendered
             ):
+                if command_feed_id is not None:
+                    self._finish_remote_command_feed_entry(
+                        command_feed_id,
+                        status="completed",
+                        output=rendered,
+                    )
                 return
             if self._post_native_command_result(command, args):
+                if command_feed_id is not None:
+                    self._finish_remote_command_feed_entry(
+                        command_feed_id,
+                        status="completed",
+                        output=rendered,
+                    )
                 return
             self.post_command_result(command, rendered)
+            if command_feed_id is not None:
+                self._finish_remote_command_feed_entry(
+                    command_feed_id,
+                    status="completed",
+                    output=rendered,
+                )
+            return
+        if command_feed_id is not None:
+            self._finish_remote_command_feed_entry(
+                command_feed_id,
+                status="completed",
+                output=rendered,
+            )
 
     async def _run_aside_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -7225,6 +7291,64 @@ class ReupApp(App):
             self._append_command_result_card(command, message),
             exclusive=False,
         )
+
+    def _handle_streaming_command_line(
+        self,
+        command: str,
+        line: str,
+        *,
+        command_feed_id: str | None,
+    ) -> None:
+        self.post_streaming_command_result(command, line)
+        if command_feed_id is not None:
+            self._append_remote_command_feed_output(command_feed_id, line)
+
+    def _start_remote_command_feed_entry(self, command_line: str) -> str:
+        self._remote_command_seq += 1
+        command_id = f"cmd_{self._remote_command_seq}"
+        session_id = self._active_session_id() or ""
+        self._remote_command_feed.append(
+            {
+                "id": command_id,
+                "session_id": session_id,
+                "command": str(command_line).strip(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "status": "running",
+                "output": "",
+            }
+        )
+        self._remote_command_feed = self._remote_command_feed[-30:]
+        self.run_worker(self._broadcast_remote_state(), exclusive=False)
+        return command_id
+
+    def _append_remote_command_feed_output(self, command_id: str, line: str) -> None:
+        text = str(line or "").rstrip()
+        for entry in self._remote_command_feed:
+            if entry.get("id") != command_id:
+                continue
+            existing = str(entry.get("output") or "")
+            entry["output"] = (
+                f"{existing}\n{text}".strip() if existing and text else existing or text
+            )
+            break
+        self.run_worker(self._broadcast_remote_state(), exclusive=False)
+
+    def _finish_remote_command_feed_entry(
+        self,
+        command_id: str,
+        *,
+        status: str,
+        output: str,
+    ) -> None:
+        for entry in self._remote_command_feed:
+            if entry.get("id") != command_id:
+                continue
+            entry["status"] = status
+            final_output = str(output or "").strip()
+            if final_output:
+                entry["output"] = final_output
+            break
+        self.run_worker(self._broadcast_remote_state(), exclusive=False)
 
     async def start_streaming_command_result(
         self, command: str, pending_text: str | None = None
