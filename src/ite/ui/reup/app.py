@@ -10,7 +10,7 @@ import shlex
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import urlparse
 
 from rich.cells import cell_len
@@ -33,9 +33,11 @@ from textual.containers import (
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
+from textual.app import SystemCommand
 from textual.widget import Widget
 from textual.widgets import (
     Button,
+    DataTable,
     Footer,
     Header,
     Input,
@@ -589,6 +591,35 @@ class RemoteBridgeCard(Vertical):
             yield Static(self._footer, classes="remote-bridge-footer")
 
 
+class CommandsSidePanel(Widget):
+    ALLOW_MAXIMIZE = False
+
+    def __init__(
+        self,
+        *,
+        commands: list[tuple[str, str]],
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(id=id, classes=classes)
+        self._commands = commands
+
+    def compose(self) -> ComposeResult:
+        yield Static("Commands", classes="commands-panel-title")
+        yield Static(
+            "Available slash commands and what they do.",
+            classes="commands-panel-subtitle",
+        )
+        yield DataTable(id="commands-panel-table", classes="commands-panel-table")
+
+    def on_mount(self) -> None:
+        table = self.query_one("#commands-panel-table", DataTable)
+        table.cursor_type = "row"
+        table.add_columns("Command", "Description")
+        for name, description in self._commands:
+            table.add_row(name, description)
+
+
 class ReupApp(App):
     CSS_PATH = "reup.tcss"
     TITLE = "iTE"
@@ -728,6 +759,7 @@ class ReupApp(App):
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
         self._remote_port_preference: int = 0
+        self._commands_panel: CommandsSidePanel | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -2500,6 +2532,66 @@ class ReupApp(App):
     def action_change_theme(self) -> None:
         """Route Textual's built-in theme action through the Reup theme modal."""
         self.run_worker(self._open_theme_picker_from_meta(), exclusive=False)
+
+    def _commands_panel_is_open(self) -> bool:
+        panel = self._commands_panel
+        return bool(panel is not None and panel.is_mounted)
+
+    async def _toggle_commands_panel(self) -> None:
+        if self._commands_panel_is_open():
+            await self._hide_commands_panel()
+            return
+        await self._show_commands_panel()
+
+    async def _show_commands_panel(self) -> None:
+        await self._ensure_command_registry()
+        registry = self._command_registry
+        if registry is None:
+            return
+        self.screen.query("HelpPanel").remove()
+        commands = sorted(
+            [(command.name, command.description) for command in registry.all_commands()],
+            key=lambda item: item[0].lower(),
+        )
+        panel = CommandsSidePanel(commands=commands, id="commands-panel")
+        self._commands_panel = panel
+        await self.screen.mount(panel)
+
+    async def _hide_commands_panel(self) -> None:
+        panel = self._commands_panel
+        self._commands_panel = None
+        if panel is None:
+            return
+        try:
+            await panel.remove()
+        except Exception:
+            pass
+
+    def get_system_commands(self, screen) -> Iterable[SystemCommand]:
+        for command in super().get_system_commands(screen):
+            if command.title == "Theme":
+                yield SystemCommand(
+                    "Theme",
+                    "Choose a Textual theme for the current session.",
+                    self.action_change_theme,
+                )
+            elif command.title == "Keys":
+                if self._commands_panel_is_open():
+                    yield SystemCommand(
+                        "Commands",
+                        "Hide the commands side panel.",
+                        lambda: self.run_worker(self._hide_commands_panel(), exclusive=False),
+                    )
+                else:
+                    yield SystemCommand(
+                        "Commands",
+                        "Show available slash commands and what they do.",
+                        lambda: self.run_worker(self._show_commands_panel(), exclusive=False),
+                    )
+            elif command.title in {"Maximize", "Minimize"}:
+                continue
+            else:
+                yield command
 
     async def _open_approval_picker_from_meta(self, args: list[str] | None = None) -> None:
         """Open the approval mode picker modal."""
