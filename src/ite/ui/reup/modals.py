@@ -52,6 +52,7 @@ RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
     "glm-5:cloud",
     "glm-5.1:cloud",
 )
+HIDDEN_TEXTUAL_THEMES = {"textual-ansi"}
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -1145,7 +1146,9 @@ class ThemePickerModal(ModalScreen[str | None]):
     def __init__(self, current: str) -> None:
         super().__init__()
         self._current = current
-        self._theme_names = sorted(BUILTIN_THEMES.keys())
+        self._theme_names = sorted(
+            name for name in BUILTIN_THEMES.keys() if name not in HIDDEN_TEXTUAL_THEMES
+        )
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal theme-picker-modal"):

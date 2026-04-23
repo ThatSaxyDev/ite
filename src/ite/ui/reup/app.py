@@ -2497,6 +2497,10 @@ class ReupApp(App):
         self._sync_command_palette(self.query_one("#prompt", TextArea).text)
         self.post_notice("Theme", f"{old_theme} → selected")
 
+    def action_change_theme(self) -> None:
+        """Route Textual's built-in theme action through the Reup theme modal."""
+        self.run_worker(self._open_theme_picker_from_meta(), exclusive=False)
+
     async def _open_approval_picker_from_meta(self, args: list[str] | None = None) -> None:
         """Open the approval mode picker modal."""
         from ite.config.config import ApprovalPolicy
