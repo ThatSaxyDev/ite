@@ -5492,6 +5492,10 @@ class ReupApp(App):
             await self._open_theme_picker_from_meta()
             return
 
+        if command == "/help":
+            await self._show_commands_panel()
+            return
+
         if command == "/approval" and not args:
             await self._open_approval_picker_from_meta(args)
             return

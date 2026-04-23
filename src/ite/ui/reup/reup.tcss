@@ -607,9 +607,9 @@ Screen {
 
 #commands-panel {
     split: right;
-    width: 33%;
-    min-width: 30;
-    max-width: 60;
+    width: 42%;
+    min-width: 42;
+    max-width: 76;
     height: 1fr;
     background: $surface;
     border-left: vkey $foreground 30%;
