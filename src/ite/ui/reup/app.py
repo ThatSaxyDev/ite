@@ -573,7 +573,7 @@ class RemoteBridgeCard(Vertical):
         yield RemoteBridgeField(
             "Pair code",
             self._pair_code,
-            classes="remote-bridge-field emph",
+            classes="remote-bridge-field",
         )
         if self._authenticated_clients is not None:
             yield RemoteBridgeField(
@@ -586,7 +586,7 @@ class RemoteBridgeCard(Vertical):
             yield RemoteBridgeField(
                 "Connect URL",
                 self._connect_uri,
-                classes="remote-bridge-field wide",
+                classes="remote-bridge-field wide emph",
             )
 
         if self._footer:

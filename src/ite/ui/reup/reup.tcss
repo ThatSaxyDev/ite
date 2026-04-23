@@ -796,6 +796,7 @@ Screen {
 
 .block.system .remote-bridge-field-label {
     width: 16;
+    padding-right: 2;
     color: $foreground-muted;
     text-style: bold;
     content-align: left middle;
