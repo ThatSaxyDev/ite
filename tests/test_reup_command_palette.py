@@ -1696,6 +1696,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
         self.assertTrue(
             ReupApp._should_suppress_malformed_tool_card(
+                "read_toml",
+                "Invalid parameters: Parameter 'path': Field required",
+            )
+        )
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
                 "read_pdf",
                 "Invalid parameters: Parameter 'path': Field required",
             )
@@ -1710,6 +1716,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
             ReupApp._should_suppress_malformed_tool_card(
                 "read_file",
                 "Error: Invalid parameters: Parameter 'path': Field required\n\nOutput:\nRetry this tool with all required arguments.",
+            )
+        )
+        self.assertTrue(
+            ReupApp._should_suppress_malformed_tool_card(
+                "skills",
+                "Invalid parameters: Parameter '': Value error, skill is required for show, activate, and deactivate",
             )
         )
         self.assertFalse(

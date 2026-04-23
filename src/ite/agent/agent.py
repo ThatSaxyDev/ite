@@ -1028,12 +1028,17 @@ class Agent:
         if tool_name not in {
             "shell",
             "read_file",
+            "read_json",
+            "read_toml",
+            "read_yaml",
+            "read_env",
             "read_pdf",
             "read_image",
             "grep",
             "edit",
             "apply_patch",
             "memory",
+            "skills",
         }:
             return False
         if not validation_errors:
@@ -1041,6 +1046,10 @@ class Agent:
         required_errors = {
             "shell": {"Parameter 'command': Field required"},
             "read_file": {"Parameter 'path': Field required"},
+            "read_json": {"Parameter 'path': Field required"},
+            "read_toml": {"Parameter 'path': Field required"},
+            "read_yaml": {"Parameter 'path': Field required"},
+            "read_env": {"Parameter 'path': Field required"},
             "read_pdf": {"Parameter 'path': Field required"},
             "read_image": {"Parameter 'path': Field required"},
             "grep": {"Parameter 'pattern': Field required"},
@@ -1051,6 +1060,7 @@ class Agent:
             },
             "apply_patch": {"Parameter 'patch': Field required"},
             "memory": {"Parameter 'action': Field required"},
+            "skills": {"Parameter '': Value error, skill is required for show, activate, and deactivate"},
         }
         return set(validation_errors).issubset(required_errors.get(tool_name, set()))
 

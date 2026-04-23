@@ -9,6 +9,33 @@ REMOTE_PROTOCOL_VERSION = 1
 MAX_REMOTE_TRANSCRIPT_MESSAGES = 80
 MAX_REMOTE_TEXT_CHARS = 2400
 
+_REMOTE_SUPPRESSED_TOOL_ERRORS: dict[str, set[str]] = {
+    "shell": {"Parameter 'command': Field required"},
+    "read_file": {"Parameter 'path': Field required"},
+    "read_json": {"Parameter 'path': Field required"},
+    "read_toml": {"Parameter 'path': Field required"},
+    "read_yaml": {"Parameter 'path': Field required"},
+    "read_env": {"Parameter 'path': Field required"},
+    "read_pdf": {"Parameter 'path': Field required"},
+    "read_image": {"Parameter 'path': Field required"},
+    "grep": {"Parameter 'pattern': Field required"},
+    "write_file": {
+        "Parameter 'path': Field required",
+        "Parameter 'content': Field required",
+        "Parameter 'path': Field required; Parameter 'content': Field required",
+    },
+    "edit": {
+        "Parameter 'path': Field required",
+        "Parameter 'new_string': Field required",
+        "Parameter 'path': Field required; Parameter 'new_string': Field required",
+    },
+    "apply_patch": {"Parameter 'patch': Field required"},
+    "memory": {"Parameter 'action': Field required"},
+    "skills": {
+        "Parameter '': Value error, skill is required for show, activate, and deactivate"
+    },
+}
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -46,6 +73,34 @@ def json_safe(value: Any) -> Any:
     return str(value)
 
 
+def _normalize_validation_error(value: Any) -> str:
+    text = str(value or "").strip()
+    if text.startswith("Error: "):
+        text = text.removeprefix("Error: ").strip()
+    if not text.startswith("Invalid parameters: "):
+        return ""
+    detail = text.removeprefix("Invalid parameters: ").strip()
+    detail = detail.split("\n\nOutput:", 1)[0].strip()
+    detail = detail.split("\nOutput:", 1)[0].strip()
+    return detail
+
+
+def _is_suppressible_tool_failure(
+    tool_name: Any,
+    error_text: Any,
+    metadata: Any = None,
+) -> bool:
+    normalized_name = str(tool_name or "").strip()
+    if not normalized_name:
+        return False
+    if isinstance(metadata, dict) and bool(metadata.get("suppressed")):
+        return True
+    detail = _normalize_validation_error(error_text)
+    if not detail:
+        return False
+    return detail in _REMOTE_SUPPRESSED_TOOL_ERRORS.get(normalized_name, set())
+
+
 def serialize_transcript_message(event: dict[str, Any]) -> dict[str, Any] | None:
     message = event.get("message") if isinstance(event, dict) else None
     if not isinstance(message, dict):
@@ -80,6 +135,16 @@ def serialize_transcript_message(event: dict[str, Any]) -> dict[str, Any] | None
             payload["tool_calls"] = tool_calls
 
     if role == "tool":
+        tool_ui = message.get("tool_ui") if isinstance(message.get("tool_ui"), dict) else {}
+        tool_name = str(tool_ui.get("name") or message.get("name") or "").strip()
+        metadata = tool_ui.get("metadata") if isinstance(tool_ui.get("metadata"), dict) else None
+        error_text = tool_ui.get("error")
+        if error_text is None:
+            error_text = tool_ui.get("output")
+        if error_text is None:
+            error_text = message.get("content", "")
+        if _is_suppressible_tool_failure(tool_name, error_text, metadata):
+            return None
         payload["tool_call_id"] = str(message.get("tool_call_id") or "")
         payload["name"] = str(message.get("name") or "")
 

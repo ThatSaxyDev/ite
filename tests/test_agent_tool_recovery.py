@@ -406,6 +406,12 @@ class AgentToolRecoveryTests(unittest.TestCase):
                 ["Parameter 'path': Field required"],
             )
         )
+        self.assertTrue(
+            self.agent._should_suppress_malformed_tool_call(
+                "read_toml",
+                ["Parameter 'path': Field required"],
+            )
+        )
 
     def test_suppresses_malformed_empty_media_read_calls(self) -> None:
         self.assertTrue(
@@ -453,6 +459,14 @@ class AgentToolRecoveryTests(unittest.TestCase):
             self.agent._should_suppress_malformed_tool_call(
                 "memory",
                 ["Parameter 'action': Field required"],
+            )
+        )
+
+    def test_suppresses_malformed_empty_skills_call(self) -> None:
+        self.assertTrue(
+            self.agent._should_suppress_malformed_tool_call(
+                "skills",
+                ["Parameter '': Value error, skill is required for show, activate, and deactivate"],
             )
         )
 
