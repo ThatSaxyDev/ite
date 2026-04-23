@@ -1316,6 +1316,8 @@ class ReupApp(App):
                 "plan_phase": str(session.plan_phase) if session else "idle",
                 "active_turn_id": int(run_state.active_turn_id),
                 "is_turn_running": bool(run_state.is_turn_running),
+                "activity_label": str(self._top_state_text or ""),
+                "activity_busy": bool(self._top_busy),
                 "turn_had_error": bool(run_state.turn_had_error),
                 "last_error_message": str(run_state.last_error_message or ""),
             },
@@ -2886,6 +2888,7 @@ class ReupApp(App):
         self._top_busy = busy
         self._activity_version += 1
         version = self._activity_version
+        self.run_worker(self._broadcast_remote_state(), exclusive=False)
         if busy:
             self.run_worker(
                 self._show_activity_indicator(state, version), exclusive=False
