@@ -21,6 +21,21 @@ MaybeAsync = Callable[..., Any] | Callable[..., Awaitable[Any]]
 class _ApprovalRequest:
     future: asyncio.Future[bool]
     created_at: datetime
+    payload: dict[str, Any]
+
+
+@dataclass
+class _PlanQuestionRequest:
+    future: asyncio.Future[dict[str, Any]]
+    created_at: datetime
+    payload: dict[str, Any]
+
+
+@dataclass
+class _PlanReadyRequest:
+    future: asyncio.Future[bool]
+    created_at: datetime
+    payload: dict[str, Any]
 
 
 @dataclass
@@ -60,6 +75,8 @@ class RemoteRuntimeServer:
         self._client_tokens: set[str] = set()
         self._clients: dict[str, _ClientConnection] = {}
         self._approval_requests: dict[str, _ApprovalRequest] = {}
+        self._plan_question_requests: dict[str, _PlanQuestionRequest] = {}
+        self._plan_ready_requests: dict[str, _PlanReadyRequest] = {}
 
     @property
     def is_running(self) -> bool:
@@ -122,6 +139,14 @@ class RemoteRuntimeServer:
             if not request.future.done():
                 request.future.cancel()
         self._approval_requests.clear()
+        for request in self._plan_question_requests.values():
+            if not request.future.done():
+                request.future.cancel()
+        self._plan_question_requests.clear()
+        for request in self._plan_ready_requests.values():
+            if not request.future.done():
+                request.future.cancel()
+        self._plan_ready_requests.clear()
 
     def _detect_display_host(self) -> str:
         candidates: list[str] = []
@@ -215,6 +240,7 @@ class RemoteRuntimeServer:
         self._approval_requests[request_id] = _ApprovalRequest(
             future=future,
             created_at=datetime.now(timezone.utc),
+            payload=dict(payload),
         )
         outbound = dict(payload)
         outbound["request_id"] = request_id
@@ -226,6 +252,88 @@ class RemoteRuntimeServer:
         finally:
             self._approval_requests.pop(request_id, None)
 
+    async def request_plan_question(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout: float = 300.0,
+    ) -> dict[str, Any] | None:
+        if not self.has_authenticated_clients():
+            return None
+        request_id = str(payload.get("request_id") or uuid.uuid4())
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._plan_question_requests[request_id] = _PlanQuestionRequest(
+            future=future,
+            created_at=datetime.now(timezone.utc),
+            payload=dict(payload),
+        )
+        outbound = dict(payload)
+        outbound["request_id"] = request_id
+        await self._broadcast("plan_question_request", outbound)
+        try:
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self._plan_question_requests.pop(request_id, None)
+
+    async def resolve_plan_question_request(
+        self,
+        request_id: str,
+        answer: dict[str, Any],
+    ) -> bool:
+        request = self._plan_question_requests.get(request_id)
+        if request is None:
+            return False
+        if not request.future.done():
+            request.future.set_result(answer)
+        await self._broadcast(
+            "plan_question_resolved",
+            {"request_id": request_id, "answered": True},
+        )
+        return True
+
+    async def request_plan_ready(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout: float = 300.0,
+    ) -> bool | None:
+        if not self.has_authenticated_clients():
+            return None
+        request_id = str(payload.get("request_id") or uuid.uuid4())
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._plan_ready_requests[request_id] = _PlanReadyRequest(
+            future=future,
+            created_at=datetime.now(timezone.utc),
+            payload=dict(payload),
+        )
+        outbound = dict(payload)
+        outbound["request_id"] = request_id
+        await self._broadcast("plan_ready_request", outbound)
+        try:
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            self._plan_ready_requests.pop(request_id, None)
+
+    async def resolve_plan_ready_request(
+        self,
+        request_id: str,
+        approved: bool,
+    ) -> bool:
+        request = self._plan_ready_requests.get(request_id)
+        if request is None:
+            return False
+        if not request.future.done():
+            request.future.set_result(bool(approved))
+        await self._broadcast(
+            "plan_ready_resolved",
+            {"request_id": request_id, "approved": bool(approved)},
+        )
+        return True
+
     async def _build_state_payload(self) -> dict[str, Any]:
         state = await self._call(self._state_provider)
         payload = json_safe(state)
@@ -233,6 +341,18 @@ class RemoteRuntimeServer:
             payload.setdefault("protocol_version", REMOTE_PROTOCOL_VERSION)
             payload.setdefault("server", self.connection_info())
             payload.setdefault("timestamp", utc_now_iso())
+            pending_plan_question = None
+            if self._plan_question_requests:
+                request_id, request = next(iter(self._plan_question_requests.items()))
+                pending_plan_question = json_safe(request.payload)
+                pending_plan_question["request_id"] = request_id
+            pending_plan_ready = None
+            if self._plan_ready_requests:
+                request_id, request = next(iter(self._plan_ready_requests.items()))
+                pending_plan_ready = json_safe(request.payload)
+                pending_plan_ready["request_id"] = request_id
+            payload["pending_plan_question"] = pending_plan_question
+            payload["pending_plan_ready"] = pending_plan_ready
         return payload
 
     async def _call(self, callback: MaybeAsync, *args: Any) -> Any:
@@ -432,6 +552,60 @@ class RemoteRuntimeServer:
                 client,
                 "command_ack",
                 {"ok": True, "message": "Approval response recorded."},
+                request_id=request_id,
+            )
+            return
+        if msg_type == "plan_question_response":
+            question_id = str(payload.get("request_id") or "").strip()
+            request = self._plan_question_requests.get(question_id)
+            if request is None:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "Plan question no longer exists."},
+                    request_id=request_id,
+                )
+                return
+            answer = {
+                "selected_option": str(payload.get("selected_option") or "").strip(),
+                "free_text": str(payload.get("free_text") or "").strip(),
+                "selected_index": payload.get("selected_index"),
+            }
+            if not request.future.done():
+                request.future.set_result(answer)
+            await self._broadcast(
+                "plan_question_resolved",
+                {"request_id": question_id, "answered": True},
+            )
+            await self._send(
+                client,
+                "command_ack",
+                {"ok": True, "message": "Plan question response recorded."},
+                request_id=request_id,
+            )
+            return
+        if msg_type == "plan_ready_response":
+            prompt_id = str(payload.get("request_id") or "").strip()
+            request = self._plan_ready_requests.get(prompt_id)
+            if request is None:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "Plan ready prompt no longer exists."},
+                    request_id=request_id,
+                )
+                return
+            approved = bool(payload.get("approved"))
+            if not request.future.done():
+                request.future.set_result(approved)
+            await self._broadcast(
+                "plan_ready_resolved",
+                {"request_id": prompt_id, "approved": approved},
+            )
+            await self._send(
+                client,
+                "command_ack",
+                {"ok": True, "message": "Plan ready response recorded."},
                 request_id=request_id,
             )
             return

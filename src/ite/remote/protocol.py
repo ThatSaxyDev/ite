@@ -201,3 +201,43 @@ def serialize_approval_request(
         "diff": compact_text(diff or "", 12000) or None,
         "timestamp": utc_now_iso(),
     }
+
+
+def serialize_plan_question_request(
+    *,
+    request_id: str,
+    session_id: str,
+    question: str,
+    options: list[str],
+    recommended_index: int | None,
+    allow_free_text: bool,
+    question_number: int,
+) -> dict[str, Any]:
+    return {
+        "protocol_version": REMOTE_PROTOCOL_VERSION,
+        "request_id": request_id,
+        "session_id": session_id,
+        "question": compact_text(question, 4000),
+        "options": [compact_text(option, 600) for option in options[:4]],
+        "recommended_index": recommended_index,
+        "allow_free_text": bool(allow_free_text),
+        "question_number": int(question_number),
+        "timestamp": utc_now_iso(),
+    }
+
+
+def serialize_plan_ready_request(
+    *,
+    request_id: str,
+    session_id: str,
+    plan_text: str,
+    question_count: int,
+) -> dict[str, Any]:
+    return {
+        "protocol_version": REMOTE_PROTOCOL_VERSION,
+        "request_id": request_id,
+        "session_id": session_id,
+        "plan_text": compact_text(plan_text, 12000),
+        "question_count": int(question_count),
+        "timestamp": utc_now_iso(),
+    }

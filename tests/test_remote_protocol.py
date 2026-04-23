@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from ite.remote.protocol import build_remote_transcript
+from ite.remote.protocol import serialize_plan_question_request
+from ite.remote.protocol import serialize_plan_ready_request
 from ite.remote.protocol import serialize_transcript_message
 
 
@@ -113,6 +115,39 @@ class RemoteProtocolTests(unittest.TestCase):
         self.assertEqual(len(transcript), 2)
         self.assertEqual([item["role"] for item in transcript], ["user", "tool"])
         self.assertEqual(transcript[1]["name"], "shell")
+
+    def test_serialize_plan_question_request_compacts_and_shapes_payload(self) -> None:
+        payload = serialize_plan_question_request(
+            request_id="req-1",
+            session_id="session-1",
+            question="Which path should we take?",
+            options=["A", "B", "C", "D", "E"],
+            recommended_index=1,
+            allow_free_text=True,
+            question_number=2,
+        )
+
+        self.assertEqual(payload["request_id"], "req-1")
+        self.assertEqual(payload["session_id"], "session-1")
+        self.assertEqual(payload["options"], ["A", "B", "C", "D"])
+        self.assertEqual(payload["recommended_index"], 1)
+        self.assertTrue(payload["allow_free_text"])
+        self.assertEqual(payload["question_number"], 2)
+        self.assertIn("timestamp", payload)
+
+    def test_serialize_plan_ready_request_compacts_and_shapes_payload(self) -> None:
+        payload = serialize_plan_ready_request(
+            request_id="req-2",
+            session_id="session-2",
+            plan_text="1. Step one\n2. Step two",
+            question_count=3,
+        )
+
+        self.assertEqual(payload["request_id"], "req-2")
+        self.assertEqual(payload["session_id"], "session-2")
+        self.assertEqual(payload["plan_text"], "1. Step one\n2. Step two")
+        self.assertEqual(payload["question_count"], 3)
+        self.assertIn("timestamp", payload)
 
 
 if __name__ == "__main__":

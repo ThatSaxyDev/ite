@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -119,6 +120,8 @@ from ite.remote.protocol import (
     build_remote_transcript,
     serialize_agent_event,
     serialize_approval_request,
+    serialize_plan_question_request,
+    serialize_plan_ready_request,
 )
 from ite.skills import (
     build_skill_detail_renderable,
@@ -6513,7 +6516,14 @@ class ReupApp(App):
             plan_text = event.data.get("plan_text", "")
             if isinstance(plan_text, str) and plan_text.strip():
                 await self._render_plan_text_if_needed(plan_text)
-            approved = await self._present_plan_ready_action_card()
+            approved = await self._present_plan_ready_with_remote(
+                plan_text=str(plan_text or ""),
+                question_count=(
+                    int(self.agent.session.plan_questions_asked)
+                    if self.agent and self.agent.session
+                    else 0
+                ),
+            )
             if approved and self.agent and self.agent.session:
                 self.agent.session.seed_execution_todos_from_plan(
                     self.agent.session.pending_plan_text
@@ -6600,6 +6610,69 @@ class ReupApp(App):
         self._refresh_empty_state()
         await self._pin_activity_indicator_to_end()
         return bool(await self._plan_ready_future)
+
+    async def _present_plan_ready_with_remote(
+        self,
+        *,
+        plan_text: str,
+        question_count: int,
+    ) -> bool:
+        local_task = asyncio.create_task(self._present_plan_ready_action_card())
+        await asyncio.sleep(0)
+        remote_task: asyncio.Task[bool | None] | None = None
+        request_id = ""
+        if (
+            self._remote_server is not None
+            and self._remote_server.is_running
+            and self._remote_server.has_authenticated_clients()
+            and self.agent
+            and self.agent.session
+        ):
+            request_id = str(uuid.uuid4())
+            remote_task = asyncio.create_task(
+                self._remote_server.request_plan_ready(
+                    serialize_plan_ready_request(
+                        request_id=request_id,
+                        session_id=self._active_session_id()
+                        or self.agent.session.session_id,
+                        plan_text=plan_text,
+                        question_count=question_count,
+                    )
+                )
+            )
+
+        pending: set[asyncio.Task[Any]] = {local_task}
+        if remote_task is not None:
+            pending.add(remote_task)
+        winner: asyncio.Task[Any] | None = None
+        approved: bool | None = None
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                result = task.result()
+                if task is remote_task and result is None:
+                    continue
+                winner = task
+                approved = bool(result)
+                break
+            if winner is not None:
+                break
+
+        if approved is None:
+            approved = False
+
+        if winner is local_task and remote_task is not None and request_id:
+            assert self._remote_server is not None
+            await self._remote_server.resolve_plan_ready_request(request_id, approved)
+            await remote_task
+            await self._broadcast_remote_state()
+        elif winner is remote_task:
+            self._resolve_plan_ready_choice(approved)
+            await local_task
+            await self._broadcast_remote_state()
+        return approved
 
     def _resolve_plan_ready_choice(self, approved: bool) -> None:
         future = self._plan_ready_future
@@ -6692,6 +6765,97 @@ class ReupApp(App):
             self._plan_question_custom_input.focus()
 
         return await self._plan_question_future
+
+    async def _present_plan_question_with_remote(
+        self,
+        *,
+        question_number: int,
+        question: str,
+        options: list[str],
+        recommended_index: int | None,
+        allow_free_text: bool,
+    ) -> dict[str, Any]:
+        local_task = asyncio.create_task(
+            self._present_plan_question_card(
+                question_number=question_number,
+                question=question,
+                options=options,
+                recommended_index=recommended_index,
+                allow_free_text=allow_free_text,
+            )
+        )
+        await asyncio.sleep(0)
+        remote_task: asyncio.Task[dict[str, Any] | None] | None = None
+        request_id = ""
+        if (
+            self._remote_server is not None
+            and self._remote_server.is_running
+            and self._remote_server.has_authenticated_clients()
+            and self.agent
+            and self.agent.session
+        ):
+            request_id = str(uuid.uuid4())
+            remote_task = asyncio.create_task(
+                self._remote_server.request_plan_question(
+                    serialize_plan_question_request(
+                        request_id=request_id,
+                        session_id=self._active_session_id()
+                        or self.agent.session.session_id,
+                        question=question,
+                        options=options,
+                        recommended_index=recommended_index,
+                        allow_free_text=allow_free_text,
+                        question_number=question_number,
+                    )
+                )
+            )
+
+        pending: set[asyncio.Task[Any]] = {local_task}
+        if remote_task is not None:
+            pending.add(remote_task)
+        winner: asyncio.Task[Any] | None = None
+        answer: dict[str, Any] | None = None
+        while pending:
+            done, pending = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in done:
+                result = task.result()
+                if task is remote_task and result is None:
+                    continue
+                winner = task
+                answer = result
+                break
+            if winner is not None:
+                break
+
+        if not isinstance(answer, dict):
+            answer = {"selected_option": "", "free_text": "", "selected_index": None}
+
+        selected_index = answer.get("selected_index")
+        if not isinstance(selected_index, int):
+            selected_index = None
+        selected_option = str(answer.get("selected_option") or "")
+        free_text = str(answer.get("free_text") or "")
+
+        if winner is local_task and remote_task is not None and request_id:
+            assert self._remote_server is not None
+            await self._remote_server.resolve_plan_question_request(request_id, answer)
+            await remote_task
+            await self._broadcast_remote_state()
+        elif winner is remote_task:
+            await self._resolve_plan_question_choice(
+                selected_index=selected_index,
+                selected_option=selected_option,
+                free_text=free_text,
+            )
+            await local_task
+            await self._broadcast_remote_state()
+        return {
+            "selected_option": selected_option,
+            "free_text": free_text.strip(),
+            "selected_index": selected_index,
+        }
 
     async def _resolve_plan_question_choice(
         self, *, selected_index: int | None, selected_option: str, free_text: str
@@ -9079,7 +9243,7 @@ class ReupApp(App):
                 )
             )
 
-            result = await self._present_plan_question_card(
+            result = await self._present_plan_question_with_remote(
                 question_number=question_number,
                 question=question,
                 options=options,
