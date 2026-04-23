@@ -1118,8 +1118,11 @@ class ReupApp(App):
         run_state = self._run_state(active_session_id)
         transcript: list[dict[str, Any]] = []
         if session and session.context_manager is not None:
+            transcript_state = session.context_manager.export_transcript_state()
             transcript = build_remote_transcript(
-                session.context_manager.get_snapshot_messages()
+                transcript_state.get("events", [])
+                if isinstance(transcript_state, dict)
+                else []
             )
 
         open_sessions: list[dict[str, Any]] = []
@@ -1148,6 +1151,7 @@ class ReupApp(App):
                 "model": str(self.config.model_name or ""),
                 "plan_mode_enabled": bool(session.plan_mode_enabled) if session else False,
                 "plan_phase": str(session.plan_phase) if session else "idle",
+                "active_turn_id": int(run_state.active_turn_id),
                 "is_turn_running": bool(run_state.is_turn_running),
                 "turn_had_error": bool(run_state.turn_had_error),
                 "last_error_message": str(run_state.last_error_message or ""),

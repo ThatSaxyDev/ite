@@ -14,6 +14,21 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def normalize_iso_timestamp(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone().astimezone(timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.isoformat()
+
+
 def compact_text(value: Any, limit: int = MAX_REMOTE_TEXT_CHARS) -> str:
     text = str(value or "").strip()
     if len(text) <= limit:
@@ -31,12 +46,18 @@ def json_safe(value: Any) -> Any:
     return str(value)
 
 
-def serialize_transcript_message(message: dict[str, Any]) -> dict[str, Any] | None:
+def serialize_transcript_message(event: dict[str, Any]) -> dict[str, Any] | None:
+    message = event.get("message") if isinstance(event, dict) else None
+    if not isinstance(message, dict):
+        return None
     role = str(message.get("role") or "").strip()
     if not role or role == "system":
         return None
 
-    payload: dict[str, Any] = {"role": role}
+    payload: dict[str, Any] = {
+        "role": role,
+        "created_at": normalize_iso_timestamp(event.get("created_at")),
+    }
 
     content = message.get("content", "")
     if isinstance(content, str) and content.strip():
@@ -66,13 +87,13 @@ def serialize_transcript_message(message: dict[str, Any]) -> dict[str, Any] | No
 
 
 def build_remote_transcript(
-    messages: list[dict[str, Any]],
+    events: list[dict[str, Any]],
     *,
     max_messages: int = MAX_REMOTE_TRANSCRIPT_MESSAGES,
 ) -> list[dict[str, Any]]:
     serialized: list[dict[str, Any]] = []
-    for message in messages[-max_messages:]:
-        entry = serialize_transcript_message(message)
+    for event in events[-max_messages:]:
+        entry = serialize_transcript_message(event)
         if entry is not None:
             serialized.append(entry)
     return serialized
