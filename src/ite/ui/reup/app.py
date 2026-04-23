@@ -20,7 +20,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from textual import events, on, work
-from textual.app import App, ComposeResult, ScreenStackError
+from textual.app import App, ComposeResult, ScreenStackError, SystemCommand
 from textual.binding import Binding
 from textual.containers import (
     Container,
@@ -33,7 +33,6 @@ from textual.containers import (
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.app import SystemCommand
 from textual.widget import Widget
 from textual.widgets import (
     Button,
@@ -538,7 +537,9 @@ class RemoteBridgeField(Horizontal):
                 pyperclip.copy(value)
                 self.notify("Copied to clipboard", timeout=2)
             except Exception:
-                self.notify("Failed to copy to clipboard", severity="error", title="Copy Error")
+                self.notify(
+                    "Failed to copy to clipboard", severity="error", title="Copy Error"
+                )
 
 
 class RemoteBridgeCard(Vertical):
@@ -605,7 +606,11 @@ class CommandsSidePanel(Widget):
         self._commands = commands
 
     def compose(self) -> ComposeResult:
-        yield Static("Commands", classes="commands-panel-title")
+        with Horizontal(classes="commands-panel-header"):
+            yield Static("Commands", classes="commands-panel-title")
+            yield Button(
+                "Close", id="commands-panel-close", classes="commands-panel-close"
+            )
         yield Static(
             "Available slash commands and what they do.",
             classes="commands-panel-subtitle",
@@ -618,6 +623,12 @@ class CommandsSidePanel(Widget):
         table.add_columns("Command", "Description")
         for name, description in self._commands:
             table.add_row(name, description)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "commands-panel-close":
+            return
+        event.stop()
+        self.app.run_worker(self.app._hide_commands_panel(), exclusive=False)
 
 
 class ReupApp(App):
@@ -655,8 +666,12 @@ class ReupApp(App):
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._tool_name_by_call_id: dict[str, str] = {}
         self._tool_completion_state: dict[str, dict[str, Any]] = {}
-        self._assistant_card_rich_states: dict[str, dict[str, Any]] = {}  # Track cards that need re-render on theme change
-        self._change_card_states: dict[int, dict[str, Any]] = {}  # Track change cards by message index for theme re-rendering
+        self._assistant_card_rich_states: dict[
+            str, dict[str, Any]
+        ] = {}  # Track cards that need re-render on theme change
+        self._change_card_states: dict[
+            int, dict[str, Any]
+        ] = {}  # Track change cards by message index for theme re-rendering
         self._live_shell_call_state: dict[str, ShellSessionCardState] = {}
         self._adapter = ReupTUIAdapter(self)
         self._message_count: int = 0
@@ -1051,12 +1066,12 @@ class ReupApp(App):
 
     async def _rerender_assistant_cards_for_theme(self) -> None:
         """Re-render assistant cards that use Rich colors when theme changes."""
-        from ite.ui.reup.change_views import build_change_card_body
         from ite.skills.rendering import (
-            build_skills_overview_renderable,
             build_skill_detail_renderable,
             build_skill_feedback_renderable,
+            build_skills_overview_renderable,
         )
+        from ite.ui.reup.change_views import build_change_card_body
 
         conversation = self.query_one("#conversation", VerticalScroll)
         styles = self._render_styles()
@@ -1078,7 +1093,9 @@ class ReupApp(App):
                     if not self.agent or not self.agent.session:
                         continue
                     session = self.agent.session
-                    active_ids = {skill.identifier for skill in session.get_active_skills()}
+                    active_ids = {
+                        skill.identifier for skill in session.get_active_skills()
+                    }
                     # Re-render overview
                     new_body = build_skills_overview_renderable(
                         session.skill_manager.list_skills(),
@@ -1098,6 +1115,7 @@ class ReupApp(App):
                     state = self._change_card_states.get(card_index)
                     if state:
                         from ite.ui.reup.change_views import build_change_card_body
+
                         new_body = build_change_card_body(
                             state["change_set"],
                             cwd=self.config.cwd,
@@ -1144,14 +1162,10 @@ class ReupApp(App):
         self.run_worker(
             self._rerender_completed_tool_cards_for_theme(), exclusive=False
         )
-        self.run_worker(
-            self._rerender_assistant_cards_for_theme(), exclusive=False
-        )
+        self.run_worker(self._rerender_assistant_cards_for_theme(), exclusive=False)
         # Re-render change review panel if visible
         if self._change_review_visible:
-            self.run_worker(
-                self._rerender_change_review_for_theme(), exclusive=False
-            )
+            self.run_worker(self._rerender_change_review_for_theme(), exclusive=False)
 
     async def _rerender_completed_tool_cards_for_theme(self) -> None:
         for call_id, state in list(self._tool_completion_state.items()):
@@ -1270,7 +1284,9 @@ class ReupApp(App):
                 "title": self._current_session_title(),
                 "workspace": str(self.config.cwd.resolve()),
                 "model": str(self.config.model_name or ""),
-                "plan_mode_enabled": bool(session.plan_mode_enabled) if session else False,
+                "plan_mode_enabled": bool(session.plan_mode_enabled)
+                if session
+                else False,
                 "plan_phase": str(session.plan_phase) if session else "idle",
                 "active_turn_id": int(run_state.active_turn_id),
                 "is_turn_running": bool(run_state.is_turn_running),
@@ -2550,7 +2566,10 @@ class ReupApp(App):
             return
         self.screen.query("HelpPanel").remove()
         commands = sorted(
-            [(command.name, command.description) for command in registry.all_commands()],
+            [
+                (command.name, command.description)
+                for command in registry.all_commands()
+            ],
             key=lambda item: item[0].lower(),
         )
         panel = CommandsSidePanel(commands=commands, id="commands-panel")
@@ -2580,20 +2599,26 @@ class ReupApp(App):
                     yield SystemCommand(
                         "Commands",
                         "Hide the commands side panel.",
-                        lambda: self.run_worker(self._hide_commands_panel(), exclusive=False),
+                        lambda: self.run_worker(
+                            self._hide_commands_panel(), exclusive=False
+                        ),
                     )
                 else:
                     yield SystemCommand(
                         "Commands",
-                        "Show available slash commands and what they do.",
-                        lambda: self.run_worker(self._show_commands_panel(), exclusive=False),
+                        "Show available commands and what they do.",
+                        lambda: self.run_worker(
+                            self._show_commands_panel(), exclusive=False
+                        ),
                     )
             elif command.title in {"Maximize", "Minimize"}:
                 continue
             else:
                 yield command
 
-    async def _open_approval_picker_from_meta(self, args: list[str] | None = None) -> None:
+    async def _open_approval_picker_from_meta(
+        self, args: list[str] | None = None
+    ) -> None:
         """Open the approval mode picker modal."""
         from ite.config.config import ApprovalPolicy
         from ite.config.loader import save_global_approval_mode
@@ -2907,7 +2932,9 @@ class ReupApp(App):
     def _startup_status_text(self) -> Text:
         status = Text(justify="center")
         if self._startup_error_text:
-            status.append("Startup failed: ", style=f"bold {self._render_styles()['error']}")
+            status.append(
+                "Startup failed: ", style=f"bold {self._render_styles()['error']}"
+            )
             status.append(
                 self._startup_error_text,
                 style=self._render_styles()["fg"],
@@ -5559,7 +5586,14 @@ class ReupApp(App):
         if isinstance(output, StreamingCommandOutput):
             output.flush_pending()
         rendered = output.getvalue().strip()
-        if command in {"/branch", "/attach", "/model", "/rename", "/theme", "/approval"}:
+        if command in {
+            "/branch",
+            "/attach",
+            "/model",
+            "/rename",
+            "/theme",
+            "/approval",
+        }:
             self.refresh_header()
         had_live_output = (
             isinstance(output, StreamingCommandOutput) and output.had_live_output
@@ -6995,7 +7029,11 @@ class ReupApp(App):
         )
 
     async def add_assistant_card(
-        self, title: Any, body: Any, css_class: str = "assistant", *,
+        self,
+        title: Any,
+        body: Any,
+        css_class: str = "assistant",
+        *,
         _track_state: dict[str, Any] | None = None,
     ) -> None:
         """Add an assistant card to the conversation. If _track_state is provided, the card
@@ -7424,7 +7462,9 @@ class ReupApp(App):
                 self.post_command_result("/skills", rendered)
                 return True
             title = f"/skills show {skill.identifier}"
-            body = build_skill_detail_renderable(skill, active_ids, styles=self._render_styles())
+            body = build_skill_detail_renderable(
+                skill, active_ids, styles=self._render_styles()
+            )
         else:
             body = build_skill_feedback_renderable(
                 title=_skills_action_title(action),
@@ -8911,7 +8951,8 @@ class ReupApp(App):
                     description=str(confirmation.description or ""),
                     command=confirmation.command,
                     diff=confirmation.diff.to_diff() if confirmation.diff else None,
-                    session_id=self._active_session_id() or self.agent.session.session_id,
+                    session_id=self._active_session_id()
+                    or self.agent.session.session_id,
                 )
             )
             if approved is not None:

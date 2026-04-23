@@ -607,9 +607,9 @@ Screen {
 
 #commands-panel {
     split: right;
-    width: 42%;
-    min-width: 42;
-    max-width: 76;
+    width: 48%;
+    min-width: 48;
+    max-width: 84;
     height: 1fr;
     background: $surface;
     border-left: vkey $foreground 30%;
@@ -618,10 +618,36 @@ Screen {
     layout: vertical;
 }
 
+#commands-panel .commands-panel-header {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
 #commands-panel .commands-panel-title {
+    width: 1fr;
     color: $text-primary;
     text-style: bold;
-    margin-top: 1;
+}
+
+#commands-panel .commands-panel-close {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+#commands-panel .commands-panel-close:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+#commands-panel .commands-panel-close:focus {
+    background: $primary;
+    color: $text-primary;
 }
 
 #commands-panel .commands-panel-subtitle {
