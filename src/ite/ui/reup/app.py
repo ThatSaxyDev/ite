@@ -19,10 +19,10 @@ from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
-from textual.command import CommandPalette, DiscoveryHit, Hit, Hits, Provider
 from textual import events, on, work
 from textual.app import App, ComposeResult, ScreenStackError, SystemCommand
 from textual.binding import Binding
+from textual.command import CommandPalette, DiscoveryHit, Hit, Hits, Provider
 from textual.containers import (
     Container,
     Horizontal,
@@ -2572,6 +2572,10 @@ class ReupApp(App):
         """Route Textual's built-in theme action through the Reup theme modal."""
         self.run_worker(self._open_theme_picker_from_meta(), exclusive=False)
 
+    def action_quit(self) -> None:
+        """Confirm before quitting the app."""
+        self.run_worker(self._confirm_quit(), exclusive=False)
+
     def action_command_palette(self) -> None:
         """Open the command palette while preserving Reup system command order."""
         if not CommandPalette.is_open(self):
@@ -4535,6 +4539,27 @@ class ReupApp(App):
         self.push_screen(screen, callback=_on_dismiss)
         return await result_future
 
+    async def _perform_quit(self) -> None:
+        try:
+            await self.auto_save()
+        except Exception:
+            pass
+        await self._shutdown_agents()
+        self.exit()
+
+    async def _confirm_quit(self) -> None:
+        confirmed = await self._open_modal(
+            ConfirmModal(
+                title="Quit iTE?",
+                body=("Any local threads running on this machine will be interrupted."),
+                yes_label="Quit",
+                no_label="Stay",
+            )
+        )
+        if not confirmed:
+            return
+        await self._perform_quit()
+
     def _is_plan_only_phase(self) -> bool:
         return bool(
             self.agent
@@ -5470,8 +5495,7 @@ class ReupApp(App):
         args = parts[1:]
 
         if command in {"/exit", "/quit"}:
-            await self._shutdown_agents()
-            self.exit()
+            await self._confirm_quit()
             return
 
         # Native in-app session picker flow (replaces curses picker in old /sessions command).
