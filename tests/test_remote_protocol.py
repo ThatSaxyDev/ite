@@ -49,6 +49,28 @@ class RemoteProtocolTests(unittest.TestCase):
         self.assertEqual(payload["role"], "tool")
         self.assertEqual(payload["name"], "shell")
 
+    def test_serialize_transcript_uses_tool_ui_name_for_historical_tool_cards(self) -> None:
+        event = {
+            "created_at": "2026-04-23T06:53:00+00:00",
+            "message": {
+                "role": "tool",
+                "tool_call_id": "call_3",
+                "content": "from __future__ import annotations",
+                "tool_ui": {
+                    "name": "read_file",
+                    "success": True,
+                    "output": "from __future__ import annotations",
+                    "metadata": {"path": "src/ite/remote/server.py"},
+                },
+            },
+        }
+
+        payload = serialize_transcript_message(event)
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["role"], "tool")
+        self.assertEqual(payload["name"], "read_file")
+
     def test_build_remote_transcript_filters_only_suppressed_tool_noise(self) -> None:
         events = [
             {

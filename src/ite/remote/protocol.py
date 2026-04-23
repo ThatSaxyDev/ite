@@ -146,7 +146,7 @@ def serialize_transcript_message(event: dict[str, Any]) -> dict[str, Any] | None
         if _is_suppressible_tool_failure(tool_name, error_text, metadata):
             return None
         payload["tool_call_id"] = str(message.get("tool_call_id") or "")
-        payload["name"] = str(message.get("name") or "")
+        payload["name"] = tool_name
 
     return payload
 
