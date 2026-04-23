@@ -19,6 +19,7 @@ from rich.markdown import Markdown as RichMarkdown
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
+from textual.command import CommandPalette, DiscoveryHit, Hit, Hits, Provider
 from textual import events, on, work
 from textual.app import App, ComposeResult, ScreenStackError, SystemCommand
 from textual.binding import Binding
@@ -629,6 +630,28 @@ class CommandsSidePanel(Widget):
             return
         event.stop()
         self.app.run_worker(self.app._hide_commands_panel(), exclusive=False)
+
+
+class ReupSystemCommandsProvider(Provider):
+    async def discover(self) -> Hits:
+        for command in self.app.get_system_commands(self.screen):
+            if command.discover:
+                yield DiscoveryHit(
+                    command.title,
+                    command.callback,
+                    help=command.help,
+                )
+
+    async def search(self, query: str) -> Hits:
+        matcher = self.matcher(query)
+        for command in self.app.get_system_commands(self.screen):
+            if (match := matcher.match(command.title)) > 0:
+                yield Hit(
+                    match,
+                    matcher.highlight(command.title),
+                    command.callback,
+                    help=command.help,
+                )
 
 
 class ReupApp(App):
@@ -2549,6 +2572,16 @@ class ReupApp(App):
         """Route Textual's built-in theme action through the Reup theme modal."""
         self.run_worker(self._open_theme_picker_from_meta(), exclusive=False)
 
+    def action_command_palette(self) -> None:
+        """Open the command palette while preserving Reup system command order."""
+        if not CommandPalette.is_open(self):
+            self.push_screen(
+                CommandPalette(
+                    providers=[ReupSystemCommandsProvider],
+                    id="--command-palette",
+                )
+            )
+
     def _commands_panel_is_open(self) -> bool:
         panel = self._commands_panel
         return bool(panel is not None and panel.is_mounted)
@@ -2587,34 +2620,56 @@ class ReupApp(App):
             pass
 
     def get_system_commands(self, screen) -> Iterable[SystemCommand]:
+        theme_command: SystemCommand | None = None
+        commands_command: SystemCommand | None = None
+        screenshot_command: SystemCommand | None = None
+        quit_command: SystemCommand | None = None
+        extras: list[SystemCommand] = []
+
         for command in super().get_system_commands(screen):
             if command.title == "Theme":
-                yield SystemCommand(
+                theme_command = SystemCommand(
                     "Theme",
                     "Choose a Textual theme for the current session.",
                     self.action_change_theme,
                 )
             elif command.title == "Keys":
-                if self._commands_panel_is_open():
-                    yield SystemCommand(
+                commands_command = (
+                    SystemCommand(
                         "Commands",
                         "Hide the commands side panel.",
                         lambda: self.run_worker(
                             self._hide_commands_panel(), exclusive=False
                         ),
                     )
-                else:
-                    yield SystemCommand(
+                    if self._commands_panel_is_open()
+                    else SystemCommand(
                         "Commands",
                         "Show available commands and what they do.",
                         lambda: self.run_worker(
                             self._show_commands_panel(), exclusive=False
                         ),
                     )
+                )
+            elif command.title == "Screenshot":
+                screenshot_command = command
+            elif command.title == "Quit":
+                quit_command = command
             elif command.title in {"Maximize", "Minimize"}:
                 continue
             else:
-                yield command
+                extras.append(command)
+
+        if theme_command is not None:
+            yield theme_command
+        if commands_command is not None:
+            yield commands_command
+        for command in extras:
+            yield command
+        if screenshot_command is not None:
+            yield screenshot_command
+        if quit_command is not None:
+            yield quit_command
 
     async def _open_approval_picker_from_meta(
         self, args: list[str] | None = None
