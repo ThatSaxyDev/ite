@@ -249,11 +249,23 @@ def build_stats_command_renderable(
     )
 
 
-def build_workboard_command_renderable(session: Session) -> Group:
+def build_workboard_command_renderable(
+    session: Session,
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
     state = session.export_todos_state()
     if not isinstance(state, dict):
         state = {}
     scopes = ["execution"] + (["planning"] if bool(session.show_planning_todos) else [])
+
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+    warning = _style_token(styles, "warning", "#d5b07a")
 
     completed = 0
     total = 0
@@ -265,15 +277,21 @@ def build_workboard_command_renderable(session: Session) -> Group:
         completed += sum(1 for item in entries if bool(item.get("completed", False)))
 
     summary = Text()
-    summary.append("plan ", style="#8c93a1")
-    summary.append("on", style="bold #8fc7a2" if session.plan_mode_enabled else "bold #d5b07a")
-    summary.append("  •  ", style="#6f7785")
-    summary.append(str(session.plan_phase), style="bold #b8d8ff")
-    summary.append("  •  ", style="#6f7785")
-    summary.append(f"{completed}/{total} completed", style="bold #edf1f7" if total else "#8c93a1")
+    summary.append("plan ", style=muted)
+    summary.append(
+        "on",
+        style=f"bold {success}" if session.plan_mode_enabled else f"bold {warning}",
+    )
+    summary.append("  •  ", style=disabled)
+    summary.append(str(session.plan_phase), style=f"bold {primary}")
+    summary.append("  •  ", style=disabled)
+    summary.append(
+        f"{completed}/{total} completed",
+        style=f"bold {fg}" if total else muted,
+    )
 
     blocks: list[object] = [
-        Text("workboard", style="bold #edf1f7"),
+        Text("workboard", style=f"bold {fg}"),
         summary,
     ]
     for scope in scopes:
@@ -281,16 +299,16 @@ def build_workboard_command_renderable(session: Session) -> Group:
         if not isinstance(entries, list):
             continue
         blocks.append(Text(""))
-        blocks.append(_render_workboard_scope(scope, entries))
+        blocks.append(_render_workboard_scope(scope, entries, styles=styles))
 
     plan_text = (session.current_plan_text() or "").strip()
     if plan_text:
         blocks.append(Text(""))
-        blocks.append(Text("implementation plan", style="bold #edf1f7"))
+        blocks.append(Text("implementation plan", style=f"bold {fg}"))
         for line in plan_text.splitlines()[:12]:
             stripped = line.strip()
             if stripped:
-                blocks.append(Text(stripped, style="#d7deea"))
+                blocks.append(Text(stripped, style=secondary))
     return Group(*blocks)
 
 
@@ -383,25 +401,39 @@ def build_memory_prompt_command_renderable(query: str, bundle: dict[str, object]
     return Group(*blocks)
 
 
-def _render_workboard_scope(scope: str, entries: list[dict[str, object]]) -> Group:
+def _render_workboard_scope(
+    scope: str,
+    entries: list[dict[str, object]],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
     title = "execution checklist" if scope == "execution" else "planning checklist"
-    tone = "#8fc7a2" if scope == "execution" else "#b8d8ff"
+    tone = success if scope == "execution" else primary
     pending = [entry for entry in entries if not bool(entry.get("completed", False))]
     done = [entry for entry in entries if bool(entry.get("completed", False))]
 
     lines: list[object] = [
-        Text.assemble((title, f"bold {tone}"), ("  "), (f"{len(done)}/{len(entries)} done", "#8c93a1")),
+        Text.assemble(
+            (title, f"bold {tone}"),
+            ("  ", disabled),
+            (f"{len(done)}/{len(entries)} done", muted),
+        ),
     ]
     for entry in pending[:5]:
         content = str(entry.get("content", "")).strip()
         if content:
-            lines.append(Text.assemble(("○ ", "#6f7785"), (content, "#edf1f7")))
+            lines.append(Text.assemble(("○ ", disabled), (content, fg)))
     if done:
-        lines.append(Text("recently done", style="#6f7785"))
+        lines.append(Text("recently done", style=disabled))
         for entry in done[:3]:
             content = str(entry.get("content", "")).strip()
             if content:
-                lines.append(Text.assemble(("● ", tone), (content, "#8c93a1")))
+                lines.append(Text.assemble(("● ", tone), (content, muted)))
     return Group(*lines)
 
 

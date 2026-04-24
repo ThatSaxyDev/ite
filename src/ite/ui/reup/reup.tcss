@@ -1080,15 +1080,15 @@ Screen {
 }
 
 .block.workboard {
-    border: round #303236;
-    background: #1d1f23 86%;
+    border: round $border;
+    background: $surface;
     padding: 1 2;
     margin-top: 1;
     margin-bottom: 2;
 }
 
 .block.workboard .card-title {
-    color: #b7c8e1;
+    color: $text-primary;
     text-style: bold;
     margin-bottom: 1;
 }
@@ -1111,77 +1111,87 @@ Screen {
 .workboard-section {
     layout: vertical;
     height: auto;
-    border: round #303236;
-    background: #16181c 68%;
+    border: round $border;
+    background: $surface-darken-1;
     padding: 1 1 1 1;
     margin-bottom: 1;
 }
 
 .workboard-section.compact {
-    background: #17191d 58%;
+    background: $panel;
 }
 
 .workboard-section.summary {
-    border: round #3b4047;
-    background: #171b21 76%;
+    border: round $border;
+    background: $surface-darken-1;
 }
 
 .workboard-section.execution {
-    border: round #2d4940;
-    background: #151c19 74%;
+    border: round $success-muted;
+    background: $surface-darken-1;
 }
 
 .workboard-section.planning {
-    border: round #37424c;
-    background: #171b21 74%;
+    border: round $primary-muted;
+    background: $surface-darken-1;
 }
 
 .workboard-section.plan {
-    border: round #3b4047;
-    background: #171b21 78%;
+    border: round $border;
+    background: $surface-darken-1;
     margin-top: 1;
 }
 
 .workboard-section.muted {
-    border: round #303236;
-    background: #17191d 58%;
+    border: round $border;
+    background: $panel;
 }
 
 .workboard-section-title {
-    color: #dfe4ea;
+    color: $foreground;
     text-style: bold;
     margin-bottom: 1;
 }
 
 .workboard-section.summary .workboard-section-title {
-    color: #b7c8e1;
+    color: $text-primary;
 }
 
 .workboard-section.execution .workboard-section-title {
-    color: #4edea3;
+    color: $text-success;
 }
 
 .workboard-section.planning .workboard-section-title {
-    color: #c6c6cd;
+    color: $text-primary;
 }
 
 .workboard-section.plan .workboard-section-title {
-    color: #b7c8e1;
+    color: $text-primary;
 }
 
 .workboard-section Markdown {
     layout: stream;
     margin: 0;
     padding: 0;
+    color: $foreground;
+}
+
+.workboard-section MarkdownParagraph,
+.workboard-section MarkdownList,
+.workboard-section MarkdownTable,
+.workboard-section MarkdownBlockQuote,
+.workboard-section MarkdownStrong,
+.workboard-section MarkdownEm {
+    color: $foreground;
 }
 
 .workboard-section.plan MarkdownFence {
-    background: #0e0e10;
-    border: round #303236;
+    background: $surface-darken-1;
+    border: round $border;
 }
 
 .workboard-empty {
-    color: #8c93a1;
+    color: $foreground-muted;
 }
 
 .plan-body Markdown {

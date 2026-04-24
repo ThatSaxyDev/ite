@@ -192,6 +192,61 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(add_card.call_args.kwargs["extra_classes"], "stats")
         scheduled.close()
 
+    def test_build_remote_command_feed_metadata_serializes_workboard(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                plan_mode_enabled=True,
+                plan_phase="implementing",
+                show_planning_todos=True,
+                export_todos_state=lambda: {
+                    "execution": [
+                        {"content": "Ship fix", "completed": False},
+                        {"content": "Verify theme refresh", "completed": True},
+                    ],
+                    "planning": [
+                        {"content": "Review remote card", "completed": False},
+                    ],
+                },
+                current_plan_text=lambda: "1. Patch Reup\n2. Verify remote feed",
+            )
+        )
+
+        metadata = app._build_remote_command_feed_metadata(
+            "/workboard",
+            [],
+            "Loaded workboard.",
+        )
+
+        self.assertEqual(metadata["kind"], "workboard")
+        self.assertEqual(metadata["summary"]["completed"], 1)
+        self.assertEqual(metadata["summary"]["pending"], 2)
+        self.assertEqual(metadata["summary"]["total"], 3)
+        self.assertEqual(len(metadata["checklists"]), 2)
+        self.assertEqual(metadata["checklists"][0]["scope"], "execution")
+        self.assertEqual(
+            metadata["checklists"][0]["pending_items"],
+            ["Ship fix"],
+        )
+        self.assertEqual(
+            metadata["checklists"][0]["completed_items"],
+            ["Verify theme refresh"],
+        )
+        self.assertEqual(metadata["plan_text"], "1. Patch Reup\n2. Verify remote feed")
+
+    def test_run_command_starts_remote_feed_for_workboard_native_card(self) -> None:
+        app = self._app()
+
+        with patch.object(
+            app, "_start_remote_command_feed_entry", return_value="cmd-7"
+        ) as start_feed, patch.object(
+            app, "_run_workboard_command_native", AsyncMock()
+        ) as run_workboard:
+            asyncio.run(app.run_command("/workboard"))
+
+        start_feed.assert_called_once_with("/workboard")
+        run_workboard.assert_awaited_once_with(command_feed_id="cmd-7")
+
     def test_build_command_result_renderable_dims_box_lines(self) -> None:
         app = self._app()
 

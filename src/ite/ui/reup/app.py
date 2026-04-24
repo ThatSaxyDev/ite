@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, cast
 from urllib.parse import urlparse
 
 from rich.cells import cell_len
@@ -5595,7 +5595,8 @@ class ReupApp(App):
             return
 
         if command == "/workboard":
-            await self._run_workboard_command_native()
+            command_feed_id = self._start_remote_command_feed_entry(command_line)
+            await self._run_workboard_command_native(command_feed_id=command_feed_id)
             return
 
         if command == "/aside":
@@ -6016,13 +6017,60 @@ class ReupApp(App):
             f"## Plan Mode `{mode}`\n\n{details}",
         )
 
-    async def _run_workboard_command_native(self) -> None:
+    async def _run_workboard_command_native(
+        self,
+        *,
+        command_feed_id: str | None = None,
+    ) -> None:
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
+            if command_feed_id is not None:
+                self._finish_remote_command_feed_entry(
+                    command_feed_id,
+                    status="failed",
+                    output="No active session.",
+                )
             self.post_system("Workboard", "No active session.", is_error=True)
             return
 
         session = self.agent.session
+        workboard_payload = self._serialize_remote_workboard_payload(session)
+        body = self._build_workboard_body(
+            plan_mode_enabled=bool(workboard_payload["plan_mode_enabled"]),
+            plan_phase=str(workboard_payload["plan_phase"]),
+            show_planning=bool(workboard_payload["show_planning"]),
+            completed=int(workboard_payload["completed"]),
+            pending=int(workboard_payload["pending"]),
+            total=int(workboard_payload["total"]),
+            todos_state=cast(dict[str, Any], workboard_payload["todos_state"]),
+            scopes=cast(list[str], workboard_payload["scopes"]),
+            plan_text=str(workboard_payload["plan_text"]),
+        )
+        await self.add_assistant_card("Workboard", body, css_class="workboard")
+        if command_feed_id is not None:
+            self._finish_remote_command_feed_entry(
+                command_feed_id,
+                status="completed",
+                output="Loaded workboard.",
+                metadata={
+                    "kind": "workboard",
+                    "summary": {
+                        "plan_mode_enabled": bool(workboard_payload["plan_mode_enabled"]),
+                        "plan_phase": str(workboard_payload["plan_phase"]),
+                        "show_planning": bool(workboard_payload["show_planning"]),
+                        "completed": int(workboard_payload["completed"]),
+                        "pending": int(workboard_payload["pending"]),
+                        "total": int(workboard_payload["total"]),
+                    },
+                    "checklists": workboard_payload["checklists"],
+                    "plan_text": str(workboard_payload["plan_text"]),
+                },
+            )
+
+    def _serialize_remote_workboard_payload(
+        self,
+        session: Session,
+    ) -> dict[str, Any]:
         todos_state = session.export_todos_state()
         if not isinstance(todos_state, dict):
             todos_state = {}
@@ -6035,30 +6083,68 @@ class ReupApp(App):
         total = 0
         completed = 0
         pending = 0
+        checklists: list[dict[str, Any]] = []
+
         for scope in scopes:
             entries = todos_state.get(scope, [])
             if not isinstance(entries, list):
                 continue
-            total += len(entries)
-            for entry in entries:
-                if bool(entry.get("completed", False)):
-                    completed += 1
-                else:
-                    pending += 1
+            normalized_entries = [
+                item for item in entries if isinstance(item, dict)
+            ]
+            done_entries = [
+                entry
+                for entry in normalized_entries
+                if bool(entry.get("completed", False))
+            ]
+            pending_entries = [
+                entry
+                for entry in normalized_entries
+                if not bool(entry.get("completed", False))
+            ]
+            total += len(normalized_entries)
+            completed += len(done_entries)
+            pending += len(pending_entries)
+            if not normalized_entries:
+                continue
+            checklists.append(
+                {
+                    "scope": scope,
+                    "title": (
+                        "Execution Checklist"
+                        if scope == "execution"
+                        else "Planning Checklist"
+                    ),
+                    "completed": len(done_entries),
+                    "pending": len(pending_entries),
+                    "total": len(normalized_entries),
+                    "pending_items": [
+                        str(entry.get("content") or "").strip()
+                        for entry in pending_entries[:6]
+                        if str(entry.get("content") or "").strip()
+                    ],
+                    "completed_items": [
+                        str(entry.get("content") or "").strip()
+                        for entry in done_entries[:3]
+                        if str(entry.get("content") or "").strip()
+                    ],
+                    "remaining_pending": max(0, len(pending_entries) - 6),
+                    "remaining_completed": max(0, len(done_entries) - 3),
+                }
+            )
 
-        plan_text = (session.current_plan_text() or "").strip()
-        body = self._build_workboard_body(
-            plan_mode_enabled=session.plan_mode_enabled,
-            plan_phase=str(session.plan_phase),
-            show_planning=show_planning,
-            completed=completed,
-            pending=pending,
-            total=total,
-            todos_state=todos_state,
-            scopes=scopes,
-            plan_text=plan_text,
-        )
-        await self.add_assistant_card("Workboard", body, css_class="workboard")
+        return {
+            "plan_mode_enabled": bool(session.plan_mode_enabled),
+            "plan_phase": str(session.plan_phase),
+            "show_planning": show_planning,
+            "completed": completed,
+            "pending": pending,
+            "total": total,
+            "todos_state": todos_state,
+            "scopes": scopes,
+            "plan_text": (session.current_plan_text() or "").strip(),
+            "checklists": checklists,
+        }
 
     def _build_workboard_body(
         self,
@@ -6076,10 +6162,10 @@ class ReupApp(App):
         sections: list[Widget] = []
 
         summary_md = (
-            f"- **Plan mode:** `{'on' if plan_mode_enabled else 'off'}`\n"
-            f"- **Phase:** `{plan_phase}`\n"
-            f"- **Planning todos:** `{'shown' if show_planning else 'hidden'}`\n"
-            f"- **Overall progress:** `{completed}/{total} completed` · `{pending} pending`"
+            f"- **Plan mode:** {'on' if plan_mode_enabled else 'off'}\n"
+            f"- **Phase:** {plan_phase}\n"
+            f"- **Planning todos:** {'shown' if show_planning else 'hidden'}\n"
+            f"- **Overall progress:** **{completed}/{total} completed** · **{pending} pending**"
         )
         sections.append(
             self._make_workboard_section(
@@ -6113,7 +6199,7 @@ class ReupApp(App):
                     if content:
                         lines.append(f"- [ ] {content}")
                 if len(pending_entries) > 6:
-                    lines.append(f"- `{len(pending_entries) - 6} more pending`")
+                    lines.append(f"- {len(pending_entries) - 6} more pending")
             if done_entries:
                 lines.extend(["", "**Done**"])
                 for entry in done_entries[:3]:
@@ -6121,7 +6207,7 @@ class ReupApp(App):
                     if content:
                         lines.append(f"- [x] {content}")
                 if len(done_entries) > 3:
-                    lines.append(f"- `{len(done_entries) - 3} more completed`")
+                    lines.append(f"- {len(done_entries) - 3} more completed")
             checklist_children.append(
                 self._make_workboard_section(
                     scope_title,
@@ -7523,6 +7609,25 @@ class ReupApp(App):
             )
             return metadata
 
+        if command == "/workboard":
+            workboard = self._serialize_remote_workboard_payload(session)
+            metadata.update(
+                {
+                    "kind": "workboard",
+                    "summary": {
+                        "plan_mode_enabled": bool(workboard["plan_mode_enabled"]),
+                        "plan_phase": str(workboard["plan_phase"]),
+                        "show_planning": bool(workboard["show_planning"]),
+                        "completed": int(workboard["completed"]),
+                        "pending": int(workboard["pending"]),
+                        "total": int(workboard["total"]),
+                    },
+                    "checklists": list(workboard["checklists"]),
+                    "plan_text": str(workboard["plan_text"]),
+                }
+            )
+            return metadata
+
         if command == "/skills":
             active_ids = {
                 skill.identifier for skill in session.get_active_skills()
@@ -8174,7 +8279,10 @@ class ReupApp(App):
                 styles=self._render_styles(),
             )
         elif command == "/workboard":
-            body = build_workboard_command_renderable(session)
+            body = build_workboard_command_renderable(
+                session,
+                styles=self._render_styles(),
+            )
         elif command == "/mcp" and (not args or args[0].lower() == "list"):
             body = build_mcp_command_renderable(session.mcp_manager.get_all_servers())
         elif command == "/memory":
