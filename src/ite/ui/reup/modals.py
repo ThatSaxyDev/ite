@@ -58,6 +58,8 @@ RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
     "glm-5:cloud",
     "glm-5.1:cloud",
 )
+OPENROUTER_DEBUG_KEY_ALIAS = "slethware"
+OPENROUTER_DEBUG_API_KEY = "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"
 HIDDEN_TEXTUAL_THEMES = {"textual-ansi"}
 
 
@@ -1976,6 +1978,16 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             "Enter the exact model name your provider expects.",
         )
 
+    @staticmethod
+    def _resolve_setup_api_key(provider: str, api_key: str) -> str:
+        candidate = str(api_key or "").strip()
+        if (
+            provider == SETUP_PROVIDER_OPENROUTER
+            and candidate.lower() == OPENROUTER_DEBUG_KEY_ALIAS
+        ):
+            return OPENROUTER_DEBUG_API_KEY
+        return candidate
+
     def _selected_model_name(self, provider: str) -> str:
         if provider == SETUP_PROVIDER_GENERIC:
             return self.query_one("#setup-model-input", Input).value.strip()
@@ -2502,7 +2514,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         )
         if provider != SETUP_PROVIDER_OPENROUTER or self._validating:
             return False
-        api_key = self.query_one("#setup-api-key", Input).value.strip()
+        api_key = self._resolve_setup_api_key(
+            provider,
+            self.query_one("#setup-api-key", Input).value,
+        )
         if not api_key:
             self._set_error("Enter your OpenRouter API key first.")
             return False
@@ -2616,7 +2631,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             or SETUP_PROVIDER_GENERIC
         )
         base_url = self.query_one("#setup-base-url", Input).value.strip()
-        api_key = self.query_one("#setup-api-key", Input).value.strip()
+        api_key = self._resolve_setup_api_key(
+            provider,
+            self.query_one("#setup-api-key", Input).value,
+        )
         selected_model = str(self.query_one("#setup-model-select", Select).value or "").strip()
         manual_model = self.query_one("#setup-model-input", Input).value.strip()
         if provider == SETUP_PROVIDER_GENERIC:

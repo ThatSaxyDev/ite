@@ -13,6 +13,7 @@ from ite.config.config import (
 )
 from ite.ui.reup.modals import (
     RECOMMENDED_OLLAMA_MODELS,
+    OPENROUTER_DEBUG_API_KEY,
     SETUP_PROVIDER_OLLAMA,
     SETUP_MODEL_OTHER,
     SETUP_MODEL_SELECT,
@@ -609,6 +610,118 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(models, [])
         self.assertIn("rejected this API key", error or "")
+
+    async def test_load_openrouter_models_for_setup_resolves_debug_api_key_alias(self) -> None:
+        modal = SetupModal(Config())
+        provider_select = SimpleNamespace(value="openrouter")
+        api_key_input = SimpleNamespace(value="slethware")
+        model_select = SimpleNamespace(value="", set_options=lambda _opts: None)
+        model_input = SimpleNamespace(value="", display=False, focus=lambda: None)
+        model_help = SimpleNamespace(display=False, update=lambda _value: None)
+        continue_button = SimpleNamespace(disabled=False)
+        cancel_button = SimpleNamespace(disabled=False)
+        base_url_input = SimpleNamespace(disabled=False)
+        toggle_button = SimpleNamespace(disabled=False)
+        load_button = SimpleNamespace(disabled=False)
+        provider_widget = SimpleNamespace(disabled=False)
+        status = SimpleNamespace(update=lambda _value: None)
+        error = SimpleNamespace(update=lambda _value: None)
+        model_label = SimpleNamespace(display=False)
+        model_select_row = SimpleNamespace(display=False)
+        api_key_label = SimpleNamespace(display=False)
+        api_key_row = SimpleNamespace(display=False)
+        base_url_label = SimpleNamespace(display=False)
+        base_url_help = SimpleNamespace(display=True)
+
+        with (
+            patch.object(
+                modal,
+                "query_one",
+                side_effect=lambda selector, *_args: {
+                    "#setup-provider": provider_select,
+                    "#setup-api-key": api_key_input,
+                    "#setup-model-select": model_select,
+                    "#setup-model-input": model_input,
+                    "#setup-model-help": model_help,
+                    "#continue": continue_button,
+                    "#cancel": cancel_button,
+                    "#setup-base-url": base_url_input,
+                    "#setup-toggle-api-key": toggle_button,
+                    "#setup-load-models": load_button,
+                    "#setup-status": status,
+                    "#setup-error": error,
+                    "#setup-model-label": model_label,
+                    "#setup-model-select-row": model_select_row,
+                    "#setup-api-key-label": api_key_label,
+                    "#setup-api-key-row": api_key_row,
+                    "#setup-base-url-label": base_url_label,
+                    "#setup-base-url-help": base_url_help,
+                }[selector],
+            ),
+            patch.object(
+                modal,
+                "_fetch_openrouter_models",
+                return_value=(
+                    [{"model_name": "google/gemma-4-31b-it:free", "context_window": 131072}],
+                    None,
+                ),
+            ) as fetch_models,
+        ):
+            loaded = await modal._load_openrouter_models_for_setup()
+
+        self.assertTrue(loaded)
+        fetch_models.assert_awaited_once_with(api_key=OPENROUTER_DEBUG_API_KEY)
+
+    async def test_submit_async_resolves_openrouter_debug_api_key_alias(self) -> None:
+        modal = SetupModal(Config())
+        modal._openrouter_models = ["google/gemma-4-31b-it:free"]
+        modal._openrouter_context_windows = {"google/gemma-4-31b-it:free": 131072}
+        provider_select = SimpleNamespace(value="openrouter", disabled=False)
+        base_url_input = SimpleNamespace(value="", disabled=False)
+        api_key_input = SimpleNamespace(value="slethware", disabled=False)
+        model_select = SimpleNamespace(value="google/gemma-4-31b-it:free", disabled=False)
+        model_input = SimpleNamespace(value="", disabled=False)
+        continue_button = SimpleNamespace(disabled=False)
+        cancel_button = SimpleNamespace(disabled=False)
+        toggle_button = SimpleNamespace(disabled=False)
+        load_button = SimpleNamespace(disabled=False)
+        status = SimpleNamespace(renderable="", update=lambda value: setattr(status, "renderable", value))
+        error = SimpleNamespace(renderable="", update=lambda value: setattr(error, "renderable", value))
+
+        with (
+            patch.object(
+                modal,
+                "query_one",
+                side_effect=lambda selector, *_args: {
+                    "#setup-provider": provider_select,
+                    "#setup-base-url": base_url_input,
+                    "#setup-api-key": api_key_input,
+                    "#setup-model-select": model_select,
+                    "#setup-model-input": model_input,
+                    "#continue": continue_button,
+                    "#cancel": cancel_button,
+                    "#setup-toggle-api-key": toggle_button,
+                    "#setup-load-models": load_button,
+                    "#setup-status": status,
+                    "#setup-error": error,
+                }[selector],
+            ),
+            patch.object(
+                modal,
+                "_validate_provider_connection",
+                return_value=(None, 131072),
+            ) as validate_connection,
+            patch.object(modal, "dismiss") as dismiss,
+        ):
+            await modal._submit_async()
+
+        validate_connection.assert_awaited_once_with(
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            api_key=OPENROUTER_DEBUG_API_KEY,
+            model_name="google/gemma-4-31b-it:free",
+        )
+        dismiss.assert_called_once()
 
     async def test_probe_ollama_requires_running_service(self) -> None:
         modal = SetupModal(Config())
