@@ -7430,6 +7430,72 @@ class ReupApp(App):
             )
             return metadata
 
+        if command == "/stats":
+            stats = session.get_stats()
+            metadata.update(
+                {
+                    "kind": "stats",
+                    "stats": {
+                        "session_id": str(stats.get("session_id") or ""),
+                        "created_at": str(stats.get("created_at") or ""),
+                        "turn_count": int(stats.get("turn_count") or 0),
+                        "message_count": int(stats.get("message_count") or 0),
+                        "context_window": int(stats.get("context_window") or 0),
+                        "latest_tokens": int(stats.get("latest_tokens") or 0),
+                        "latest_cached_tokens": int(
+                            stats.get("latest_cached_tokens") or 0
+                        ),
+                        "context_used_pct": float(
+                            stats.get("context_used_pct") or 0.0
+                        ),
+                        "context_left_pct": float(
+                            stats.get("context_left_pct") or 0.0
+                        ),
+                        "compaction_count": int(stats.get("compaction_count") or 0),
+                        "last_compacted_at": str(
+                            stats.get("last_compacted_at") or ""
+                        ),
+                        "pruned_tool_msgs": int(
+                            stats.get("pruned_tool_msgs") or 0
+                        ),
+                        "plan_mode_enabled": bool(stats.get("plan_mode_enabled")),
+                        "plan_phase": str(stats.get("plan_phase") or "idle"),
+                        "plan_questions_asked": int(
+                            stats.get("plan_questions_asked") or 0
+                        ),
+                        "plan_target_questions": int(
+                            stats.get("plan_target_questions") or 0
+                        ),
+                        "pending_plan_available": bool(
+                            stats.get("pending_plan_available")
+                        ),
+                        "active_plan_available": bool(
+                            stats.get("active_plan_available")
+                        ),
+                        "pending_attachments": int(
+                            stats.get("pending_attachments") or 0
+                        ),
+                        "tools_enabled": int(stats.get("tools_enabled") or 0),
+                        "mcp_servers": int(stats.get("mcp_servers") or 0),
+                        "mcp_tools": int(stats.get("mcp_tools") or 0),
+                        "mcp_failed_servers": int(
+                            stats.get("mcp_failed_servers") or 0
+                        ),
+                        "tool_discovery_errors": int(
+                            stats.get("tool_discovery_errors") or 0
+                        ),
+                        "available_skills": int(
+                            stats.get("available_skills") or 0
+                        ),
+                        "active_skills": int(stats.get("active_skills") or 0),
+                        "token_usage": self._serialize_remote_token_usage(
+                            stats.get("token_usage")
+                        ),
+                    },
+                }
+            )
+            return metadata
+
         if command == "/skills":
             active_ids = {
                 skill.identifier for skill in session.get_active_skills()
@@ -7542,6 +7608,15 @@ class ReupApp(App):
             "risk": risk,
             "section": self._remote_tool_section_name(tool),
             "server_name": server_name,
+        }
+
+    @staticmethod
+    def _serialize_remote_token_usage(value: object) -> dict[str, int]:
+        return {
+            "prompt_tokens": int(getattr(value, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(getattr(value, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(value, "total_tokens", 0) or 0),
+            "cached_tokens": int(getattr(value, "cached_tokens", 0) or 0),
         }
 
     @staticmethod

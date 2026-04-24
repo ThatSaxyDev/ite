@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping
 
 from rich.console import Group
 from rich.rule import Rule
@@ -114,34 +114,98 @@ def build_stats_command_renderable(stats: dict[str, object]) -> Group:
         if last_compacted
         else "never"
     )
+    token_usage = _token_usage_payload(stats.get("token_usage"))
+    context_window = int(stats.get("context_window") or 0)
+    latest_tokens = int(stats.get("latest_tokens") or 0)
+    latest_cached_tokens = int(stats.get("latest_cached_tokens") or 0)
+    used_pct = float(stats.get("context_used_pct") or 0.0)
+    left_pct = float(stats.get("context_left_pct") or 0.0)
+    turn_count = int(stats.get("turn_count") or 0)
+    message_count = int(stats.get("message_count") or 0)
 
-    table = Table.grid(expand=True, padding=(0, 2))
-    table.add_column(width=22)
-    table.add_column(ratio=1)
-    rows = [
-        ("session", str(stats.get("session_id", ""))),
-        ("turns", str(stats.get("turn_count", 0))),
-        ("messages", str(stats.get("message_count", 0))),
-        ("context", f'{stats.get("context_used_pct", 0)}% used · {stats.get("context_left_pct", 0)}% left'),
-        ("latest tokens", str(stats.get("latest_tokens", 0))),
-        ("cached tokens", str(stats.get("latest_cached_tokens", 0))),
-        ("token usage", str(stats.get("token_usage", 0))),
-        ("compactions", str(stats.get("compaction_count", 0))),
-        ("last compacted", last_compacted_display),
-        ("pruned tool msgs", str(stats.get("pruned_tool_msgs", 0))),
-        ("plan mode", "on" if stats.get("plan_mode_enabled") else "off"),
-        ("plan phase", str(stats.get("plan_phase", "idle"))),
-        ("tools enabled", str(stats.get("tools_enabled", 0))),
-        ("mcp servers", str(stats.get("mcp_servers", 0))),
-    ]
-    for label, value in rows:
-        table.add_row(Text(label, style="#8c93a1"), Text(value, style="#edf1f7"))
+    headline = Text.assemble(
+        ("session statistics", "bold #edf1f7"),
+        ("  •  ", "#6f7785"),
+        (str(stats.get("session_id", "")), "#b8d8ff"),
+    )
+
+    context_summary = Text()
+    context_summary.append("context ", style="#8c93a1")
+    context_summary.append(f"{used_pct:.1f}% used", style="bold #edf1f7")
+    context_summary.append("  •  ", style="#6f7785")
+    context_summary.append(f"{left_pct:.1f}% left", style="#c9d3e0")
+    context_summary.append("  •  ", style="#6f7785")
+    context_summary.append(f"{latest_tokens:,}/{context_window:,} tokens", style="bold #b8d8ff")
+
+    activity = Text()
+    activity.append("turns ", style="#8c93a1")
+    activity.append(str(turn_count), style="bold #edf1f7")
+    activity.append("  •  ", style="#6f7785")
+    activity.append("messages ", style="#8c93a1")
+    activity.append(str(message_count), style="bold #edf1f7")
+    activity.append("  •  ", style="#6f7785")
+    activity.append("compactions ", style="#8c93a1")
+    activity.append(str(stats.get("compaction_count", 0)), style="bold #d5b07a")
+
+    summary = Table.grid(expand=True, padding=(0, 2))
+    summary.add_column(width=18)
+    summary.add_column(ratio=1)
+    summary.add_row(Text("Latest context", style="#8c93a1"), Text(f"{latest_tokens:,} live · {latest_cached_tokens:,} cached", style="#edf1f7"))
+    summary.add_row(Text("Plan state", style="#8c93a1"), Text(("on" if stats.get("plan_mode_enabled") else "off") + f"  •  {stats.get('plan_phase', 'idle')}", style="#edf1f7"))
+    summary.add_row(Text("Tooling", style="#8c93a1"), Text(f"{stats.get('tools_enabled', 0)} tools  •  {stats.get('mcp_servers', 0)} MCP connected", style="#edf1f7"))
+    summary.add_row(Text("Last compacted", style="#8c93a1"), Text(last_compacted_display, style="#edf1f7"))
+
+    usage_table = Table.grid(expand=True, padding=(0, 2))
+    usage_table.add_column(width=18)
+    usage_table.add_column(width=14, justify="right")
+    usage_table.add_column(ratio=1)
+    usage_table.add_row(
+        Text("Prompt", style="#8c93a1"),
+        Text(f"{token_usage['prompt_tokens']:,}", style="bold #edf1f7"),
+        Text("input tokens sent to the model", style="#6f7785"),
+    )
+    usage_table.add_row(
+        Text("Completion", style="#8c93a1"),
+        Text(f"{token_usage['completion_tokens']:,}", style="bold #edf1f7"),
+        Text("assistant tokens returned", style="#6f7785"),
+    )
+    usage_table.add_row(
+        Text("Cached", style="#8c93a1"),
+        Text(f"{token_usage['cached_tokens']:,}", style="bold #8fc7a2"),
+        Text("tokens reused from cache", style="#6f7785"),
+    )
+    usage_table.add_row(
+        Text("Total", style="#8c93a1"),
+        Text(f"{token_usage['total_tokens']:,}", style="bold #b8d8ff"),
+        Text("aggregate token usage so far", style="#6f7785"),
+    )
+
+    detail_table = Table.grid(expand=True, padding=(0, 2))
+    detail_table.add_column(width=18)
+    detail_table.add_column(ratio=1)
+    detail_table.add_row(Text("Pruned tool msgs", style="#8c93a1"), Text(str(stats.get("pruned_tool_msgs", 0)), style="#edf1f7"))
+    detail_table.add_row(Text("Plan questions", style="#8c93a1"), Text(f"{stats.get('plan_questions_asked', 0)}/{stats.get('plan_target_questions', 0)}", style="#edf1f7"))
+    detail_table.add_row(Text("Active plan", style="#8c93a1"), Text("yes" if stats.get("active_plan_available") else "no", style="#edf1f7"))
+    detail_table.add_row(Text("Pending plan", style="#8c93a1"), Text("yes" if stats.get("pending_plan_available") else "no", style="#edf1f7"))
+    detail_table.add_row(Text("Attachments", style="#8c93a1"), Text(str(stats.get("pending_attachments", 0)), style="#edf1f7"))
+    detail_table.add_row(Text("Skills", style="#8c93a1"), Text(f"{stats.get('active_skills', 0)} active  •  {stats.get('available_skills', 0)} available", style="#edf1f7"))
 
     return Group(
-        Text("session statistics", style="bold #edf1f7"),
+        headline,
         Text("runtime health, context pressure, and plan state", style="#8c93a1"),
         Text(""),
-        table,
+        context_summary,
+        activity,
+        Text(""),
+        Rule(style="#2a2f3a"),
+        Text("overview", style="bold #8c93a1"),
+        summary,
+        Text(""),
+        Text("token usage", style="bold #8c93a1"),
+        usage_table,
+        Text(""),
+        Text("planning and diagnostics", style="bold #8c93a1"),
+        detail_table,
     )
 
 
@@ -236,6 +300,25 @@ def build_memory_command_renderable(
         _render_episode_lines(episodic),
     ]
     return Group(*blocks)
+
+
+def _token_usage_payload(value: object) -> dict[str, int]:
+    if isinstance(value, Mapping):
+        prompt = int(value.get("prompt_tokens") or 0)
+        completion = int(value.get("completion_tokens") or 0)
+        total = int(value.get("total_tokens") or 0)
+        cached = int(value.get("cached_tokens") or 0)
+    else:
+        prompt = int(getattr(value, "prompt_tokens", 0) or 0)
+        completion = int(getattr(value, "completion_tokens", 0) or 0)
+        total = int(getattr(value, "total_tokens", 0) or 0)
+        cached = int(getattr(value, "cached_tokens", 0) or 0)
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        "cached_tokens": cached,
+    }
 
 
 def build_memory_prompt_command_renderable(query: str, bundle: dict[str, object]) -> Group:
