@@ -1116,6 +1116,12 @@ class ReupApp(App):
         styles = self._render_styles()
         is_light = self._prefer_terminal_safe_source_rendering()
 
+        async def replace_card_body(card: Widget, body_widget: Static, body: Any) -> None:
+            new_body_widget = Static(classes=" ".join(body_widget.classes))
+            new_body_widget.update(body)
+            await body_widget.remove()
+            await card.mount(new_body_widget)
+
         for child in list(conversation.children):
             # Check if this is a Container widget with class checking capability
             try:
@@ -1142,6 +1148,20 @@ class ReupApp(App):
                         styles=styles,
                     )
                     body_widget.update(new_body)
+                except Exception:
+                    pass
+
+            # Re-render native command cards whose Rich bodies depend on theme colors.
+            if child.has_class("stats"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    new_body = build_stats_command_renderable(
+                        self.agent.session.get_stats(),
+                        styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
                 except Exception:
                     pass
 
@@ -1198,13 +1218,20 @@ class ReupApp(App):
                 )
             except NoMatches:
                 pass
-        self.run_worker(
-            self._rerender_completed_tool_cards_for_theme(), exclusive=False
-        )
-        self.run_worker(self._rerender_assistant_cards_for_theme(), exclusive=False)
-        # Re-render change review panel if visible
-        if self._change_review_visible:
-            self.run_worker(self._rerender_change_review_for_theme(), exclusive=False)
+
+        def _rerender_theme_sensitive_ui() -> None:
+            self.run_worker(
+                self._rerender_completed_tool_cards_for_theme(), exclusive=False
+            )
+            self.run_worker(
+                self._rerender_assistant_cards_for_theme(), exclusive=False
+            )
+            if self._change_review_visible:
+                self.run_worker(
+                    self._rerender_change_review_for_theme(), exclusive=False
+                )
+
+        self.call_after_refresh(_rerender_theme_sensitive_ui)
 
     async def _rerender_completed_tool_cards_for_theme(self) -> None:
         for call_id, state in list(self._tool_completion_state.items()):
@@ -7782,6 +7809,7 @@ class ReupApp(App):
         body: Any,
         css_class: str = "assistant",
         *,
+        extra_classes: str = "",
         _track_state: dict[str, Any] | None = None,
     ) -> None:
         """Add an assistant card to the conversation. If _track_state is provided, the card
@@ -7806,7 +7834,9 @@ class ReupApp(App):
         card = Container(
             title_widget,
             body_widget,
-            classes=f"block {css_class}",
+            classes=" ".join(
+                item for item in ("block", css_class, extra_classes.strip()) if item
+            ),
         )
 
         # Track card for theme re-rendering if state provided
@@ -8139,7 +8169,10 @@ class ReupApp(App):
         if command == "/tools":
             body = build_tools_command_renderable(session.tool_registry.get_tools())
         elif command == "/stats":
-            body = build_stats_command_renderable(session.get_stats())
+            body = build_stats_command_renderable(
+                session.get_stats(),
+                styles=self._render_styles(),
+            )
         elif command == "/workboard":
             body = build_workboard_command_renderable(session)
         elif command == "/mcp" and (not args or args[0].lower() == "list"):
@@ -8172,6 +8205,7 @@ class ReupApp(App):
                 self._build_command_title_widget(command),
                 body,
                 css_class="command",
+                extra_classes="stats" if command == "/stats" else "",
             ),
             exclusive=False,
         )

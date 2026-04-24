@@ -146,6 +146,52 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(getattr(children[0], "_Static__content", None), "command")
         self.assertEqual(getattr(children[1], "_Static__content", None), "/tools")
 
+    def test_post_native_command_result_marks_stats_cards_for_theme_rerender(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(
+                get_stats=lambda: {
+                    "session_id": "s1",
+                    "last_compacted_at": "",
+                    "token_usage": {},
+                    "context_window": 0,
+                    "latest_tokens": 0,
+                    "latest_cached_tokens": 0,
+                    "context_used_pct": 0.0,
+                    "context_left_pct": 0.0,
+                    "turn_count": 0,
+                    "message_count": 0,
+                    "compaction_count": 0,
+                    "pruned_tool_msgs": 0,
+                    "plan_mode_enabled": False,
+                    "plan_phase": "idle",
+                    "plan_questions_asked": 0,
+                    "plan_target_questions": 0,
+                    "active_plan_available": False,
+                    "pending_plan_available": False,
+                    "pending_attachments": 0,
+                    "active_skills": 0,
+                    "available_skills": 0,
+                    "tools_enabled": 0,
+                    "mcp_servers": 0,
+                }
+            )
+        )
+
+        with patch.object(app, "run_worker") as run_worker, patch.object(
+            app, "add_assistant_card", AsyncMock()
+        ) as add_card:
+            posted = app._post_native_command_result("/stats", [])
+            scheduled = run_worker.call_args.args[0]
+
+        self.assertTrue(posted)
+        run_worker.assert_called_once()
+        self.assertEqual(run_worker.call_args.kwargs["exclusive"], False)
+        add_card.assert_called_once()
+        self.assertEqual(add_card.call_args.kwargs["css_class"], "command")
+        self.assertEqual(add_card.call_args.kwargs["extra_classes"], "stats")
+        scheduled.close()
+
     def test_build_command_result_renderable_dims_box_lines(self) -> None:
         app = self._app()
 

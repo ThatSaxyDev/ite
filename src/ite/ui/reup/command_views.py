@@ -17,6 +17,12 @@ if TYPE_CHECKING:
     from ite.agent.session import Session
 
 
+def _style_token(styles: dict[str, str] | None, key: str, fallback: str) -> str:
+    if styles is None:
+        return fallback
+    return styles.get(key, fallback)
+
+
 def build_tools_command_renderable(tools: list[Tool]) -> Group:
     grouped: dict[str, list[Tool]] = defaultdict(list)
     for tool in tools:
@@ -107,7 +113,19 @@ def build_mcp_command_renderable(servers: list[dict[str, object]]) -> Group:
     return Group(*blocks)
 
 
-def build_stats_command_renderable(stats: dict[str, object]) -> Group:
+def build_stats_command_renderable(
+    stats: dict[str, object],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+    warning = _style_token(styles, "warning", "#d5b07a")
+
     last_compacted = stats.get("last_compacted_at")
     last_compacted_display = (
         datetime.fromisoformat(str(last_compacted)).strftime("%b %d · %I:%M %p")
@@ -124,87 +142,109 @@ def build_stats_command_renderable(stats: dict[str, object]) -> Group:
     message_count = int(stats.get("message_count") or 0)
 
     headline = Text.assemble(
-        ("session statistics", "bold #edf1f7"),
-        ("  •  ", "#6f7785"),
-        (str(stats.get("session_id", "")), "#b8d8ff"),
+        ("session statistics", f"bold {fg}"),
+        ("  •  ", disabled),
+        (str(stats.get("session_id", "")), primary),
     )
 
     context_summary = Text()
-    context_summary.append("context ", style="#8c93a1")
-    context_summary.append(f"{used_pct:.1f}% used", style="bold #edf1f7")
-    context_summary.append("  •  ", style="#6f7785")
-    context_summary.append(f"{left_pct:.1f}% left", style="#c9d3e0")
-    context_summary.append("  •  ", style="#6f7785")
-    context_summary.append(f"{latest_tokens:,}/{context_window:,} tokens", style="bold #b8d8ff")
+    context_summary.append("context ", style=muted)
+    context_summary.append(f"{used_pct:.1f}% used", style=f"bold {fg}")
+    context_summary.append("  •  ", style=disabled)
+    context_summary.append(f"{left_pct:.1f}% left", style=secondary)
+    context_summary.append("  •  ", style=disabled)
+    context_summary.append(
+        f"{latest_tokens:,}/{context_window:,} tokens",
+        style=f"bold {primary}",
+    )
 
     activity = Text()
-    activity.append("turns ", style="#8c93a1")
-    activity.append(str(turn_count), style="bold #edf1f7")
-    activity.append("  •  ", style="#6f7785")
-    activity.append("messages ", style="#8c93a1")
-    activity.append(str(message_count), style="bold #edf1f7")
-    activity.append("  •  ", style="#6f7785")
-    activity.append("compactions ", style="#8c93a1")
-    activity.append(str(stats.get("compaction_count", 0)), style="bold #d5b07a")
+    activity.append("turns ", style=muted)
+    activity.append(str(turn_count), style=f"bold {fg}")
+    activity.append("  •  ", style=disabled)
+    activity.append("messages ", style=muted)
+    activity.append(str(message_count), style=f"bold {fg}")
+    activity.append("  •  ", style=disabled)
+    activity.append("compactions ", style=muted)
+    activity.append(str(stats.get("compaction_count", 0)), style=f"bold {warning}")
 
     summary = Table.grid(expand=True, padding=(0, 2))
     summary.add_column(width=18)
     summary.add_column(ratio=1)
-    summary.add_row(Text("Latest context", style="#8c93a1"), Text(f"{latest_tokens:,} live · {latest_cached_tokens:,} cached", style="#edf1f7"))
-    summary.add_row(Text("Plan state", style="#8c93a1"), Text(("on" if stats.get("plan_mode_enabled") else "off") + f"  •  {stats.get('plan_phase', 'idle')}", style="#edf1f7"))
-    summary.add_row(Text("Tooling", style="#8c93a1"), Text(f"{stats.get('tools_enabled', 0)} tools  •  {stats.get('mcp_servers', 0)} MCP connected", style="#edf1f7"))
-    summary.add_row(Text("Last compacted", style="#8c93a1"), Text(last_compacted_display, style="#edf1f7"))
+    summary.add_row(
+        Text("Latest context", style=muted),
+        Text(
+            f"{latest_tokens:,} live · {latest_cached_tokens:,} cached",
+            style=fg,
+        ),
+    )
+    summary.add_row(
+        Text("Plan state", style=muted),
+        Text(
+            ("on" if stats.get("plan_mode_enabled") else "off")
+            + f"  •  {stats.get('plan_phase', 'idle')}",
+            style=fg,
+        ),
+    )
+    summary.add_row(
+        Text("Tooling", style=muted),
+        Text(
+            f"{stats.get('tools_enabled', 0)} tools  •  {stats.get('mcp_servers', 0)} MCP connected",
+            style=fg,
+        ),
+    )
+    summary.add_row(Text("Last compacted", style=muted), Text(last_compacted_display, style=fg))
 
     usage_table = Table.grid(expand=True, padding=(0, 2))
     usage_table.add_column(width=18)
     usage_table.add_column(width=14, justify="right")
     usage_table.add_column(ratio=1)
     usage_table.add_row(
-        Text("Prompt", style="#8c93a1"),
-        Text(f"{token_usage['prompt_tokens']:,}", style="bold #edf1f7"),
-        Text("input tokens sent to the model", style="#6f7785"),
+        Text("Prompt", style=muted),
+        Text(f"{token_usage['prompt_tokens']:,}", style=f"bold {fg}"),
+        Text("input tokens sent to the model", style=disabled),
     )
     usage_table.add_row(
-        Text("Completion", style="#8c93a1"),
-        Text(f"{token_usage['completion_tokens']:,}", style="bold #edf1f7"),
-        Text("assistant tokens returned", style="#6f7785"),
+        Text("Completion", style=muted),
+        Text(f"{token_usage['completion_tokens']:,}", style=f"bold {fg}"),
+        Text("assistant tokens returned", style=disabled),
     )
     usage_table.add_row(
-        Text("Cached", style="#8c93a1"),
-        Text(f"{token_usage['cached_tokens']:,}", style="bold #8fc7a2"),
-        Text("tokens reused from cache", style="#6f7785"),
+        Text("Cached", style=muted),
+        Text(f"{token_usage['cached_tokens']:,}", style=f"bold {success}"),
+        Text("tokens reused from cache", style=disabled),
     )
     usage_table.add_row(
-        Text("Total", style="#8c93a1"),
-        Text(f"{token_usage['total_tokens']:,}", style="bold #b8d8ff"),
-        Text("aggregate token usage so far", style="#6f7785"),
+        Text("Total", style=muted),
+        Text(f"{token_usage['total_tokens']:,}", style=f"bold {primary}"),
+        Text("aggregate token usage so far", style=disabled),
     )
 
     detail_table = Table.grid(expand=True, padding=(0, 2))
     detail_table.add_column(width=18)
     detail_table.add_column(ratio=1)
-    detail_table.add_row(Text("Pruned tool msgs", style="#8c93a1"), Text(str(stats.get("pruned_tool_msgs", 0)), style="#edf1f7"))
-    detail_table.add_row(Text("Plan questions", style="#8c93a1"), Text(f"{stats.get('plan_questions_asked', 0)}/{stats.get('plan_target_questions', 0)}", style="#edf1f7"))
-    detail_table.add_row(Text("Active plan", style="#8c93a1"), Text("yes" if stats.get("active_plan_available") else "no", style="#edf1f7"))
-    detail_table.add_row(Text("Pending plan", style="#8c93a1"), Text("yes" if stats.get("pending_plan_available") else "no", style="#edf1f7"))
-    detail_table.add_row(Text("Attachments", style="#8c93a1"), Text(str(stats.get("pending_attachments", 0)), style="#edf1f7"))
-    detail_table.add_row(Text("Skills", style="#8c93a1"), Text(f"{stats.get('active_skills', 0)} active  •  {stats.get('available_skills', 0)} available", style="#edf1f7"))
+    detail_table.add_row(Text("Pruned tool msgs", style=muted), Text(str(stats.get("pruned_tool_msgs", 0)), style=fg))
+    detail_table.add_row(Text("Plan questions", style=muted), Text(f"{stats.get('plan_questions_asked', 0)}/{stats.get('plan_target_questions', 0)}", style=fg))
+    detail_table.add_row(Text("Active plan", style=muted), Text("yes" if stats.get("active_plan_available") else "no", style=fg))
+    detail_table.add_row(Text("Pending plan", style=muted), Text("yes" if stats.get("pending_plan_available") else "no", style=fg))
+    detail_table.add_row(Text("Attachments", style=muted), Text(str(stats.get("pending_attachments", 0)), style=fg))
+    detail_table.add_row(Text("Skills", style=muted), Text(f"{stats.get('active_skills', 0)} active  •  {stats.get('available_skills', 0)} available", style=fg))
 
     return Group(
         headline,
-        Text("runtime health, context pressure, and plan state", style="#8c93a1"),
+        Text("runtime health, context pressure, and plan state", style=muted),
         Text(""),
         context_summary,
         activity,
         Text(""),
-        Rule(style="#2a2f3a"),
-        Text("overview", style="bold #8c93a1"),
+        Rule(style=_style_token(styles, "border", "#2a2f3a")),
+        Text("overview", style=f"bold {muted}"),
         summary,
         Text(""),
-        Text("token usage", style="bold #8c93a1"),
+        Text("token usage", style=f"bold {muted}"),
         usage_table,
         Text(""),
-        Text("planning and diagnostics", style="bold #8c93a1"),
+        Text("planning and diagnostics", style=f"bold {muted}"),
         detail_table,
     )
 
