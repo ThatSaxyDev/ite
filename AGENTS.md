@@ -67,6 +67,13 @@ src/ite/
 | Legacy | `ite -l` or `ite --legacy` | Original terminal UI |
 | Desktop | `ite -d` or `ite --desktop` | Desktop GUI app |
 
+## Runtime Focus
+
+- Unless a task explicitly says otherwise, runtime work should target the Reup Textual path in `src/ite/ui/reup/`.
+- Treat `src/ite/ui/tui.py` and `src/ite/ui/gui/` as legacy surfaces for current runtime work.
+- Do not spend time implementing or mirroring runtime changes in TUI or GUI unless the task explicitly asks for those paths.
+- When investigating runtime behavior, prefer Reup code paths, Reup styling in `src/ite/ui/reup/reup.tcss`, and Reup-specific tests.
+
 ## Development Guidelines
 
 **Build Commands:**
