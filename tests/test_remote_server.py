@@ -58,6 +58,10 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
                         "timestamp": "2026-04-23T20:00:00+00:00",
                         "status": "running",
                         "output": "Scanning project structure...",
+                        "metadata": {
+                            "kind": "generic",
+                            "command_name": "/init",
+                        },
                     }
                 ],
             },
@@ -70,6 +74,7 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(payload["command_feed"]), 1)
         self.assertEqual(payload["command_feed"][0]["command"], "/init --force")
         self.assertEqual(payload["command_feed"][0]["status"], "running")
+        self.assertEqual(payload["command_feed"][0]["metadata"]["kind"], "generic")
 
     async def test_resolve_plan_question_request_completes_pending_future(self) -> None:
         server = RemoteRuntimeServer(

@@ -120,6 +120,7 @@ from ite.memory import MemoryManager
 from ite.remote import RemoteRuntimeServer
 from ite.remote.protocol import (
     build_remote_transcript,
+    json_safe,
     serialize_agent_event,
     serialize_approval_request,
     serialize_plan_question_request,
@@ -130,6 +131,11 @@ from ite.skills import (
     build_skill_feedback_renderable,
     build_skills_overview_renderable,
 )
+from ite.skills.manager import SkillDefinition
+from ite.skills.rendering import skill_state
+from ite.tools.base import Tool, ToolRiskLevel
+from ite.tools.mcp.mcp_tool import MCPTool
+from ite.tools.subagent import SubagentTool
 from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
 
@@ -5733,6 +5739,11 @@ class ReupApp(App):
         if isinstance(output, StreamingCommandOutput):
             output.flush_pending()
         rendered = output.getvalue().strip()
+        command_metadata = self._build_remote_command_feed_metadata(
+            command,
+            args,
+            rendered,
+        )
         if command in {
             "/branch",
             "/attach",
@@ -5752,6 +5763,7 @@ class ReupApp(App):
                     command_feed_id,
                     status="completed",
                     output=rendered,
+                    metadata=command_metadata,
                 )
         if (
             is_manual_compact
@@ -5771,6 +5783,7 @@ class ReupApp(App):
                         command_feed_id,
                         status="completed",
                         output="Context compacted.",
+                        metadata=command_metadata,
                     )
                 return
         if rendered and not had_live_output:
@@ -5782,6 +5795,7 @@ class ReupApp(App):
                         command_feed_id,
                         status="completed",
                         output=rendered,
+                        metadata=command_metadata,
                     )
                 return
             if self._post_native_command_result(command, args):
@@ -5790,6 +5804,7 @@ class ReupApp(App):
                         command_feed_id,
                         status="completed",
                         output=rendered,
+                        metadata=command_metadata,
                     )
                 return
             self.post_command_result(command, rendered)
@@ -5798,6 +5813,7 @@ class ReupApp(App):
                     command_feed_id,
                     status="completed",
                     output=rendered,
+                    metadata=command_metadata,
                 )
             return
         if command_feed_id is not None:
@@ -5805,6 +5821,7 @@ class ReupApp(App):
                 command_feed_id,
                 status="completed",
                 output=rendered,
+                metadata=command_metadata,
             )
 
     async def _run_aside_command_native(self, args: list[str]) -> None:
@@ -7303,10 +7320,255 @@ class ReupApp(App):
         if command_feed_id is not None:
             self._append_remote_command_feed_output(command_feed_id, line)
 
+    def _build_remote_command_feed_metadata(
+        self,
+        command: str,
+        args: list[str],
+        rendered: str,
+    ) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
+            "kind": "generic",
+            "command_name": command,
+            "args": list(args),
+        }
+        if not self.agent or not self.agent.session:
+            return metadata
+
+        session = self.agent.session
+        if command == "/tools":
+            tools = session.tool_registry.get_tools()
+            sections: dict[str, list[dict[str, Any]]] = {}
+            order = [
+                "Built-in",
+                "Verification",
+                "Subagent Runtime",
+                "Subagent Specialists",
+                "Custom",
+                "MCP",
+            ]
+            for section_name in order:
+                section_tools = [
+                    tool
+                    for tool in tools
+                    if self._remote_tool_section_name(tool) == section_name
+                ]
+                if not section_tools:
+                    continue
+                sections[section_name] = [
+                    self._serialize_remote_tool(tool) for tool in section_tools
+                ]
+            metadata.update(
+                {
+                    "kind": "tools",
+                    "summary": {
+                        "total": len(tools),
+                        "built_in": len(sections.get("Built-in", [])),
+                        "verification": len(sections.get("Verification", [])),
+                        "runtime": len(sections.get("Subagent Runtime", [])),
+                        "specialists": len(
+                            sections.get("Subagent Specialists", [])
+                        ),
+                        "custom": len(sections.get("Custom", [])),
+                        "mcp": len(sections.get("MCP", [])),
+                    },
+                    "sections": [
+                        {
+                            "title": section_name,
+                            "count": len(items),
+                            "items": items,
+                        }
+                        for section_name, items in sections.items()
+                    ],
+                }
+            )
+            return metadata
+
+        if command == "/mcp" and (not args or args[0].lower() == "list"):
+            servers = session.mcp_manager.get_all_servers()
+            metadata.update(
+                {
+                    "kind": "mcp",
+                    "summary": {
+                        "total": len(servers),
+                        "connected": sum(
+                            1
+                            for server in servers
+                            if str(server.get("status", "")) == "connected"
+                        ),
+                        "ready": sum(
+                            1
+                            for server in servers
+                            if str(server.get("status", "")) == "ready"
+                        ),
+                        "failed": sum(
+                            1
+                            for server in servers
+                            if str(server.get("status", "")) == "error"
+                        ),
+                    },
+                    "servers": [
+                        {
+                            "name": str(server.get("name") or ""),
+                            "status": str(server.get("status") or ""),
+                            "tools": int(server.get("tools") or 0),
+                            "transport": str(server.get("transport") or ""),
+                            "auto_connect": bool(server.get("auto_connect")),
+                            "detail": str(
+                                server.get("detail") or server.get("last_error") or ""
+                            ),
+                            "auth_phase": str(server.get("auth_phase") or ""),
+                            "url": str(server.get("url") or ""),
+                            "missing_env": [
+                                str(item)
+                                for item in list(server.get("missing_env") or [])
+                                if str(item).strip()
+                            ],
+                        }
+                        for server in servers
+                    ],
+                }
+            )
+            return metadata
+
+        if command == "/skills":
+            active_ids = {
+                skill.identifier for skill in session.get_active_skills()
+            }
+            action = args[0].lower() if args else "list"
+            if action in {"list", "ls"}:
+                skills = session.skill_manager.list_skills()
+                blocked_count = sum(
+                    1
+                    for skill in skills
+                    if skill.identifier not in active_ids
+                    and skill.requires_trust
+                    and not skill.trusted
+                )
+                metadata.update(
+                    {
+                        "kind": "skills_overview",
+                        "summary": {
+                            "installed": len(skills),
+                            "active": len(active_ids),
+                            "ready": max(
+                                0, len(skills) - len(active_ids) - blocked_count
+                            ),
+                            "blocked": blocked_count,
+                        },
+                        "items": [
+                            self._serialize_remote_skill(skill, active_ids)
+                            for skill in skills
+                        ],
+                    }
+                )
+                return metadata
+            if action in {"show", "inspect"}:
+                references = [item for item in args[1:] if not item.startswith("--")]
+                reference = " ".join(references).strip()
+                skill = session.resolve_skill(reference)
+                if skill is not None:
+                    metadata.update(
+                        {
+                            "kind": "skills_detail",
+                            "skill": self._serialize_remote_skill(skill, active_ids),
+                            "instructions": skill.instructions,
+                        }
+                    )
+                return metadata
+
+            metadata.update(
+                {
+                    "kind": "skills_feedback",
+                    "title": _skills_action_title(action),
+                    "message": rendered,
+                    "active_count": len(active_ids),
+                    "available_count": len(session.skill_manager.list_skills()),
+                }
+            )
+        return metadata
+
+    def _serialize_remote_skill(
+        self,
+        skill: SkillDefinition,
+        active_ids: set[str],
+    ) -> dict[str, Any]:
+        return {
+            "identifier": skill.identifier,
+            "name": skill.name,
+            "description": skill.description,
+            "state": skill_state(skill, active_ids),
+            "source": self._format_remote_skill_source_label(
+                skill.source,
+                author=skill.author,
+            ),
+            "user_invocable": bool(skill.user_invocable),
+            "reference_count": len(skill.reference_files),
+            "tags": list(skill.tags),
+            "version": skill.version or "",
+            "author": skill.author or "",
+            "homepage": skill.homepage or "",
+            "aliases": list(skill.aliases),
+        }
+
+    @staticmethod
+    def _format_remote_skill_source_label(
+        source: str,
+        *,
+        author: str | None = None,
+    ) -> str:
+        if source == "shared-project" and str(author or "").strip().lower() == "ite":
+            return "ite bundled"
+        label = str(source or "").strip().replace("compat-", "").replace("-", " ")
+        return label or "skill root"
+
+    def _serialize_remote_tool(self, tool: Tool) -> dict[str, Any]:
+        metadata = tool.get_metadata({})
+        access = "write" if metadata.mutating else "read"
+        risk = {
+            ToolRiskLevel.LOW: "low",
+            ToolRiskLevel.MEDIUM: "med",
+            ToolRiskLevel.HIGH: "high",
+        }.get(metadata.risk_level, "med")
+        name = tool.name
+        server_name = ""
+        if isinstance(tool, MCPTool):
+            server_name, _, suffix = name.partition("__")
+            name = suffix or name
+        return {
+            "name": name,
+            "full_name": tool.name,
+            "description": getattr(tool, "description", "") or "",
+            "access": access,
+            "risk": risk,
+            "section": self._remote_tool_section_name(tool),
+            "server_name": server_name,
+        }
+
+    @staticmethod
+    def _remote_tool_section_name(tool: Tool) -> str:
+        if isinstance(tool, MCPTool):
+            return "MCP"
+        if isinstance(tool, SubagentTool):
+            return "Subagent Specialists"
+        module_name = tool.__class__.__module__
+        if module_name.startswith("ite.tools.builtin.subagent_runtime_tools"):
+            return "Subagent Runtime"
+        if tool.name in {"run_tests", "run_linter", "run_typecheck"}:
+            return "Verification"
+        if module_name.startswith("ite.tools.builtin."):
+            return "Built-in"
+        if module_name.startswith("discovered_tool_") or not module_name.startswith(
+            "ite."
+        ):
+            return "Custom"
+        return "Built-in"
+
     def _start_remote_command_feed_entry(self, command_line: str) -> str:
         self._remote_command_seq += 1
         command_id = f"cmd_{self._remote_command_seq}"
         session_id = self._active_session_id() or ""
+        parts = command_line.split()
+        command_name = parts[0].lower() if parts else ""
         self._remote_command_feed.append(
             {
                 "id": command_id,
@@ -7315,6 +7577,11 @@ class ReupApp(App):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "status": "running",
                 "output": "",
+                "metadata": {
+                    "kind": "generic",
+                    "command_name": command_name,
+                    "args": parts[1:],
+                },
             }
         )
         self._remote_command_feed = self._remote_command_feed[-30:]
@@ -7339,6 +7606,7 @@ class ReupApp(App):
         *,
         status: str,
         output: str,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         for entry in self._remote_command_feed:
             if entry.get("id") != command_id:
@@ -7347,6 +7615,8 @@ class ReupApp(App):
             final_output = str(output or "").strip()
             if final_output:
                 entry["output"] = final_output
+            if metadata is not None:
+                entry["metadata"] = json_safe(metadata)
             break
         self.run_worker(self._broadcast_remote_state(), exclusive=False)
 
