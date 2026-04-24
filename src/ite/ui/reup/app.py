@@ -82,7 +82,7 @@ from ite.cloud import (
 )
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
-from ite.config.config import ApprovalPolicy, Config
+from ite.config.config import ApprovalPolicy, Config, DEFAULT_CONTEXT_WINDOW
 from ite.config.loader import (
     get_workspace_agents_recommendation,
     load_saved_custom_provider,
@@ -2451,6 +2451,8 @@ class ReupApp(App):
                 label: str,
                 provider: str,
                 *,
+                context_window: int | None = None,
+                context_window_source: str | None = None,
                 available: bool = True,
                 unavailable_reason: str = "",
                 saved_profile: bool = False,
@@ -2464,6 +2466,8 @@ class ReupApp(App):
                         "model_name": normalized,
                         "label": label,
                         "provider": provider,
+                        "context_window": context_window,
+                        "context_window_source": context_window_source,
                         "available": available,
                         "unavailable_reason": unavailable_reason,
                         "saved_profile": saved_profile,
@@ -2475,6 +2479,13 @@ class ReupApp(App):
                     profile["model_name"],
                     profile["model_name"],
                     _saved_provider_label(profile),
+                    context_window=(
+                        int(profile.get("context_window"))
+                        if isinstance(profile.get("context_window"), int)
+                        else None
+                    ),
+                    context_window_source=str(profile.get("context_window_source") or "").strip()
+                    or None,
                     saved_profile=True,
                 )
 
@@ -2484,13 +2495,29 @@ class ReupApp(App):
                 and current_model
                 not in {item.get("model_name", "") for item in bundled_items}
             ):
-                _append(current_model, current_model, "Custom")
+                _append(
+                    current_model,
+                    current_model,
+                    "Custom",
+                    context_window=int(self.config.model.context_window or 0) or None,
+                    context_window_source=str(
+                        getattr(self.config.model, "context_window_source", "") or ""
+                    ).strip()
+                    or None,
+                )
 
             for item in bundled_items:
                 _append(
                     str(item.get("model_name") or ""),
                     str(item.get("label") or item.get("model_name") or ""),
                     str(item.get("provider") or "Bundled"),
+                    context_window=(
+                        int(item.get("context_window"))
+                        if isinstance(item.get("context_window"), int)
+                        else None
+                    ),
+                    context_window_source=str(item.get("context_window_source") or "").strip()
+                    or None,
                     available=bool(item.get("available", True)),
                     unavailable_reason=str(item.get("unavailable_reason") or ""),
                 )
@@ -2589,12 +2616,36 @@ class ReupApp(App):
                 else (self.config.base_url or "")
             )
         )
+        next_context_window = (
+            int(restored_profile.get("context_window"))
+            if restored_profile
+            and isinstance(restored_profile.get("context_window"), int)
+            and int(restored_profile.get("context_window")) > 0
+            else (
+                int(selected_item.get("context_window"))
+                if selected_item
+                and isinstance(selected_item.get("context_window"), int)
+                and int(selected_item.get("context_window")) > 0
+                else DEFAULT_CONTEXT_WINDOW
+            )
+        )
+        next_context_window_source = (
+            str(restored_profile.get("context_window_source") or "").strip()
+            if restored_profile
+            else (
+                str(selected_item.get("context_window_source") or "").strip()
+                if selected_item
+                else ""
+            )
+        ) or "fallback_default"
 
         try:
             save_system_config(
                 api_key=next_api_key,
                 base_url=next_base_url,
                 model_name=selected,
+                context_window=next_context_window,
+                context_window_source=next_context_window_source,
                 cloud_auth_enabled=self.config.cloud_auth_enabled,
                 cloud_api_url=self.config.cloud_api_url,
                 cloud_client_id=self.config.cloud_client_id,
@@ -2607,6 +2658,8 @@ class ReupApp(App):
         self.config.api_key = next_api_key
         self.config.base_url = next_base_url
         self.config.model.name = selected
+        self.config.model.context_window = next_context_window
+        self.config.model.context_window_source = next_context_window_source
         await self._reset_active_provider_client()
         self.refresh_header()
 
@@ -4285,17 +4338,21 @@ class ReupApp(App):
         event.stop()
         self.run_worker(self._run_change_review_discard_all(), exclusive=False)
 
-    async def _apply_setup_result(self, result: dict[str, str]) -> None:
+    async def _apply_setup_result(self, result: dict[str, Any]) -> None:
         try:
             save_system_config(
                 api_key=result["api_key"],
                 base_url=result["base_url"],
                 model_name=result["model_name"],
+                context_window=int(result.get("context_window") or DEFAULT_CONTEXT_WINDOW),
+                context_window_source=str(result.get("context_window_source") or "").strip() or None,
             )
             save_saved_custom_provider(
                 api_key=result["api_key"],
                 base_url=result["base_url"],
                 model_name=result["model_name"],
+                context_window=int(result.get("context_window") or DEFAULT_CONTEXT_WINDOW),
+                context_window_source=str(result.get("context_window_source") or "").strip() or None,
             )
             save_global_approval_mode(result["approval"])
         except Exception as exc:
@@ -4306,6 +4363,12 @@ class ReupApp(App):
         self.config.api_key = result["api_key"]
         self.config.base_url = result["base_url"]
         self.config.model.name = result["model_name"]
+        self.config.model.context_window = int(
+            result.get("context_window") or DEFAULT_CONTEXT_WINDOW
+        )
+        self.config.model.context_window_source = (
+            str(result.get("context_window_source") or "").strip() or None
+        )
         self.config.approval = ApprovalPolicy(result["approval"])
         await self._reset_active_provider_client()
         self.refresh_header()

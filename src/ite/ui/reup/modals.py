@@ -34,10 +34,16 @@ from ite.client.llm_client import LLMClient
 from ite.config.config import (
     DEFAULT_API_KEY,
     DEFAULT_BASE_URL,
+    DEFAULT_CONTEXT_WINDOW,
     DEFAULT_MODEL_NAME,
+    FIXED_PROVIDER_CONTEXT_WINDOW,
     Config,
 )
 from ite.git.branches import BranchInfo, is_valid_branch_name
+from ite.model_metadata import (
+    format_context_window_label,
+    parse_openrouter_model_metadata,
+)
 
 SETUP_PROVIDER_OLLAMA = "ollama"
 SETUP_PROVIDER_OPENROUTER = "openrouter"
@@ -945,7 +951,7 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
-class ModelPickerModal(ModalScreen[dict[str, str] | None]):
+class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
     def __init__(self, current: str, models: list[dict[str, Any]]) -> None:
@@ -957,6 +963,7 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
         self._model_unavailable_reasons: list[str] = []
         self._model_sources: list[str] = []
         self._model_saved_profile: list[bool] = []
+        self._model_context_windows: list[int | None] = []
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
@@ -977,12 +984,13 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
 
     async def on_mount(self) -> None:
         table = self.query_one("#models", DataTable)
-        table.add_columns("Model", "Source", "Status", "Current")
+        table.add_columns("Model", "Source", "Context", "Status", "Current")
         self._model_names = []
         self._model_available = []
         self._model_unavailable_reasons = []
         self._model_sources = []
         self._model_saved_profile = []
+        self._model_context_windows = []
         for item in self._models:
             model_name = str(item.get("model_name") or "").strip()
             label = str(item.get("label") or model_name).strip()
@@ -990,6 +998,7 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
             available = bool(item.get("available", True))
             unavailable_reason = str(item.get("unavailable_reason") or "").strip()
             saved_profile = bool(item.get("saved_profile", False))
+            context_window = item.get("context_window")
             if not model_name:
                 continue
             self._model_names.append(model_name)
@@ -997,9 +1006,15 @@ class ModelPickerModal(ModalScreen[dict[str, str] | None]):
             self._model_unavailable_reasons.append(unavailable_reason)
             self._model_sources.append(provider)
             self._model_saved_profile.append(saved_profile)
+            self._model_context_windows.append(
+                int(context_window)
+                if isinstance(context_window, int) and context_window > 0
+                else None
+            )
             table.add_row(
                 label,
                 provider,
+                format_context_window_label(self._model_context_windows[-1]),
                 "Available" if available else "Unavailable",
                 "✓" if model_name == self._current else "",
             )
@@ -1864,7 +1879,7 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
         self.dismiss(None)
 
 
-class SetupModal(ModalScreen[dict[str, str] | None]):
+class SetupModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
     def __init__(self, config: Config) -> None:
@@ -1872,6 +1887,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self._config = config
         self._validating = False
         self._openrouter_models: list[str] = []
+        self._openrouter_context_windows: dict[str, int] = {}
         inferred_provider = self._infer_provider()
         current_model = str(self._config.model_name or DEFAULT_MODEL_NAME).strip()
         self._provider_selected_model: dict[str, str] = {
@@ -1959,6 +1975,92 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             "Enter your provider base URL and API key. iTE will verify the connection before saving this setup.",
             "Enter the exact model name your provider expects.",
         )
+
+    def _selected_model_name(self, provider: str) -> str:
+        if provider == SETUP_PROVIDER_GENERIC:
+            return self.query_one("#setup-model-input", Input).value.strip()
+        selected_model = str(
+            self.query_one("#setup-model-select", Select).value or ""
+        ).strip()
+        if selected_model == SETUP_MODEL_OTHER:
+            return self.query_one("#setup-model-input", Input).value.strip()
+        if selected_model in {"", SETUP_MODEL_SELECT}:
+            return ""
+        return selected_model
+
+    def _resolved_setup_context_window(self, provider: str) -> int | None:
+        model_name = self._selected_model_name(provider)
+        if not model_name:
+            return None
+        if provider == SETUP_PROVIDER_OPENROUTER:
+            return self._openrouter_context_windows.get(model_name)
+        if provider == SETUP_PROVIDER_OLLAMA:
+            return FIXED_PROVIDER_CONTEXT_WINDOW
+        if provider == SETUP_PROVIDER_GENERIC:
+            return FIXED_PROVIDER_CONTEXT_WINDOW
+        if model_name == str(self._config.model_name or "").strip():
+            current = int(self._config.model.context_window or 0)
+            return current if current > 0 else None
+        return None
+
+    def _resolved_setup_context_source(self, provider: str) -> str:
+        model_name = self._selected_model_name(provider)
+        if not model_name:
+            if provider == SETUP_PROVIDER_OPENROUTER and not self._openrouter_models:
+                return "unknown_until_provider_load"
+            return "unknown"
+        if provider == SETUP_PROVIDER_OPENROUTER:
+            return (
+                "resolved_from_openrouter"
+                if model_name in self._openrouter_context_windows
+                else "unknown_until_provider_load"
+            )
+        if provider == SETUP_PROVIDER_OLLAMA:
+            return "provider_fixed_default"
+        if provider == SETUP_PROVIDER_GENERIC:
+            return "provider_fixed_default"
+        existing = str(getattr(self._config.model, "context_window_source", "") or "").strip()
+        if model_name == str(self._config.model_name or "").strip() and existing:
+            return existing
+        return "unknown_until_provider_verification"
+
+    def _update_model_help_text(self, provider: str) -> None:
+        _provider_copy, _provider_help, base_model_help = self._provider_copy(provider)
+        if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}:
+            self.query_one("#setup-model-help", Static).update(base_model_help)
+            return
+        context_window = self._resolved_setup_context_window(provider)
+        source = self._resolved_setup_context_source(provider)
+        if context_window:
+            if source == "resolved_from_openrouter":
+                suffix = (
+                    f"\nContext window: {format_context_window_label(context_window)} "
+                    "(resolved from OpenRouter)"
+                )
+            elif source == "provider_fixed_default":
+                suffix = f"\nContext window: {format_context_window_label(context_window)}"
+            elif source == "bundled_provider_api":
+                suffix = (
+                    f"\nContext window: {format_context_window_label(context_window)} "
+                    "(resolved from bundled provider)"
+                )
+            elif source == "saved_config":
+                suffix = (
+                    f"\nContext window: {format_context_window_label(context_window)} "
+                    "(restored from saved config)"
+                )
+            else:
+                suffix = (
+                    f"\nContext window: {format_context_window_label(context_window)}"
+                )
+        else:
+            if source == "unknown_until_provider_load":
+                suffix = "\nContext window: unknown until models are loaded from the provider."
+            elif source == "unknown_until_provider_verification":
+                suffix = "\nContext window: unknown until provider verification."
+            else:
+                suffix = "\nContext window: unknown."
+        self.query_one("#setup-model-help", Static).update(base_model_help + suffix)
 
     def compose(self) -> ComposeResult:
         provider = self._infer_provider()
@@ -2088,6 +2190,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self.query_one("#setup-status", Static).update("")
         self.query_one("#setup-error", Static).update("")
         self._apply_provider_visibility(provider)
+        self._update_model_help_text(provider)
         if provider == SETUP_PROVIDER_OPENROUTER and api_key.strip():
             self.run_worker(self._load_openrouter_models(), exclusive=False)
 
@@ -2107,10 +2210,12 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             str(self.query_one("#setup-provider", Select).value or "").strip()
             or SETUP_PROVIDER_GENERIC
         )
-        self._provider_selected_model[provider] = str(event.value or "").strip()
-        if str(event.value or "").strip() != SETUP_MODEL_OTHER:
+        selected_value = str(event.value or "").strip()
+        self._provider_selected_model[provider] = selected_value
+        if selected_value != SETUP_MODEL_OTHER:
             self._provider_manual_model[provider] = ""
-        self._apply_model_input_visibility(str(event.value or "").strip())
+        self._apply_model_input_visibility(selected_value)
+        self._update_model_help_text(provider)
 
     @on(Input.Changed, "#setup-model-input")
     def on_model_input_changed(self, event: Input.Changed) -> None:
@@ -2119,6 +2224,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             or SETUP_PROVIDER_GENERIC
         )
         self._provider_manual_model[provider] = event.value
+        self._update_model_help_text(provider)
 
     def _set_error(self, message: str) -> None:
         self.query_one("#setup-error", Static).update(message)
@@ -2230,16 +2336,17 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             or SETUP_PROVIDER_GENERIC
         )
         model_input = self.query_one("#setup-model-input", Input)
+        model_help = self.query_one("#setup-model-help", Static)
         if provider == SETUP_PROVIDER_GENERIC:
             model_input.display = True
             return
         if provider == SETUP_PROVIDER_OPENROUTER and not self._openrouter_models:
             model_input.display = False
-            self.query_one("#setup-model-help", Static).display = False
+            model_help.display = False
             return
         show_manual = selected_value == SETUP_MODEL_OTHER
         model_input.display = show_manual
-        self.query_one("#setup-model-help", Static).display = show_manual
+        model_help.display = True
         if not show_manual:
             model_input.value = ""
             return
@@ -2259,7 +2366,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         base_url: str,
         api_key: str,
         model_name: str,
-    ) -> str | None:
+    ) -> tuple[str | None, int | None]:
         normalized = base_url.rstrip("/")
         headers = {
             "authorization": f"Bearer {api_key}",
@@ -2271,31 +2378,34 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             try:
                 response = await client.get(f"{normalized}/models", headers=headers)
             except httpx.HTTPError as exc:
-                return f"Could not reach the provider at {normalized}: {exc}"
+                return f"Could not reach the provider at {normalized}: {exc}", None
 
             if response.status_code in {401, 403}:
                 return (
                     "The provider rejected this API key. Check the key and try again."
-                )
+                ), None
             if response.status_code == 404:
                 return (
                     "This base URL does not expose a compatible /models endpoint. "
                     "Check the provider URL and make sure it is an OpenAI-compatible API."
-                )
+                ), None
             if response.status_code >= 400:
                 return (
                     f"Provider check failed with status {response.status_code}. "
                     "Verify the base URL and API key."
-                )
+                ), None
 
             try:
                 payload = response.json()
             except ValueError:
-                return "The provider returned invalid JSON while checking available models."
+                return (
+                    "The provider returned invalid JSON while checking available models.",
+                    None,
+                )
 
         data = payload.get("data")
         if not isinstance(data, list):
-            return None
+            return None, None
 
         model_ids = {
             str(item.get("id") or "").strip() for item in data if isinstance(item, dict)
@@ -2304,10 +2414,19 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             return (
                 f"The model `{model_name}` is not available on this provider. "
                 "Use the exact model id exposed by the provider."
-            )
-        return None
+            ), None
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("id") or "").strip() != model_name:
+                continue
+            metadata = parse_openrouter_model_metadata(item)
+            return None, metadata.context_window if metadata else None
+        return None, None
 
-    async def _fetch_openrouter_models(self, *, api_key: str) -> tuple[list[str], str | None]:
+    async def _fetch_openrouter_models(
+        self, *, api_key: str
+    ) -> tuple[list[dict[str, Any]], str | None]:
         headers = {
             "authorization": f"Bearer {api_key}",
             "content-type": "application/json",
@@ -2351,15 +2470,20 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         if not isinstance(data, list):
             return [], "OpenRouter did not return a model list."
 
-        models = sorted(
-            {
-                str(item.get("id") or "").strip()
-                for item in data
-                if isinstance(item, dict)
-                and str(item.get("id") or "").strip()
-                and str(item.get("id") or "").strip().endswith(":free")
-            }
-        )
+        models: list[dict[str, Any]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            metadata = parse_openrouter_model_metadata(item)
+            if metadata is None or not metadata.model_name.endswith(":free"):
+                continue
+            models.append(
+                {
+                    "model_name": metadata.model_name,
+                    "context_window": metadata.context_window,
+                }
+            )
+        models.sort(key=lambda item: str(item.get("model_name") or ""))
         if not models:
             return [], "No free, tool-capable OpenRouter models were returned for this account."
         return models, None
@@ -2396,15 +2520,29 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             self._set_error(error)
             return False
 
-        self._openrouter_models = models
-        self._set_model_options(models, preserve_current=True)
+        self._openrouter_models = [
+            str(item.get("model_name") or "").strip()
+            for item in models
+            if str(item.get("model_name") or "").strip()
+        ]
+        self._openrouter_context_windows = {
+            str(item.get("model_name") or "").strip(): int(item.get("context_window"))
+            for item in models
+            if str(item.get("model_name") or "").strip()
+            and isinstance(item.get("context_window"), int)
+            and int(item.get("context_window")) > 0
+        }
+        self._set_model_options(self._openrouter_models, preserve_current=True)
         self._apply_provider_visibility(provider)
         self._apply_model_input_visibility(
             str(self.query_one("#setup-model-select", Select).value or "").strip()
         )
+        self._update_model_help_text(provider)
         return True
 
-    async def _probe_ollama(self, *, base_url: str, model_name: str) -> str | None:
+    async def _probe_ollama(
+        self, *, base_url: str, model_name: str
+    ) -> tuple[str | None, int | None]:
         api_root = self._ollama_api_root(base_url)
         timeout = httpx.Timeout(5.0, connect=3.0)
 
@@ -2415,28 +2553,31 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 return (
                     f"Could not reach Ollama at {api_root}. Start Ollama first, then try again. "
                     f"Details: {exc}"
-                )
+                ), None
 
             if response.status_code >= 400:
                 return (
                     f"Ollama responded with status {response.status_code}. "
                     "Make sure Ollama is running locally and the base URL is correct."
-                )
+                ), None
 
             try:
                 payload = response.json()
             except ValueError:
-                return "Ollama returned invalid JSON while listing local models."
+                return "Ollama returned invalid JSON while listing local models.", None
 
         models = payload.get("models")
         if not isinstance(models, list):
-            return "Ollama did not return a model list. Make sure the local Ollama API is healthy."
+            return (
+                "Ollama did not return a model list. Make sure the local Ollama API is healthy.",
+                None,
+            )
 
         # Ollama cloud-style routes are served by Ollama but may not appear as
         # locally pulled models in /api/tags. For those, a healthy Ollama
         # endpoint is the right validation.
         if model_name.endswith(":cloud"):
-            return None
+            return None, FIXED_PROVIDER_CONTEXT_WINDOW
 
         available = {
             str(item.get("model") or item.get("name") or "").strip()
@@ -2447,8 +2588,9 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
             return (
                 f"The model `{model_name}` is not available in Ollama yet. "
                 f"Pull it first with `ollama pull {model_name}`."
-            )
-        return None
+            ), None
+
+        return None, FIXED_PROVIDER_CONTEXT_WINDOW
 
     async def _validate_provider_connection(
         self,
@@ -2457,7 +2599,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         base_url: str,
         api_key: str,
         model_name: str,
-    ) -> str | None:
+    ) -> tuple[str | None, int | None]:
         if provider == SETUP_PROVIDER_OLLAMA:
             return await self._probe_ollama(base_url=base_url, model_name=model_name)
         return await self._probe_openai_compatible(
@@ -2516,7 +2658,7 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
         self._set_status("Checking provider connection...")
         self._set_validating(True)
         try:
-            error = await self._validate_provider_connection(
+            error, detected_context_window = await self._validate_provider_connection(
                 provider=provider,
                 base_url=base_url,
                 api_key=api_key,
@@ -2537,6 +2679,37 @@ class SetupModal(ModalScreen[dict[str, str] | None]):
                 "base_url": base_url,
                 "api_key": api_key,
                 "model_name": model_name,
+                "context_window": (
+                    self._openrouter_context_windows.get(model_name)
+                    if provider == SETUP_PROVIDER_OPENROUTER
+                    and detected_context_window is None
+                    else (
+                        FIXED_PROVIDER_CONTEXT_WINDOW
+                        if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}
+                        else (
+                            detected_context_window
+                            if detected_context_window is not None and detected_context_window > 0
+                            else int(self._config.model.context_window or DEFAULT_CONTEXT_WINDOW)
+                        )
+                    )
+                ),
+                "context_window_source": (
+                    "openrouter_models_api"
+                    if provider == SETUP_PROVIDER_OPENROUTER
+                    and model_name in self._openrouter_context_windows
+                    else (
+                        "provider_fixed_default"
+                        if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}
+                        else (
+                            "fallback_default"
+                            if provider == SETUP_PROVIDER_OPENROUTER
+                            else (
+                                str(getattr(self._config.model, "context_window_source", "") or "").strip()
+                                or "fallback_default"
+                            )
+                        )
+                    )
+                ),
                 "approval": self._config.approval.value,
             }
         )

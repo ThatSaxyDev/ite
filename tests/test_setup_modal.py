@@ -5,7 +5,12 @@ from unittest.mock import patch
 import httpx
 
 from ite.config.config import Config
-from ite.config.config import DEFAULT_API_KEY, DEFAULT_BASE_URL, ModelConfig
+from ite.config.config import (
+    DEFAULT_API_KEY,
+    DEFAULT_BASE_URL,
+    FIXED_PROVIDER_CONTEXT_WINDOW,
+    ModelConfig,
+)
 from ite.ui.reup.modals import (
     RECOMMENDED_OLLAMA_MODELS,
     SETUP_PROVIDER_OLLAMA,
@@ -35,6 +40,12 @@ class _FakeAsyncClient:
         return False
 
     async def get(self, _url, headers=None, params=None):
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    async def post(self, _url, json=None, headers=None):
         response = self._responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -82,6 +93,139 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(base_url_label.display)
         self.assertFalse(base_url_input.display)
         self.assertTrue(base_url_help.display)
+
+    def test_update_model_help_text_shows_resolved_context_window_for_openrouter(self) -> None:
+        modal = SetupModal(Config())
+        provider_select = SimpleNamespace(value="openrouter")
+        model_select = SimpleNamespace(value="google/gemma-4-31b-it:free")
+        model_input = SimpleNamespace(value="")
+        model_help = SimpleNamespace(update=lambda value: setattr(model_help, "renderable", value))
+        model_help.renderable = ""
+        modal._openrouter_context_windows = {"google/gemma-4-31b-it:free": 131072}
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-provider": provider_select,
+                "#setup-model-select": model_select,
+                "#setup-model-input": model_input,
+                "#setup-model-help": model_help,
+            }[selector],
+        ):
+            modal._update_model_help_text("openrouter")
+
+        self.assertIn("Context window: 128K (resolved from OpenRouter)", model_help.renderable)
+
+    def test_update_model_help_text_hides_context_window_for_ollama_model(self) -> None:
+        modal = SetupModal(
+            Config(
+                base_url=DEFAULT_BASE_URL,
+                api_key=DEFAULT_API_KEY,
+                model=ModelConfig(
+                    name="gemma4:e4b",
+                    context_window=131072,
+                    context_window_source="saved_config",
+                ),
+            )
+        )
+        provider_select = SimpleNamespace(value="ollama")
+        model_select = SimpleNamespace(value="gemma4:e4b")
+        model_input = SimpleNamespace(value="")
+        model_help = SimpleNamespace(update=lambda value: setattr(model_help, "renderable", value))
+        model_help.renderable = ""
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-provider": provider_select,
+                "#setup-model-select": model_select,
+                "#setup-model-input": model_input,
+                "#setup-model-help": model_help,
+            }[selector],
+        ):
+            modal._update_model_help_text("ollama")
+
+        self.assertEqual(
+            model_help.renderable,
+            "Enter the exact model name as Ollama expects it.",
+        )
+
+    def test_update_model_help_text_hides_context_window_for_ollama_cloud_route(self) -> None:
+        modal = SetupModal(Config())
+        provider_select = SimpleNamespace(value="ollama")
+        model_select = SimpleNamespace(value="minimax-m2.5:cloud")
+        model_input = SimpleNamespace(value="")
+        model_help = SimpleNamespace(update=lambda value: setattr(model_help, "renderable", value))
+        model_help.renderable = ""
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-provider": provider_select,
+                "#setup-model-select": model_select,
+                "#setup-model-input": model_input,
+                "#setup-model-help": model_help,
+            }[selector],
+        ):
+            modal._update_model_help_text("ollama")
+
+        self.assertEqual(
+            model_help.renderable,
+            "Enter the exact model name as Ollama expects it.",
+        )
+
+    def test_update_model_help_text_hides_context_window_for_generic_provider(self) -> None:
+        modal = SetupModal(Config())
+        provider_select = SimpleNamespace(value="generic")
+        model_select = SimpleNamespace(value="")
+        model_input = SimpleNamespace(value="custom-model")
+        model_help = SimpleNamespace(update=lambda value: setattr(model_help, "renderable", value))
+        model_help.renderable = ""
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-provider": provider_select,
+                "#setup-model-select": model_select,
+                "#setup-model-input": model_input,
+                "#setup-model-help": model_help,
+            }[selector],
+        ):
+            modal._update_model_help_text("generic")
+
+        self.assertEqual(
+            model_help.renderable,
+            "Enter the exact model name your provider expects.",
+        )
+
+    def test_update_model_help_text_shows_unknown_until_openrouter_models_loaded(self) -> None:
+        modal = SetupModal(Config())
+        provider_select = SimpleNamespace(value="openrouter")
+        model_select = SimpleNamespace(value=SETUP_MODEL_SELECT)
+        model_input = SimpleNamespace(value="")
+        model_help = SimpleNamespace(update=lambda value: setattr(model_help, "renderable", value))
+        model_help.renderable = ""
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#setup-provider": provider_select,
+                "#setup-model-select": model_select,
+                "#setup-model-input": model_input,
+                "#setup-model-help": model_help,
+            }[selector],
+        ):
+            modal._update_model_help_text("openrouter")
+
+        self.assertIn(
+            "Context window: unknown until models are loaded from the provider.",
+            model_help.renderable,
+        )
 
     def test_provider_visibility_hides_base_url_for_openrouter(self) -> None:
         modal = SetupModal(Config())
@@ -382,9 +526,11 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             modal._apply_model_input_visibility(RECOMMENDED_OLLAMA_MODELS[0])
             self.assertFalse(model_input.display)
             self.assertEqual(model_input.value, "")
+            self.assertTrue(model_help.display)
             modal._apply_model_input_visibility(SETUP_MODEL_OTHER)
 
         self.assertTrue(model_input.display)
+        self.assertTrue(model_help.display)
 
     def test_set_model_options_preserves_saved_ollama_selection(self) -> None:
         modal = SetupModal(Config())
@@ -420,8 +566,14 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
                         200,
                         {
                             "data": [
-                                {"id": "google/gemma-4-31b-it:free"},
-                                {"id": "arcee-ai/trinity-large-preview:free"},
+                                {
+                                    "id": "google/gemma-4-31b-it:free",
+                                    "context_length": 131072,
+                                },
+                                {
+                                    "id": "arcee-ai/trinity-large-preview:free",
+                                    "context_length": 65536,
+                                },
                                 {"id": "anthropic/claude-3.7-sonnet"},
                             ]
                         },
@@ -435,8 +587,14 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             models,
             [
-                "arcee-ai/trinity-large-preview:free",
-                "google/gemma-4-31b-it:free",
+                {
+                    "model_name": "arcee-ai/trinity-large-preview:free",
+                    "context_window": 65536,
+                },
+                {
+                    "model_name": "google/gemma-4-31b-it:free",
+                    "context_window": 131072,
+                },
             ],
         )
 
@@ -459,12 +617,13 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             "ite.ui.reup.modals.httpx.AsyncClient",
             return_value=_FakeAsyncClient([httpx.ConnectError("connection refused")]),
         ):
-            message = await modal._probe_ollama(
+            message, context_window = await modal._probe_ollama(
                 base_url="http://localhost:11434/v1",
                 model_name="qwen2.5-coder:7b",
             )
 
         self.assertIn("Start Ollama first", message or "")
+        self.assertIsNone(context_window)
 
     async def test_probe_ollama_requires_selected_model(self) -> None:
         modal = SetupModal(Config())
@@ -475,12 +634,13 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
                 [_FakeResponse(200, {"models": [{"name": "llama3.2:3b"}]})]
             ),
         ):
-            message = await modal._probe_ollama(
+            message, context_window = await modal._probe_ollama(
                 base_url="http://localhost:11434/v1",
                 model_name="qwen2.5-coder:7b",
             )
 
         self.assertIn("ollama pull qwen2.5-coder:7b", message or "")
+        self.assertIsNone(context_window)
 
     async def test_probe_ollama_allows_cloud_model_without_local_tag(self) -> None:
         modal = SetupModal(Config())
@@ -491,12 +651,30 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
                 [_FakeResponse(200, {"models": [{"name": "llama3.2:3b"}]})]
             ),
         ):
-            message = await modal._probe_ollama(
+            message, context_window = await modal._probe_ollama(
                 base_url="http://localhost:11434/v1",
                 model_name="glm-5.1:cloud",
             )
 
         self.assertIsNone(message)
+        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
+
+    async def test_probe_ollama_returns_fixed_context_window_for_local_model(self) -> None:
+        modal = SetupModal(Config())
+
+        with patch(
+            "ite.ui.reup.modals.httpx.AsyncClient",
+            return_value=_FakeAsyncClient(
+                [_FakeResponse(200, {"models": [{"name": "gemma4:e4b"}]})]
+            ),
+        ):
+            message, context_window = await modal._probe_ollama(
+                base_url="http://localhost:11434/v1",
+                model_name="gemma4:e4b",
+            )
+
+        self.assertIsNone(message)
+        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
 
     async def test_probe_openai_compatible_rejects_invalid_key(self) -> None:
         modal = SetupModal(Config())
@@ -505,13 +683,14 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             "ite.ui.reup.modals.httpx.AsyncClient",
             return_value=_FakeAsyncClient([_FakeResponse(401)]),
         ):
-            message = await modal._probe_openai_compatible(
+            message, context_window = await modal._probe_openai_compatible(
                 base_url="https://openrouter.ai/api/v1",
                 api_key="bad-key",
                 model_name="openai/gpt-4.1-mini",
             )
 
         self.assertIn("rejected this API key", message or "")
+        self.assertIsNone(context_window)
 
     async def test_probe_openai_compatible_requires_model_in_provider_list(self) -> None:
         modal = SetupModal(Config())
@@ -522,13 +701,14 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
                 [_FakeResponse(200, {"data": [{"id": "openai/gpt-4.1-mini"}]})]
             ),
         ):
-            message = await modal._probe_openai_compatible(
+            message, context_window = await modal._probe_openai_compatible(
                 base_url="https://openrouter.ai/api/v1",
                 api_key="key",
                 model_name="anthropic/claude-sonnet-4",
             )
 
         self.assertIn("not available on this provider", message or "")
+        self.assertIsNone(context_window)
 
 
 if __name__ == "__main__":

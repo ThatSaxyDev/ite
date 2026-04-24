@@ -34,6 +34,7 @@ class SavedCustomProviderTests(unittest.TestCase):
                         "api_key": "key-one",
                         "base_url": "http://localhost:11434/v1",
                         "model_name": "llama-3.1:8b",
+                        "context_window": None,
                     },
                 )
                 self.assertEqual(
@@ -42,6 +43,7 @@ class SavedCustomProviderTests(unittest.TestCase):
                         "api_key": "key-two",
                         "base_url": "http://localhost:8080",
                         "model_name": "gemma-4:4b",
+                        "context_window": None,
                     },
                 )
                 contents = (system_dir / "config.toml").read_text(encoding="utf-8")
@@ -90,6 +92,29 @@ class SavedCustomProviderTests(unittest.TestCase):
 
                 self.assertEqual(len(profiles), 1)
                 self.assertEqual(profiles["llama-3.1:8b"]["api_key"], "key-two-updated")
+
+    def test_context_window_is_persisted_for_saved_profiles_and_system_model(self) -> None:
+        with tempfile.TemporaryDirectory() as sys_td:
+            system_dir = Path(sys_td)
+            with patch("ite.config.loader.get_config_dir", return_value=system_dir):
+                save_system_config(
+                    api_key="key-one",
+                    base_url="http://localhost:11434/v1",
+                    model_name="gemma4:e4b",
+                    context_window=131072,
+                )
+                save_saved_custom_provider(
+                    api_key="key-one",
+                    base_url="http://localhost:11434/v1",
+                    model_name="gemma4:e4b",
+                    context_window=131072,
+                )
+
+                profiles = load_saved_custom_provider()
+                contents = (system_dir / "config.toml").read_text(encoding="utf-8")
+
+                self.assertEqual(profiles["gemma4:e4b"]["context_window"], 131072)
+                self.assertIn("context_window = 131072", contents)
 
 
 if __name__ == "__main__":

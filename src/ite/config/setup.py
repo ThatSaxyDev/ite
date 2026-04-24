@@ -115,6 +115,7 @@ def run_setup_wizard(console: Console, config: Config) -> Config:
         api_key=api_key,
         base_url=base_url,
         model_name=model_name,
+        context_window=config.model.context_window,
     )
 
     console.print()

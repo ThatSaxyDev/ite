@@ -411,6 +411,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 self.assertEqual(modal._models[0]["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
                 self.assertEqual(modal._models[0]["provider"], "localhost")
                 self.assertTrue(modal._models[0]["saved_profile"])
+                self.assertEqual(modal._models[0]["context_window"], 131072)
                 self.assertEqual(modal._models[1]["model_name"], "minimax-m2.7:cloud")
                 return None
 
@@ -421,6 +422,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "api_key": "custom-key",
                         "base_url": "http://localhost:8080",
                         "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                        "context_window": 131072,
                     }
                 },
             ), patch(
@@ -453,6 +455,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "api_key": "custom-key",
                         "base_url": "http://localhost:8080",
                         "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                        "context_window": 131072,
                     }
                 },
             ), patch(
@@ -485,9 +488,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertEqual(kwargs["api_key"], "custom-key")
             self.assertEqual(kwargs["base_url"], "http://localhost:8080")
             self.assertEqual(kwargs["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+            self.assertEqual(kwargs["context_window"], 131072)
             self.assertEqual(app.config.api_key, "custom-key")
             self.assertEqual(app.config.base_url, "http://localhost:8080")
             self.assertEqual(app.config.model.name, "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+            self.assertEqual(app.config.model.context_window, 131072)
 
         asyncio.run(run_test())
 
@@ -508,6 +513,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "api_key": "openrouter-key",
                         "base_url": "https://openrouter.ai/api/v1",
                         "model_name": "arcee-ai/trinity-large-preview:free",
+                        "context_window": 196608,
                     }
                 },
             ), patch(
@@ -535,9 +541,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertEqual(kwargs["api_key"], "")
             self.assertEqual(kwargs["base_url"], "")
             self.assertEqual(kwargs["model_name"], "glm-5.1:cloud")
+            self.assertEqual(kwargs["context_window"], 256000)
             self.assertEqual(app.config.api_key, "")
             self.assertEqual(app.config.base_url, "")
             self.assertEqual(app.config.model.name, "glm-5.1:cloud")
+            self.assertEqual(app.config.model.context_window, 256000)
             app.agent.session.client.close.assert_awaited_once()
 
         asyncio.run(run_test())

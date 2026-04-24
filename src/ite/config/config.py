@@ -11,6 +11,8 @@ from enum import Enum
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_API_KEY = "ollama"
 DEFAULT_MODEL_NAME = "kimi-k2.5:cloud"
+DEFAULT_CONTEXT_WINDOW = 256_000
+FIXED_PROVIDER_CONTEXT_WINDOW = 200_000
 DEFAULT_CLOUD_API_URL = "https://ite-cloud-api.onrender.com"
 DEFAULT_CLOUD_CLIENT_ID = "ite-cli"
 
@@ -25,7 +27,8 @@ def default_cloud_device_name() -> str:
 class ModelConfig(BaseModel):
     name: str = Field(default=DEFAULT_MODEL_NAME)
     temperature: float = Field(default=1, ge=0.0, le=2.0)
-    context_window: int = 256_000
+    context_window: int = DEFAULT_CONTEXT_WINDOW
+    context_window_source: str | None = None
 
 
 class ShellEnvironmentPolicy(BaseModel):

@@ -449,6 +449,8 @@ def save_system_config(
     base_url: str,
     model_name: str,
     *,
+    context_window: int | None = None,
+    context_window_source: str | None = None,
     cloud_auth_enabled: bool | None = None,
     cloud_api_url: str | None = None,
     cloud_client_id: str | None = None,
@@ -469,6 +471,14 @@ def save_system_config(
     existing["base_url"] = base_url
     model_config = dict(existing.get("model", {}) or {})
     model_config["name"] = model_name
+    if context_window is not None and context_window > 0:
+        model_config["context_window"] = int(context_window)
+    else:
+        model_config.pop("context_window", None)
+    if context_window_source:
+        model_config["context_window_source"] = str(context_window_source).strip()
+    else:
+        model_config.pop("context_window_source", None)
     existing["model"] = model_config
 
     if cloud_auth_enabled is not None:
@@ -484,7 +494,7 @@ def save_system_config(
     return config_path
 
 
-def load_saved_custom_provider() -> dict[str, dict[str, str]]:
+def load_saved_custom_provider() -> dict[str, dict[str, Any]]:
     """Load all saved BYOK/custom provider profiles. Returns keyed by model_name."""
     config_path = get_system_config_path()
     if not config_path.is_file():
@@ -508,10 +518,19 @@ def load_saved_custom_provider() -> dict[str, dict[str, str]]:
         normalized = str(model_name or "").strip()
         if not normalized or not base_url or not api_key:
             continue
+        context_window = values.get("context_window")
+        parsed_context_window = None
+        if isinstance(context_window, int) and context_window > 0:
+            parsed_context_window = context_window
+        elif isinstance(context_window, str) and context_window.strip().isdigit():
+            parsed_context_window = int(context_window.strip())
         result[normalized] = {
             "base_url": base_url,
             "api_key": api_key,
             "model_name": normalized,
+            "context_window": parsed_context_window,
+            "context_window_source": str(values.get("context_window_source") or "").strip()
+            or None,
         }
     return result
 
@@ -521,6 +540,8 @@ def save_saved_custom_provider(
     api_key: str,
     base_url: str,
     model_name: str,
+    context_window: int | None = None,
+    context_window_source: str | None = None,
 ) -> Path:
     """Add or update a BYOK/custom provider profile. Others are preserved."""
     config_dir = get_config_dir()
@@ -535,11 +556,16 @@ def save_saved_custom_provider(
             existing = {}
 
     providers: dict[str, Any] = dict(existing.get(SAVED_CUSTOM_PROVIDERS_TABLE) or {})
-    providers[model_name] = {
+    provider_payload: dict[str, Any] = {
         "api_key": api_key,
         "base_url": base_url,
         "model_name": model_name,
     }
+    if context_window is not None and context_window > 0:
+        provider_payload["context_window"] = int(context_window)
+    if context_window_source:
+        provider_payload["context_window_source"] = str(context_window_source).strip()
+    providers[model_name] = provider_payload
     existing[SAVED_CUSTOM_PROVIDERS_TABLE] = providers
 
     lines = _render_system_config(existing)
