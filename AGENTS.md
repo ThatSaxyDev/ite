@@ -69,10 +69,12 @@ src/ite/
 
 ## Runtime Focus
 
-- Unless a task explicitly says otherwise, runtime work should target the Reup Textual path in `src/ite/ui/reup/`.
-- Treat `src/ite/ui/tui.py` and `src/ite/ui/gui/` as legacy surfaces for current runtime work.
-- Do not spend time implementing or mirroring runtime changes in TUI or GUI unless the task explicitly asks for those paths.
-- When investigating runtime behavior, prefer Reup code paths, Reup styling in `src/ite/ui/reup/reup.tcss`, and Reup-specific tests.
+- Reup is the primary runtime. Assume all runtime UI work belongs in the Reup Textual path under `src/ite/ui/reup/` unless the task explicitly names another surface.
+- `src/ite/ui/tui.py` and `src/ite/ui/gui/` are legacy runtime surfaces. Ignore them by default.
+- Do not split effort across Reup, TUI, and GUI. If a fix is for runtime behavior, implement it in Reup first and stop there unless the user explicitly asks for legacy parity.
+- Do not proactively port, mirror, or backfill Reup changes into TUI or GUI.
+- When debugging runtime behavior, start with Reup widgets, Reup app flow, Reup command rendering, and Reup styling in `src/ite/ui/reup/reup.tcss`.
+- Prefer Reup-focused tests and validation. Only inspect or change TUI/GUI code when the task specifically requires those legacy paths.
 
 ## Development Guidelines
 
