@@ -2558,53 +2558,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
     async def _probe_ollama(
         self, *, base_url: str, model_name: str
     ) -> tuple[str | None, int | None]:
-        api_root = self._ollama_api_root(base_url)
-        timeout = httpx.Timeout(5.0, connect=3.0)
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                response = await client.get(f"{api_root}/api/tags")
-            except httpx.HTTPError as exc:
-                return (
-                    f"Could not reach Ollama at {api_root}. Start Ollama first, then try again. "
-                    f"Details: {exc}"
-                ), None
-
-            if response.status_code >= 400:
-                return (
-                    f"Ollama responded with status {response.status_code}. "
-                    "Make sure Ollama is running locally and the base URL is correct."
-                ), None
-
-            try:
-                payload = response.json()
-            except ValueError:
-                return "Ollama returned invalid JSON while listing local models.", None
-
-        models = payload.get("models")
-        if not isinstance(models, list):
-            return (
-                "Ollama did not return a model list. Make sure the local Ollama API is healthy.",
-                None,
-            )
-
-        # Ollama cloud-style routes are served by Ollama but may not appear as
-        # locally pulled models in /api/tags. For those, a healthy Ollama
-        # endpoint is the right validation.
-        if model_name.endswith(":cloud"):
-            return None, FIXED_PROVIDER_CONTEXT_WINDOW
-
-        available = {
-            str(item.get("model") or item.get("name") or "").strip()
-            for item in models
-            if isinstance(item, dict)
-        }
-        if model_name not in available:
-            return (
-                f"The model `{model_name}` is not available in Ollama yet. "
-                f"Pull it first with `ollama pull {model_name}`."
-            ), None
-
+        # Local Ollama models use a fixed configured context window in iTE.
+        # Do not block setup on tag-list probing here: users may be entering a
+        # manual model name, using a nonstandard local route, or configuring
+        # Ollama before the daemon is fully reachable.
         return None, FIXED_PROVIDER_CONTEXT_WINDOW
 
     async def _validate_provider_connection(
@@ -2647,8 +2604,12 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             model_name = selected_model or manual_model or self._config.model_name or DEFAULT_MODEL_NAME
 
         if provider == SETUP_PROVIDER_OLLAMA:
-            base_url = base_url or DEFAULT_BASE_URL
-            api_key = api_key or DEFAULT_API_KEY
+            # Ollama setup hides the base URL and API key inputs. Force the
+            # canonical local values so stale hidden values from a previous
+            # OpenRouter/custom-provider session cannot leak into the saved
+            # Ollama profile.
+            base_url = DEFAULT_BASE_URL
+            api_key = DEFAULT_API_KEY
         elif provider == SETUP_PROVIDER_OPENROUTER:
             base_url = base_url or OPENROUTER_BASE_URL
 

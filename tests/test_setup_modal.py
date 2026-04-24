@@ -723,37 +723,77 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         )
         dismiss.assert_called_once()
 
-    async def test_probe_ollama_requires_running_service(self) -> None:
+    async def test_submit_async_forces_canonical_ollama_credentials(self) -> None:
         modal = SetupModal(Config())
+        provider_select = SimpleNamespace(value="ollama", disabled=False)
+        # Simulate stale hidden values left over from a previous OpenRouter setup.
+        base_url_input = SimpleNamespace(value="https://openrouter.ai/api/v1", disabled=False)
+        api_key_input = SimpleNamespace(value="stale-openrouter-key", disabled=False)
+        model_select = SimpleNamespace(value=SETUP_MODEL_OTHER, disabled=False)
+        model_input = SimpleNamespace(value="gemma4:e4b", disabled=False)
+        continue_button = SimpleNamespace(disabled=False)
+        cancel_button = SimpleNamespace(disabled=False)
+        toggle_button = SimpleNamespace(disabled=False)
+        load_button = SimpleNamespace(disabled=False)
+        status = SimpleNamespace(renderable="", update=lambda value: setattr(status, "renderable", value))
+        error = SimpleNamespace(renderable="", update=lambda value: setattr(error, "renderable", value))
 
-        with patch(
-            "ite.ui.reup.modals.httpx.AsyncClient",
-            return_value=_FakeAsyncClient([httpx.ConnectError("connection refused")]),
-        ):
-            message, context_window = await modal._probe_ollama(
-                base_url="http://localhost:11434/v1",
-                model_name="qwen2.5-coder:7b",
-            )
-
-        self.assertIn("Start Ollama first", message or "")
-        self.assertIsNone(context_window)
-
-    async def test_probe_ollama_requires_selected_model(self) -> None:
-        modal = SetupModal(Config())
-
-        with patch(
-            "ite.ui.reup.modals.httpx.AsyncClient",
-            return_value=_FakeAsyncClient(
-                [_FakeResponse(200, {"models": [{"name": "llama3.2:3b"}]})]
+        with (
+            patch.object(
+                modal,
+                "query_one",
+                side_effect=lambda selector, *_args: {
+                    "#setup-provider": provider_select,
+                    "#setup-base-url": base_url_input,
+                    "#setup-api-key": api_key_input,
+                    "#setup-model-select": model_select,
+                    "#setup-model-input": model_input,
+                    "#continue": continue_button,
+                    "#cancel": cancel_button,
+                    "#setup-toggle-api-key": toggle_button,
+                    "#setup-load-models": load_button,
+                    "#setup-status": status,
+                    "#setup-error": error,
+                }[selector],
             ),
+            patch.object(
+                modal,
+                "_validate_provider_connection",
+                return_value=(None, FIXED_PROVIDER_CONTEXT_WINDOW),
+            ) as validate_connection,
+            patch.object(modal, "dismiss") as dismiss,
         ):
-            message, context_window = await modal._probe_ollama(
-                base_url="http://localhost:11434/v1",
-                model_name="qwen2.5-coder:7b",
-            )
+            await modal._submit_async()
 
-        self.assertIn("ollama pull qwen2.5-coder:7b", message or "")
-        self.assertIsNone(context_window)
+        validate_connection.assert_awaited_once_with(
+            provider="ollama",
+            base_url=DEFAULT_BASE_URL,
+            api_key=DEFAULT_API_KEY,
+            model_name="gemma4:e4b",
+        )
+        dismiss.assert_called_once()
+
+    async def test_probe_ollama_skips_running_service_check(self) -> None:
+        modal = SetupModal(Config())
+
+        message, context_window = await modal._probe_ollama(
+            base_url="http://localhost:11434/v1",
+            model_name="qwen2.5-coder:7b",
+        )
+
+        self.assertIsNone(message)
+        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
+
+    async def test_probe_ollama_skips_local_tag_check(self) -> None:
+        modal = SetupModal(Config())
+
+        message, context_window = await modal._probe_ollama(
+            base_url="http://localhost:11434/v1",
+            model_name="qwen2.5-coder:7b",
+        )
+
+        self.assertIsNone(message)
+        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
 
     async def test_probe_ollama_allows_cloud_model_without_local_tag(self) -> None:
         modal = SetupModal(Config())
@@ -775,16 +815,10 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
     async def test_probe_ollama_returns_fixed_context_window_for_local_model(self) -> None:
         modal = SetupModal(Config())
 
-        with patch(
-            "ite.ui.reup.modals.httpx.AsyncClient",
-            return_value=_FakeAsyncClient(
-                [_FakeResponse(200, {"models": [{"name": "gemma4:e4b"}]})]
-            ),
-        ):
-            message, context_window = await modal._probe_ollama(
-                base_url="http://localhost:11434/v1",
-                model_name="gemma4:e4b",
-            )
+        message, context_window = await modal._probe_ollama(
+            base_url="http://localhost:11434/v1",
+            model_name="gemma4:e4b",
+        )
 
         self.assertIsNone(message)
         self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
