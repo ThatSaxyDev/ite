@@ -141,7 +141,11 @@ from ite.ui.tool_narrative import activity_title, describe_tool_activity, progre
 
 from .adapters.registry import StreamingCommandOutput, build_command_context
 from .change_tree import ChangedFilesTree
-from .change_views import build_change_card_body, change_entry_label
+from .change_views import (
+    build_change_card_body,
+    build_change_card_payload,
+    change_entry_label,
+)
 from .command_views import (
     build_mcp_command_renderable,
     build_memory_command_renderable,
@@ -814,6 +818,8 @@ class ReupApp(App):
         self._suppress_agents_recommendation_once: bool = False
         self._remote_command_feed: list[dict[str, Any]] = []
         self._remote_command_seq: int = 0
+        self._remote_change_feed: list[dict[str, Any]] = []
+        self._remote_change_seq: int = 0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -1364,6 +1370,7 @@ class ReupApp(App):
             "open_sessions": open_sessions,
             "transcript": transcript,
             "command_feed": list(self._remote_command_feed),
+            "change_feed": list(self._remote_change_feed),
         }
 
     async def _broadcast_remote_state(self) -> None:
@@ -5999,6 +6006,13 @@ class ReupApp(App):
             is_light=self._prefer_terminal_safe_source_rendering(),
         )
         await self.add_assistant_card("Undid changes", body, css_class="change")
+        self._append_remote_change_feed_entry(
+            title="Undid changes",
+            change_set=change_set,
+            verb="Reverted",
+            footer="Run /redo to reapply.",
+            mode="undone",
+        )
         await self._open_change_review_panel(
             change_set, title="Undid changes", mode="undone"
         )
@@ -6025,6 +6039,13 @@ class ReupApp(App):
             is_light=self._prefer_terminal_safe_source_rendering(),
         )
         await self.add_assistant_card("Reapplied changes", body, css_class="change")
+        self._append_remote_change_feed_entry(
+            title="Reapplied changes",
+            change_set=change_set,
+            verb="Reapplied",
+            footer="Run /undo to revert again.",
+            mode="redone",
+        )
         await self._open_change_review_panel(
             change_set, title="Reapplied changes", mode="redone"
         )
@@ -6863,6 +6884,13 @@ class ReupApp(App):
             "footer": "Run /undo to revert.",
             "mode": "changed",
         }
+        self._append_remote_change_feed_entry(
+            title="Changed",
+            change_set=change_set,
+            verb="Changed",
+            footer="Run /undo to revert.",
+            mode="changed",
+        )
         if self._change_review_visible:
             await self._open_change_review_panel(
                 change_set, title="Changed", mode="changed"
@@ -7888,6 +7916,36 @@ class ReupApp(App):
             if metadata is not None:
                 entry["metadata"] = json_safe(metadata)
             break
+        self.run_worker(self._broadcast_remote_state(), exclusive=False)
+
+    def _append_remote_change_feed_entry(
+        self,
+        *,
+        title: str,
+        change_set: Any,
+        verb: str,
+        footer: str,
+        mode: str,
+    ) -> None:
+        self._remote_change_seq += 1
+        session_id = self._active_session_id() or ""
+        payload = build_change_card_payload(
+            change_set,
+            cwd=self.config.cwd,
+            title=title,
+            verb=verb,
+            footer=footer,
+            mode=mode,
+        )
+        self._remote_change_feed.append(
+            {
+                "id": f"chg_{self._remote_change_seq}",
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                **payload,
+            }
+        )
+        self._remote_change_feed = self._remote_change_feed[-30:]
         self.run_worker(self._broadcast_remote_state(), exclusive=False)
 
     async def start_streaming_command_result(

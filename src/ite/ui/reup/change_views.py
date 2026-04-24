@@ -101,3 +101,43 @@ def build_change_card_body(
     body.append("\n")
     body.append(footer, style=dim)
     return body
+
+
+def build_change_card_payload(
+    change_set: Any,
+    *,
+    cwd: Path,
+    title: str,
+    verb: str,
+    footer: str,
+    mode: str,
+) -> dict[str, Any]:
+    diffs = list(getattr(change_set, "changes", []) or [])
+    entries, _extra = change_entries_with_stats(
+        change_set,
+        cwd=cwd,
+        max_items=max(1, len(diffs)),
+    )
+
+    items: list[dict[str, Any]] = []
+    for (name, file_additions, file_deletions), diff in zip(
+        entries, diffs[: len(entries)], strict=False
+    ):
+        action_label, _ = change_entry_label(diff, mode=mode)
+        items.append(
+            {
+                "path": name,
+                "action": action_label,
+                "additions": int(file_additions),
+                "deletions": int(file_deletions),
+            }
+        )
+
+    return {
+        "title": title,
+        "verb": verb,
+        "footer": footer,
+        "mode": mode,
+        "count": len(diffs),
+        "items": items,
+    }

@@ -8,6 +8,8 @@ from ite.agent.events import AgentEvent
 REMOTE_PROTOCOL_VERSION = 1
 MAX_REMOTE_TRANSCRIPT_MESSAGES = 80
 MAX_REMOTE_TEXT_CHARS = 2400
+MAX_REMOTE_RECENT_TEXT_CHARS = 12000
+MAX_REMOTE_RECENT_TRANSCRIPT_MESSAGES = 4
 
 _REMOTE_SUPPRESSED_TOOL_ERRORS: dict[str, set[str]] = {
     "shell": {"Parameter 'command': Field required"},
@@ -101,7 +103,11 @@ def _is_suppressible_tool_failure(
     return detail in _REMOTE_SUPPRESSED_TOOL_ERRORS.get(normalized_name, set())
 
 
-def serialize_transcript_message(event: dict[str, Any]) -> dict[str, Any] | None:
+def serialize_transcript_message(
+    event: dict[str, Any],
+    *,
+    content_limit: int = MAX_REMOTE_TEXT_CHARS,
+) -> dict[str, Any] | None:
     message = event.get("message") if isinstance(event, dict) else None
     if not isinstance(message, dict):
         return None
@@ -116,7 +122,7 @@ def serialize_transcript_message(event: dict[str, Any]) -> dict[str, Any] | None
 
     content = message.get("content", "")
     if isinstance(content, str) and content.strip():
-        payload["content"] = compact_text(content)
+        payload["content"] = compact_text(content, content_limit)
 
     if role == "assistant":
         tool_calls = []
@@ -156,9 +162,24 @@ def build_remote_transcript(
     *,
     max_messages: int = MAX_REMOTE_TRANSCRIPT_MESSAGES,
 ) -> list[dict[str, Any]]:
+    window = events[-max_messages:]
+    eligible_event_indexes = [
+        index
+        for index, event in enumerate(window)
+        if serialize_transcript_message(event) is not None
+    ]
+    recent_indexes = set(eligible_event_indexes[-MAX_REMOTE_RECENT_TRANSCRIPT_MESSAGES:])
+
     serialized: list[dict[str, Any]] = []
-    for event in events[-max_messages:]:
-        entry = serialize_transcript_message(event)
+    for index, event in enumerate(window):
+        entry = serialize_transcript_message(
+            event,
+            content_limit=(
+                MAX_REMOTE_RECENT_TEXT_CHARS
+                if index in recent_indexes
+                else MAX_REMOTE_TEXT_CHARS
+            ),
+        )
         if entry is not None:
             serialized.append(entry)
     return serialized

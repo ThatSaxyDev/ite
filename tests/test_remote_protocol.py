@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 
 from ite.remote.protocol import build_remote_transcript
+from ite.remote.protocol import MAX_REMOTE_RECENT_TEXT_CHARS
+from ite.remote.protocol import MAX_REMOTE_TEXT_CHARS
 from ite.remote.protocol import serialize_plan_question_request
 from ite.remote.protocol import serialize_plan_ready_request
 from ite.remote.protocol import serialize_transcript_message
@@ -115,6 +117,39 @@ class RemoteProtocolTests(unittest.TestCase):
         self.assertEqual(len(transcript), 2)
         self.assertEqual([item["role"] for item in transcript], ["user", "tool"])
         self.assertEqual(transcript[1]["name"], "shell")
+
+    def test_build_remote_transcript_preserves_recent_message_content(self) -> None:
+        older_text = "a" * (MAX_REMOTE_TEXT_CHARS + 200)
+        recent_text = "b" * (MAX_REMOTE_TEXT_CHARS + 200)
+        events = [
+            {
+                "created_at": "2026-04-23T06:30:00+00:00",
+                "message": {"role": "assistant", "content": older_text},
+            },
+            {
+                "created_at": "2026-04-23T06:31:00+00:00",
+                "message": {"role": "assistant", "content": "filler-1"},
+            },
+            {
+                "created_at": "2026-04-23T06:32:00+00:00",
+                "message": {"role": "assistant", "content": "filler-2"},
+            },
+            {
+                "created_at": "2026-04-23T06:33:00+00:00",
+                "message": {"role": "assistant", "content": "filler-3"},
+            },
+            {
+                "created_at": "2026-04-23T06:34:00+00:00",
+                "message": {"role": "assistant", "content": recent_text},
+            },
+        ]
+
+        transcript = build_remote_transcript(events)
+
+        self.assertEqual(len(transcript[0]["content"]), MAX_REMOTE_TEXT_CHARS)
+        self.assertTrue(transcript[0]["content"].endswith("…"))
+        self.assertEqual(transcript[-1]["content"], recent_text)
+        self.assertLess(len(transcript[-1]["content"]), MAX_REMOTE_RECENT_TEXT_CHARS)
 
     def test_serialize_plan_question_request_compacts_and_shapes_payload(self) -> None:
         payload = serialize_plan_question_request(
