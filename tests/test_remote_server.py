@@ -136,6 +136,7 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["host"], info["display_host"])
         self.assertEqual(parsed["pair_code"], info["pair_code"])
         self.assertEqual(parsed["fingerprint"], info["fingerprint"])
+        self.assertEqual(info["exposure_mode"], "local")
 
     async def test_revoke_all_devices_marks_tokens_inactive(self) -> None:
         server = self._isolated_server()
@@ -154,6 +155,39 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(revoked, 1)
         self.assertFalse(server._trusted_devices["device-1"].is_active())
+
+    async def test_revoke_device_matches_prefix(self) -> None:
+        server = self._isolated_server()
+        now = datetime.now(timezone.utc)
+        server._trusted_devices["device-abcdef12"] = _TrustedDevice(
+            device_id="device-abcdef12",
+            token="token-1",
+            name="Phone",
+            platform="android",
+            issued_at=now,
+            last_seen_at=now,
+            expires_at=now + timedelta(days=365),
+        )
+
+        revoked = server.revoke_device("device-a")
+
+        self.assertIsNotNone(revoked)
+        assert revoked is not None
+        self.assertEqual(revoked.device_id, "device-abcdef12")
+        self.assertIsNotNone(revoked.revoked_at)
+
+    async def test_failed_attempt_throttling_blocks_after_threshold(self) -> None:
+        server = self._isolated_server()
+        client = type("Client", (), {"address": "192.168.0.5:5000"})()
+        now = datetime.now(timezone.utc)
+
+        for _ in range(server.MAX_FAILED_ATTEMPTS):
+            server._record_failed_attempt(client, now=now)
+
+        self.assertTrue(server._is_address_throttled(client, now=now))
+
+        later = now + timedelta(seconds=server.FAILED_ATTEMPT_BLOCK_SECONDS + 1)
+        self.assertFalse(server._is_address_throttled(client, now=later))
 
     async def test_stop_cancels_registered_client_tasks(self) -> None:
         server = self._isolated_server()

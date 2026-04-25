@@ -110,6 +110,9 @@ class _TrustedDevice:
 class RemoteRuntimeServer:
     PAIRING_TTL_MINUTES = 10
     TOKEN_TTL_DAYS = 30
+    MAX_FAILED_ATTEMPTS = 5
+    FAILED_ATTEMPT_WINDOW_SECONDS = 60
+    FAILED_ATTEMPT_BLOCK_SECONDS = 120
 
     def __init__(
         self,
@@ -136,6 +139,7 @@ class RemoteRuntimeServer:
         self._clients: dict[str, _ClientConnection] = {}
         self._client_tasks: set[asyncio.Task[Any]] = set()
         self._trusted_devices: dict[str, _TrustedDevice] = {}
+        self._failed_auth_attempts: dict[str, list[datetime]] = {}
         self._approval_requests: dict[str, _ApprovalRequest] = {}
         self._plan_question_requests: dict[str, _PlanQuestionRequest] = {}
         self._plan_ready_requests: dict[str, _PlanReadyRequest] = {}
@@ -205,6 +209,7 @@ class RemoteRuntimeServer:
         return [
             {
                 "device_id": device.device_id,
+                "device_id_short": device.device_id[:8],
                 "name": device.name,
                 "platform": device.platform,
                 "issued_at": device.issued_at.isoformat(),
@@ -217,6 +222,18 @@ class RemoteRuntimeServer:
             for device in devices
         ]
 
+    def revoke_device(self, selector: str) -> _TrustedDevice | None:
+        token = selector.strip().lower()
+        if not token:
+            return None
+        for device in self._trusted_devices.values():
+            if device.device_id.lower() == token or device.device_id.lower().startswith(token):
+                if device.revoked_at is None:
+                    device.revoked_at = datetime.now(timezone.utc)
+                    self._persist_trusted_devices()
+                return device
+        return None
+
     def revoke_all_devices(self) -> int:
         revoked = 0
         now = datetime.now(timezone.utc)
@@ -227,6 +244,43 @@ class RemoteRuntimeServer:
         if revoked:
             self._persist_trusted_devices()
         return revoked
+
+    @property
+    def exposure_mode(self) -> str:
+        return "local" if self._host in {"127.0.0.1", "::1", "localhost"} else "lan"
+
+    def _client_address_key(self, client: _ClientConnection) -> str:
+        address = client.address.split(":", 1)[0].strip()
+        return address or "unknown"
+
+    def _prune_failed_attempts(self, key: str, *, now: datetime) -> list[datetime]:
+        window_start = now - timedelta(seconds=self.FAILED_ATTEMPT_WINDOW_SECONDS)
+        attempts = [
+            attempt
+            for attempt in self._failed_auth_attempts.get(key, [])
+            if attempt >= window_start
+        ]
+        if attempts:
+            self._failed_auth_attempts[key] = attempts
+        else:
+            self._failed_auth_attempts.pop(key, None)
+        return attempts
+
+    def _is_address_throttled(self, client: _ClientConnection, *, now: datetime) -> bool:
+        attempts = self._prune_failed_attempts(self._client_address_key(client), now=now)
+        if len(attempts) < self.MAX_FAILED_ATTEMPTS:
+            return False
+        blocked_since = attempts[-self.MAX_FAILED_ATTEMPTS]
+        return now < blocked_since + timedelta(seconds=self.FAILED_ATTEMPT_BLOCK_SECONDS)
+
+    def _record_failed_attempt(self, client: _ClientConnection, *, now: datetime) -> None:
+        key = self._client_address_key(client)
+        attempts = self._prune_failed_attempts(key, now=now)
+        attempts.append(now)
+        self._failed_auth_attempts[key] = attempts
+
+    def _clear_failed_attempts(self, client: _ClientConnection) -> None:
+        self._failed_auth_attempts.pop(self._client_address_key(client), None)
 
     def _pair_code_is_expired(self) -> bool:
         expires_at = self._pair_code_expires_at
@@ -267,7 +321,9 @@ class RemoteRuntimeServer:
         bound_host, bound_port = sock.getsockname()[:2]
         self._host = str(bound_host)
         self._port = int(bound_port)
-        self._display_host = self._detect_display_host()
+        self._display_host = (
+            "127.0.0.1" if self.exposure_mode == "local" else self._detect_display_host()
+        )
         self.regenerate_pair_code()
         return self.connection_info()
 
@@ -368,6 +424,7 @@ class RemoteRuntimeServer:
             "protocol_version": REMOTE_PROTOCOL_VERSION,
             "running": self.is_running,
             "tls_enabled": True,
+            "exposure_mode": self.exposure_mode,
             "host": self._host,
             "port": self._port,
             "display_host": self._display_host,
@@ -608,6 +665,16 @@ class RemoteRuntimeServer:
         device_platform = str(payload.get("platform") or "").strip()
         now = datetime.now(timezone.utc)
 
+        if self._is_address_throttled(client, now=now):
+            await self._send(
+                client,
+                "error",
+                {
+                    "message": "Too many failed pairing attempts. Wait a moment, then try again with a fresh secure link.",
+                },
+            )
+            return
+
         authenticated = False
         if token:
             trusted_device = self._find_device_by_token(token)
@@ -621,7 +688,9 @@ class RemoteRuntimeServer:
                 trusted_device.name = device_name
                 trusted_device.platform = device_platform
                 self._persist_trusted_devices()
+                self._clear_failed_attempts(client)
             else:
+                self._record_failed_attempt(client, now=now)
                 await self._send(
                     client,
                     "error",
@@ -643,8 +712,10 @@ class RemoteRuntimeServer:
                 expires_at=now + timedelta(days=self.TOKEN_TTL_DAYS),
             )
             self._persist_trusted_devices()
+            self._clear_failed_attempts(client)
 
         if not authenticated:
+            self._record_failed_attempt(client, now=now)
             await self._send(
                 client,
                 "error",

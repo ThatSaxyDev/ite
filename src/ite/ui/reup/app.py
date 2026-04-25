@@ -564,6 +564,7 @@ class RemoteBridgeCard(Vertical):
         *,
         intro: str,
         runtime_name: str,
+        exposure_mode: str,
         host: str,
         port: int | str,
         pair_code: str,
@@ -577,6 +578,7 @@ class RemoteBridgeCard(Vertical):
         super().__init__(classes=classes)
         self._intro = intro
         self._runtime_name = str(runtime_name)
+        self._exposure_mode = str(exposure_mode)
         self._host = str(host)
         self._port = str(port)
         self._pair_code = str(pair_code)
@@ -593,6 +595,12 @@ class RemoteBridgeCard(Vertical):
             yield RemoteBridgeField(
                 "Runtime",
                 self._runtime_name,
+                classes="remote-bridge-field",
+            )
+        if self._exposure_mode:
+            yield RemoteBridgeField(
+                "Exposure",
+                "LAN" if self._exposure_mode == "lan" else "Local only",
                 classes="remote-bridge-field",
             )
         yield RemoteBridgeField("Host", self._host, classes="remote-bridge-field")
@@ -1326,7 +1334,12 @@ class ReupApp(App):
         finally:
             self._remote_server = None
 
-    async def _ensure_remote_server(self, *, port: int | None = None) -> dict[str, Any]:
+    async def _ensure_remote_server(
+        self,
+        *,
+        port: int | None = None,
+        lan: bool = True,
+    ) -> dict[str, Any]:
         if self._remote_server is None:
             self._remote_server = RemoteRuntimeServer(
                 state_provider=self._build_remote_runtime_state,
@@ -1339,7 +1352,14 @@ class ReupApp(App):
             if isinstance(port, int) and port >= 0
             else int(self._remote_port_preference or 0)
         )
-        info = await self._remote_server.start(port=selected_port)
+        bind_host = "0.0.0.0" if lan else "127.0.0.1"
+        if (
+            self._remote_server.is_running
+            and self._remote_server.connection_info().get("exposure_mode")
+            != ("lan" if lan else "local")
+        ):
+            await self._remote_server.stop()
+        info = await self._remote_server.start(host=bind_host, port=selected_port)
         self._remote_port_preference = int(info.get("port") or selected_port or 0)
         return info
 
@@ -1433,22 +1453,34 @@ class ReupApp(App):
 
     async def _run_remote_command_native(self, args: list[str]) -> None:
         action = args[0].lower() if args else "start"
-        port_arg = args[1] if len(args) > 1 else None
+        option_args = args[1:]
         if action.isdigit():
-            port_arg = action
+            option_args = [action, *option_args]
             action = "start"
 
         if action in {"start", "on"}:
+            lan = True
             port = None
-            if port_arg:
+            for arg in option_args:
+                if arg == "--lan":
+                    lan = True
+                    continue
+                if arg == "--local":
+                    lan = False
+                    continue
                 try:
-                    port = int(port_arg)
+                    port = int(arg)
                 except ValueError:
-                    self.post_system("Remote", "Port must be a number.", is_error=True)
+                    self.post_system(
+                        "Remote",
+                        "Usage: /remote on [port] [--local]",
+                        is_error=True,
+                    )
                     return
-            info = await self._ensure_remote_server(port=port)
+            info = await self._ensure_remote_server(port=port, lan=lan)
             self.post_remote_bridge(
                 runtime_name=str(info.get("runtime_name") or ""),
+                exposure_mode=str(info.get("exposure_mode") or "local"),
                 host=str(info["display_host"]),
                 port=int(info["port"]),
                 pair_code=str(info["pair_code"]),
@@ -1456,8 +1488,10 @@ class ReupApp(App):
                 connect_uri=str(info["connect_uri"]),
                 authenticated_clients=int(info.get("authenticated_clients") or 0),
                 trusted_devices=int(info.get("trusted_devices") or 0),
-                intro="Mobile bridge ready.",
-                footer="Open the mobile app and use Paste and Connect with the secure link.",
+                intro="Mobile bridge ready." if lan else "Remote bridge ready for local-only mode.",
+                footer="Open the mobile app and use Paste and Connect with the secure link."
+                if lan
+                else "This bridge is local-only. Run `/remote on` when you want your phone to connect.",
             )
             return
 
@@ -1468,6 +1502,7 @@ class ReupApp(App):
             info = self._remote_server.connection_info()
             self.post_remote_bridge(
                 runtime_name=str(info.get("runtime_name") or ""),
+                exposure_mode=str(info.get("exposure_mode") or "local"),
                 host=str(info["display_host"]),
                 port=int(info["port"]),
                 pair_code=str(info["pair_code"]),
@@ -1487,6 +1522,7 @@ class ReupApp(App):
             info = self._remote_server.connection_info()
             self.post_remote_bridge(
                 runtime_name=str(info.get("runtime_name") or ""),
+                exposure_mode=str(info.get("exposure_mode") or "local"),
                 host=str(info["display_host"]),
                 port=int(info["port"]),
                 pair_code=str(info["pair_code"]),
@@ -1511,10 +1547,37 @@ class ReupApp(App):
             lines = ["Trusted mobile devices:"]
             for device in devices:
                 lines.append(
-                    f"- {device['name'] or 'iTE Remote'} [{device['platform'] or 'unknown'}] "
+                    f"- {device['device_id_short']} · {device['name'] or 'iTE Remote'} [{device['platform'] or 'unknown'}] "
                     f"{device['status']} last seen {device['last_seen_at']}"
                 )
             self.post_system("Remote", "\n".join(lines))
+            return
+
+        if action in {"revoke"}:
+            if self._remote_server is None or not self._remote_server.is_running:
+                self.post_system("Remote", "Remote bridge is off.")
+                return
+            selector = option_args[0].strip() if option_args else ""
+            if not selector:
+                self.post_system(
+                    "Remote",
+                    "Usage: /remote revoke <device-id-prefix>",
+                    is_error=True,
+                )
+                return
+            revoked = self._remote_server.revoke_device(selector)
+            if revoked is None:
+                self.post_system(
+                    "Remote",
+                    f"No trusted device matched '{selector}'.",
+                    is_error=True,
+                )
+                return
+            await self._broadcast_remote_state()
+            self.post_system(
+                "Remote",
+                f"Revoked device {revoked.device_id[:8]} ({revoked.name or 'iTE Remote'}).",
+            )
             return
 
         if action in {"revoke-all", "reset"}:
@@ -1541,7 +1604,7 @@ class ReupApp(App):
 
         self.post_system(
             "Remote",
-            "Usage: /remote\n/remote on [port]\n/remote status\n/remote code\n/remote devices\n/remote revoke-all\n/remote off",
+            "Usage: /remote\n/remote on [port]\n/remote on [port] --local\n/remote status\n/remote code\n/remote devices\n/remote revoke <device-id-prefix>\n/remote revoke-all\n/remote off",
             is_error=True,
         )
 
@@ -7490,6 +7553,7 @@ class ReupApp(App):
         self,
         *,
         runtime_name: str,
+        exposure_mode: str,
         host: str,
         port: int,
         pair_code: str,
@@ -7506,6 +7570,7 @@ class ReupApp(App):
                 RemoteBridgeCard(
                     intro=intro,
                     runtime_name=runtime_name,
+                    exposure_mode=exposure_mode,
                     host=host,
                     port=port,
                     pair_code=pair_code,
