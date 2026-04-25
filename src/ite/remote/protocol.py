@@ -153,6 +153,14 @@ def serialize_transcript_message(
             return None
         payload["tool_call_id"] = str(message.get("tool_call_id") or "")
         payload["name"] = tool_name
+        payload["tool_ui"] = {
+            "name": tool_name,
+            "success": bool(tool_ui.get("success")),
+            "metadata": metadata or {},
+            "command": compact_text(tool_ui.get("command") or "", 800),
+            "output": compact_text(tool_ui.get("output") or "", content_limit),
+            "error": compact_text(tool_ui.get("error") or "", content_limit),
+        }
 
     return payload
 
