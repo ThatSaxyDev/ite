@@ -1,21 +1,34 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import tempfile
 import unittest
 
 from ite.remote.server import RemoteRuntimeServer
 from ite.remote.server import _PlanQuestionRequest
 from ite.remote.server import _PlanReadyRequest
+from ite.remote.server import _TrustedDevice
+from ite.remote.security import load_or_create_tls_identity
+from ite.remote.uri import parse_connection_uri
 
 
 class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
-    async def test_build_state_payload_includes_pending_plan_prompts(self) -> None:
+    def _isolated_server(self) -> RemoteRuntimeServer:
         server = RemoteRuntimeServer(
-            state_provider=lambda: {"current_session": {"session_id": "session-1"}},
+            state_provider=lambda: {},
             submit_prompt=lambda _message: None,
             cancel_turn=lambda: None,
         )
+        temp_dir = Path(tempfile.mkdtemp(prefix="ite-remote-test-"))
+        server._trusted_devices_path = temp_dir / "trusted-devices.json"
+        server._trusted_devices = {}
+        return server
+
+    async def test_build_state_payload_includes_pending_plan_prompts(self) -> None:
+        server = self._isolated_server()
+        server._state_provider = lambda: {"current_session": {"session_id": "session-1"}}
         loop = asyncio.get_running_loop()
         server._plan_question_requests["pq-1"] = _PlanQuestionRequest(
             future=loop.create_future(),
@@ -47,27 +60,24 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["pending_plan_ready"]["plan_text"], "1. Do it")
 
     async def test_build_state_payload_preserves_runtime_command_feed(self) -> None:
-        server = RemoteRuntimeServer(
-            state_provider=lambda: {
-                "current_session": {"session_id": "session-1"},
-                "command_feed": [
-                    {
-                        "id": "cmd-1",
-                        "session_id": "session-1",
-                        "command": "/init --force",
-                        "timestamp": "2026-04-23T20:00:00+00:00",
-                        "status": "running",
-                        "output": "Scanning project structure...",
-                        "metadata": {
-                            "kind": "generic",
-                            "command_name": "/init",
-                        },
-                    }
-                ],
-            },
-            submit_prompt=lambda _message: None,
-            cancel_turn=lambda: None,
-        )
+        server = self._isolated_server()
+        server._state_provider = lambda: {
+            "current_session": {"session_id": "session-1"},
+            "command_feed": [
+                {
+                    "id": "cmd-1",
+                    "session_id": "session-1",
+                    "command": "/init --force",
+                    "timestamp": "2026-04-23T20:00:00+00:00",
+                    "status": "running",
+                    "output": "Scanning project structure...",
+                    "metadata": {
+                        "kind": "generic",
+                        "command_name": "/init",
+                    },
+                }
+            ],
+        }
 
         payload = await server._build_state_payload()
 
@@ -77,11 +87,7 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["command_feed"][0]["metadata"]["kind"], "generic")
 
     async def test_resolve_plan_question_request_completes_pending_future(self) -> None:
-        server = RemoteRuntimeServer(
-            state_provider=lambda: {},
-            submit_prompt=lambda _message: None,
-            cancel_turn=lambda: None,
-        )
+        server = self._isolated_server()
         future: asyncio.Future[dict[str, object]] = asyncio.get_running_loop().create_future()
         server._plan_question_requests["pq-1"] = _PlanQuestionRequest(
             future=future,
@@ -98,11 +104,7 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(future.result()["selected_option"], "A")
 
     async def test_resolve_plan_ready_request_completes_pending_future(self) -> None:
-        server = RemoteRuntimeServer(
-            state_provider=lambda: {},
-            submit_prompt=lambda _message: None,
-            cancel_turn=lambda: None,
-        )
+        server = self._isolated_server()
         future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         server._plan_ready_requests["pr-1"] = _PlanReadyRequest(
             future=future,
@@ -114,6 +116,62 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(resolved)
         self.assertTrue(future.result())
+
+    async def test_connection_info_exposes_secure_link_fields(self) -> None:
+        server = self._isolated_server()
+        identity = load_or_create_tls_identity()
+        server._runtime_name = str(identity["runtime_name"])
+        server._fingerprint = str(identity["fingerprint"])
+        server._host = "127.0.0.1"
+        server._display_host = "127.0.0.1"
+        server._port = 9123
+        server.regenerate_pair_code()
+        info = server.connection_info()
+        parsed = parse_connection_uri(str(info["connect_uri"]))
+
+        self.assertTrue(info["tls_enabled"])
+        self.assertTrue(str(info["fingerprint"]).startswith("sha256:"))
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed["host"], info["display_host"])
+        self.assertEqual(parsed["pair_code"], info["pair_code"])
+        self.assertEqual(parsed["fingerprint"], info["fingerprint"])
+
+    async def test_revoke_all_devices_marks_tokens_inactive(self) -> None:
+        server = self._isolated_server()
+        now = datetime.now(timezone.utc)
+        server._trusted_devices["device-1"] = _TrustedDevice(
+            device_id="device-1",
+            token="token-1",
+            name="Phone",
+            platform="android",
+            issued_at=now,
+            last_seen_at=now,
+            expires_at=now + timedelta(days=365),
+        )
+
+        revoked = server.revoke_all_devices()
+
+        self.assertEqual(revoked, 1)
+        self.assertFalse(server._trusted_devices["device-1"].is_active())
+
+    async def test_stop_cancels_registered_client_tasks(self) -> None:
+        server = self._isolated_server()
+
+        async def _wait_forever() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
+        task = asyncio.create_task(_wait_forever())
+        server._client_tasks.add(task)
+
+        await server.stop()
+
+        self.assertTrue(task.cancelled())
+        self.assertEqual(server._client_tasks, set())
 
 
 if __name__ == "__main__":

@@ -1,60 +1,75 @@
-"""Simple connection URI scheme for iTE Remote pairing."""
+"""Connection URI helpers for secure iTE Remote pairing."""
 from __future__ import annotations
 
-from urllib.parse import urlparse, parse_qs
+from datetime import datetime
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 
-# URL scheme: ite-remote://host:port/paircode
-# Or simpler: ite://connect?host=X&port=Y&code=Z
-
-def create_connection_uri(host: str, port: int, pair_code: str) -> str:
-    """Create a connection URI that can be tapped/opened directly."""
-    return f"ite://connect?host={host}&port={port}&code={pair_code}"
-
-
-def create_simple_uri(host: str, port: int, pair_code: str) -> str:
-    """Create a simpler URI format."""
-    # Use triple slash so c is in path, not hostname
-    return f"ite:///c/{host}/{port}/{pair_code}"
+def create_connection_uri(
+    host: str,
+    port: int,
+    pair_code: str,
+    *,
+    name: str,
+    fingerprint: str,
+    expires_at: datetime | None = None,
+    version: int = 1,
+) -> str:
+    """Create the secure connect URI shown to the user."""
+    query = {
+        "name": name,
+        "host": host,
+        "port": str(port),
+        "code": pair_code,
+        "fp": fingerprint,
+        "v": str(version),
+    }
+    if expires_at is not None:
+        query["exp"] = expires_at.isoformat()
+    return f"ite://connect?{urlencode(query, quote_via=quote)}"
 
 
 def parse_connection_uri(uri: str) -> dict | None:
     """Parse a connection URI into connection info."""
     if not uri:
         return None
-    
+
     parsed = urlparse(uri)
-    
-    # Must be ite:// scheme
-    if parsed.scheme != "ite":
-        return None
-    
-    # Format 1: ite://connect?host=X&port=Y&code=Z
-    if parsed.path == "/connect" or parsed.path == "connect":
+
+    if parsed.scheme == "ite" and (
+        parsed.netloc == "connect" or parsed.path in {"connect", "/connect"}
+    ):
         params = parse_qs(parsed.query)
         try:
             return {
+                "name": params.get("name", [""])[0],
                 "host": params.get("host", [None])[0],
                 "port": int(params.get("port", [0])[0]),
-                "pair_code": params.get("code", [None])[0] or params.get("pair_code", [None])[0],
+                "pair_code": params.get("code", [None])[0]
+                or params.get("pair_code", [None])[0],
+                "fingerprint": params.get("fp", [""])[0],
+                "expires_at": params.get("exp", [""])[0],
+                "version": int(params.get("v", ["1"])[0]),
             }
         except (ValueError, IndexError):
             return None
-    
-    # Format 2: ite:///c/host/port/code
-    if parsed.path.startswith("/c/"):
-        parts = parsed.path[3:].split("/")  # Skip /c/ prefix
+
+    if parsed.scheme == "ite" and parsed.path.startswith("/c/"):
+        parts = parsed.path[3:].split("/")
         if len(parts) >= 3:
             try:
                 return {
                     "host": parts[0],
                     "port": int(parts[1]),
                     "pair_code": parts[2],
+                    "fingerprint": "",
+                    "name": "",
+                    "expires_at": "",
+                    "version": 0,
                 }
             except ValueError:
                 return None
-    
-    # Format 3: ite-remote://host:port/code (legacy)
+
     if parsed.scheme == "ite-remote":
         try:
             host_port = parsed.netloc
@@ -64,24 +79,27 @@ def parse_connection_uri(uri: str) -> dict | None:
                     "host": host,
                     "port": int(port_str),
                     "pair_code": parsed.path.lstrip("/"),
+                    "fingerprint": "",
+                    "name": "",
+                    "expires_at": "",
+                    "version": 0,
                 }
         except (ValueError, IndexError):
             return None
-    
+
     return None
 
 
 def format_for_clipboard(host: str, port: int, pair_code: str) -> str:
-    """Format connection info for easy clipboard copy."""
+    """Legacy plain clipboard format."""
     return f"{host}:{port}:{pair_code}"
 
 
 def parse_clipboard(text: str) -> dict | None:
-    """Parse clipboard text in format host:port:code."""
+    """Parse clipboard text in format host:port:code or secure URI."""
     if not text:
         return None
-    
-    # Try simple format
+
     parts = text.strip().split(":")
     if len(parts) >= 3:
         try:
@@ -89,9 +107,12 @@ def parse_clipboard(text: str) -> dict | None:
                 "host": parts[0],
                 "port": int(parts[1]),
                 "pair_code": parts[2],
+                "fingerprint": "",
+                "name": "",
+                "expires_at": "",
+                "version": 0,
             }
         except ValueError:
             pass
-    
-    # Try URL format
+
     return parse_connection_uri(text)

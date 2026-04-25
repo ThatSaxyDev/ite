@@ -5,13 +5,17 @@ import inspect
 import ipaddress
 import json
 import socket
+import ssl
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .protocol import REMOTE_PROTOCOL_VERSION, json_safe, utc_now_iso
-from .uri import create_connection_uri, create_simple_uri, parse_connection_uri
+from .security import load_or_create_tls_identity
+from .security import remote_storage_dir
+from .uri import create_connection_uri
 
 
 MaybeAsync = Callable[..., Any] | Callable[..., Awaitable[Any]]
@@ -43,6 +47,7 @@ class _ClientConnection:
     client_id: str
     writer: asyncio.StreamWriter
     address: str
+    device_id: str = ""
     name: str = ""
     platform: str = ""
     token: str | None = None
@@ -51,8 +56,60 @@ class _ClientConnection:
     connected_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+@dataclass
+class _TrustedDevice:
+    device_id: str
+    token: str
+    name: str
+    platform: str
+    issued_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+
+    def is_active(self) -> bool:
+        return self.revoked_at is None and datetime.now(timezone.utc) < self.expires_at
+
+    def to_json(self) -> dict[str, str | None]:
+        return {
+            "device_id": self.device_id,
+            "token": self.token,
+            "name": self.name,
+            "platform": self.platform,
+            "issued_at": self.issued_at.isoformat(),
+            "last_seen_at": self.last_seen_at.isoformat(),
+            "expires_at": self.expires_at.isoformat(),
+            "revoked_at": self.revoked_at.isoformat() if self.revoked_at else None,
+        }
+
+    @classmethod
+    def from_json(cls, payload: dict[str, Any]) -> "_TrustedDevice":
+        def _parse_datetime(value: Any) -> datetime:
+            if isinstance(value, str) and value:
+                parsed = datetime.fromisoformat(value)
+                return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+            return datetime.now(timezone.utc)
+
+        revoked_value = payload.get("revoked_at")
+        revoked_at = None
+        if isinstance(revoked_value, str) and revoked_value:
+            parsed = datetime.fromisoformat(revoked_value)
+            revoked_at = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        return cls(
+            device_id=str(payload.get("device_id") or "").strip(),
+            token=str(payload.get("token") or "").strip(),
+            name=str(payload.get("name") or "").strip(),
+            platform=str(payload.get("platform") or "").strip(),
+            issued_at=_parse_datetime(payload.get("issued_at")),
+            last_seen_at=_parse_datetime(payload.get("last_seen_at")),
+            expires_at=_parse_datetime(payload.get("expires_at")),
+            revoked_at=revoked_at,
+        )
+
+
 class RemoteRuntimeServer:
     PAIRING_TTL_MINUTES = 10
+    TOKEN_TTL_DAYS = 30
 
     def __init__(
         self,
@@ -72,11 +129,18 @@ class RemoteRuntimeServer:
         self._display_host: str = "127.0.0.1"
         self._pair_code: str = ""
         self._pair_code_expires_at: datetime | None = None
-        self._client_tokens: set[str] = set()
+        self._runtime_name: str = ""
+        self._fingerprint: str = ""
+        self._tls_cert_path: Path | None = None
+        self._tls_key_path: Path | None = None
         self._clients: dict[str, _ClientConnection] = {}
+        self._client_tasks: set[asyncio.Task[Any]] = set()
+        self._trusted_devices: dict[str, _TrustedDevice] = {}
         self._approval_requests: dict[str, _ApprovalRequest] = {}
         self._plan_question_requests: dict[str, _PlanQuestionRequest] = {}
         self._plan_ready_requests: dict[str, _PlanReadyRequest] = {}
+        self._trusted_devices_path = remote_storage_dir() / "trusted-devices.json"
+        self._load_trusted_devices()
 
     @property
     def is_running(self) -> bool:
@@ -95,6 +159,75 @@ class RemoteRuntimeServer:
     def has_authenticated_clients(self) -> bool:
         return self.authenticated_client_count > 0
 
+    @property
+    def trusted_device_count(self) -> int:
+        return sum(1 for device in self._trusted_devices.values() if device.is_active())
+
+    def _load_trusted_devices(self) -> None:
+        path = self._trusted_devices_path
+        if not path.exists():
+            self._trusted_devices = {}
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            self._trusted_devices = {}
+            return
+        devices: dict[str, _TrustedDevice] = {}
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                device = _TrustedDevice.from_json(item)
+                if device.device_id:
+                    devices[device.device_id] = device
+        self._trusted_devices = devices
+
+    def _persist_trusted_devices(self) -> None:
+        payload = [device.to_json() for device in self._trusted_devices.values()]
+        self._trusted_devices_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _find_device_by_token(self, token: str) -> _TrustedDevice | None:
+        for device in self._trusted_devices.values():
+            if device.token == token:
+                return device
+        return None
+
+    def trusted_devices_snapshot(self) -> list[dict[str, Any]]:
+        devices = sorted(
+            self._trusted_devices.values(),
+            key=lambda item: item.last_seen_at,
+            reverse=True,
+        )
+        return [
+            {
+                "device_id": device.device_id,
+                "name": device.name,
+                "platform": device.platform,
+                "issued_at": device.issued_at.isoformat(),
+                "last_seen_at": device.last_seen_at.isoformat(),
+                "expires_at": device.expires_at.isoformat(),
+                "status": "active"
+                if device.is_active()
+                else ("revoked" if device.revoked_at is not None else "expired"),
+            }
+            for device in devices
+        ]
+
+    def revoke_all_devices(self) -> int:
+        revoked = 0
+        now = datetime.now(timezone.utc)
+        for device in self._trusted_devices.values():
+            if device.revoked_at is None:
+                device.revoked_at = now
+                revoked += 1
+        if revoked:
+            self._persist_trusted_devices()
+        return revoked
+
     def _pair_code_is_expired(self) -> bool:
         expires_at = self._pair_code_expires_at
         return expires_at is None or datetime.now(timezone.utc) >= expires_at
@@ -110,8 +243,24 @@ class RemoteRuntimeServer:
         if self._server is not None:
             return self.connection_info()
 
+        identity = load_or_create_tls_identity()
+        self._runtime_name = str(identity["runtime_name"])
+        self._fingerprint = str(identity["fingerprint"])
+        self._tls_cert_path = Path(identity["cert_path"])
+        self._tls_key_path = Path(identity["key_path"])
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(
+            certfile=str(self._tls_cert_path),
+            keyfile=str(self._tls_key_path),
+        )
+
         self._host = host
-        self._server = await asyncio.start_server(self._handle_client, host=host, port=port)
+        self._server = await asyncio.start_server(
+            self._handle_client,
+            host=host,
+            port=port,
+            ssl=ssl_context,
+        )
         sock = next(iter(self._server.sockets or []), None)
         if sock is None:
             raise RuntimeError("Remote server failed to bind a socket.")
@@ -128,9 +277,22 @@ class RemoteRuntimeServer:
         if server is not None:
             server.close()
             await server.wait_closed()
+
         for client in list(self._clients.values()):
             try:
                 client.writer.close()
+            except Exception:
+                pass
+
+        client_tasks = list(self._client_tasks)
+        for task in client_tasks:
+            task.cancel()
+        if client_tasks:
+            await asyncio.gather(*client_tasks, return_exceptions=True)
+        self._client_tasks.clear()
+
+        for client in list(self._clients.values()):
+            try:
                 await client.writer.wait_closed()
             except Exception:
                 pass
@@ -205,15 +367,26 @@ class RemoteRuntimeServer:
         return {
             "protocol_version": REMOTE_PROTOCOL_VERSION,
             "running": self.is_running,
+            "tls_enabled": True,
             "host": self._host,
             "port": self._port,
             "display_host": self._display_host,
+            "runtime_name": self._runtime_name,
+            "fingerprint": self._fingerprint,
             "pair_code": self.pair_code,
             "pair_code_expires_at": self._pair_code_expires_at.isoformat()
             if self._pair_code_expires_at
             else None,
             "authenticated_clients": self.authenticated_client_count,
-            "connect_uri": create_simple_uri(self._display_host, self._port, self.pair_code),
+            "trusted_devices": self.trusted_device_count,
+            "connect_uri": create_connection_uri(
+                self._display_host,
+                self._port,
+                self.pair_code,
+                name=self._runtime_name,
+                fingerprint=self._fingerprint,
+                expires_at=self._pair_code_expires_at,
+            ),
         }
 
     async def publish_state(self) -> None:
@@ -371,6 +544,9 @@ class RemoteRuntimeServer:
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
+        task = asyncio.current_task()
+        if task is not None:
+            self._client_tasks.add(task)
         address = writer.get_extra_info("peername")
         address_text = ""
         if isinstance(address, tuple) and address:
@@ -399,7 +575,11 @@ class RemoteRuntimeServer:
                     await self._handle_handshake(client, message)
                     continue
                 await self._handle_authenticated_message(client, message)
+        except asyncio.CancelledError:
+            raise
         finally:
+            if task is not None:
+                self._client_tasks.discard(task)
             self._clients.pop(client.client_id, None)
             try:
                 writer.close()
@@ -423,14 +603,46 @@ class RemoteRuntimeServer:
         payload = message.get("payload") or {}
         token = str(payload.get("token") or "").strip()
         pair_code = str(payload.get("pair_code") or "").strip()
+        device_id = str(payload.get("device_id") or "").strip() or uuid.uuid4().hex
+        device_name = str(payload.get("client_name") or "").strip() or "iTE Remote"
+        device_platform = str(payload.get("platform") or "").strip()
+        now = datetime.now(timezone.utc)
 
         authenticated = False
-        if token and token in self._client_tokens:
-            authenticated = True
+        if token:
+            trusted_device = self._find_device_by_token(token)
+            if (
+                trusted_device is not None
+                and trusted_device.device_id == device_id
+                and trusted_device.is_active()
+            ):
+                authenticated = True
+                trusted_device.last_seen_at = now
+                trusted_device.name = device_name
+                trusted_device.platform = device_platform
+                self._persist_trusted_devices()
+            else:
+                await self._send(
+                    client,
+                    "error",
+                    {
+                        "message": "Trusted device token is invalid or expired. Pair again with a fresh secure link.",
+                    },
+                )
+                return
         elif pair_code and pair_code == self.pair_code and not self._pair_code_is_expired():
             authenticated = True
             token = uuid.uuid4().hex
-            self._client_tokens.add(token)
+            self._trusted_devices[device_id] = _TrustedDevice(
+                device_id=device_id,
+                token=token,
+                name=device_name,
+                platform=device_platform,
+                issued_at=now,
+                last_seen_at=now,
+                expires_at=now + timedelta(days=self.TOKEN_TTL_DAYS),
+            )
+            self._persist_trusted_devices()
 
         if not authenticated:
             await self._send(
@@ -441,15 +653,17 @@ class RemoteRuntimeServer:
             return
 
         client.authenticated = True
+        client.device_id = device_id
         client.token = token
-        client.name = str(payload.get("client_name") or "").strip()
-        client.platform = str(payload.get("platform") or "").strip()
+        client.name = device_name
+        client.platform = device_platform
 
         await self._send(
             client,
             "paired",
             {
                 "token": token,
+                "device_id": device_id,
                 "server": self.connection_info(),
                 "client_id": client.client_id,
             },

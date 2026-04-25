@@ -563,26 +563,38 @@ class RemoteBridgeCard(Vertical):
         self,
         *,
         intro: str,
+        runtime_name: str,
         host: str,
         port: int | str,
         pair_code: str,
+        fingerprint: str,
         connect_uri: str | None = None,
         authenticated_clients: int | None = None,
+        trusted_devices: int | None = None,
         footer: str | None = None,
         classes: str | None = None,
     ) -> None:
         super().__init__(classes=classes)
         self._intro = intro
+        self._runtime_name = str(runtime_name)
         self._host = str(host)
         self._port = str(port)
         self._pair_code = str(pair_code)
+        self._fingerprint = str(fingerprint)
         self._connect_uri = str(connect_uri or "").strip()
         self._authenticated_clients = authenticated_clients
+        self._trusted_devices = trusted_devices
         self._footer = str(footer or "").strip()
 
     def compose(self) -> ComposeResult:
         yield Static(self._intro, classes="remote-bridge-intro")
 
+        if self._runtime_name:
+            yield RemoteBridgeField(
+                "Runtime",
+                self._runtime_name,
+                classes="remote-bridge-field",
+            )
         yield RemoteBridgeField("Host", self._host, classes="remote-bridge-field")
         yield RemoteBridgeField("Port", self._port, classes="remote-bridge-field")
         yield RemoteBridgeField(
@@ -590,16 +602,28 @@ class RemoteBridgeCard(Vertical):
             self._pair_code,
             classes="remote-bridge-field",
         )
+        if self._fingerprint:
+            yield RemoteBridgeField(
+                "Fingerprint",
+                self._fingerprint,
+                classes="remote-bridge-field wide",
+            )
         if self._authenticated_clients is not None:
             yield RemoteBridgeField(
                 "Connected phones",
                 str(self._authenticated_clients),
                 classes="remote-bridge-field",
             )
+        if self._trusted_devices is not None:
+            yield RemoteBridgeField(
+                "Trusted devices",
+                str(self._trusted_devices),
+                classes="remote-bridge-field",
+            )
 
         if self._connect_uri:
             yield RemoteBridgeField(
-                "Connect URL",
+                "Secure Connect Link",
                 self._connect_uri,
                 classes="remote-bridge-field wide emph",
             )
@@ -1424,13 +1448,16 @@ class ReupApp(App):
                     return
             info = await self._ensure_remote_server(port=port)
             self.post_remote_bridge(
+                runtime_name=str(info.get("runtime_name") or ""),
                 host=str(info["display_host"]),
                 port=int(info["port"]),
                 pair_code=str(info["pair_code"]),
+                fingerprint=str(info.get("fingerprint") or ""),
                 connect_uri=str(info["connect_uri"]),
                 authenticated_clients=int(info.get("authenticated_clients") or 0),
+                trusted_devices=int(info.get("trusted_devices") or 0),
                 intro="Mobile bridge ready.",
-                footer="Open the mobile app, paste the connect URL, or enter the host, port, and pair code.",
+                footer="Open the mobile app and use Paste and Connect with the secure link.",
             )
             return
 
@@ -1440,13 +1467,16 @@ class ReupApp(App):
                 return
             info = self._remote_server.connection_info()
             self.post_remote_bridge(
+                runtime_name=str(info.get("runtime_name") or ""),
                 host=str(info["display_host"]),
                 port=int(info["port"]),
                 pair_code=str(info["pair_code"]),
+                fingerprint=str(info.get("fingerprint") or ""),
                 connect_uri=str(info["connect_uri"]),
                 authenticated_clients=int(info.get("authenticated_clients") or 0),
+                trusted_devices=int(info.get("trusted_devices") or 0),
                 intro="Remote bridge is running.",
-                footer="Use the connect URL for quick pairing, or enter the host, port, and pair code manually.",
+                footer="Use the secure link for trusted pairing. Existing trusted devices can reconnect automatically.",
             )
             return
 
@@ -1456,15 +1486,49 @@ class ReupApp(App):
             self._remote_server.regenerate_pair_code()
             info = self._remote_server.connection_info()
             self.post_remote_bridge(
+                runtime_name=str(info.get("runtime_name") or ""),
                 host=str(info["display_host"]),
                 port=int(info["port"]),
                 pair_code=str(info["pair_code"]),
+                fingerprint=str(info.get("fingerprint") or ""),
                 connect_uri=str(info["connect_uri"]),
                 authenticated_clients=int(info.get("authenticated_clients") or 0),
+                trusted_devices=int(info.get("trusted_devices") or 0),
                 intro="Pair code refreshed.",
-                footer="Reconnect with the updated pair code if the app is not already authenticated.",
+                footer="Reconnect with the updated secure link if the app is not already trusted.",
             )
             await self._broadcast_remote_state()
+            return
+
+        if action in {"devices", "trusted"}:
+            if self._remote_server is None or not self._remote_server.is_running:
+                self.post_system("Remote", "Remote bridge is off.")
+                return
+            devices = self._remote_server.trusted_devices_snapshot()
+            if not devices:
+                self.post_system("Remote", "No trusted mobile devices.")
+                return
+            lines = ["Trusted mobile devices:"]
+            for device in devices:
+                lines.append(
+                    f"- {device['name'] or 'iTE Remote'} [{device['platform'] or 'unknown'}] "
+                    f"{device['status']} last seen {device['last_seen_at']}"
+                )
+            self.post_system("Remote", "\n".join(lines))
+            return
+
+        if action in {"revoke-all", "reset"}:
+            if self._remote_server is None or not self._remote_server.is_running:
+                self.post_system("Remote", "Remote bridge is off.")
+                return
+            revoked = self._remote_server.revoke_all_devices()
+            await self._broadcast_remote_state()
+            self.post_system(
+                "Remote",
+                "Revoked all trusted mobile devices."
+                if revoked
+                else "No trusted mobile devices were active.",
+            )
             return
 
         if action in {"stop", "off"}:
@@ -1477,7 +1541,7 @@ class ReupApp(App):
 
         self.post_system(
             "Remote",
-            "Usage: /remote\n/remote on [port]\n/remote status\n/remote code\n/remote off",
+            "Usage: /remote\n/remote on [port]\n/remote status\n/remote code\n/remote devices\n/remote revoke-all\n/remote off",
             is_error=True,
         )
 
@@ -3948,6 +4012,7 @@ class ReupApp(App):
         self.run_worker(self._exit_app(), exclusive=False)
 
     async def _exit_app(self) -> None:
+        await self._shutdown_remote_server()
         await self._shutdown_agents()
         self.exit()
 
@@ -4691,6 +4756,7 @@ class ReupApp(App):
             await self.auto_save()
         except Exception:
             pass
+        await self._shutdown_remote_server()
         await self._shutdown_agents()
         self.exit()
 
@@ -7423,11 +7489,14 @@ class ReupApp(App):
     def post_remote_bridge(
         self,
         *,
+        runtime_name: str,
         host: str,
         port: int,
         pair_code: str,
+        fingerprint: str,
         connect_uri: str,
         authenticated_clients: int | None,
+        trusted_devices: int | None,
         intro: str,
         footer: str,
     ) -> None:
@@ -7436,11 +7505,14 @@ class ReupApp(App):
                 "Remote",
                 RemoteBridgeCard(
                     intro=intro,
+                    runtime_name=runtime_name,
                     host=host,
                     port=port,
                     pair_code=pair_code,
+                    fingerprint=fingerprint,
                     connect_uri=connect_uri,
                     authenticated_clients=authenticated_clients,
+                    trusted_devices=trusted_devices,
                     footer=footer,
                     classes="remote-bridge-card",
                 ),
