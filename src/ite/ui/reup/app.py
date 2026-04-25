@@ -1356,6 +1356,7 @@ class ReupApp(App):
                 "title": self._current_session_title(),
                 "workspace": str(self.config.cwd.resolve()),
                 "model": str(self.config.model_name or ""),
+                "approval_mode": str(self.config.approval.value),
                 "plan_mode_enabled": bool(session.plan_mode_enabled)
                 if session
                 else False,
