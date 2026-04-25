@@ -6100,6 +6100,7 @@ class ReupApp(App):
             "Plan Mode Updated",
             f"## Plan Mode `{mode}`\n\n{details}",
         )
+        await self._broadcast_remote_state()
 
     async def _run_workboard_command_native(
         self,
