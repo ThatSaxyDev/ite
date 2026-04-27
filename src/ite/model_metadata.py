@@ -47,9 +47,8 @@ def parse_ollama_model_metadata(
 def format_context_window_label(value: int | None) -> str:
     if not value or value <= 0:
         return "Unknown"
-    if value % 1024 == 0:
-        return f"{value // 1024}K"
-    return f"{value:,}"
+    rounded = round(value / 1000) * 1000
+    return f"{rounded // 1000}K"
 
 
 def _extract_ollama_context_window(payload: dict[str, Any]) -> int | None:
