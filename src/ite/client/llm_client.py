@@ -15,6 +15,7 @@ from typing import Any
 from openai import AsyncOpenAI
 from ite.utils.errors import format_provider_error
 from ite.cloud import get_cloud_session
+from ite.cloud import get_bundled_models
 from ite.config.loader import load_saved_custom_provider
 import httpx
 from datetime import datetime
@@ -39,19 +40,19 @@ class LLMClient:
     def _is_cloud_model(self) -> bool:
         if self._has_user_provider_credentials():
             return False
+        source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
+        if source_kind == "bundled":
+            return True
+        if source_kind in {"saved", "custom"}:
+            return False
         if self._current_model_has_saved_profile():
             return False
         model_name = str(self.config.model_name or "").strip()
-        normalized = model_name.removesuffix(":cloud")
         bundled_names = {
-            "minimax-m2.5",
-            "minimax-m2.7",
-            "kimi-k2.5",
-            "kimi-k2.6",
-            "glm-5",
-            "glm-5.1",
+            str(item.get("model_name") or "").strip()
+            for item in get_bundled_models(self.config)
         }
-        return normalized in bundled_names
+        return model_name in bundled_names
 
     def _has_user_provider_credentials(self) -> bool:
         return bool(
@@ -60,10 +61,16 @@ class LLMClient:
         )
 
     def _current_model_has_saved_profile(self) -> bool:
+        source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
+        if source_kind == "bundled":
+            return False
+        if source_kind == "saved":
+            return True
         profiles = load_saved_custom_provider()
         if not isinstance(profiles, dict):
             return False
-        return str(self.config.model_name or "").strip() in profiles
+        model_name = str(self.config.model_name or "").strip()
+        return model_name in profiles
 
     def _cloud_error_code(self, payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}
@@ -111,19 +118,11 @@ class LLMClient:
         self.config.model_name = fallback["model_name"]
         self.config.api_key = fallback["api_key"]
         self.config.base_url = fallback["base_url"]
+        self.config.model.source_kind = "saved"
         return True
 
     def _resolve_cloud_model_name(self) -> str:
-        model_name = self.config.model_name.removesuffix(":cloud")
-        aliases = {
-            "minimax-m2.5": "minimax-m2.5",
-            "minimax-m2.7": "minimax-m2.7",
-            "kimi-k2.5": "kimi-k2.5",
-            "kimi-k2.6": "kimi-k2.6",
-            "glm-5": "glm-5",
-            "glm-5.1": "glm-5.1",
-        }
-        return aliases.get(model_name, model_name)
+        return str(self.config.model_name or "").strip()
 
     def _format_cloud_error(self, payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}

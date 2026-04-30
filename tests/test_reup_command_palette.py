@@ -311,6 +311,47 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("context", rendered.plain)
         self.assertNotEqual(app._composer_context_hitbox, (0, 0))
 
+    def test_composer_meta_text_does_not_fetch_bundled_models_during_render(self) -> None:
+        app = self._app()
+        app.config.model_name = "kimi-k2.6:cloud"
+        app.config.model.source_kind = "custom"
+        session = SimpleNamespace(
+            plan_mode_enabled=False,
+            context_manager=SimpleNamespace(),
+            get_stats=lambda: {"context_used_pct": 42.4},
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        with patch("ite.ui.reup.app.get_bundled_models") as get_bundled_models:
+            rendered = app._composer_meta_text()
+
+        self.assertIn("kimi-k2.6", rendered.plain)
+        get_bundled_models.assert_not_called()
+
+    def test_composer_meta_text_shows_usage_for_canonical_bundled_model(self) -> None:
+        app = self._app()
+        app.config.model_name = "minimax/minimax-m2.7"
+        app.config.model.source_kind = "bundled"
+        app.config.api_key = ""
+        app.config.base_url = ""
+        session = SimpleNamespace(
+            plan_mode_enabled=False,
+            context_manager=SimpleNamespace(),
+            get_stats=lambda: {"context_used_pct": 42.4},
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        with patch(
+            "ite.ui.reup.app.get_bundled_models",
+            return_value=[{"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}],
+        ), patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            rendered = app._composer_meta_text()
+
+        self.assertIn("usage", rendered.plain)
+        self.assertIsNotNone(app._composer_usage_hitbox)
+        assert app._composer_usage_hitbox is not None
+        self.assertGreater(app._composer_usage_hitbox[1], app._composer_usage_hitbox[0])
+
     def test_composer_meta_text_clamps_context_drop_during_active_turn(self) -> None:
         app = self._app()
         session = SimpleNamespace(
@@ -361,10 +402,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_open_model_picker_passes_availability_metadata_and_warns_when_current_bundled_model_is_down(self) -> None:
         async def run_test() -> None:
             app = self._app()
-            app.config.model.name = "minimax-m2.7:cloud"
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
 
             async def fake_open_modal(modal):
-                self.assertEqual(modal._models[0]["model_name"], "minimax-m2.7:cloud")
+                self.assertEqual(modal._models[0]["model_name"], "minimax/minimax-m2.7")
                 self.assertFalse(modal._models[0]["available"])
                 self.assertEqual(
                     modal._models[0]["unavailable_reason"],
@@ -379,14 +421,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "ite.ui.reup.app.get_bundled_models",
                 return_value=[
                     {
-                        "model_name": "minimax-m2.7:cloud",
+                        "model_name": "minimax/minimax-m2.7",
                         "label": "MiniMax M2.7",
                         "provider": "Bundled",
                         "available": False,
                         "unavailable_reason": "Local bundled provider returned 500.",
                     },
                     {
-                        "model_name": "glm-5:cloud",
+                        "model_name": "z-ai/glm-5",
                         "label": "GLM-5",
                         "provider": "Bundled",
                         "available": True,
@@ -405,14 +447,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_open_model_picker_includes_saved_custom_provider_when_current_model_is_bundled(self) -> None:
         async def run_test() -> None:
             app = self._app()
-            app.config.model.name = "minimax-m2.7:cloud"
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
 
             async def fake_open_modal(modal):
                 self.assertEqual(modal._models[0]["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
                 self.assertEqual(modal._models[0]["provider"], "localhost")
                 self.assertTrue(modal._models[0]["saved_profile"])
                 self.assertEqual(modal._models[0]["context_window"], 131072)
-                self.assertEqual(modal._models[1]["model_name"], "minimax-m2.7:cloud")
+                self.assertEqual(modal._models[1]["model_name"], "minimax/minimax-m2.7")
                 return None
 
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
@@ -429,7 +472,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "ite.ui.reup.app.get_bundled_models",
                 return_value=[
                     {
-                        "model_name": "minimax-m2.7:cloud",
+                        "model_name": "minimax/minimax-m2.7",
                         "label": "MiniMax M2.7",
                         "provider": "Bundled",
                         "available": True,
@@ -444,27 +487,28 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_open_model_picker_keeps_bundled_and_saved_entries_distinct_when_names_match(self) -> None:
         async def run_test() -> None:
             app = self._app()
-            app.config.model.name = "glm-5.1:cloud"
+            app.config.model.name = "z-ai/glm-5.1"
+            app.config.model.source_kind = "bundled"
             app.config.api_key = ""
             app.config.base_url = ""
 
             async def fake_open_modal(modal):
                 self.assertEqual(len(modal._models), 2)
-                self.assertEqual(modal._models[0]["model_name"], "glm-5.1:cloud")
+                self.assertEqual(modal._models[0]["model_name"], "z-ai/glm-5.1")
                 self.assertEqual(modal._models[0]["provider"], "Bundled")
                 self.assertFalse(modal._models[0]["saved_profile"])
-                self.assertEqual(modal._models[1]["model_name"], "glm-5.1:cloud")
+                self.assertEqual(modal._models[1]["model_name"], "z-ai/glm-5.1")
                 self.assertEqual(modal._models[1]["provider"], "OpenRouter")
                 self.assertTrue(modal._models[1]["saved_profile"])
-                return {"action": "select", "entry_id": "saved:glm-5.1:cloud"}
+                return {"action": "select", "entry_id": "saved:z-ai/glm-5.1"}
 
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.load_saved_custom_provider",
                 return_value={
-                    "glm-5.1:cloud": {
+                    "z-ai/glm-5.1": {
                         "api_key": "openrouter-key",
                         "base_url": "https://openrouter.ai/api/v1",
-                        "model_name": "glm-5.1:cloud",
+                        "model_name": "z-ai/glm-5.1",
                         "context_window": 196608,
                     }
                 },
@@ -472,9 +516,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "ite.ui.reup.app.get_bundled_models",
                 return_value=[
                     {
-                        "model_name": "glm-5.1:cloud",
+                        "model_name": "z-ai/glm-5.1",
                         "label": "GLM-5.1",
-                        "provider": "OpenRouter",
+                        "provider": "Bundled",
                         "available": True,
                         "unavailable_reason": "",
                     }
@@ -489,14 +533,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
             _, kwargs = save_system_config.call_args
             self.assertEqual(kwargs["api_key"], "openrouter-key")
             self.assertEqual(kwargs["base_url"], "https://openrouter.ai/api/v1")
-            self.assertEqual(kwargs["model_name"], "glm-5.1:cloud")
+            self.assertEqual(kwargs["model_name"], "z-ai/glm-5.1")
 
         asyncio.run(run_test())
 
     def test_open_model_picker_restores_saved_custom_provider_credentials(self) -> None:
         async def run_test() -> None:
             app = self._app()
-            app.config.model.name = "minimax-m2.7:cloud"
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
             app.config.api_key = "runtime-key"
             app.config.base_url = "http://127.0.0.1:4000/v1"
 
@@ -514,7 +559,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "ite.ui.reup.app.get_bundled_models",
                 return_value=[
                     {
-                        "model_name": "minimax-m2.7:cloud",
+                        "model_name": "minimax/minimax-m2.7",
                         "label": "MiniMax M2.7",
                         "provider": "Bundled",
                         "available": True,
@@ -572,7 +617,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "ite.ui.reup.app.get_bundled_models",
                 return_value=[
                     {
-                        "model_name": "glm-5.1:cloud",
+                        "model_name": "z-ai/glm-5.1",
                         "label": "GLM-5.1",
                         "provider": "Bundled",
                         "available": True,
@@ -584,7 +629,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             ) as save_system_config, patch.object(
                 app,
                 "_open_modal",
-                AsyncMock(return_value={"action": "select", "model_name": "glm-5.1:cloud"}),
+                AsyncMock(return_value={"action": "select", "model_name": "z-ai/glm-5.1"}),
             ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
                 await app._open_model_picker_from_meta()
 
@@ -592,11 +637,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             _, kwargs = save_system_config.call_args
             self.assertEqual(kwargs["api_key"], "")
             self.assertEqual(kwargs["base_url"], "")
-            self.assertEqual(kwargs["model_name"], "glm-5.1:cloud")
+            self.assertEqual(kwargs["model_name"], "z-ai/glm-5.1")
             self.assertEqual(kwargs["context_window"], 256000)
             self.assertEqual(app.config.api_key, "")
             self.assertEqual(app.config.base_url, "")
-            self.assertEqual(app.config.model.name, "glm-5.1:cloud")
+            self.assertEqual(app.config.model.name, "z-ai/glm-5.1")
             self.assertEqual(app.config.model.context_window, 256000)
             app.agent.session.client.close.assert_awaited_once()
 

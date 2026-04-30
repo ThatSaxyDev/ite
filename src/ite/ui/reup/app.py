@@ -782,6 +782,7 @@ class ReupApp(App):
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
+        self._bundled_models_cache: list[dict[str, Any]] = []
         self._startup_active: bool = True
         self._startup_phase_text: str = "Preparing your workspace"
         self._startup_error_text: str | None = None
@@ -1058,6 +1059,7 @@ class ReupApp(App):
 
                 self._set_signed_out_state(False)
                 self._cloud_bootstrap_busy = False
+                self.run_worker(self._refresh_bundled_models_cache(), exclusive=False)
                 # Cloud verification is on-demand; startup should not block on network reachability.
 
             if self._should_show_onboarding():
@@ -2035,7 +2037,11 @@ class ReupApp(App):
             return False
         if load_saved_custom_provider():
             return False
-        if get_bundled_models(self.config):
+        if str(getattr(self.config.model, "source_kind", "") or "").strip().lower() == "bundled":
+            return False
+        if self._bundled_models_cache:
+            return False
+        if has_stored_cloud_auth(self.config):
             return False
         return True
 
@@ -2048,7 +2054,14 @@ class ReupApp(App):
     def _model_display_name(self) -> str:
         if self._setup_required_for_model_selection():
             return "/setup"
-        return self.config.model_name
+        current_model = str(self.config.model_name or "").strip()
+        if not current_model:
+            return ""
+        for item in self._bundled_models_cache:
+            model_name = str(item.get("model_name") or "").strip()
+            if model_name == current_model:
+                return str(item.get("label") or model_name).strip()
+        return current_model.removesuffix(":cloud")
 
     def _schedule_usage_meta_refresh(self) -> None:
         if self._usage_refresh_in_flight or self._cloud_signed_out:
@@ -2061,6 +2074,13 @@ class ReupApp(App):
         Returns False for user keys (Ollama, OpenRouter, custom providers).
         """
         model = str(self.config.model_name or "").strip()
+        persisted_source_kind = str(
+            getattr(self.config.model, "source_kind", "") or ""
+        ).strip().lower()
+        if persisted_source_kind == "bundled":
+            return True
+        if persisted_source_kind in {"saved", "custom"}:
+            return False
         if not model or self._has_active_user_provider_credentials():
             return False
         saved_providers = load_saved_custom_provider()
@@ -2068,9 +2088,17 @@ class ReupApp(App):
             return False
         bundled_models = {
             str(item.get("model_name") or "").strip()
-            for item in get_bundled_models(self.config)
+            for item in self._bundled_models_cache
         }
         return model in bundled_models
+
+    async def _refresh_bundled_models_cache(self) -> None:
+        try:
+            bundled = await asyncio.to_thread(get_bundled_models, self.config)
+        except Exception:
+            return
+        self._bundled_models_cache = bundled
+        self.refresh_header()
 
     def _schedule_usage_meta_refresh_for_cloud_model(self) -> None:
         if not self._is_bundled_model():
@@ -2564,6 +2592,7 @@ class ReupApp(App):
         while True:
             current_model = self.config.model_name
             bundled_items = get_bundled_models(self.config)
+            self._bundled_models_cache = bundled_items
             saved_providers = load_saved_custom_provider()
             bundled_model_names = {
                 str(item.get("model_name") or "").strip() for item in bundled_items
@@ -2576,6 +2605,11 @@ class ReupApp(App):
                 normalized_current = str(current_model or "").strip()
                 if not normalized_current:
                     return ""
+                persisted_source_kind = str(
+                    getattr(self.config.model, "source_kind", "") or ""
+                ).strip().lower()
+                if persisted_source_kind in {"bundled", "saved", "custom"}:
+                    return f"{persisted_source_kind}:{normalized_current}"
                 if self._has_active_user_provider_credentials():
                     if normalized_current in saved_providers:
                         return f"saved:{normalized_current}"
@@ -2670,9 +2704,8 @@ class ReupApp(App):
 
             if (
                 current_model
-                and not str(current_model).endswith(":cloud")
-                and current_model
-                not in {item.get("model_name", "") for item in bundled_items}
+                and current_model not in bundled_model_names
+                and current_model not in saved_providers
             ):
                 _append(
                     "custom",
@@ -2845,6 +2878,11 @@ class ReupApp(App):
                 else ""
             )
         ) or "fallback_default"
+        next_source_kind = (
+            str(selected_item.get("source_kind") or "").strip().lower()
+            if selected_item
+            else ""
+        )
 
         try:
             save_system_config(
@@ -2853,6 +2891,7 @@ class ReupApp(App):
                 model_name=selected,
                 context_window=next_context_window,
                 context_window_source=next_context_window_source,
+                source_kind=next_source_kind or None,
                 cloud_auth_enabled=self.config.cloud_auth_enabled,
                 cloud_api_url=self.config.cloud_api_url,
                 cloud_client_id=self.config.cloud_client_id,
@@ -2867,6 +2906,7 @@ class ReupApp(App):
         self.config.model.name = selected
         self.config.model.context_window = next_context_window
         self.config.model.context_window_source = next_context_window_source
+        self.config.model.source_kind = next_source_kind or None
         await self._reset_active_provider_client()
         self.refresh_header()
 
@@ -3411,6 +3451,7 @@ class ReupApp(App):
 
         self._cloud_auth_busy = False
         self._set_signed_out_state(False)
+        self.run_worker(self._refresh_bundled_models_cache(), exclusive=False)
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
         self._message_count = 0
@@ -4554,6 +4595,7 @@ class ReupApp(App):
                 model_name=result["model_name"],
                 context_window=int(result.get("context_window") or DEFAULT_CONTEXT_WINDOW),
                 context_window_source=str(result.get("context_window_source") or "").strip() or None,
+                source_kind="saved",
             )
             save_saved_custom_provider(
                 api_key=result["api_key"],
@@ -4577,6 +4619,7 @@ class ReupApp(App):
         self.config.model.context_window_source = (
             str(result.get("context_window_source") or "").strip() or None
         )
+        self.config.model.source_kind = "saved"
         self.config.approval = ApprovalPolicy(result["approval"])
         await self._reset_active_provider_client()
         self.refresh_header()
@@ -6672,10 +6715,7 @@ class ReupApp(App):
             await self._broadcast_remote_state()
 
         if completed_normally and self._active_session_id() == session_id:
-            if (
-                str(self.config.model_name or "").endswith(":cloud")
-                and not self._bundled_access_announced
-            ):
+            if self._is_bundled_model() and not self._bundled_access_announced:
                 # self.post_notice(
                 #     "Bundled Access",
                 #     "You're now using bundled access.",

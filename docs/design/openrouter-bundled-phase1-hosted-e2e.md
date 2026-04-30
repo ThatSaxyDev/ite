@@ -16,8 +16,8 @@ Implemented now:
 - bundled source labels stay `Bundled` in the runtime picker
 - same-name bundled and BYOK entries no longer collapse into one entry
 - new bundled models added:
-  - `kimi-k2.6:cloud`
-  - `minimax-m2.5:cloud`
+  - `moonshotai/kimi-k2.6`
+  - `minimax/minimax-m2.5`
 - model-aware bundled policy layer added in backend:
   - request rate limits by model
   - spend caps by model
@@ -117,12 +117,12 @@ Expected:
 - `providerMode = "openrouter"`
 - `providerAvailable = true`
 - models include:
-  - `kimi-k2.5:cloud`
-  - `kimi-k2.6:cloud`
-  - `minimax-m2.5:cloud`
-  - `minimax-m2.7:cloud`
-  - `glm-5:cloud`
-  - `glm-5.1:cloud`
+  - `moonshotai/kimi-k2.5`
+  - `moonshotai/kimi-k2.6`
+  - `minimax/minimax-m2.5`
+  - `minimax/minimax-m2.7`
+  - `z-ai/glm-5`
+  - `z-ai/glm-5.1`
 - every bundled entry should report `provider = "Bundled"`
 
 If this fails:
@@ -163,12 +163,12 @@ Steps:
 3. Open the model picker.
 4. Verify bundled entries appear as `Bundled`.
 5. Select each bundled model one-by-one across separate prompts:
-   - `minimax-m2.5:cloud`
-   - `minimax-m2.7:cloud`
-   - `kimi-k2.5:cloud`
-   - `kimi-k2.6:cloud`
-   - `glm-5:cloud`
-   - `glm-5.1:cloud`
+   - `minimax/minimax-m2.5`
+   - `minimax/minimax-m2.7`
+   - `moonshotai/kimi-k2.5`
+   - `moonshotai/kimi-k2.6`
+   - `z-ai/glm-5`
+   - `z-ai/glm-5.1`
 
 Expected:
 
@@ -220,7 +220,7 @@ Goal:
 
 Test cases:
 
-1. Make repeated rapid requests to a stricter model like `kimi-k2.6:cloud`
+1. Make repeated rapid requests to a stricter model like `moonshotai/kimi-k2.6`
 2. Verify the backend returns:
    - `model_rate_limited`
    - or `model_budget_exhausted`
@@ -311,8 +311,8 @@ So for now, end-to-end hosted testing depends on either:
 3. Verify `/models/bundled` returns `openrouter` mode and `providerAvailable = true`.
 4. Enable bundled access for one internal test account.
 5. Run runtime hosted test with:
-   - `minimax-m2.5:cloud`
-   - `kimi-k2.6:cloud`
+   - `minimax/minimax-m2.5`
+   - `moonshotai/kimi-k2.6`
 6. Confirm Activity and Billing update.
 7. Test BYOK still works.
 8. Test one rate-limit path intentionally.

@@ -29,6 +29,7 @@ class ModelConfig(BaseModel):
     temperature: float = Field(default=1, ge=0.0, le=2.0)
     context_window: int = DEFAULT_CONTEXT_WINDOW
     context_window_source: str | None = None
+    source_kind: str | None = None
 
 
 class ShellEnvironmentPolicy(BaseModel):

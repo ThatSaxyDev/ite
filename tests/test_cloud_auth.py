@@ -49,7 +49,7 @@ class CloudAuthTests(unittest.TestCase):
             "ok": True,
             "models": [
                 {
-                    "modelName": "minimax-m2.7:cloud",
+                    "modelName": "minimax/minimax-m2.7",
                     "label": "MiniMax M2.7",
                     "provider": "Bundled",
                     "available": False,
@@ -65,7 +65,7 @@ class CloudAuthTests(unittest.TestCase):
             models = get_bundled_models(self.config)
 
         self.assertEqual(len(models), 1)
-        self.assertEqual(models[0]["model_name"], "minimax-m2.7:cloud")
+        self.assertEqual(models[0]["model_name"], "minimax/minimax-m2.7")
         self.assertFalse(models[0]["available"])
         self.assertEqual(
             models[0]["unavailable_reason"],

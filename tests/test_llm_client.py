@@ -47,6 +47,10 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
     def _config() -> Config:
         return Config(model={"name": "local-test"})
 
+    @staticmethod
+    def _bundled_config(model_name: str = "moonshotai/kimi-k2.5") -> Config:
+        return Config(model={"name": model_name, "source_kind": "bundled"})
+
     async def test_complete_text_returns_final_text(self) -> None:
         client = LLMClient(self._config())
         client._non_stream_response = AsyncMock(
@@ -75,7 +79,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cloud_requests_omit_optional_tool_fields_when_unused(self) -> None:
         captured: list[dict] = []
-        config = Config()
+        config = self._bundled_config()
         client = LLMClient(config)
 
         session = type(
@@ -100,7 +104,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(events)
         payload = captured[0]["json"]
-        self.assertEqual(payload["model"], "kimi-k2.5")
+        self.assertEqual(payload["model"], "moonshotai/kimi-k2.5")
         self.assertEqual(payload["messages"], [{"role": "user", "content": "hello"}])
         self.assertNotIn("tools", payload)
         self.assertNotIn("toolChoice", payload)
@@ -140,7 +144,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
     def test_model_without_user_credentials_routes_through_cloud(self) -> None:
         config = Config(
-            model={"name": "kimi-k2.5"},
+            model={"name": "moonshotai/kimi-k2.5", "source_kind": "bundled"},
             api_key="",
             base_url="",
         )
@@ -150,7 +154,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
     def test_saved_profile_for_current_model_prevents_cloud_routing(self) -> None:
         config = Config(
-            model={"name": "kimi-k2.5:cloud"},
+            model={"name": "moonshotai/kimi-k2.5"},
             api_key="",
             base_url="",
         )
@@ -159,8 +163,8 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         with patch(
             "ite.client.llm_client.load_saved_custom_provider",
             return_value={
-                "kimi-k2.5:cloud": {
-                    "model_name": "kimi-k2.5:cloud",
+                "moonshotai/kimi-k2.5": {
+                    "model_name": "moonshotai/kimi-k2.5",
                     "api_key": "sk-local",
                     "base_url": "https://openrouter.ai/api/v1",
                 }
@@ -168,19 +172,23 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertFalse(client._is_cloud_model())
 
-    def test_cloud_model_name_resolution_preserves_new_bundled_ids(self) -> None:
+    def test_cloud_model_name_resolution_preserves_canonical_bundled_ids(self) -> None:
         self.assertEqual(
-            LLMClient(Config(model={"name": "minimax-m2.5:cloud"}))._resolve_cloud_model_name(),
-            "minimax-m2.5",
+            LLMClient(
+                Config(model={"name": "minimax/minimax-m2.5", "source_kind": "bundled"})
+            )._resolve_cloud_model_name(),
+            "minimax/minimax-m2.5",
         )
         self.assertEqual(
-            LLMClient(Config(model={"name": "kimi-k2.6:cloud"}))._resolve_cloud_model_name(),
-            "kimi-k2.6",
+            LLMClient(
+                Config(model={"name": "moonshotai/kimi-k2.6", "source_kind": "bundled"})
+            )._resolve_cloud_model_name(),
+            "moonshotai/kimi-k2.6",
         )
 
     async def test_cloud_chat_completion_retries_transient_provider_failure(self) -> None:
         captured: list[dict] = []
-        config = Config()
+        config = self._bundled_config()
         client = LLMClient(config)
         session = type(
             "CloudSessionStub",
@@ -225,7 +233,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cloud_complete_text_retries_transient_connection_error(self) -> None:
         captured: list[dict] = []
-        config = Config()
+        config = self._bundled_config()
         client = LLMClient(config)
         session = type(
             "CloudSessionStub",
@@ -252,7 +260,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cloud_chat_completion_falls_back_to_saved_provider_on_entitlement_denied(self) -> None:
         captured: list[dict] = []
-        config = Config()
+        config = self._bundled_config()
         client = LLMClient(config)
         session = type(
             "CloudSessionStub",
@@ -313,10 +321,11 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
         self.assertEqual(client.config.model_name, "ollama/deepseek-r1")
         self.assertEqual(client.config.base_url, "http://localhost:11434/v1")
+        self.assertEqual(client.config.model.source_kind, "saved")
 
     async def test_cloud_complete_text_falls_back_to_saved_provider_on_entitlement_denied(self) -> None:
         captured: list[dict] = []
-        config = Config()
+        config = self._bundled_config()
         client = LLMClient(config)
         session = type(
             "CloudSessionStub",
@@ -368,6 +377,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text, "Recovered locally.")
         self.assertEqual(client.config.model_name, "ollama/deepseek-r1")
         self.assertEqual(client.config.base_url, "http://localhost:11434/v1")
+        self.assertEqual(client.config.model.source_kind, "saved")
 
     async def test_chat_completion_preserves_model_name_for_user_provider_requests(self) -> None:
         config = Config(

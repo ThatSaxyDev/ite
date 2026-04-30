@@ -451,6 +451,7 @@ def save_system_config(
     *,
     context_window: int | None = None,
     context_window_source: str | None = None,
+    source_kind: str | None = None,
     cloud_auth_enabled: bool | None = None,
     cloud_api_url: str | None = None,
     cloud_client_id: str | None = None,
@@ -479,6 +480,10 @@ def save_system_config(
         model_config["context_window_source"] = str(context_window_source).strip()
     else:
         model_config.pop("context_window_source", None)
+    if source_kind:
+        model_config["source_kind"] = str(source_kind).strip()
+    else:
+        model_config.pop("source_kind", None)
     existing["model"] = model_config
 
     if cloud_auth_enabled is not None:
