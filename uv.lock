@@ -596,12 +596,13 @@ wheels = [
 
 [[package]]
 name = "ite-agent"
-version = "0.0.34"
+version = "0.0.38"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "certifi" },
     { name = "click" },
+    { name = "cryptography" },
     { name = "ddgs" },
     { name = "fastmcp" },
     { name = "flet" },
@@ -626,6 +627,7 @@ requires-dist = [
     { name = "beautifulsoup4" },
     { name = "certifi" },
     { name = "click" },
+    { name = "cryptography", specifier = ">=46.0.0" },
     { name = "ddgs" },
     { name = "fastmcp" },
     { name = "flet" },

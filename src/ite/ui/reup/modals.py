@@ -53,6 +53,7 @@ SETUP_MODEL_OTHER = "__other__"
 SETUP_MODEL_SELECT = "__select__"
 RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
     "kimi-k2.5:cloud",
+    "kimi-k2.6:cloud",
     "minimax-m2.5:cloud",
     "minimax-m2.7:cloud",
     "glm-5:cloud",
@@ -956,10 +957,18 @@ class BranchPickerModal(ModalScreen[dict[str, str] | None]):
 class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
-    def __init__(self, current: str, models: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        current: str,
+        models: list[dict[str, Any]],
+        *,
+        current_entry_id: str | None = None,
+    ) -> None:
         super().__init__()
         self._current = current
         self._models = models
+        self._current_entry_id = str(current_entry_id or "").strip()
+        self._model_entry_ids: list[str] = []
         self._model_names: list[str] = []
         self._model_available: list[bool] = []
         self._model_unavailable_reasons: list[str] = []
@@ -987,6 +996,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
     async def on_mount(self) -> None:
         table = self.query_one("#models", DataTable)
         table.add_columns("Model", "Source", "Context", "Status", "Current")
+        self._model_entry_ids = []
         self._model_names = []
         self._model_available = []
         self._model_unavailable_reasons = []
@@ -1001,8 +1011,10 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             unavailable_reason = str(item.get("unavailable_reason") or "").strip()
             saved_profile = bool(item.get("saved_profile", False))
             context_window = item.get("context_window")
+            entry_id = str(item.get("entry_id") or model_name).strip()
             if not model_name:
                 continue
+            self._model_entry_ids.append(entry_id)
             self._model_names.append(model_name)
             self._model_available.append(available)
             self._model_unavailable_reasons.append(unavailable_reason)
@@ -1018,14 +1030,20 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
                 provider,
                 format_context_window_label(self._model_context_windows[-1]),
                 "Available" if available else "Unavailable",
-                "✓" if model_name == self._current else "",
+                "✓"
+                if (
+                    entry_id == self._current_entry_id
+                    if self._current_entry_id
+                    else model_name == self._current
+                )
+                else "",
             )
         if self._model_names:
-            initial_row = (
-                self._model_names.index(self._current)
-                if self._current in self._model_names
-                else 0
-            )
+            initial_row = 0
+            if self._current_entry_id and self._current_entry_id in self._model_entry_ids:
+                initial_row = self._model_entry_ids.index(self._current_entry_id)
+            elif self._current in self._model_names:
+                initial_row = self._model_names.index(self._current)
             table.move_cursor(row=initial_row, column=0)
             self._refresh_selection_state(initial_row)
 
@@ -1067,7 +1085,11 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             and self._model_available[event.cursor_row]
         ):
             self.dismiss(
-                {"action": "select", "model_name": self._model_names[event.cursor_row]}
+                {
+                    "action": "select",
+                    "entry_id": self._model_entry_ids[event.cursor_row],
+                    "model_name": self._model_names[event.cursor_row],
+                }
             )
 
     @on(Button.Pressed, "#select")
@@ -1075,7 +1097,13 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
         table = self.query_one("#models", DataTable)
         row = table.cursor_row
         if 0 <= row < len(self._model_names) and self._model_available[row]:
-            self.dismiss({"action": "select", "model_name": self._model_names[row]})
+            self.dismiss(
+                {
+                    "action": "select",
+                    "entry_id": self._model_entry_ids[row],
+                    "model_name": self._model_names[row],
+                }
+            )
 
     @on(Button.Pressed, "#delete")
     def on_delete_pressed(self, _event: Button.Pressed) -> None:
@@ -1085,7 +1113,13 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             0 <= row < len(self._model_names)
             and self._model_saved_profile[row]
         ):
-            self.dismiss({"action": "delete", "model_name": self._model_names[row]})
+            self.dismiss(
+                {
+                    "action": "delete",
+                    "entry_id": self._model_entry_ids[row],
+                    "model_name": self._model_names[row],
+                }
+            )
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
@@ -1608,6 +1642,8 @@ class ActivityModal(ModalScreen[None]):
     def _model_label(model_key: str) -> str:
         mapping = {
             "kimi-k2.5": "Kimi K2.5",
+            "kimi-k2.6": "Kimi K2.6",
+            "minimax-m2.5": "MiniMax M2.5",
             "minimax-m2.7": "MiniMax M2.7",
             "glm-5": "GLM-5",
             "glm-5.1": "GLM-5.1",

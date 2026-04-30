@@ -2031,14 +2031,19 @@ class ReupApp(App):
         return text
 
     def _setup_required_for_model_selection(self) -> bool:
-        current_model = str(self.config.model_name or "").strip()
-        if not current_model.endswith(":cloud"):
+        if self._has_active_user_provider_credentials():
             return False
         if load_saved_custom_provider():
             return False
         if get_bundled_models(self.config):
             return False
         return True
+
+    def _has_active_user_provider_credentials(self) -> bool:
+        return bool(
+            str(self.config.api_key or "").strip()
+            and str(self.config.base_url or "").strip()
+        )
 
     def _model_display_name(self) -> str:
         if self._setup_required_for_model_selection():
@@ -2056,10 +2061,16 @@ class ReupApp(App):
         Returns False for user keys (Ollama, OpenRouter, custom providers).
         """
         model = str(self.config.model_name or "").strip()
+        if not model or self._has_active_user_provider_credentials():
+            return False
         saved_providers = load_saved_custom_provider()
         if model in saved_providers:
             return False
-        return True
+        bundled_models = {
+            str(item.get("model_name") or "").strip()
+            for item in get_bundled_models(self.config)
+        }
+        return model in bundled_models
 
     def _schedule_usage_meta_refresh_for_cloud_model(self) -> None:
         if not self._is_bundled_model():
@@ -2554,9 +2565,26 @@ class ReupApp(App):
             current_model = self.config.model_name
             bundled_items = get_bundled_models(self.config)
             saved_providers = load_saved_custom_provider()
+            bundled_model_names = {
+                str(item.get("model_name") or "").strip() for item in bundled_items
+            }
 
             model_options: list[dict[str, Any]] = []
-            seen: set[str] = set()
+            seen: set[tuple[str, str]] = set()
+
+            def _current_entry_id() -> str:
+                normalized_current = str(current_model or "").strip()
+                if not normalized_current:
+                    return ""
+                if self._has_active_user_provider_credentials():
+                    if normalized_current in saved_providers:
+                        return f"saved:{normalized_current}"
+                    return f"custom:{normalized_current}"
+                if normalized_current in bundled_model_names:
+                    return f"bundled:{normalized_current}"
+                if normalized_current in saved_providers:
+                    return f"saved:{normalized_current}"
+                return f"custom:{normalized_current}"
 
             def _saved_provider_label(profile: dict[str, Any]) -> str:
                 base_url = str(profile.get("base_url") or "").strip().lower()
@@ -2582,6 +2610,7 @@ class ReupApp(App):
                 return host
 
             def _append(
+                source_kind: str,
                 model_name: str,
                 label: str,
                 provider: str,
@@ -2593,24 +2622,39 @@ class ReupApp(App):
                 saved_profile: bool = False,
             ) -> None:
                 normalized = str(model_name or "").strip()
-                if not normalized or normalized in seen:
+                entry_id = f"{source_kind}:{normalized}"
+                dedupe_key = (source_kind, normalized)
+                if not normalized or dedupe_key in seen:
                     return
-                seen.add(normalized)
-                model_options.append(
-                    {
-                        "model_name": normalized,
-                        "label": label,
-                        "provider": provider,
-                        "context_window": context_window,
-                        "context_window_source": context_window_source,
-                        "available": available,
-                        "unavailable_reason": unavailable_reason,
-                        "saved_profile": saved_profile,
-                    }
-                )
+                seen.add(dedupe_key)
+                option = {
+                    "entry_id": entry_id,
+                    "source_kind": source_kind,
+                    "model_name": normalized,
+                    "label": label,
+                    "provider": provider,
+                    "context_window": context_window,
+                    "context_window_source": context_window_source,
+                    "available": available,
+                    "unavailable_reason": unavailable_reason,
+                    "saved_profile": saved_profile,
+                }
+                if source_kind == "bundled":
+                    insert_at = next(
+                        (
+                            index
+                            for index, existing in enumerate(model_options)
+                            if str(existing.get("model_name") or "").strip() == normalized
+                        ),
+                        len(model_options),
+                    )
+                    model_options.insert(insert_at, option)
+                    return
+                model_options.append(option)
 
             for profile in saved_providers.values():
                 _append(
+                    "saved",
                     profile["model_name"],
                     profile["model_name"],
                     _saved_provider_label(profile),
@@ -2631,6 +2675,7 @@ class ReupApp(App):
                 not in {item.get("model_name", "") for item in bundled_items}
             ):
                 _append(
+                    "custom",
                     current_model,
                     current_model,
                     "Custom",
@@ -2643,9 +2688,10 @@ class ReupApp(App):
 
             for item in bundled_items:
                 _append(
+                    "bundled",
                     str(item.get("model_name") or ""),
                     str(item.get("label") or item.get("model_name") or ""),
-                    str(item.get("provider") or "Bundled"),
+                    "Bundled",
                     context_window=(
                         int(item.get("context_window"))
                         if isinstance(item.get("context_window"), int)
@@ -2685,19 +2731,41 @@ class ReupApp(App):
                     message = f"{message} {reason}"
                 self.post_system("Model", message, is_error=True)
 
+            current_entry_id = _current_entry_id()
             result = await self._open_modal(
-                ModelPickerModal(current_model, model_options)
+                ModelPickerModal(
+                    current_model,
+                    model_options,
+                    current_entry_id=current_entry_id,
+                )
             )
             if not result:
                 return
 
             action = str(result.get("action") or "").strip().lower()
+            selected_entry_id = str(result.get("entry_id") or "").strip()
             selected = str(result.get("model_name") or "").strip()
+            if not selected and selected_entry_id:
+                selected = next(
+                    (
+                        str(item.get("model_name") or "").strip()
+                        for item in model_options
+                        if str(item.get("entry_id") or "").strip() == selected_entry_id
+                    ),
+                    "",
+                )
+            if not selected_entry_id and selected:
+                if selected in bundled_model_names:
+                    selected_entry_id = f"bundled:{selected}"
+                elif selected in saved_providers:
+                    selected_entry_id = f"saved:{selected}"
+                else:
+                    selected_entry_id = f"custom:{selected}"
             if not selected:
                 return
 
             if action == "delete":
-                if selected == current_model:
+                if selected_entry_id == current_entry_id:
                     self.post_system(
                         "Model",
                         "Switch to another model before deleting the current saved profile.",
@@ -2712,18 +2780,22 @@ class ReupApp(App):
                 self.post_notice("Model", f"Removed saved model {selected}.")
                 continue
 
-            if action != "select" or selected == current_model:
+            if action != "select":
+                return
+            if selected_entry_id == current_entry_id:
                 return
             break
 
         restored_profile = (
-            saved_providers.get(selected) if selected in saved_providers else None
+            saved_providers.get(selected)
+            if selected_entry_id == f"saved:{selected}" and selected in saved_providers
+            else None
         )
         selected_item = next(
             (
                 item
                 for item in model_options
-                if str(item.get("model_name") or "").strip() == selected
+                if str(item.get("entry_id") or "").strip() == selected_entry_id
             ),
             None,
         )
@@ -2734,7 +2806,7 @@ class ReupApp(App):
                 ""
                 if bool(selected_item)
                 and not bool(selected_item.get("saved_profile"))
-                and str(selected_item.get("provider") or "").strip().lower()
+                and str(selected_item.get("source_kind") or "").strip().lower()
                 == "bundled"
                 else (self.config.api_key or "")
             )
@@ -2746,7 +2818,7 @@ class ReupApp(App):
                 ""
                 if bool(selected_item)
                 and not bool(selected_item.get("saved_profile"))
-                and str(selected_item.get("provider") or "").strip().lower()
+                and str(selected_item.get("source_kind") or "").strip().lower()
                 == "bundled"
                 else (self.config.base_url or "")
             )

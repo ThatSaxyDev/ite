@@ -368,7 +368,6 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
             continue
         model_name = str(item.get("modelName") or "").strip()
         label = str(item.get("label") or model_name).strip()
-        provider = str(item.get("provider") or "Bundled").strip()
         available = bool(item.get("available", True))
         unavailable_reason = str(item.get("unavailableReason") or "").strip()
         context_window_raw = item.get("contextWindow", item.get("context_window"))
@@ -383,7 +382,7 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
             {
                 "model_name": model_name,
                 "label": label,
-                "provider": provider,
+                "provider": "Bundled",
                 "context_window": context_window,
                 "context_window_source": "bundled_provider_api" if context_window else None,
                 "available": available,

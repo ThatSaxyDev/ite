@@ -441,6 +441,58 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_open_model_picker_keeps_bundled_and_saved_entries_distinct_when_names_match(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "glm-5.1:cloud"
+            app.config.api_key = ""
+            app.config.base_url = ""
+
+            async def fake_open_modal(modal):
+                self.assertEqual(len(modal._models), 2)
+                self.assertEqual(modal._models[0]["model_name"], "glm-5.1:cloud")
+                self.assertEqual(modal._models[0]["provider"], "Bundled")
+                self.assertFalse(modal._models[0]["saved_profile"])
+                self.assertEqual(modal._models[1]["model_name"], "glm-5.1:cloud")
+                self.assertEqual(modal._models[1]["provider"], "OpenRouter")
+                self.assertTrue(modal._models[1]["saved_profile"])
+                return {"action": "select", "entry_id": "saved:glm-5.1:cloud"}
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "glm-5.1:cloud": {
+                        "api_key": "openrouter-key",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "model_name": "glm-5.1:cloud",
+                        "context_window": 196608,
+                    }
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models",
+                return_value=[
+                    {
+                        "model_name": "glm-5.1:cloud",
+                        "label": "GLM-5.1",
+                        "provider": "OpenRouter",
+                        "available": True,
+                        "unavailable_reason": "",
+                    }
+                ],
+            ), patch(
+                "ite.ui.reup.app.save_system_config"
+            ) as save_system_config, patch.object(
+                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                await app._open_model_picker_from_meta()
+
+            _, kwargs = save_system_config.call_args
+            self.assertEqual(kwargs["api_key"], "openrouter-key")
+            self.assertEqual(kwargs["base_url"], "https://openrouter.ai/api/v1")
+            self.assertEqual(kwargs["model_name"], "glm-5.1:cloud")
+
+        asyncio.run(run_test())
+
     def test_open_model_picker_restores_saved_custom_provider_credentials(self) -> None:
         async def run_test() -> None:
             app = self._app()

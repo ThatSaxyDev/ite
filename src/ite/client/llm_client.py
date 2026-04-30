@@ -37,16 +37,33 @@ class LLMClient:
         return self._client
 
     def _is_cloud_model(self) -> bool:
-        return (
-            self.config.model_name.endswith(":cloud")
-            and not self._has_user_provider_credentials()
-        )
+        if self._has_user_provider_credentials():
+            return False
+        if self._current_model_has_saved_profile():
+            return False
+        model_name = str(self.config.model_name or "").strip()
+        normalized = model_name.removesuffix(":cloud")
+        bundled_names = {
+            "minimax-m2.5",
+            "minimax-m2.7",
+            "kimi-k2.5",
+            "kimi-k2.6",
+            "glm-5",
+            "glm-5.1",
+        }
+        return normalized in bundled_names
 
     def _has_user_provider_credentials(self) -> bool:
         return bool(
             str(self.config.base_url or "").strip()
             and str(self.config.api_key or "").strip()
         )
+
+    def _current_model_has_saved_profile(self) -> bool:
+        profiles = load_saved_custom_provider()
+        if not isinstance(profiles, dict):
+            return False
+        return str(self.config.model_name or "").strip() in profiles
 
     def _cloud_error_code(self, payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}
@@ -78,6 +95,8 @@ class LLMClient:
     def _should_bypass_bundled_error(self, payload: dict[str, Any]) -> bool:
         if self._cloud_error_code(payload) not in {
             "entitlement_denied",
+            "model_budget_exhausted",
+            "model_rate_limited",
             "provider_not_configured",
         }:
             return False
@@ -97,9 +116,10 @@ class LLMClient:
     def _resolve_cloud_model_name(self) -> str:
         model_name = self.config.model_name.removesuffix(":cloud")
         aliases = {
-            "minimax-m2.5": "minimax-m2.7",
+            "minimax-m2.5": "minimax-m2.5",
             "minimax-m2.7": "minimax-m2.7",
             "kimi-k2.5": "kimi-k2.5",
+            "kimi-k2.6": "kimi-k2.6",
             "glm-5": "glm-5",
             "glm-5.1": "glm-5.1",
         }
@@ -159,6 +179,18 @@ class LLMClient:
             return (
                 "Bundled usage is not available yet for this model. "
                 "Run `/setup` to connect your own model provider, or use a local model for now."
+            )
+
+        if code == "model_rate_limited":
+            return (
+                "This bundled model is rate-limited right now for your account. "
+                "Try a cheaper model, wait a moment, or use your own key."
+            )
+
+        if code == "model_budget_exhausted":
+            return (
+                "This bundled model has reached its bundled budget limit for your account right now. "
+                "Switch to a cheaper bundled model, wait for the window to reset, or use your own key."
             )
 
         if code == "provider_request_failed":

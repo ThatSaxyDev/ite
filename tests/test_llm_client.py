@@ -138,6 +138,46 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(client._is_cloud_model())
 
+    def test_model_without_user_credentials_routes_through_cloud(self) -> None:
+        config = Config(
+            model={"name": "kimi-k2.5"},
+            api_key="",
+            base_url="",
+        )
+        client = LLMClient(config)
+
+        self.assertTrue(client._is_cloud_model())
+
+    def test_saved_profile_for_current_model_prevents_cloud_routing(self) -> None:
+        config = Config(
+            model={"name": "kimi-k2.5:cloud"},
+            api_key="",
+            base_url="",
+        )
+        client = LLMClient(config)
+
+        with patch(
+            "ite.client.llm_client.load_saved_custom_provider",
+            return_value={
+                "kimi-k2.5:cloud": {
+                    "model_name": "kimi-k2.5:cloud",
+                    "api_key": "sk-local",
+                    "base_url": "https://openrouter.ai/api/v1",
+                }
+            },
+        ):
+            self.assertFalse(client._is_cloud_model())
+
+    def test_cloud_model_name_resolution_preserves_new_bundled_ids(self) -> None:
+        self.assertEqual(
+            LLMClient(Config(model={"name": "minimax-m2.5:cloud"}))._resolve_cloud_model_name(),
+            "minimax-m2.5",
+        )
+        self.assertEqual(
+            LLMClient(Config(model={"name": "kimi-k2.6:cloud"}))._resolve_cloud_model_name(),
+            "kimi-k2.6",
+        )
+
     async def test_cloud_chat_completion_retries_transient_provider_failure(self) -> None:
         captured: list[dict] = []
         config = Config()
