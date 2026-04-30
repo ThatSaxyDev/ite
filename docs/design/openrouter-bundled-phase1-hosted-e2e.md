@@ -22,6 +22,9 @@ Implemented now:
   - request rate limits by model
   - spend caps by model
 - bundled cost simulation script added
+- temporary admin API controls added for hosted testing:
+  - usage reset by scope
+  - usage session simulation by user
 
 This is code-ready for a hosted backend push.
 
@@ -42,6 +45,7 @@ OPENROUTER_MODEL_MINIMAX_2_5=minimax/minimax-m2.5
 OPENROUTER_MODEL_MINIMAX=minimax/minimax-m2.7
 OPENROUTER_MODEL_GLM=z-ai/glm-5
 OPENROUTER_MODEL_GLM_5_1=z-ai/glm-5.1
+ADMIN_EMAILS=real-admin-account@example.com
 ```
 
 Still required as usual:
@@ -62,7 +66,7 @@ Bundled requests still require:
 Current note:
 
 - there is a backend route for this at `POST /billing/bundled-access`
-- there is not yet a visible web control wired for flipping this in the account UI
+- there is not yet a dedicated admin panel for billing/usage operator controls
 
 So for hosted testing, you need either:
 
@@ -75,6 +79,19 @@ The hosted frontend must still be configured to use the same cloud API origin th
 
 - the OpenRouter bundled key
 - the entitlement state for the test user
+
+### 4. Operator workflows are currently API-first
+
+Until there is a dedicated admin panel, operator tasks are done through backend routes from a signed-in browser session:
+
+- `POST /admin/usage/simulate`
+- `POST /admin/usage/reset`
+- `GET /admin/usage/resets`
+
+These routes require:
+
+- a real browser account that can sign in
+- that account's email to be listed in `ADMIN_EMAILS`
 
 ## Push Readiness Checklist
 
@@ -248,6 +265,140 @@ Expected:
 - bundled spend increments
 - by-model activity shows the chosen model
 - model names display correctly for the new entries
+
+## Temporary Operator Workflow
+
+This is the current way to test realistic usage without manually sending prompts through the runtime.
+
+### A. Create or choose a real browser admin account
+
+Requirements:
+
+- the account must be able to sign in normally on hosted web
+- its email must be listed in `ADMIN_EMAILS`
+
+Example:
+
+```env
+ADMIN_EMAILS=you@example.com
+```
+
+### B. Create the target test user normally
+
+Create the target account through the real web auth flow.
+
+Example target:
+
+- `daviddedeke10@gmail.com`
+
+### C. Simulate a bundled work session
+
+While signed in on hosted web as the admin account, open the browser console and run:
+
+```js
+await fetch("https://ite-cloud-api.onrender.com/admin/usage/simulate", {
+  method: "POST",
+  credentials: "include",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    targetEmail: "daviddedeke10@gmail.com",
+    profile: "power_user",
+    startedMinutesAgo: 90
+  })
+}).then(async (r) => ({ status: r.status, body: await r.json() }))
+```
+
+What this does:
+
+- targets one real user by email
+- seeds a realistic bundled session directly into `usage_events`
+- updates Usage and Billing through the normal API accounting path
+
+This does **not** call OpenRouter. It simulates the accounting side of a bundled session.
+
+### D. Available session profiles
+
+#### `typical_paid`
+
+Represents a normal paid session:
+
+- around 6 requests
+- prompt sizes roughly `11k` to `16k`
+- mixed bundled models
+- good baseline for ordinary usage
+
+#### `power_user`
+
+Represents a user actively leaning on the product:
+
+- around 10 requests
+- prompt sizes roughly `12k` to `26k`
+- sustained work over roughly 2.5 hours
+- recommended default profile for hosted testing
+
+#### `quota_edge`
+
+Represents a session designed to get close to rolling limits:
+
+- around 12 requests
+- heavier prompts
+- useful for checking usage windows and model policy responses
+
+#### `budget_stress`
+
+Represents deliberately expensive usage:
+
+- emphasizes `kimi-k2.6` and other pricier models
+- prompt sizes roughly `24k` to `50k`
+- useful for stress-testing spend behavior
+
+### E. Reset usage limits after testing
+
+To reset one user:
+
+```js
+await fetch("https://ite-cloud-api.onrender.com/admin/usage/reset", {
+  method: "POST",
+  credentials: "include",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    scope: "users",
+    userIds: ["<target-user-id>"],
+    reason: "Reset after hosted usage test"
+  })
+}).then(async (r) => ({ status: r.status, body: await r.json() }))
+```
+
+To reset everyone:
+
+```js
+await fetch("https://ite-cloud-api.onrender.com/admin/usage/reset", {
+  method: "POST",
+  credentials: "include",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    scope: "all",
+    reason: "Global usage reset after hosted QA"
+  })
+}).then(async (r) => ({ status: r.status, body: await r.json() }))
+```
+
+Important:
+
+- resets affect usage-limit calculations
+- resets do **not** erase billing/activity history
+- Billing analytics remain a ledger view of what happened
+- Usage windows begin counting again from the reset cutoff
+
+### F. What to verify after simulation
+
+After seeding a session:
+
+1. open the target user's Usage page
+2. verify 5-hour and weekly windows show non-zero usage
+3. open the target user's Billing page
+4. verify daily spend, model breakdown, and totals match the simulated session
+5. verify free models, if included, show requests but `$0.00`
 
 ### H. Mobile Remote
 
