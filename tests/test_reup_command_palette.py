@@ -328,6 +328,102 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("kimi-k2.6", rendered.plain)
         get_bundled_models.assert_not_called()
 
+    def test_refresh_bundled_models_cache_migrates_legacy_bundled_selection(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "glm-5.1:cloud"
+            app.config.model.source_kind = None
+            app.config.api_key = ""
+            app.config.base_url = ""
+
+            with patch(
+                "ite.ui.reup.app.get_bundled_models",
+                return_value=[{"model_name": "z-ai/glm-5.1", "label": "GLM-5.1"}],
+            ), patch(
+                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
+            ), patch(
+                "ite.ui.reup.app.save_system_config"
+            ) as save_system_config, patch.object(app, "refresh_header"):
+                await app._refresh_bundled_models_cache()
+
+            _, kwargs = save_system_config.call_args
+            self.assertEqual(kwargs["model_name"], "z-ai/glm-5.1")
+            self.assertEqual(kwargs["source_kind"], "bundled")
+            self.assertEqual(app.config.model.name, "z-ai/glm-5.1")
+            self.assertEqual(app.config.model.source_kind, "bundled")
+
+        asyncio.run(run_test())
+
+    def test_open_model_picker_uses_cached_bundled_models_without_refetch(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._bundled_models_cache = [
+                {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
+            ]
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
+
+            async def fake_open_modal(_modal):
+                return None
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models"
+            ) as get_bundled_models, patch.object(
+                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+            ):
+                await app._open_model_picker_from_meta()
+
+            get_bundled_models.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_open_usage_modal_uses_cached_summary_without_refetch(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
+            app._bundled_models_cache = [
+                {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
+            ]
+            app._usage_summary_cache = {
+                "quotas": {"fiveHour": {"usedUsdCents": 12, "capUsdCents": 20}}
+            }
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.get_usage_summary"
+            ) as get_usage_summary, patch.object(
+                app, "_open_modal", AsyncMock(return_value=None)
+            ), patch.object(
+                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+            ), patch.object(
+                app, "refresh_header"
+            ):
+                await app._open_usage_modal_from_meta()
+
+            get_usage_summary.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_open_activity_modal_uses_cached_payload_without_refetch(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._activity_cache = {"totals": {}, "daily": [], "by_model": []}
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.get_activity"
+            ) as get_activity, patch.object(
+                app, "_open_modal", AsyncMock(return_value=None)
+            ), patch.object(
+                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+            ):
+                await app._open_activity_modal_from_meta()
+
+            get_activity.assert_not_called()
+
+        asyncio.run(run_test())
+
     def test_composer_meta_text_shows_usage_for_canonical_bundled_model(self) -> None:
         app = self._app()
         app.config.model_name = "minimax/minimax-m2.7"

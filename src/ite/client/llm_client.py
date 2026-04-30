@@ -20,6 +20,15 @@ from ite.config.loader import load_saved_custom_provider
 import httpx
 from datetime import datetime
 
+LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
+    "kimi-k2.5:cloud": "moonshotai/kimi-k2.5",
+    "kimi-k2.6:cloud": "moonshotai/kimi-k2.6",
+    "minimax-m2.5:cloud": "minimax/minimax-m2.5",
+    "minimax-m2.7:cloud": "minimax/minimax-m2.7",
+    "glm-5:cloud": "z-ai/glm-5",
+    "glm-5.1:cloud": "z-ai/glm-5.1",
+}
+
 
 class LLMClient:
     def __init__(self, config: Config) -> None:
@@ -122,7 +131,11 @@ class LLMClient:
         return True
 
     def _resolve_cloud_model_name(self) -> str:
-        return str(self.config.model_name or "").strip()
+        model_name = str(self.config.model_name or "").strip()
+        source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
+        if source_kind == "bundled":
+            return LEGACY_BUNDLED_MODEL_ALIASES.get(model_name, model_name)
+        return model_name
 
     def _format_cloud_error(self, payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}

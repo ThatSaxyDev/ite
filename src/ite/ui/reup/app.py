@@ -219,6 +219,15 @@ from .tool_views import (
     truncate_for_tool,
 )
 
+LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
+    "kimi-k2.5:cloud": "moonshotai/kimi-k2.5",
+    "kimi-k2.6:cloud": "moonshotai/kimi-k2.6",
+    "minimax-m2.5:cloud": "minimax/minimax-m2.5",
+    "minimax-m2.7:cloud": "minimax/minimax-m2.7",
+    "glm-5:cloud": "z-ai/glm-5",
+    "glm-5.1:cloud": "z-ai/glm-5.1",
+}
+
 
 class ReupPromptTextArea(TextArea):
     class Submitted(Message):
@@ -783,6 +792,8 @@ class ReupApp(App):
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
         self._bundled_models_cache: list[dict[str, Any]] = []
+        self._usage_summary_cache: dict[str, Any] | None = None
+        self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = True
         self._startup_phase_text: str = "Preparing your workspace"
         self._startup_error_text: str | None = None
@@ -1059,7 +1070,7 @@ class ReupApp(App):
 
                 self._set_signed_out_state(False)
                 self._cloud_bootstrap_busy = False
-                self.run_worker(self._refresh_bundled_models_cache(), exclusive=False)
+                self._prefetch_cloud_caches()
                 # Cloud verification is on-demand; startup should not block on network reachability.
 
             if self._should_show_onboarding():
@@ -2068,6 +2079,10 @@ class ReupApp(App):
             return
         self.run_worker(self._refresh_usage_meta(), exclusive=False)
 
+    def _canonical_bundled_model_name(self, model_name: str) -> str:
+        normalized = str(model_name or "").strip()
+        return LEGACY_BUNDLED_MODEL_ALIASES.get(normalized, normalized)
+
     def _is_bundled_model(self) -> bool:
         """Check if current model is a bundled (backend-provided) model.
 
@@ -2098,7 +2113,72 @@ class ReupApp(App):
         except Exception:
             return
         self._bundled_models_cache = bundled
+        self._migrate_legacy_bundled_selection_if_needed()
         self.refresh_header()
+
+    async def _refresh_usage_summary_cache(self) -> None:
+        try:
+            summary = await asyncio.to_thread(get_usage_summary, self.config)
+        except Exception:
+            return
+        self._usage_summary_cache = summary
+        if summary:
+            quotas = summary.get("quotas") or {}
+            five_hour = quotas.get("fiveHour") or {}
+            used = int(five_hour.get("usedUsdCents") or 0)
+            cap = max(1, int(five_hour.get("capUsdCents") or 1))
+            remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+            if remaining != self._usage_remaining_percent:
+                self._usage_remaining_percent = remaining
+                self.refresh_header()
+
+    async def _refresh_activity_cache(self) -> None:
+        try:
+            payload = await asyncio.to_thread(get_activity, self.config)
+        except Exception:
+            return
+        self._activity_cache = payload
+
+    def _prefetch_cloud_caches(self) -> None:
+        self.run_worker(self._refresh_bundled_models_cache(), exclusive=False)
+        self.run_worker(self._refresh_activity_cache(), exclusive=False)
+        if self._is_bundled_model():
+            self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
+
+    def _migrate_legacy_bundled_selection_if_needed(self) -> None:
+        current_model = str(self.config.model_name or "").strip()
+        canonical_model = self._canonical_bundled_model_name(current_model)
+        if not current_model or canonical_model == current_model:
+            return
+        bundled_model_names = {
+            str(item.get("model_name") or "").strip() for item in self._bundled_models_cache
+        }
+        if canonical_model not in bundled_model_names:
+            return
+        if self._has_active_user_provider_credentials():
+            return
+        saved_providers = load_saved_custom_provider()
+        if current_model in saved_providers or canonical_model in saved_providers:
+            return
+        try:
+            save_system_config(
+                api_key=self.config.api_key or "",
+                base_url=self.config.base_url or "",
+                model_name=canonical_model,
+                context_window=int(self.config.model.context_window or DEFAULT_CONTEXT_WINDOW),
+                context_window_source=str(
+                    getattr(self.config.model, "context_window_source", "") or ""
+                ).strip()
+                or "fallback_default",
+                source_kind="bundled",
+                cloud_auth_enabled=self.config.cloud_auth_enabled,
+                cloud_api_url=self.config.cloud_api_url,
+                cloud_client_id=self.config.cloud_client_id,
+            )
+        except Exception:
+            return
+        self.config.model.name = canonical_model
+        self.config.model.source_kind = "bundled"
 
     def _schedule_usage_meta_refresh_for_cloud_model(self) -> None:
         if not self._is_bundled_model():
@@ -2591,7 +2671,9 @@ class ReupApp(App):
             return
         while True:
             current_model = self.config.model_name
-            bundled_items = get_bundled_models(self.config)
+            bundled_items = self._bundled_models_cache
+            if not bundled_items:
+                bundled_items = await asyncio.to_thread(get_bundled_models, self.config)
             self._bundled_models_cache = bundled_items
             saved_providers = load_saved_custom_provider()
             bundled_model_names = {
@@ -3084,12 +3166,17 @@ class ReupApp(App):
                 is_error=True,
             )
             return
-        summary = get_usage_summary(self.config)
+        summary = self._usage_summary_cache
+        if summary is None:
+            summary = await asyncio.to_thread(get_usage_summary, self.config)
+        else:
+            self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
         if not summary:
             self.post_system(
                 "Usage", "Usage is not available right now.", is_error=True
             )
             return
+        self._usage_summary_cache = summary
         quotas = summary.get("quotas") or {}
         five_hour = quotas.get("fiveHour") or {}
         used = int(five_hour.get("usedUsdCents") or 0)
@@ -3125,7 +3212,11 @@ class ReupApp(App):
 
     async def _open_activity_modal_from_meta(self) -> None:
         await self.ensure_agent()
-        payload = get_activity(self.config)
+        payload = self._activity_cache
+        if payload is None:
+            payload = await asyncio.to_thread(get_activity, self.config)
+        else:
+            self.run_worker(self._refresh_activity_cache(), exclusive=False)
         if not payload:
             self.post_system(
                 "Activity",
@@ -3133,6 +3224,7 @@ class ReupApp(App):
                 is_error=True,
             )
             return
+        self._activity_cache = payload
         await self._open_modal(ActivityModal(payload))
 
     async def _open_attach_picker_from_meta(self) -> None:
@@ -3451,7 +3543,7 @@ class ReupApp(App):
 
         self._cloud_auth_busy = False
         self._set_signed_out_state(False)
-        self.run_worker(self._refresh_bundled_models_cache(), exclusive=False)
+        self._prefetch_cloud_caches()
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
         self._message_count = 0
@@ -6721,6 +6813,8 @@ class ReupApp(App):
                 #     "You're now using bundled access.",
                 # )
                 self._bundled_access_announced = True
+            if not self._cloud_signed_out:
+                self._prefetch_cloud_caches()
             run_state.failure_recovery_payload = None
             await self._dispatch_queued_payload_if_ready()
         elif (
