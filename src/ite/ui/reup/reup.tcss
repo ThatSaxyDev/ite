@@ -193,7 +193,7 @@ Screen {
     split: right;
     width: 48%;
     min-width: 48;
-    max-width: 120;
+    max-width: 160;
     height: 1fr;
     background: $surface;
     padding: 1 2 0 2;
