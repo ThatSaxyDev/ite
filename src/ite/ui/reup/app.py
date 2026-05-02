@@ -4756,6 +4756,7 @@ class ReupApp(App):
             self.post_system("Git", commit_result.message, is_error=True)
             return
         self.post_notice("Git", commit_result.message)
+        await self._hide_change_review_panel()
 
     @on(events.Click, "#change-review-commit")
     def on_change_review_commit(self, event: events.Click) -> None:
