@@ -1507,29 +1507,29 @@ ConfirmModal .confirm-actions {
     margin-bottom: 0;
 }
 
-ConfirmModal #yes {
-    width: 14;
-    min-width: 14;
+ConfirmModal .confirm-primary {
+    width: auto;
+    min-width: 16;
     text-style: bold;
     background: #4edea3;
     color: #07140f;
     border: none;
 }
 
-ConfirmModal #yes:hover {
+ConfirmModal .confirm-primary:hover {
     background: #6ae7b5;
 }
 
-ConfirmModal #no {
-    width: 12;
-    min-width: 12;
+ConfirmModal .confirm-secondary {
+    width: auto;
+    min-width: 16;
     text-style: bold;
     background: #2a2a2c;
     color: #edf1f7;
     border: none;
 }
 
-ConfirmModal #no:hover {
+ConfirmModal .confirm-secondary:hover {
     background: #313337;
 }
 

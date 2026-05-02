@@ -14,6 +14,7 @@ from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
+from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
@@ -49,6 +50,141 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertTrue(ReupApp._is_internal_todo_event("todos_exec_progress_abcd1234"))
         self.assertTrue(ReupApp._is_internal_todo_event("todos_seed_abcd1234"))
         self.assertFalse(ReupApp._is_internal_todo_event("manual_todos_call"))
+
+    def test_plan_intent_requires_explicit_plan_language(self) -> None:
+        app = self._app()
+
+        non_plan_messages = [
+            "build a dashboard for usage metrics",
+            "let's build the remote status view",
+            "create a small API endpoint",
+            "what steps should we take next",
+            "outline the current auth code",
+        ]
+        for message in non_plan_messages:
+            with self.subTest(message=message):
+                self.assertFalse(app._detect_plan_intent(message))
+
+        plan_messages = [
+            "let's plan the remote cleanup",
+            "make a plan before coding this",
+            "create an implementation plan",
+            "planning first, then implementation",
+            "outline the plan for auth",
+        ]
+        for message in plan_messages:
+            with self.subTest(message=message):
+                self.assertTrue(app._detect_plan_intent(message))
+
+    def test_confirm_modal_primary_no_makes_enter_choose_no(self) -> None:
+        modal = ConfirmModal(
+            title="Enable Plan Mode?",
+            body="Use Plan mode or send normally?",
+            yes_label="Use plan mode",
+            no_label="Send normally",
+            primary="no",
+        )
+        dismissed: list[bool] = []
+        modal.dismiss = dismissed.append  # type: ignore[method-assign]
+
+        modal.action_accept()
+        modal.action_yes()
+        modal.action_no()
+        modal.action_option_1()
+        modal.action_option_2()
+
+        self.assertEqual(dismissed, [False, True, False, True, False])
+
+    def test_confirm_modal_global_enter_respects_primary_no(self) -> None:
+        app = self._app()
+        modal = ConfirmModal(
+            title="Enable Plan Mode?",
+            body="Use Plan mode or send normally?",
+            yes_label="Use plan mode",
+            no_label="Send normally",
+            primary="no",
+        )
+        dismissed: list[bool] = []
+        modal.dismiss = dismissed.append  # type: ignore[method-assign]
+
+        class DummyEvent:
+            key = "enter"
+            stopped = False
+            default_prevented = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def prevent_default(self) -> None:
+                self.default_prevented = True
+
+        event = DummyEvent()
+        with patch.object(
+            ReupApp, "screen_stack", new_callable=PropertyMock, return_value=[modal]
+        ):
+            app.on_key(event)  # type: ignore[arg-type]
+
+        self.assertEqual(dismissed, [False])
+        self.assertTrue(event.stopped)
+        self.assertTrue(event.default_prevented)
+
+    def test_plan_intent_modal_defaults_to_send_normally(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            session = SimpleNamespace(
+                plan_mode_enabled=False,
+                set_plan_mode=unittest.mock.Mock(),
+                set_plan_phase=unittest.mock.Mock(),
+            )
+            app.agent = SimpleNamespace(session=session)
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+                app, "_open_modal", AsyncMock(return_value=False)
+            ) as open_modal:
+                result = await app._apply_intent_assist("let's plan the remote cleanup")
+
+            self.assertEqual(result, "let's plan the remote cleanup")
+            session.set_plan_mode.assert_not_called()
+            modal = open_modal.call_args.args[0]
+            self.assertEqual(modal._yes, "Use plan mode")
+            self.assertEqual(modal._no, "Send normally")
+            self.assertEqual(modal._primary, "no")
+
+        asyncio.run(run_test())
+
+    def test_loading_state_ignores_remote_broadcast_after_app_stops(self) -> None:
+        app = self._app()
+
+        with patch.object(
+            app, "run_worker", side_effect=RuntimeError("App is not running")
+        ):
+            app._set_loading_state("thinking", busy=True)
+
+        self.assertEqual(app._top_state_text, "thinking")
+        self.assertTrue(app._top_busy)
+
+    def test_cancel_active_turn_resolves_pending_plan_question(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._active_turn_task = asyncio.create_task(asyncio.sleep(10))
+            app._is_turn_running = True
+            plan_question_future = asyncio.get_running_loop().create_future()
+            app._plan_question_future = plan_question_future
+
+            with patch.object(app, "_clear_inflight_turn_ui", AsyncMock()), patch.object(
+                app, "_set_loading_state"
+            ), patch.object(app, "_broadcast_remote_state", AsyncMock()):
+                await app.cancel_active_turn()
+
+            self.assertEqual(
+                plan_question_future.result(),
+                {"selected_option": "", "free_text": "", "selected_index": None},
+            )
+            self.assertIsNone(app._plan_question_future)
+            self.assertIsNone(app._active_turn_task)
+            self.assertFalse(app._is_turn_running)
+
+        asyncio.run(run_test())
 
     def test_filtered_command_palette_matches_registry_commands(self) -> None:
         app = self._app()

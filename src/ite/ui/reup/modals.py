@@ -5,7 +5,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -67,12 +67,12 @@ HIDDEN_TEXTUAL_THEMES = {"textual-ansi"}
 class ConfirmModal(ModalScreen[bool]):
     BINDINGS = [
         ("enter", "accept", "Accept"),
-        ("y", "accept", "Accept"),
-        ("n", "cancel", "Cancel"),
+        ("y", "yes", "Yes"),
+        ("n", "no", "No"),
         ("escape", "cancel", "Cancel"),
         ("ctrl+c", "cancel", "Cancel"),
-        ("1", "cancel", "Option 1"),
-        ("2", "accept", "Option 2"),
+        ("1", "option_1", "Option 1"),
+        ("2", "option_2", "Option 2"),
     ]
 
     def __init__(
@@ -81,37 +81,78 @@ class ConfirmModal(ModalScreen[bool]):
         body: str,
         yes_label: str = "Approve",
         no_label: str = "Deny",
+        primary: Literal["yes", "no"] = "yes",
     ) -> None:
         super().__init__()
         self._title = title
         self._body = body
         self._yes = yes_label
         self._no = no_label
+        self._primary = primary
+        self._left_result = primary != "yes"
+        self._right_result = primary == "yes"
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal confirm-modal"):
             yield Label(self._title, classes="modal-title")
             yield Static(self._body, classes="modal-body confirm-body")
             with Horizontal(classes="modal-actions resume-actions confirm-actions"):
-                yield Button(self._no, id="no", variant="default")
-                yield Button(self._yes, id="yes", variant="success")
+                if self._primary == "yes":
+                    yield Button(
+                        self._no,
+                        id="no",
+                        variant="default",
+                        classes="confirm-secondary",
+                    )
+                    yield Button(
+                        self._yes,
+                        id="yes",
+                        variant="success",
+                        classes="confirm-primary",
+                    )
+                else:
+                    yield Button(
+                        self._yes,
+                        id="yes",
+                        variant="default",
+                        classes="confirm-secondary",
+                    )
+                    yield Button(
+                        self._no,
+                        id="no",
+                        variant="success",
+                        classes="confirm-primary",
+                    )
 
     async def on_mount(self) -> None:
-        self.query_one("#yes", Button).focus()
+        focus_id = "#yes" if self._primary == "yes" else "#no"
+        self.query_one(focus_id, Button).focus()
 
     def action_accept(self) -> None:
-        self.dismiss(True)
+        self.dismiss(self._primary == "yes")
 
     def action_cancel(self) -> None:
         self.dismiss(False)
 
+    def action_yes(self) -> None:
+        self.dismiss(True)
+
+    def action_no(self) -> None:
+        self.dismiss(False)
+
+    def action_option_1(self) -> None:
+        self.dismiss(self._left_result)
+
+    def action_option_2(self) -> None:
+        self.dismiss(self._right_result)
+
     @on(Button.Pressed, "#yes")
     def on_yes_pressed(self, _event: Button.Pressed) -> None:
-        self.action_accept()
+        self.action_yes()
 
     @on(Button.Pressed, "#no")
     def on_no_pressed(self, _event: Button.Pressed) -> None:
-        self.action_cancel()
+        self.action_no()
 
 
 class PushReviewModal(ModalScreen[bool]):

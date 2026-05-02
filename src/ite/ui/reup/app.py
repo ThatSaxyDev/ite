@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import inspect
 import io
 import json
 import os
@@ -3384,22 +3385,37 @@ class ReupApp(App):
             timeout=8,
         )
 
+    def _run_worker_safely(self, work: Any, *, exclusive: bool = False) -> None:
+        if self._shutdown_started:
+            if inspect.iscoroutine(work):
+                work.close()
+            return
+        try:
+            self.run_worker(work, exclusive=exclusive)
+        except RuntimeError as exc:
+            if "App is not running" not in str(exc):
+                raise
+            if inspect.iscoroutine(work):
+                work.close()
+
     def _set_loading_state(self, state: str, busy: bool) -> None:
         self._top_state_text = state
         self._top_busy = busy
         self._activity_version += 1
         version = self._activity_version
-        self.run_worker(self._broadcast_remote_state(), exclusive=False)
+        self._run_worker_safely(self._broadcast_remote_state(), exclusive=False)
         if busy:
-            self.run_worker(
+            self._run_worker_safely(
                 self._show_activity_indicator(state, version), exclusive=False
             )
         else:
-            self.run_worker(self._hide_activity_indicator(version), exclusive=False)
+            self._run_worker_safely(
+                self._hide_activity_indicator(version), exclusive=False
+            )
 
         try:
             prompt = self.query_one("#prompt", TextArea)
-        except NoMatches:
+        except (NoMatches, ScreenStackError):
             return
         prompt.disabled = (
             self._cloud_signed_out or self._startup_active or self._onboarding_active
@@ -5061,6 +5077,7 @@ class ReupApp(App):
         return await result_future
 
     async def _perform_quit(self) -> None:
+        self._resolve_pending_plan_question(empty=True)
         try:
             await self.auto_save()
         except Exception:
@@ -5175,60 +5192,47 @@ class ReupApp(App):
 
     def _detect_plan_intent(self, message: str) -> bool:
         text = (message or "").strip().lower()
+        if not re.search(r"\bplans?\b|\bplanning\b", text):
+            return False
+
         strong_phrases = (
             "make a plan",
+            "make plans",
             "implementation plan",
+            "implementation planning",
             "before coding",
-            "steps to build",
             "plan this",
             "create a plan",
             "draft a plan",
             "what is the plan",
             "outline the plan",
+            "planning first",
+            "plan before",
         )
         if any(p in text for p in strong_phrases):
             return True
 
-        if bool(
-            re.search(
-                r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text
-            )
-        ):
+        plan_context_markers = (
+            "let's",
+            "lets",
+            "let us",
+            "need",
+            "needs",
+            "should",
+            "before",
+            "first",
+            "outline",
+            "draft",
+            "create",
+            "make",
+            "write",
+            "implementation",
+            "approach",
+        )
+        if any(marker in text for marker in plan_context_markers):
             return True
 
-        build_intent_markers = (
-            "i want to build",
-            "i want to create",
-            "help me build",
-            "help me create",
-            "how should i build",
-            "how do i build",
-            "design a",
-            "build a",
-            "create a",
-            "architect a",
-        )
-        product_targets = (
-            "app",
-            "game",
-            "website",
-            "web app",
-            "tool",
-            "platform",
-            "system",
-            "project",
-            "feature",
-            "api",
-            "dashboard",
-        )
-        if any(m in text for m in build_intent_markers) and any(
-            t in text for t in product_targets
-        ):
-            return True
-
-        return bool(
-            re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text
-        )
+        return False
 
     def _detect_execution_intent(self, message: str) -> bool:
         text = (message or "").strip().lower()
@@ -5288,9 +5292,10 @@ class ReupApp(App):
             choice = await self._open_modal(
                 ConfirmModal(
                     title="Enable Plan Mode?",
-                    body="This prompt looks like planning. Switch to Plan mode before sending?",
-                    yes_label="Enable Plan Mode",
-                    no_label="Send Normally",
+                    body="This prompt mentions planning. Use Plan mode or send normally?",
+                    yes_label="Use plan mode",
+                    no_label="Send normally",
+                    primary="no",
                 )
             )
             if choice is None:
@@ -5392,14 +5397,32 @@ class ReupApp(App):
             top = self.screen_stack[-1]
             if isinstance(top, ConfirmModal):
                 key = event.key
-                if key in {"enter", "y", "2"}:
-                    top.dismiss(True)
+                if key == "enter":
+                    top.action_accept()
                     event.stop()
                     if hasattr(event, "prevent_default"):
                         event.prevent_default()
                     return
-                if key in {"n", "escape", "ctrl+c", "1"}:
-                    top.dismiss(False)
+                if key == "y":
+                    top.action_yes()
+                    event.stop()
+                    if hasattr(event, "prevent_default"):
+                        event.prevent_default()
+                    return
+                if key == "2":
+                    top.action_option_2()
+                    event.stop()
+                    if hasattr(event, "prevent_default"):
+                        event.prevent_default()
+                    return
+                if key == "1":
+                    top.action_option_1()
+                    event.stop()
+                    if hasattr(event, "prevent_default"):
+                        event.prevent_default()
+                    return
+                if key in {"n", "escape", "ctrl+c"}:
+                    top.action_no()
                     event.stop()
                     if hasattr(event, "prevent_default"):
                         event.prevent_default()
@@ -7509,52 +7532,90 @@ class ReupApp(App):
                 )
             )
 
-        pending: set[asyncio.Task[Any]] = {local_task}
+        tasks_to_cleanup: list[asyncio.Task[Any]] = [local_task]
         if remote_task is not None:
-            pending.add(remote_task)
-        winner: asyncio.Task[Any] | None = None
-        answer: dict[str, Any] | None = None
-        while pending:
-            done, pending = await asyncio.wait(
-                pending, return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in done:
-                result = task.result()
-                if task is remote_task and result is None:
-                    continue
-                winner = task
-                answer = result
-                break
-            if winner is not None:
-                break
+            tasks_to_cleanup.append(remote_task)
+        try:
+            pending: set[asyncio.Task[Any]] = {local_task}
+            if remote_task is not None:
+                pending.add(remote_task)
+            winner: asyncio.Task[Any] | None = None
+            answer: dict[str, Any] | None = None
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    result = task.result()
+                    if task is remote_task and result is None:
+                        continue
+                    winner = task
+                    answer = result
+                    break
+                if winner is not None:
+                    break
 
-        if not isinstance(answer, dict):
-            answer = {"selected_option": "", "free_text": "", "selected_index": None}
+            if not isinstance(answer, dict):
+                answer = {
+                    "selected_option": "",
+                    "free_text": "",
+                    "selected_index": None,
+                }
 
-        selected_index = answer.get("selected_index")
-        if not isinstance(selected_index, int):
-            selected_index = None
-        selected_option = str(answer.get("selected_option") or "")
-        free_text = str(answer.get("free_text") or "")
+            selected_index = answer.get("selected_index")
+            if not isinstance(selected_index, int):
+                selected_index = None
+            selected_option = str(answer.get("selected_option") or "")
+            free_text = str(answer.get("free_text") or "")
 
-        if winner is local_task and remote_task is not None and request_id:
-            assert self._remote_server is not None
-            await self._remote_server.resolve_plan_question_request(request_id, answer)
-            await remote_task
-            await self._broadcast_remote_state()
-        elif winner is remote_task:
-            await self._resolve_plan_question_choice(
-                selected_index=selected_index,
-                selected_option=selected_option,
-                free_text=free_text,
-            )
-            await local_task
-            await self._broadcast_remote_state()
-        return {
-            "selected_option": selected_option,
-            "free_text": free_text.strip(),
-            "selected_index": selected_index,
-        }
+            if winner is local_task and remote_task is not None and request_id:
+                assert self._remote_server is not None
+                await self._remote_server.resolve_plan_question_request(
+                    request_id, answer
+                )
+                await remote_task
+                await self._broadcast_remote_state()
+            elif winner is remote_task:
+                await self._resolve_plan_question_choice(
+                    selected_index=selected_index,
+                    selected_option=selected_option,
+                    free_text=free_text,
+                )
+                await local_task
+                await self._broadcast_remote_state()
+            return {
+                "selected_option": selected_option,
+                "free_text": free_text.strip(),
+                "selected_index": selected_index,
+            }
+        finally:
+            for task in tasks_to_cleanup:
+                if not task.done():
+                    task.cancel()
+
+    def _reset_plan_question_state(self) -> None:
+        self._plan_question_future = None
+        self._plan_question_options = []
+        self._plan_question_number = 0
+        self._plan_question_prompt = ""
+        self._plan_question_option_buttons = []
+        self._plan_question_custom_input = None
+        self._plan_question_custom_submit = None
+        self._plan_question_status = None
+        self._plan_question_recommended_index = None
+
+    def _resolve_pending_plan_question(self, *, empty: bool) -> None:
+        future = self._plan_question_future
+        if future is None:
+            self._reset_plan_question_state()
+            return
+        if not future.done():
+            result = {"selected_option": "", "free_text": "", "selected_index": None}
+            if empty:
+                future.set_result(result)
+            else:
+                future.cancel()
+        self._reset_plan_question_state()
 
     async def _resolve_plan_question_choice(
         self, *, selected_index: int | None, selected_option: str, free_text: str
@@ -7591,15 +7652,7 @@ class ReupApp(App):
             self._plan_question_status.display = True
 
         future.set_result(result)
-        self._plan_question_future = None
-        self._plan_question_options = []
-        self._plan_question_number = 0
-        self._plan_question_prompt = ""
-        self._plan_question_option_buttons = []
-        self._plan_question_custom_input = None
-        self._plan_question_custom_submit = None
-        self._plan_question_status = None
-        self._plan_question_recommended_index = None
+        self._reset_plan_question_state()
 
     @on(Button.Pressed)
     async def on_plan_question_button_pressed(self, event: Button.Pressed) -> None:
@@ -7690,6 +7743,15 @@ class ReupApp(App):
         self._streaming_buffer = ""
 
     async def _clear_inflight_turn_ui(self) -> None:
+        self._resolve_pending_plan_question(empty=True)
+        if self._plan_question_card is not None:
+            try:
+                await self._plan_question_card.remove()
+            except Exception:
+                pass
+            self._plan_question_card = None
+            self._message_count = max(0, self._message_count - 1)
+
         if self._streaming_widget is not None:
             try:
                 await self._streaming_widget.remove()
@@ -10413,6 +10475,7 @@ class ReupApp(App):
         task = self._active_turn_task
         if not task:
             return
+        self._resolve_pending_plan_question(empty=True)
         self._active_turn_id += 1
         if not task.done():
             task.cancel()

@@ -205,6 +205,28 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_perform_quit_resolves_pending_plan_question(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            plan_question_future = asyncio.get_running_loop().create_future()
+            app._plan_question_future = plan_question_future
+
+            with (
+                patch.object(app, "auto_save", AsyncMock()),
+                patch.object(app, "_shutdown_remote_server", AsyncMock()),
+                patch.object(app, "_shutdown_agents", AsyncMock()),
+                patch.object(app, "exit"),
+            ):
+                await app._perform_quit()
+
+            self.assertEqual(
+                plan_question_future.result(),
+                {"selected_option": "", "free_text": "", "selected_index": None},
+            )
+            self.assertIsNone(app._plan_question_future)
+
+        asyncio.run(run_test())
+
     def test_bootstrap_shows_onboarding_without_starting_agent(self) -> None:
         async def run_test() -> None:
             app = self._app()
