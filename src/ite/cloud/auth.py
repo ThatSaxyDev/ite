@@ -392,6 +392,31 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
     return bundled
 
 
+def get_cloud_entitlements(config: Config) -> dict[str, Any]:
+    try:
+        session = get_cloud_session(config)
+        if session is None:
+            return {}
+
+        status, payload = _get_json(
+            f"{session.api_url.rstrip('/')}/auth/me",
+            access_token=session.access_token,
+        )
+    except (CloudAuthError, CloudConnectionError):
+        return {}
+    if status != 200 or not payload.get("ok"):
+        return {}
+    entitlements = payload.get("entitlements")
+    return entitlements if isinstance(entitlements, dict) else {}
+
+
+def has_remote_companion_access(config: Config) -> bool:
+    entitlements = get_cloud_entitlements(config)
+    if "remoteCompanion" in entitlements:
+        return bool(entitlements.get("remoteCompanion"))
+    return bool(entitlements.get("bundledInference"))
+
+
 def get_usage_summary(config: Config) -> dict[str, Any] | None:
     try:
         session = get_cloud_session(config)

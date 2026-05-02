@@ -8,8 +8,10 @@ from ite.cloud.auth import (
     ensure_cloud_auth,
     get_activity,
     get_bundled_models,
+    get_cloud_entitlements,
     get_cloud_session,
     has_stored_cloud_auth,
+    has_remote_companion_access,
     get_usage_summary,
 )
 from ite.config.config import Config
@@ -71,6 +73,64 @@ class CloudAuthTests(unittest.TestCase):
             models[0]["unavailable_reason"],
             "Local bundled provider returned 500.",
         )
+
+    def test_remote_companion_access_uses_explicit_entitlement(self) -> None:
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
+            "ite.cloud.auth._get_json",
+            side_effect=[
+                (200, {"ok": True}),
+                (
+                    200,
+                    {
+                        "ok": True,
+                        "entitlements": {
+                            "bundledInference": False,
+                            "remoteCompanion": True,
+                        },
+                    },
+                ),
+            ],
+        ):
+            self.assertEqual(
+                get_cloud_entitlements(self.config)["remoteCompanion"],
+                True,
+            )
+
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
+            "ite.cloud.auth._get_json",
+            side_effect=[
+                (200, {"ok": True}),
+                (
+                    200,
+                    {
+                        "ok": True,
+                        "entitlements": {
+                            "bundledInference": False,
+                            "remoteCompanion": True,
+                        },
+                    },
+                ),
+            ],
+        ):
+            self.assertTrue(has_remote_companion_access(self.config))
+
+    def test_remote_companion_access_falls_back_to_bundled_entitlement(self) -> None:
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
+            "ite.cloud.auth._get_json",
+            side_effect=[
+                (200, {"ok": True}),
+                (
+                    200,
+                    {
+                        "ok": True,
+                        "entitlements": {
+                            "bundledInference": True,
+                        },
+                    },
+                ),
+            ],
+        ):
+            self.assertTrue(has_remote_companion_access(self.config))
 
     def test_ensure_cloud_auth_waits_for_browser_ready_signal(self) -> None:
         start_payload = {

@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import dataclass, field
+from typing import Any
 
 from ite.remote.server import RemoteRuntimeServer
 from ite.remote.server import _PlanQuestionRequest
@@ -12,6 +14,43 @@ from ite.remote.server import _PlanReadyRequest
 from ite.remote.server import _TrustedDevice
 from ite.remote.security import load_or_create_tls_identity
 from ite.remote.uri import parse_connection_uri
+
+
+@dataclass
+class _FakeClient:
+    client_id: str = "client-1"
+    address: str = "127.0.0.1:50000"
+    authenticated: bool = False
+    write_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def __post_init__(self) -> None:
+        self.writer = _FakeWriter()
+
+
+class _FakeWriter:
+    def __init__(self) -> None:
+        self.frames: list[dict[str, Any]] = []
+        self.closed = False
+
+    def write(self, data: bytes) -> None:
+        self.frames.append(__import__("json").loads(data.decode("utf-8")))
+
+    async def drain(self) -> None:
+        return None
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def wait_closed(self) -> None:
+        return None
+
+
+class _HangingWriter(_FakeWriter):
+    async def drain(self) -> None:
+        await asyncio.sleep(10)
+
+    async def wait_closed(self) -> None:
+        await asyncio.sleep(10)
 
 
 class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
@@ -137,6 +176,57 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["pair_code"], info["pair_code"])
         self.assertEqual(parsed["fingerprint"], info["fingerprint"])
         self.assertEqual(info["exposure_mode"], "local")
+
+    async def test_handshake_rejects_when_access_checker_denies_remote(self) -> None:
+        server = RemoteRuntimeServer(
+            state_provider=lambda: {},
+            submit_prompt=lambda _message: None,
+            cancel_turn=lambda: None,
+            access_checker=lambda: False,
+        )
+        client = _FakeClient()
+
+        await server._handle_handshake(
+            client,
+            {
+                "type": "hello",
+                "payload": {
+                    "pair_code": "123456",
+                    "device_id": "device-1",
+                },
+            },
+        )
+
+        self.assertFalse(client.authenticated)
+        self.assertEqual(client.writer.frames[0]["type"], "error")
+        self.assertEqual(
+            client.writer.frames[0]["payload"]["code"],
+            "remote_entitlement_denied",
+        )
+
+    async def test_stop_notifies_authenticated_clients_before_closing(self) -> None:
+        server = self._isolated_server()
+        client = _FakeClient(authenticated=True)
+        server._clients[client.client_id] = client
+
+        await server.stop(reason="bridge_stopped", message="Remote bridge stopped.")
+
+        self.assertEqual(client.writer.frames[0]["type"], "remote_shutdown")
+        self.assertEqual(client.writer.frames[0]["payload"]["reason"], "bridge_stopped")
+        self.assertTrue(client.writer.closed)
+
+    async def test_stop_does_not_hang_on_stuck_client_socket(self) -> None:
+        server = self._isolated_server()
+        server.SHUTDOWN_NOTIFY_TIMEOUT_SECONDS = 0.01
+        server.SHUTDOWN_CLOSE_TIMEOUT_SECONDS = 0.01
+        client = _FakeClient(authenticated=True)
+        client.writer = _HangingWriter()
+        server._clients[client.client_id] = client
+
+        await asyncio.wait_for(server.stop(), timeout=0.2)
+
+        self.assertEqual(server._clients, {})
+        self.assertTrue(client.writer.closed)
 
     async def test_revoke_all_devices_marks_tokens_inactive(self) -> None:
         server = self._isolated_server()

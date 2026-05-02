@@ -113,6 +113,8 @@ class RemoteRuntimeServer:
     MAX_FAILED_ATTEMPTS = 5
     FAILED_ATTEMPT_WINDOW_SECONDS = 60
     FAILED_ATTEMPT_BLOCK_SECONDS = 120
+    SHUTDOWN_NOTIFY_TIMEOUT_SECONDS = 0.5
+    SHUTDOWN_CLOSE_TIMEOUT_SECONDS = 0.5
 
     def __init__(
         self,
@@ -121,11 +123,13 @@ class RemoteRuntimeServer:
         submit_prompt: MaybeAsync,
         cancel_turn: MaybeAsync,
         switch_session: MaybeAsync | None = None,
+        access_checker: MaybeAsync | None = None,
     ) -> None:
         self._state_provider = state_provider
         self._submit_prompt = submit_prompt
         self._cancel_turn = cancel_turn
         self._switch_session = switch_session
+        self._access_checker = access_checker
         self._server: asyncio.AbstractServer | None = None
         self._host: str = "0.0.0.0"
         self._port: int = 0
@@ -327,12 +331,39 @@ class RemoteRuntimeServer:
         self.regenerate_pair_code()
         return self.connection_info()
 
-    async def stop(self) -> None:
+    async def stop(
+        self,
+        *,
+        reason: str = "bridge_stopped",
+        message: str = "Remote bridge stopped.",
+    ) -> None:
         server = self._server
         self._server = None
         if server is not None:
             server.close()
-            await server.wait_closed()
+            try:
+                await asyncio.wait_for(
+                    server.wait_closed(),
+                    timeout=self.SHUTDOWN_CLOSE_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                pass
+
+        if self.has_authenticated_clients():
+            try:
+                await asyncio.wait_for(
+                    self._broadcast(
+                        "remote_shutdown",
+                        {
+                            "reason": reason,
+                            "message": message,
+                            "timestamp": utc_now_iso(),
+                        },
+                    ),
+                    timeout=self.SHUTDOWN_NOTIFY_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                pass
 
         for client in list(self._clients.values()):
             try:
@@ -344,12 +375,21 @@ class RemoteRuntimeServer:
         for task in client_tasks:
             task.cancel()
         if client_tasks:
-            await asyncio.gather(*client_tasks, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*client_tasks, return_exceptions=True),
+                    timeout=self.SHUTDOWN_CLOSE_TIMEOUT_SECONDS,
+                )
+            except Exception:
+                pass
         self._client_tasks.clear()
 
         for client in list(self._clients.values()):
             try:
-                await client.writer.wait_closed()
+                await asyncio.wait_for(
+                    client.writer.wait_closed(),
+                    timeout=self.SHUTDOWN_CLOSE_TIMEOUT_SECONDS,
+                )
             except Exception:
                 pass
         self._clients.clear()
@@ -665,6 +705,18 @@ class RemoteRuntimeServer:
         device_platform = str(payload.get("platform") or "").strip()
         now = datetime.now(timezone.utc)
 
+        if not await self._has_remote_access():
+            await self._send(
+                client,
+                "error",
+                {
+                    "code": "remote_entitlement_denied",
+                    "message": "Remote companion requires bundled access for this iTE account.",
+                    "recovery_hint": "Sign in to an account with bundled access on your computer, then run `/remote on` again.",
+                },
+            )
+            return
+
         if self._is_address_throttled(client, now=now):
             await self._send(
                 client,
@@ -750,6 +802,24 @@ class RemoteRuntimeServer:
         msg_type = str(message.get("type") or "").strip()
         payload = message.get("payload") or {}
         request_id = str(message.get("request_id") or "").strip() or None
+
+        if not await self._has_remote_access():
+            await self._send(
+                client,
+                "error",
+                {
+                    "code": "remote_entitlement_denied",
+                    "message": "Remote companion access is no longer available for this iTE account.",
+                    "recovery_hint": "Manage bundled access on your computer, then reconnect from the mobile app.",
+                },
+                request_id=request_id,
+            )
+            try:
+                client.writer.close()
+                await client.writer.wait_closed()
+            except Exception:
+                pass
+            return
 
         if msg_type == "ping":
             await self._send(client, "pong", {"timestamp": utc_now_iso()}, request_id=request_id)
@@ -911,6 +981,11 @@ class RemoteRuntimeServer:
             {"message": f"Unsupported message type: {msg_type or 'unknown'}"},
             request_id=request_id,
         )
+
+    async def _has_remote_access(self) -> bool:
+        if self._access_checker is None:
+            return True
+        return bool(await self._call(self._access_checker))
 
     async def _broadcast(
         self,

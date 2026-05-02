@@ -166,6 +166,45 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_remote_command_requires_bundled_access_before_starting_bridge(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            with (
+                patch.object(app, "_has_remote_companion_access", AsyncMock(return_value=False)),
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "_ensure_remote_server", AsyncMock()) as ensure_remote_server,
+            ):
+                await app._run_remote_command_native(["on"])
+
+            ensure_remote_server.assert_not_awaited()
+            post_system.assert_called_once()
+            self.assertIn("bundled access", post_system.call_args.args[1])
+
+        asyncio.run(run_test())
+
+    def test_perform_quit_does_not_hang_on_remote_shutdown(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            async def _never_finishes() -> None:
+                await asyncio.sleep(10)
+
+            app._remote_server = SimpleNamespace(stop=AsyncMock(side_effect=_never_finishes))
+
+            with (
+                patch.object(app, "auto_save", AsyncMock()),
+                patch.object(app, "_shutdown_agents", AsyncMock()) as shutdown_agents,
+                patch.object(app, "exit") as exit_app,
+            ):
+                await asyncio.wait_for(app._perform_quit(), timeout=2.5)
+
+            shutdown_agents.assert_awaited_once()
+            exit_app.assert_called_once()
+            self.assertIsNone(app._remote_server)
+
+        asyncio.run(run_test())
+
     def test_bootstrap_shows_onboarding_without_starting_agent(self) -> None:
         async def run_test() -> None:
             app = self._app()

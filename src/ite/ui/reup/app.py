@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -77,6 +78,7 @@ from ite.cloud import (
     get_activity,
     get_bundled_models,
     get_usage_summary,
+    has_remote_companion_access,
     has_stored_cloud_auth,
     has_valid_cloud_auth,
 )
@@ -821,6 +823,7 @@ class ReupApp(App):
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
         self._bundled_access_announced: bool = False
+        self._remote_access_cache: tuple[bool, float] | None = None
         self._command_palette_options: list[SlashCommandOption] = []
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
@@ -1342,10 +1345,33 @@ class ReupApp(App):
     async def _shutdown_remote_server(self) -> None:
         if self._remote_server is None:
             return
+        remote_server = self._remote_server
         try:
-            await self._remote_server.stop()
+            await asyncio.wait_for(remote_server.stop(), timeout=1.5)
+        except Exception:
+            pass
         finally:
             self._remote_server = None
+
+    async def _has_remote_companion_access(self, *, refresh: bool = False) -> bool:
+        now = time.monotonic()
+        if not refresh and self._remote_access_cache is not None:
+            allowed, checked_at = self._remote_access_cache
+            if now - checked_at < 60:
+                return allowed
+        allowed = await asyncio.to_thread(has_remote_companion_access, self.config)
+        self._remote_access_cache = (allowed, now)
+        return allowed
+
+    async def _require_remote_companion_access(self, *, refresh: bool = True) -> bool:
+        if await self._has_remote_companion_access(refresh=refresh):
+            return True
+        self.post_system(
+            "Remote",
+            "Remote companion requires bundled access. Sign in with `/cloud login` using an account with bundled access, or manage your plan, then try `/remote on` again.",
+            is_error=True,
+        )
+        return False
 
     async def _ensure_remote_server(
         self,
@@ -1353,12 +1379,15 @@ class ReupApp(App):
         port: int | None = None,
         lan: bool = True,
     ) -> dict[str, Any]:
+        if not await self._require_remote_companion_access(refresh=False):
+            raise PermissionError("Remote companion requires bundled access.")
         if self._remote_server is None:
             self._remote_server = RemoteRuntimeServer(
                 state_provider=self._build_remote_runtime_state,
                 submit_prompt=self._submit_remote_prompt,
                 cancel_turn=self._cancel_remote_turn,
                 switch_session=self._switch_remote_session,
+                access_checker=self._has_remote_companion_access,
             )
         selected_port = (
             int(port)
@@ -1472,6 +1501,8 @@ class ReupApp(App):
             action = "start"
 
         if action in {"start", "on"}:
+            if not await self._require_remote_companion_access():
+                return
             lan = True
             port = None
             for arg in option_args:
@@ -1529,6 +1560,8 @@ class ReupApp(App):
             return
 
         if action in {"code", "pair"}:
+            if not await self._require_remote_companion_access():
+                return
             info = await self._ensure_remote_server()
             assert self._remote_server is not None
             self._remote_server.regenerate_pair_code()
@@ -1611,8 +1644,14 @@ class ReupApp(App):
             if self._remote_server is None or not self._remote_server.is_running:
                 self.post_system("Remote", "Remote bridge is already off.")
                 return
+            connected_clients = self._remote_server.authenticated_client_count
             await self._shutdown_remote_server()
-            self.post_system("Remote", "Remote bridge stopped.")
+            self.post_system(
+                "Remote",
+                "Remote bridge stopped."
+                if connected_clients == 0
+                else f"Remote bridge stopped. Disconnected {connected_clients} mobile client{'s' if connected_clients != 1 else ''}.",
+            )
             return
 
         self.post_system(
