@@ -691,6 +691,58 @@ class CommandsSidePanel(Widget):
         self.app.run_worker(self.app._hide_commands_panel(), exclusive=False)
 
 
+class ChangeReviewSidePanel(Widget):
+    ALLOW_MAXIMIZE = False
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="change-review-header"):
+            yield Static("Changes", id="change-review-title")
+            yield Static(
+                "Stage All",
+                id="change-review-stage-all",
+                classes="change-review-action",
+            )
+            yield Static(
+                "Discard All",
+                id="change-review-discard-all",
+                classes="change-review-action",
+            )
+            yield Static(
+                "Commit",
+                id="change-review-commit",
+                classes="change-review-action",
+            )
+            yield Button(
+                "Close", id="change-review-close", variant="default"
+            )
+        with Horizontal(id="change-review-body"):
+            yield ChangedFilesTree(id="change-review-tree")
+            with Vertical(id="change-review-preview-column"):
+                with Horizontal(id="change-review-preview-actions"):
+                    yield Static(
+                        "Stage",
+                        id="change-review-stage-file",
+                        classes="change-review-action",
+                    )
+                    yield Static(
+                        "Unstage",
+                        id="change-review-unstage-file",
+                        classes="change-review-action",
+                    )
+                    yield Static(
+                        "Discard",
+                        id="change-review-discard-file",
+                        classes="change-review-action",
+                    )
+                yield ScrollableContainer(id="change-review-preview")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "change-review-close":
+            return
+        event.stop()
+        self.app.run_worker(self.app._hide_change_review_panel(), exclusive=False)
+
+
 class ReupSystemCommandsProvider(Provider):
     async def discover(self) -> Hits:
         for command in self.app.get_system_commands(self.screen):
@@ -861,6 +913,7 @@ class ReupApp(App):
         self._remote_server: RemoteRuntimeServer | None = None
         self._remote_port_preference: int = 0
         self._commands_panel: CommandsSidePanel | None = None
+        self._change_review_panel: ChangeReviewSidePanel | None = None
         self._agents_recommendation_last_workspace_key: str | None = None
         self._agents_recommendation_current_visit: tuple[str, str] | None = None
         self._suppress_agents_recommendation_once: bool = False
@@ -881,47 +934,6 @@ class ReupApp(App):
                 yield Horizontal(id="session-tabs")
             with Container(id="chat-panel"):
                 with Horizontal(id="chat-body"):
-                    with Container(id="change-review-panel"):
-                        with Horizontal(id="change-review-header"):
-                            yield Static("Changes", id="change-review-title")
-                            yield Static(
-                                "Stage All",
-                                id="change-review-stage-all",
-                                classes="change-review-action",
-                            )
-                            yield Static(
-                                "Discard All",
-                                id="change-review-discard-all",
-                                classes="change-review-action",
-                            )
-                            yield Static(
-                                "Commit",
-                                id="change-review-commit",
-                                classes="change-review-action",
-                            )
-                            yield Button(
-                                "Close", id="change-review-close", variant="default"
-                            )
-                        with Horizontal(id="change-review-body"):
-                            yield ChangedFilesTree(id="change-review-tree")
-                            with Vertical(id="change-review-preview-column"):
-                                with Horizontal(id="change-review-preview-actions"):
-                                    yield Static(
-                                        "Stage",
-                                        id="change-review-stage-file",
-                                        classes="change-review-action",
-                                    )
-                                    yield Static(
-                                        "Unstage",
-                                        id="change-review-unstage-file",
-                                        classes="change-review-action",
-                                    )
-                                    yield Static(
-                                        "Discard",
-                                        id="change-review-discard-file",
-                                        classes="change-review-action",
-                                    )
-                                yield ScrollableContainer(id="change-review-preview")
                     with Container(id="conversation-shell"):
                         yield VerticalScroll(id="conversation")
                         yield Static("", id="empty-state")
@@ -1244,9 +1256,12 @@ class ReupApp(App):
 
     async def _rerender_change_review_for_theme(self) -> None:
         """Re-render change review panel when theme changes."""
-        if not self._change_review_visible or not self._change_review_change_set:
+        if not self._change_review_panel_is_open() or not self._change_review_change_set:
             return
-        tree = self.query_one("#change-review-tree", ChangedFilesTree)
+        panel = self._change_review_panel
+        if panel is None:
+            return
+        tree = panel.query_one("#change-review-tree", ChangedFilesTree)
         # Update tree styles
         tree._styles = self._render_styles()
         # Re-populate with current selection
@@ -1281,7 +1296,7 @@ class ReupApp(App):
             self.run_worker(
                 self._rerender_assistant_cards_for_theme(), exclusive=False
             )
-            if self._change_review_visible:
+            if self._change_review_panel_is_open():
                 self.run_worker(
                     self._rerender_change_review_for_theme(), exclusive=False
                 )
@@ -3098,6 +3113,39 @@ class ReupApp(App):
         except Exception:
             pass
 
+    def _change_review_panel_is_open(self) -> bool:
+        return self._change_review_panel is not None
+
+    def _get_change_review_widget(self, id: str, widget_type: type[Widget]) -> Widget | None:
+        panel = self._change_review_panel
+        if panel is None:
+            return None
+        try:
+            return panel.query_one(f"#{id}", widget_type)
+        except NoMatches:
+            return None
+
+    async def _show_change_review_panel(self) -> None:
+        await self._refresh_change_review_source()
+        if not self._change_review_change_set or not getattr(
+            self._change_review_change_set, "changes", None
+        ):
+            return
+        panel = ChangeReviewSidePanel(id="change-review-panel")
+        self._change_review_panel = panel
+        await self.screen.mount(panel)
+        await self._populate_change_review_panel()
+
+    async def _hide_change_review_panel(self) -> None:
+        panel = self._change_review_panel
+        self._change_review_panel = None
+        if panel is None:
+            return
+        try:
+            await panel.remove()
+        except Exception:
+            pass
+
     def get_system_commands(self, screen) -> Iterable[SystemCommand]:
         theme_command: SystemCommand | None = None
         commands_command: SystemCommand | None = None
@@ -3762,14 +3810,10 @@ class ReupApp(App):
         body.display = has_content
 
     def _apply_change_review_panel_state(self) -> None:
-        panel = self.query_one("#change-review-panel", Container)
         toggle = self.query_one("#changes-toggle", Button)
         has_content = bool(
             self._change_review_change_set
             and getattr(self._change_review_change_set, "changes", None)
-        )
-        panel.display = (
-            (not self._cloud_signed_out) and self._change_review_visible and has_content
         )
         has_outgoing = bool(
             self._git_outbound_state and self._git_outbound_state.needs_attention
@@ -3777,9 +3821,10 @@ class ReupApp(App):
         wants_publish = bool(
             self._git_outbound_state and self._git_outbound_state.needs_publish
         )
+        is_panel_open = self._change_review_panel_is_open()
         toggle.display = (
             (has_content or has_outgoing)
-            and not self._change_review_visible
+            and not is_panel_open
             and not self._cloud_signed_out
         )
         if has_content:
@@ -3815,13 +3860,16 @@ class ReupApp(App):
         return rel_path in staged, rel_path in unstaged
 
     def _update_change_review_action_state(self) -> None:
+        panel = self._change_review_panel
+        if panel is None:
+            return
         try:
-            stage_file = self.query_one("#change-review-stage-file", Static)
-            unstage_file = self.query_one("#change-review-unstage-file", Static)
-            discard_file = self.query_one("#change-review-discard-file", Static)
-            stage_all_button = self.query_one("#change-review-stage-all", Static)
-            discard_all_button = self.query_one("#change-review-discard-all", Static)
-            commit_button = self.query_one("#change-review-commit", Static)
+            stage_file = panel.query_one("#change-review-stage-file", Static)
+            unstage_file = panel.query_one("#change-review-unstage-file", Static)
+            discard_file = panel.query_one("#change-review-discard-file", Static)
+            stage_all_button = panel.query_one("#change-review-stage-all", Static)
+            discard_all_button = panel.query_one("#change-review-discard-all", Static)
+            commit_button = panel.query_one("#change-review-commit", Static)
         except NoMatches:
             return
 
@@ -4116,10 +4164,13 @@ class ReupApp(App):
         await preview.mount(Static(header, classes="change-review-path"), body)
 
     async def _populate_change_review_panel(self) -> None:
-        tree = self.query_one("#change-review-tree", ChangedFilesTree)
-        preview = self.query_one("#change-review-preview", ScrollableContainer)
+        panel = self._change_review_panel
+        if panel is None:
+            return
+        tree = panel.query_one("#change-review-tree", ChangedFilesTree)
+        preview = panel.query_one("#change-review-preview", ScrollableContainer)
         await preview.remove_children()
-        title = self.query_one("#change-review-title", Static)
+        title = panel.query_one("#change-review-title", Static)
         title.update(self._change_review_title)
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
@@ -4211,15 +4262,10 @@ class ReupApp(App):
         await self._populate_change_review_panel()
 
     async def _toggle_change_review_panel(self) -> None:
-        await self._refresh_change_review_source()
-        if not self._change_review_change_set or not getattr(
-            self._change_review_change_set, "changes", None
-        ):
+        if self._change_review_panel_is_open():
+            await self._hide_change_review_panel()
             return
-        self._change_review_visible = not self._change_review_visible
-        self._apply_change_review_panel_state()
-        if self._change_review_visible:
-            await self._populate_change_review_panel()
+        await self._show_change_review_panel()
 
     def _poll_change_review_panel(self) -> None:
         self.run_worker(
@@ -4614,7 +4660,8 @@ class ReupApp(App):
 
     @on(events.Click, "#change-review-stage-file")
     async def on_change_review_stage_file(self, _event: events.Click) -> None:
-        if self.query_one("#change-review-stage-file", Static).disabled:
+        widget = self._get_change_review_widget("change-review-stage-file", Static)
+        if not widget or widget.disabled:
             return
         rel_path = self._change_review_selected_rel_path
         if not rel_path:
@@ -4630,7 +4677,8 @@ class ReupApp(App):
 
     @on(events.Click, "#change-review-unstage-file")
     async def on_change_review_unstage_file(self, _event: events.Click) -> None:
-        if self.query_one("#change-review-unstage-file", Static).disabled:
+        widget = self._get_change_review_widget("change-review-unstage-file", Static)
+        if not widget or widget.disabled:
             return
         rel_path = self._change_review_selected_rel_path
         if not rel_path:
@@ -4645,7 +4693,8 @@ class ReupApp(App):
         await self._refresh_change_review_after_git_action()
 
     async def _run_change_review_discard_file(self) -> None:
-        if self.query_one("#change-review-discard-file", Static).disabled:
+        widget = self._get_change_review_widget("change-review-discard-file", Static)
+        if not widget or widget.disabled:
             return
         rel_path = self._change_review_selected_rel_path
         if not rel_path:
@@ -4672,8 +4721,8 @@ class ReupApp(App):
 
     @on(events.Click, "#change-review-stage-all")
     async def on_change_review_stage_all(self, _event: events.Click) -> None:
-        stage_all_chip = self.query_one("#change-review-stage-all", Static)
-        if stage_all_chip.disabled:
+        stage_all_chip = self._get_change_review_widget("change-review-stage-all", Static)
+        if not stage_all_chip or stage_all_chip.disabled:
             return
         git_fn = (
             stage_all if self._change_review_bulk_action == "stage" else unstage_all
@@ -4686,8 +4735,8 @@ class ReupApp(App):
         await self._refresh_change_review_after_git_action()
 
     async def _run_change_review_commit(self) -> None:
-        commit_chip = self.query_one("#change-review-commit", Static)
-        if commit_chip.disabled:
+        commit_chip = self._get_change_review_widget("change-review-commit", Static)
+        if not commit_chip or commit_chip.disabled:
             return
         result = await self._open_commit_modal()
         if not result:
@@ -4714,7 +4763,8 @@ class ReupApp(App):
         self.run_worker(self._run_change_review_commit(), exclusive=False)
 
     async def _run_change_review_discard_all(self) -> None:
-        if self.query_one("#change-review-discard-all", Static).disabled:
+        widget = self._get_change_review_widget("change-review-discard-all", Static)
+        if not widget or widget.disabled:
             return
         confirmed = await self._confirm_change_review_discard(
             title="Discard all changes?",

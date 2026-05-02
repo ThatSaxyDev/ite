@@ -183,19 +183,21 @@ Screen {
 }
 
 #conversation-shell {
-    width: 11fr;
+    width: 1fr;
     min-width: 72;
     height: 1fr;
     background: $background;
 }
 
 #change-review-panel {
-    width: 9fr;
-    min-width: 72;
+    split: right;
+    width: 48%;
+    min-width: 48;
+    max-width: 120;
     height: 1fr;
     background: $surface;
     padding: 1 2 0 2;
-    display: none;
+    border-left: vkey $foreground 30%;
 }
 
 #change-review-header {
