@@ -4551,14 +4551,8 @@ class ReupApp(App):
         )
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
-            self._change_review_visible = False
             self._change_review_selected_rel_path = None
-            self._apply_change_review_panel_state()
-            preview = self.query_one("#change-review-preview", ScrollableContainer)
-            await preview.remove_children()
-            await preview.mount(
-                Static("No changes to inspect.", classes="change-review-empty")
-            )
+            await self._hide_change_review_panel()
             return
         if (
             self._change_review_selected_rel_path
@@ -4751,12 +4745,14 @@ class ReupApp(App):
             include_unstaged=include_unstaged,
             push=action == "commit_push",
         )
-        await self._refresh_change_review_after_git_action()
         if not commit_result.ok:
             self.post_system("Git", commit_result.message, is_error=True)
             return
         self.post_notice("Git", commit_result.message)
         await self._hide_change_review_panel()
+        await self._refresh_change_review_source(
+            prefer_git_only=self._change_review_source == "git"
+        )
 
     @on(events.Click, "#change-review-commit")
     def on_change_review_commit(self, event: events.Click) -> None:
