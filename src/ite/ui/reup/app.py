@@ -4738,6 +4738,7 @@ class ReupApp(App):
         action = str(result.get("action", "commit")).strip().lower()
         include_unstaged = bool(result.get("include_unstaged"))
         message = str(result.get("message", ""))
+        await self._hide_change_review_panel()
         commit_result = await asyncio.to_thread(
             commit_changes,
             Path(self.config.cwd).resolve(),
@@ -4749,7 +4750,6 @@ class ReupApp(App):
             self.post_system("Git", commit_result.message, is_error=True)
             return
         self.post_notice("Git", commit_result.message)
-        await self._hide_change_review_panel()
         await self._refresh_change_review_source(
             prefer_git_only=self._change_review_source == "git"
         )
