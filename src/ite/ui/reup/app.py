@@ -691,6 +691,28 @@ class CommandsSidePanel(Widget):
         self.app.run_worker(self.app._hide_commands_panel(), exclusive=False)
 
 
+class ThreadSwitcherRow(Static):
+    class Selected(Message):
+        def __init__(self, session_id: str) -> None:
+            super().__init__()
+            self.session_id = session_id
+
+    def __init__(
+        self,
+        renderable: Any = "",
+        *,
+        session_id: str,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(renderable, id=id, classes=classes)
+        self.session_id = session_id
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.post_message(self.Selected(self.session_id))
+
+
 class ThreadSwitcherSidePanel(Widget):
     ALLOW_MAXIMIZE = False
     MAX_LABEL_CELLS = 24
@@ -704,6 +726,8 @@ class ThreadSwitcherSidePanel(Widget):
     ) -> None:
         super().__init__(id=id, classes=classes)
         self._threads = threads
+        self._row_widgets: dict[str, ThreadSwitcherRow] = {}
+        self._row_snapshot: tuple[tuple[str, str, str], ...] = ()
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="thread-switcher-header"):
@@ -731,7 +755,7 @@ class ThreadSwitcherSidePanel(Widget):
             return
         if not thread_list.is_attached:
             return
-        await thread_list.remove_children()
+        rows: list[tuple[str, str, str]] = []
         for session_id, title, state, source in threads:
             classes = "thread-switcher-item"
             if state == "current":
@@ -741,18 +765,45 @@ class ThreadSwitcherSidePanel(Widget):
             elif source == "saved":
                 classes += " saved"
             label = self._thread_label(title, state)
-            button_id = (
-                f"thread-switcher-{session_id}"
-                if source == "open"
-                else f"thread-switcher-saved-{session_id}"
-            )
-            await thread_list.mount(
-                Static(
+            rows.append((session_id, label, classes))
+        snapshot = tuple(rows)
+        if snapshot == self._row_snapshot:
+            return
+        previous_ids = [row[0] for row in self._row_snapshot]
+        next_ids = [row[0] for row in snapshot]
+        if previous_ids != next_ids:
+            await thread_list.remove_children()
+            self._row_widgets = {}
+            for session_id, label, classes in rows:
+                widget = ThreadSwitcherRow(
                     label,
-                    id=button_id,
+                    session_id=session_id,
+                    id=f"thread-switcher-row-{session_id}",
                     classes=classes,
                 )
-            )
+                self._row_widgets[session_id] = widget
+                await thread_list.mount(widget)
+            self._row_snapshot = snapshot
+            return
+        previous_by_id = {
+            session_id: (label, classes)
+            for session_id, label, classes in self._row_snapshot
+        }
+        for session_id, label, classes in rows:
+            widget = self._row_widgets.get(session_id)
+            if widget is None:
+                continue
+            previous_label, previous_classes = previous_by_id.get(session_id, ("", ""))
+            if label != previous_label:
+                widget.update(label)
+            if classes != previous_classes:
+                widget.remove_class("current")
+                widget.remove_class("live")
+                widget.remove_class("saved")
+                for class_name in classes.split():
+                    if class_name != "thread-switcher-item":
+                        widget.add_class(class_name)
+        self._row_snapshot = snapshot
 
     @classmethod
     def _ellipsize(cls, text: str, max_cells: int) -> str:
@@ -4602,30 +4653,25 @@ class ReupApp(App):
     async def on_threads_toggle_pressed(self, _event: Button.Pressed) -> None:
         await self._toggle_thread_switcher_panel()
 
-    @on(events.Click, ".thread-switcher-item")
-    async def on_thread_switcher_item_click(self, event: events.Click) -> None:
-        widget_id = str(getattr(event.widget, "id", "") or "")
-        if widget_id.startswith("thread-switcher-saved-"):
-            session_id = widget_id.removeprefix("thread-switcher-saved-").strip()
-            if not session_id:
-                return
-            event.stop()
-            snapshot = await asyncio.to_thread(
-                lambda: SessionManager().load_session(session_id)
-            )
-            if snapshot is None:
-                self.post_system(
-                    "Sessions", f"Session not found: {session_id}", is_error=True
-                )
-                return
-            await self._resume_snapshot(snapshot)
+    @on(ThreadSwitcherRow.Selected)
+    async def on_thread_switcher_row_selected(
+        self, event: ThreadSwitcherRow.Selected
+    ) -> None:
+        session_id = event.session_id.strip()
+        if not session_id:
             return
-        if widget_id.startswith("thread-switcher-"):
-            session_id = widget_id.removeprefix("thread-switcher-").strip()
-            if not session_id:
-                return
-            event.stop()
+        if session_id in self._open_sessions:
             await self._activate_open_session(session_id)
+            return
+        snapshot = await asyncio.to_thread(
+            lambda: SessionManager().load_session(session_id)
+        )
+        if snapshot is None:
+            self.post_system(
+                "Sessions", f"Session not found: {session_id}", is_error=True
+            )
+            return
+        await self._resume_snapshot(snapshot)
 
     @on(Button.Pressed, "#cloud-sign-in")
     def on_cloud_sign_in_pressed(self, _event: Button.Pressed) -> None:
