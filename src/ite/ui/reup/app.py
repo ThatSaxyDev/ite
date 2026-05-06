@@ -693,7 +693,7 @@ class CommandsSidePanel(Widget):
 
 class ThreadSwitcherSidePanel(Widget):
     ALLOW_MAXIMIZE = False
-    MAX_LABEL_CELLS = 25
+    MAX_LABEL_CELLS = 24
 
     def __init__(
         self,
@@ -747,10 +747,9 @@ class ThreadSwitcherSidePanel(Widget):
                 else f"thread-switcher-saved-{session_id}"
             )
             await thread_list.mount(
-                Button(
+                Static(
                     label,
                     id=button_id,
-                    variant="default",
                     classes=classes,
                 )
             )
@@ -771,9 +770,6 @@ class ThreadSwitcherSidePanel(Widget):
 
     @classmethod
     def _thread_label(cls, title: str, state: str) -> str:
-        if state == "current":
-            suffix = " current"
-            return cls._ellipsize(title, cls.MAX_LABEL_CELLS - cell_len(suffix)) + suffix
         if state == "running":
             prefix = "●●● "
             return prefix + cls._ellipsize(title, cls.MAX_LABEL_CELLS - cell_len(prefix))
@@ -4565,6 +4561,31 @@ class ReupApp(App):
     async def on_threads_toggle_pressed(self, _event: Button.Pressed) -> None:
         await self._toggle_thread_switcher_panel()
 
+    @on(events.Click, ".thread-switcher-item")
+    async def on_thread_switcher_item_click(self, event: events.Click) -> None:
+        widget_id = str(getattr(event.widget, "id", "") or "")
+        if widget_id.startswith("thread-switcher-saved-"):
+            session_id = widget_id.removeprefix("thread-switcher-saved-").strip()
+            if not session_id:
+                return
+            event.stop()
+            snapshot = await asyncio.to_thread(
+                lambda: SessionManager().load_session(session_id)
+            )
+            if snapshot is None:
+                self.post_system(
+                    "Sessions", f"Session not found: {session_id}", is_error=True
+                )
+                return
+            await self._resume_snapshot(snapshot)
+            return
+        if widget_id.startswith("thread-switcher-"):
+            session_id = widget_id.removeprefix("thread-switcher-").strip()
+            if not session_id:
+                return
+            event.stop()
+            await self._activate_open_session(session_id)
+
     @on(Button.Pressed, "#cloud-sign-in")
     def on_cloud_sign_in_pressed(self, _event: Button.Pressed) -> None:
         self.run_worker(self._run_cloud_login_flow(), exclusive=False)
@@ -6266,28 +6287,6 @@ class ReupApp(App):
     @on(Button.Pressed)
     async def on_session_tab_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
-        if button_id.startswith("thread-switcher-saved-"):
-            session_id = button_id.removeprefix("thread-switcher-saved-").strip()
-            if not session_id:
-                return
-            event.stop()
-            snapshot = await asyncio.to_thread(
-                lambda: SessionManager().load_session(session_id)
-            )
-            if snapshot is None:
-                self.post_system(
-                    "Sessions", f"Session not found: {session_id}", is_error=True
-                )
-                return
-            await self._resume_snapshot(snapshot)
-            return
-        if button_id.startswith("thread-switcher-"):
-            session_id = button_id.removeprefix("thread-switcher-").strip()
-            if not session_id:
-                return
-            event.stop()
-            await self._activate_open_session(session_id)
-            return
         if not button_id.startswith("session-tab-"):
             return
         session_id = button_id.removeprefix("session-tab-").strip()

@@ -762,8 +762,9 @@ Screen {
     min-height: 1;
     height: 1;
     margin-bottom: 1;
-    padding: 0;
+    padding: 0 0 0 1;
     border: none;
+    border-left: solid transparent;
     background: transparent;
     color: $foreground;
     content-align: left middle;
@@ -777,13 +778,16 @@ Screen {
     background: transparent;
     color: $text-primary;
     border: none;
+    border-left: solid transparent;
     text-style: bold;
 }
 
 #thread-switcher-panel .thread-switcher-item.current {
-    background: transparent;
+    background: $surface-darken-1;
     color: $text-primary;
     text-style: bold;
+    border: none;
+    border-left: solid $primary;
 }
 
 #thread-switcher-panel .thread-switcher-item.live {
