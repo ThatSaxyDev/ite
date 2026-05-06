@@ -1236,7 +1236,7 @@ def _run_main_app(
 
 
 @click.group(cls=IteGroup, invoke_without_command=True)
-@click.version_option(version="0.0.41", prog_name="ite")
+@click.version_option(version="0.0.42", prog_name="ite")
 @click.option(
     "--cwd",
     "-w",

@@ -236,6 +236,28 @@ The session strip should only consume space when it is actually needed.
 - Any top spacing above the first row of content should belong to scrollable content when possible, not to dead chrome.
 - Session tabs should read like compact tokens, not a secondary navigation app.
 
+### Thread Navigation
+
+Thread switching now belongs in a left-side navigation panel, not in a large top strip.
+
+The thread nav follows these rules:
+
+- The hamburger affordance lives at the far left of the top bar.
+- The hamburger should be available even when there is only one thread.
+- The panel opens from the left, matching the direction implied by the control.
+- The panel is slimmer than the command/help panel and remains collapsible with a close control.
+- The top of the panel contains a solid `New chat` action that behaves like `/new`.
+- Thread rows are text-like navigation items, not solid buttons.
+- Thread rows align left and stay on one line.
+- Long thread titles must truncate with `...`.
+- The current thread is shown with a subtle selected-row treatment and a thin left-edge indicator, not with inline `current` text.
+- Empty draft threads named `New thread` should not appear as a row until they have real content.
+- Newly created real threads should appear at the top of the nav once they become visible.
+- Saved former sessions from `/sessions` should appear in the nav, but `/sessions` itself remains available for users who prefer commands.
+- Row order must remain stable while switching. Selecting a thread must not cause rows to jump around.
+
+Do not put a large `/threads` text button on the right side of the header for this feature. It breaks header alignment and contradicts the left-opening panel.
+
 ### Conversation Area
 
 The feed is the core canvas.
@@ -530,6 +552,19 @@ If a dense surface looks “amateur,” check:
 - whether tinting is too loud
 - whether spacing is wasting rows
 - whether labels are clipped
+
+### Scrollbars
+
+Textual scrollbars are terminal-cell based, not browser-pixel based.
+
+- `scrollbar-size-vertical: 1` is the smallest practical visible vertical scrollbar.
+- `scrollbar-size-horizontal: 1` is the smallest practical visible horizontal scrollbar.
+- Setting either value to `0` hides that scrollbar.
+- A horizontal scrollbar at size `1` can still look visually thick because one terminal row is a full character cell tall.
+- Do not chase sub-cell scrollbar sizing; terminals do not provide that level of control.
+- If a horizontal scrollbar still feels heavy at size `1`, prefer reducing horizontal overflow or softening scrollbar colors rather than trying fractional sizing.
+
+Scrollbar sizing should be global by default so the chat feed, thread nav, change review, aside panel, and nested command-card scroll areas feel consistent. Override only when a specific widget intentionally hides or changes a scrollbar.
 
 ---
 
