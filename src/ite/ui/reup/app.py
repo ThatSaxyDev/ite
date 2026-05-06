@@ -1986,6 +1986,14 @@ class ReupApp(App):
         panel = self._thread_switcher_panel
         return bool(panel is not None and panel.is_mounted)
 
+    def _insert_thread_nav_session_at_top(self, session_id: str | None) -> None:
+        if not session_id:
+            return
+        self._thread_nav_order = [
+            sid for sid in self._thread_nav_order if sid != session_id
+        ]
+        self._thread_nav_order.insert(0, session_id)
+
     def _apply_thread_switcher_button_state(self) -> None:
         try:
             toggle = self.query_one("#threads-toggle", Button)
@@ -10810,6 +10818,7 @@ class ReupApp(App):
         fresh_agent = self._build_session_agent(fresh)
         await fresh_agent.__aenter__()
         self._remember_open_session(fresh, agent=fresh_agent)
+        self._insert_thread_nav_session_at_top(self._session_id(fresh))
         self.agent = fresh_agent
         self.refresh_header()
 
