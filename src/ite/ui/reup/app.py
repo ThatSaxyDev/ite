@@ -691,6 +691,76 @@ class CommandsSidePanel(Widget):
         self.app.run_worker(self.app._hide_commands_panel(), exclusive=False)
 
 
+class ThreadSwitcherSidePanel(Widget):
+    ALLOW_MAXIMIZE = False
+
+    def __init__(
+        self,
+        *,
+        threads: list[tuple[str, str, str]],
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(id=id, classes=classes)
+        self._threads = threads
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="thread-switcher-header"):
+            yield Static("Threads", classes="thread-switcher-title")
+            yield Button(
+                "Close",
+                id="thread-switcher-close",
+                classes="thread-switcher-close",
+            )
+        yield Button(
+            "New chat",
+            id="thread-switcher-new-chat",
+            classes="thread-switcher-new-chat",
+        )
+        yield VerticalScroll(id="thread-switcher-list", classes="thread-switcher-list")
+
+    async def on_mount(self) -> None:
+        await self.refresh_threads(self._threads)
+
+    async def refresh_threads(self, threads: list[tuple[str, str, str]]) -> None:
+        self._threads = threads
+        try:
+            thread_list = self.query_one("#thread-switcher-list", VerticalScroll)
+        except Exception:
+            return
+        if not thread_list.is_attached:
+            return
+        await thread_list.remove_children()
+        for session_id, title, state in threads:
+            classes = "thread-switcher-item"
+            if state == "current":
+                classes += " current"
+            elif state == "running":
+                classes += " live"
+            label = title
+            if state == "current":
+                label = f"{title}  current"
+            elif state == "running":
+                label = f"●●● {title}"
+            await thread_list.mount(
+                Button(
+                    label,
+                    id=f"thread-switcher-{session_id}",
+                    variant="default",
+                    classes=classes,
+                )
+            )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "thread-switcher-close":
+            event.stop()
+            self.app.run_worker(self.app._hide_thread_switcher_panel(), exclusive=False)
+            return
+        if event.button.id == "thread-switcher-new-chat":
+            event.stop()
+            self.app.run_worker(self.app.start_new_thread(), exclusive=False)
+
+
 class ChangeReviewSidePanel(Widget):
     ALLOW_MAXIMIZE = False
 
@@ -908,6 +978,9 @@ class ReupApp(App):
         self._open_session_order: list[str] = []
         self._open_session_workspaces: dict[str, Path] = {}
         self._session_tabs_version: int = 0
+        self._thread_switcher_panel: ThreadSwitcherSidePanel | None = None
+        self._thread_switcher_dismissed_count: int = 0
+        self._thread_switcher_sync_lock = asyncio.Lock()
         self._shutdown_started: bool = False
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
@@ -926,6 +999,7 @@ class ReupApp(App):
         yield Header(show_clock=True)
         with Vertical(id="shell"):
             with Horizontal(id="topbar"):
+                yield Button("☰", id="threads-toggle", variant="default")
                 yield Static("New thread", id="title")
                 yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
@@ -1031,6 +1105,7 @@ class ReupApp(App):
             self._suppress_theme_prompt_sync = False
         self.query_one("#aside-toggle", Button).display = False
         self.query_one("#changes-toggle", Button).display = False
+        self.query_one("#threads-toggle", Button).display = False
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
@@ -1820,6 +1895,43 @@ class ReupApp(App):
             title = f"●●● {title}"
         return title
 
+    def _thread_switcher_threads(self) -> list[tuple[str, str, str]]:
+        active_session_id = self._active_session_id()
+        threads: list[tuple[str, str, str]] = []
+        for session_id in self._open_session_order:
+            session = self._open_sessions.get(session_id)
+            if session is None:
+                continue
+            title = self._session_title(session)
+            title = re.sub(r"\s+", " ", title).strip() or "New thread"
+            state = ""
+            if session_id == active_session_id:
+                state = "current"
+            elif self._run_state(session_id).is_turn_running:
+                state = "running"
+            threads.append((session_id, title, state))
+        return threads
+
+    def _thread_switcher_should_auto_open(self) -> bool:
+        return (
+            len(self._open_session_order) > 1
+            and not self._cloud_signed_out
+            and self._thread_switcher_dismissed_count != len(self._open_session_order)
+        )
+
+    def _thread_switcher_panel_is_open(self) -> bool:
+        panel = self._thread_switcher_panel
+        return bool(panel is not None and panel.is_mounted)
+
+    def _apply_thread_switcher_button_state(self) -> None:
+        try:
+            toggle = self.query_one("#threads-toggle", Button)
+        except Exception:
+            return
+        visible = not self._cloud_signed_out
+        toggle.display = visible and not self._thread_switcher_panel_is_open()
+        toggle.label = "☰"
+
     def _queue_session_tabs_refresh(self) -> None:
         self._session_tabs_version += 1
         self.run_worker(
@@ -1840,31 +1952,62 @@ class ReupApp(App):
         await tabs.remove_children()
         if version != self._session_tabs_version:
             return
-        active_session_id = self._session_id(self.agent.session if self.agent else None)
         if self._cloud_signed_out:
             tabs.display = False
             tabs_scroll.display = False
+            await self._hide_thread_switcher_panel(remember=False)
             return
-        tabs.display = len(self._open_session_order) > 1
-        tabs_scroll.display = tabs.display
-        if not tabs.display:
-            return
-        for session_id in self._open_session_order:
-            if version != self._session_tabs_version:
+        tabs.display = False
+        tabs_scroll.display = False
+        await self._sync_thread_switcher_panel()
+        return
+
+    async def _sync_thread_switcher_panel(self, *, force_open: bool = False) -> None:
+        async with self._thread_switcher_sync_lock:
+            if not self.is_mounted:
                 return
-            label = self._session_tab_label(session_id)
-            variant = "primary" if session_id == active_session_id else "default"
-            classes = "session-tab"
-            if self._run_state(session_id).is_turn_running:
-                classes += " session-tab-live"
-            await tabs.mount(
-                Button(
-                    label,
-                    id=f"session-tab-{session_id}",
-                    variant=variant,
-                    classes=classes,
+            count = len(self._open_session_order)
+            self._apply_thread_switcher_button_state()
+            if self._cloud_signed_out or count <= 0 or self._commands_panel_is_open():
+                if count <= 0:
+                    self._thread_switcher_dismissed_count = 0
+                await self._hide_thread_switcher_panel(remember=False)
+                return
+            if force_open:
+                self._thread_switcher_dismissed_count = 0
+            should_open = force_open or self._thread_switcher_should_auto_open()
+            if not should_open and not self._thread_switcher_panel_is_open():
+                return
+            threads = self._thread_switcher_threads()
+            panel = self._thread_switcher_panel
+            if panel is None or not panel.is_mounted:
+                panel = ThreadSwitcherSidePanel(
+                    threads=threads,
+                    id="thread-switcher-panel",
                 )
-            )
+                await self.screen.mount(panel)
+                self._thread_switcher_panel = panel
+            else:
+                await panel.refresh_threads(threads)
+            self._apply_thread_switcher_button_state()
+
+    async def _hide_thread_switcher_panel(self, *, remember: bool = True) -> None:
+        if remember:
+            self._thread_switcher_dismissed_count = len(self._open_session_order)
+        panel = self._thread_switcher_panel
+        self._thread_switcher_panel = None
+        if panel is not None:
+            try:
+                await panel.remove()
+            except Exception:
+                pass
+        self._apply_thread_switcher_button_state()
+
+    async def _toggle_thread_switcher_panel(self) -> None:
+        if self._thread_switcher_panel_is_open():
+            await self._hide_thread_switcher_panel()
+            return
+        await self._sync_thread_switcher_panel(force_open=True)
 
     def refresh_header(self) -> None:
         current_workspace_key = str(Path(self.config.cwd).resolve())
@@ -3091,6 +3234,7 @@ class ReupApp(App):
         registry = self._command_registry
         if registry is None:
             return
+        await self._hide_thread_switcher_panel(remember=False)
         self.screen.query("HelpPanel").remove()
         commands = sorted(
             [
@@ -3112,6 +3256,7 @@ class ReupApp(App):
             await panel.remove()
         except Exception:
             pass
+        await self._sync_thread_switcher_panel()
 
     def _change_review_panel_is_open(self) -> bool:
         return self._change_review_panel is not None
@@ -3531,7 +3676,7 @@ class ReupApp(App):
         empty.display = False if not in_chat else empty.display
         composer.display = in_chat
         topbar.display = in_chat
-        session_tabs.display = in_chat and len(self._open_session_order) > 1
+        session_tabs.display = False
         footer.display = in_chat
         header.display = in_chat
         chat_body.styles.padding = (
@@ -3557,6 +3702,7 @@ class ReupApp(App):
             self._refresh_empty_state()
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
+        self._apply_thread_switcher_button_state()
         self.refresh_header()
 
     def _startup_status_text(self) -> Text:
@@ -4371,6 +4517,10 @@ class ReupApp(App):
     @on(Button.Pressed, "#aside-toggle")
     def on_aside_toggle_pressed(self, _event: Button.Pressed) -> None:
         self._toggle_aside_panel()
+
+    @on(Button.Pressed, "#threads-toggle")
+    async def on_threads_toggle_pressed(self, _event: Button.Pressed) -> None:
+        await self._toggle_thread_switcher_panel()
 
     @on(Button.Pressed, "#cloud-sign-in")
     def on_cloud_sign_in_pressed(self, _event: Button.Pressed) -> None:
@@ -6073,6 +6223,13 @@ class ReupApp(App):
     @on(Button.Pressed)
     async def on_session_tab_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
+        if button_id.startswith("thread-switcher-"):
+            session_id = button_id.removeprefix("thread-switcher-").strip()
+            if not session_id:
+                return
+            event.stop()
+            await self._activate_open_session(session_id)
+            return
         if not button_id.startswith("session-tab-"):
             return
         session_id = button_id.removeprefix("session-tab-").strip()
