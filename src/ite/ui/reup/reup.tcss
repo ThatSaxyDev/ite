@@ -767,6 +767,7 @@ Screen {
     background: transparent;
     color: $foreground;
     content-align: left middle;
+    text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
 }

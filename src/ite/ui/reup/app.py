@@ -693,11 +693,12 @@ class CommandsSidePanel(Widget):
 
 class ThreadSwitcherSidePanel(Widget):
     ALLOW_MAXIMIZE = False
+    MAX_LABEL_CELLS = 25
 
     def __init__(
         self,
         *,
-        threads: list[tuple[str, str, str]],
+        threads: list[tuple[str, str, str, str]],
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
@@ -722,7 +723,7 @@ class ThreadSwitcherSidePanel(Widget):
     async def on_mount(self) -> None:
         await self.refresh_threads(self._threads)
 
-    async def refresh_threads(self, threads: list[tuple[str, str, str]]) -> None:
+    async def refresh_threads(self, threads: list[tuple[str, str, str, str]]) -> None:
         self._threads = threads
         try:
             thread_list = self.query_one("#thread-switcher-list", VerticalScroll)
@@ -731,25 +732,52 @@ class ThreadSwitcherSidePanel(Widget):
         if not thread_list.is_attached:
             return
         await thread_list.remove_children()
-        for session_id, title, state in threads:
+        for session_id, title, state, source in threads:
             classes = "thread-switcher-item"
             if state == "current":
                 classes += " current"
             elif state == "running":
                 classes += " live"
-            label = title
-            if state == "current":
-                label = f"{title}  current"
-            elif state == "running":
-                label = f"●●● {title}"
+            elif source == "saved":
+                classes += " saved"
+            label = self._thread_label(title, state)
+            button_id = (
+                f"thread-switcher-{session_id}"
+                if source == "open"
+                else f"thread-switcher-saved-{session_id}"
+            )
             await thread_list.mount(
                 Button(
                     label,
-                    id=f"thread-switcher-{session_id}",
+                    id=button_id,
                     variant="default",
                     classes=classes,
                 )
             )
+
+    @classmethod
+    def _ellipsize(cls, text: str, max_cells: int) -> str:
+        text = re.sub(r"\s+", " ", str(text or "")).strip()
+        if cell_len(text) <= max_cells:
+            return text
+        if max_cells <= 3:
+            return "." * max_cells
+        output = ""
+        for char in text:
+            if cell_len(output + char + "...") > max_cells:
+                break
+            output += char
+        return output.rstrip() + "..."
+
+    @classmethod
+    def _thread_label(cls, title: str, state: str) -> str:
+        if state == "current":
+            suffix = " current"
+            return cls._ellipsize(title, cls.MAX_LABEL_CELLS - cell_len(suffix)) + suffix
+        if state == "running":
+            prefix = "●●● "
+            return prefix + cls._ellipsize(title, cls.MAX_LABEL_CELLS - cell_len(prefix))
+        return cls._ellipsize(title, cls.MAX_LABEL_CELLS)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "thread-switcher-close":
@@ -1895,13 +1923,15 @@ class ReupApp(App):
             title = f"●●● {title}"
         return title
 
-    def _thread_switcher_threads(self) -> list[tuple[str, str, str]]:
+    def _thread_switcher_threads(self) -> list[tuple[str, str, str, str]]:
         active_session_id = self._active_session_id()
-        threads: list[tuple[str, str, str]] = []
+        threads: list[tuple[str, str, str, str]] = []
+        open_session_ids: set[str] = set()
         for session_id in self._open_session_order:
             session = self._open_sessions.get(session_id)
             if session is None:
                 continue
+            open_session_ids.add(session_id)
             title = self._session_title(session)
             title = re.sub(r"\s+", " ", title).strip() or "New thread"
             state = ""
@@ -1909,7 +1939,20 @@ class ReupApp(App):
                 state = "current"
             elif self._run_state(session_id).is_turn_running:
                 state = "running"
-            threads.append((session_id, title, state))
+            threads.append((session_id, title, state, "open"))
+        sessions = SessionManager().list_sessions(
+            workspace_path=self.config.cwd,
+            include_legacy_unscoped=False,
+        )
+        for session in sessions:
+            session_id = str(session.get("session_id", "") or "").strip()
+            if not session_id or session_id in open_session_ids:
+                continue
+            if int(session.get("turn_count", 0) or 0) <= 0:
+                continue
+            title = str(session.get("name") or "").strip()
+            title = re.sub(r"\s+", " ", title).strip() or "Untitled thread"
+            threads.append((session_id, title, "saved", "saved"))
         return threads
 
     def _thread_switcher_should_auto_open(self) -> bool:
@@ -6223,6 +6266,21 @@ class ReupApp(App):
     @on(Button.Pressed)
     async def on_session_tab_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
+        if button_id.startswith("thread-switcher-saved-"):
+            session_id = button_id.removeprefix("thread-switcher-saved-").strip()
+            if not session_id:
+                return
+            event.stop()
+            snapshot = await asyncio.to_thread(
+                lambda: SessionManager().load_session(session_id)
+            )
+            if snapshot is None:
+                self.post_system(
+                    "Sessions", f"Session not found: {session_id}", is_error=True
+                )
+                return
+            await self._resume_snapshot(snapshot)
+            return
         if button_id.startswith("thread-switcher-"):
             session_id = button_id.removeprefix("thread-switcher-").strip()
             if not session_id:
