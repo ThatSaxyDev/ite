@@ -939,7 +939,7 @@ class ReupApp(App):
         self._command_registry = None
         self._command_registry_ready: bool = False
         self._command_registry_loading: bool = False
-        self._streaming_widget: Static | None = None
+        self._streaming_widget: Widget | None = None
         self._streaming_buffer: str = ""
         self._tool_widgets: dict[str, Static] = {}
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
@@ -8101,44 +8101,69 @@ class ReupApp(App):
         self._streaming_buffer += content
         conversation = self.query_one("#conversation", VerticalScroll)
         if self._streaming_widget is None:
-            self._streaming_widget = Static(classes="block assistant")
+            self._streaming_widget = Container(
+                CopyableMarkdown(""),
+                classes="block assistant",
+            )
             await conversation.mount(self._streaming_widget)
             self._message_count += 1
             self._refresh_empty_state()
-        code_theme = self._syntax_theme_name()
-        markdown = RichMarkdown(
-            self._streaming_buffer,
-            code_theme=code_theme,
-        )
-        self._streaming_widget.update(markdown)
+        await self._update_streaming_markdown(self._streaming_buffer)
         await self._pin_activity_indicator_to_end()
 
     async def finalize_streaming_message(self, final_text: str | None = None) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         rendered_text = final_text if final_text is not None else self._streaming_buffer
         if self._streaming_widget is not None and rendered_text:
-            # Replace the streaming Static with a CopyableMarkdown widget
-            # so code blocks have copy buttons
-            old_widget = self._streaming_widget
-            new_widget = Container(
-                CopyableMarkdown(rendered_text),
-                classes="block assistant",
-            )
-            try:
-                await old_widget.remove()
-                await conversation.mount(new_widget)
-            except Exception:
-                # Fallback: just update the existing widget with RichMarkdown
-                code_theme = self._syntax_theme_name()
-                old_widget.update(
-                    RichMarkdown(
-                        rendered_text,
-                        code_theme=code_theme,
-                    )
+            if self._streaming_widget_has_copyable_markdown():
+                await self._update_streaming_markdown(rendered_text)
+            else:
+                # Fallback for older in-flight widgets created before streaming used CopyableMarkdown.
+                old_widget = self._streaming_widget
+                new_widget = Container(
+                    CopyableMarkdown(rendered_text),
+                    classes="block assistant",
                 )
+                try:
+                    await old_widget.remove()
+                    await conversation.mount(new_widget)
+                except Exception:
+                    if hasattr(old_widget, "update"):
+                        old_widget.update(
+                            RichMarkdown(
+                                rendered_text,
+                                code_theme=self._syntax_theme_name(),
+                            )
+                        )
             await self._pin_activity_indicator_to_end()
         self._streaming_widget = None
         self._streaming_buffer = ""
+
+    def _streaming_widget_has_copyable_markdown(self) -> bool:
+        if self._streaming_widget is None:
+            return False
+        try:
+            self._streaming_widget.query_one(CopyableMarkdown)
+            return True
+        except Exception:
+            return False
+
+    async def _update_streaming_markdown(self, markdown_text: str) -> None:
+        if self._streaming_widget is None:
+            return
+        try:
+            markdown_widget = self._streaming_widget.query_one(CopyableMarkdown)
+        except Exception:
+            if hasattr(self._streaming_widget, "update"):
+                code_theme = self._syntax_theme_name()
+                self._streaming_widget.update(
+                    RichMarkdown(
+                        markdown_text,
+                        code_theme=code_theme,
+                    )
+                )
+            return
+        await markdown_widget.update(markdown_text)
 
     async def _clear_inflight_turn_ui(self) -> None:
         self._resolve_pending_plan_question(empty=True)

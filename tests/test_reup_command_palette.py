@@ -15,6 +15,7 @@ from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
+from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
@@ -1095,6 +1096,31 @@ class ReupCommandPaletteTests(unittest.TestCase):
             mounted = conversation.mounted[0]
             body = list(getattr(mounted, "_pending_children", []))[0]
             self.assertEqual(body.source_text, "Alpha\nBeta")
+
+        asyncio.run(run_test())
+
+    def test_streaming_assistant_delta_uses_copyable_markdown_widget(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            class DummyConversation:
+                def __init__(self) -> None:
+                    self.mounted: list[object] = []
+
+                async def mount(self, widget) -> None:
+                    self.mounted.append(widget)
+
+            conversation = DummyConversation()
+            with patch.object(app, "query_one", return_value=conversation), patch.object(
+                app, "_pin_activity_indicator_to_end", AsyncMock()
+            ):
+                await app.stream_assistant_delta("Hello `code`")
+
+            self.assertEqual(len(conversation.mounted), 1)
+            mounted = conversation.mounted[0]
+            self.assertIs(app._streaming_widget, mounted)
+            body = list(getattr(mounted, "_pending_children", []))[0]
+            self.assertIsInstance(body, CopyableMarkdown)
 
         asyncio.run(run_test())
 
