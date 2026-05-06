@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from rich.console import Console
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
+from ite.agent.session import Session
 from ite.config.config import Config
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
@@ -2589,6 +2590,105 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 auto_save.assert_awaited_once()
 
         asyncio.run(scenario())
+
+    def test_run_agent_message_saves_inactive_thread_without_agent_swap(
+        self,
+    ) -> None:
+        app = self._app()
+        active_session = SimpleNamespace(session_id="active", turn_count=1)
+        inactive_session = SimpleNamespace(
+            session_id="inactive",
+            turn_count=1,
+            pending_attachment_paths=[],
+            get_stats=lambda: {},
+        )
+        active_agent = SimpleNamespace(session=active_session)
+        inactive_agent = SimpleNamespace(session=inactive_session)
+        app.agent = active_agent
+        app._remember_open_session(
+            active_session,
+            workspace=self.cwd,
+            agent=active_agent,
+        )
+        app._remember_open_session(
+            inactive_session,
+            workspace=self.cwd / "inactive",
+            agent=inactive_agent,
+        )
+        add_user = AsyncMock()
+        save_session = AsyncMock()
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(app, "add_user_message", new=add_user),
+                patch.object(app, "_agent_turn", new=AsyncMock()),
+                patch.object(app, "_progress_state_label", return_value="thinking"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_queue_session_tabs_refresh"),
+                patch.object(app, "_broadcast_remote_state", new=AsyncMock()),
+                patch.object(app, "_auto_save_session", new=save_session),
+            ):
+                await app.run_agent_message("hello", session_id="inactive")
+
+        asyncio.run(scenario())
+
+        self.assertIs(app.agent, active_agent)
+        add_user.assert_not_awaited()
+        save_session.assert_awaited_once()
+        save_args, save_kwargs = save_session.await_args
+        self.assertIs(save_args[0], inactive_session)
+        self.assertEqual(
+            save_kwargs["workspace"],
+            (self.cwd / "inactive").resolve(),
+        )
+        self.assertFalse(save_kwargs["refresh_ui"])
+
+    def test_dispatch_payload_binds_worker_to_current_thread(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(session_id="active", pending_attachment_paths=[])
+        app.agent = SimpleNamespace(session=session)
+        worker_coroutines = []
+        send_kwargs = {}
+
+        def run_worker(coro, *, exclusive=False, group=None):
+            worker_coroutines.append(coro)
+            coro.close()
+
+        async def fake_send(*_args, **_kwargs) -> None:
+            return None
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "run_worker", side_effect=run_worker),
+                patch.object(
+                    app,
+                    "_handle_agent_send_with_intent",
+                    side_effect=fake_send,
+                ) as send,
+            ):
+                await app._dispatch_payload({"message": "hello from active"})
+                send.assert_called_once()
+                send_kwargs.update(send.call_args.kwargs)
+
+        asyncio.run(scenario())
+
+        self.assertEqual(send_kwargs["session_id"], "active")
+        self.assertEqual(len(worker_coroutines), 1)
+
+    def test_session_config_for_workspace_isolates_cwd_between_threads(self) -> None:
+        app = self._app()
+        first_workspace = self.cwd / "one"
+        second_workspace = self.cwd / "two"
+        first = Session(config=app._session_config_for_workspace(first_workspace))
+        second = Session(config=app._session_config_for_workspace(second_workspace))
+
+        app.config.cwd = self.cwd / "active"
+
+        self.assertEqual(first.config.cwd, first_workspace.resolve())
+        self.assertEqual(second.config.cwd, second_workspace.resolve())
+        self.assertEqual(app.config.cwd, self.cwd / "active")
 
     def test_generate_session_name_uses_non_streaming_completion(self) -> None:
         app = self._app()

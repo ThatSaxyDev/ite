@@ -1922,6 +1922,13 @@ class ReupApp(App):
             self._open_session_order.remove(session_id)
             self._open_session_order.append(session_id)
 
+    def _session_config_for_workspace(self, workspace: Path | None = None) -> Config:
+        resolved_workspace = Path(workspace or self.config.cwd).resolve()
+        return self.config.model_copy(
+            update={"cwd": resolved_workspace},
+            deep=False,
+        )
+
     def _workspace_for_session_id(self, session_id: str | None) -> Path:
         if session_id and session_id in self._open_session_workspaces:
             return self._open_session_workspaces[session_id]
@@ -5300,7 +5307,7 @@ class ReupApp(App):
                 self._remember_open_session(self.agent.session, agent=self.agent)
                 await self._broadcast_remote_state()
             return
-        fresh = Session(config=self.config)
+        fresh = Session(config=self._session_config_for_workspace())
         self.agent = self._build_session_agent(fresh)
         await self.agent.__aenter__()
         if self.agent.session is not None:
@@ -5318,8 +5325,13 @@ class ReupApp(App):
         ) -> dict[str, Any]:
             return await self._plan_question_callback_for_session(sid, payload)
 
+        agent_config = getattr(
+            session,
+            "config",
+            None,
+        ) or self._session_config_for_workspace()
         return Agent(
-            config=self.config,
+            config=agent_config,
             session=session,
             confirmation_callback=_confirm,
             plan_question_callback=_plan_question,
@@ -6011,10 +6023,11 @@ class ReupApp(App):
         message: str,
         attachments: list[str],
         turn_id: int,
+        workspace: Path,
     ) -> tuple[str, str | list[dict] | None, str | None, list[Attachment]] | None:
         if not attachments:
             return message, None, None, []
-        manager = AttachmentManager(self.config.cwd)
+        manager = AttachmentManager(workspace)
         temp_turn_id = f"reup_{turn_id}"
         staged, errors = manager.stage_paths(attachments, temp_turn_id)
         if errors:
@@ -6022,9 +6035,9 @@ class ReupApp(App):
                 self.post_attachment_note(error)
         if not staged:
             return None
-        user_model_content = build_user_model_content(message, staged, self.config.cwd)
+        user_model_content = build_user_model_content(message, staged, workspace)
         prepared_message = build_user_text_with_manifest(
-            message, staged, self.config.cwd
+            message, staged, workspace
         )
         return prepared_message, user_model_content, temp_turn_id, staged
 
@@ -6062,6 +6075,7 @@ class ReupApp(App):
             return
         if self.agent and self.agent.session:
             self.agent.session.pending_attachment_paths = list(attachments)
+        session_id = self._active_session_id()
 
         normalized = self._normalize_plan_execution_request(message)
         if normalized is None:
@@ -6077,6 +6091,7 @@ class ReupApp(App):
                 message,
                 display_message=display_message or message,
                 suppress_user_echo=suppress_user_echo,
+                session_id=session_id,
             ),
             exclusive=False,
         )
@@ -6154,14 +6169,19 @@ class ReupApp(App):
         *,
         display_message: str | None = None,
         suppress_user_echo: bool = False,
+        session_id: str | None = None,
     ) -> None:
-        assisted = await self._apply_intent_assist(message)
+        if session_id and session_id != self._active_session_id():
+            assisted = message
+        else:
+            assisted = await self._apply_intent_assist(message)
         if assisted is None:
             return
         await self.run_agent_message(
             assisted,
             display_message=display_message or message,
             suppress_user_echo=suppress_user_echo,
+            session_id=session_id,
         )
 
     async def _list_resume_sessions(
@@ -6212,13 +6232,16 @@ class ReupApp(App):
                 announce="Switched to already-open thread.",
             )
             return
-        if snapshot.workspace_path:
-            target_workspace = Path(snapshot.workspace_path).resolve()
-            if target_workspace != self.config.cwd.resolve():
-                self.config.cwd = target_workspace
-                self.refresh_header()
+        target_workspace = (
+            Path(snapshot.workspace_path).resolve()
+            if snapshot.workspace_path
+            else Path(self.config.cwd).resolve()
+        )
+        if target_workspace != self.config.cwd.resolve():
+            self.config.cwd = target_workspace
+            self.refresh_header()
 
-        resumed = Session(config=self.config)
+        resumed = Session(config=self._session_config_for_workspace(target_workspace))
         if hasattr(resumed, "set_session_id"):
             resumed.set_session_id(snapshot.session_id)
         else:
@@ -6263,9 +6286,7 @@ class ReupApp(App):
             dropped_agent = self._drop_open_session(current_session_id)
         self._remember_open_session(
             resumed,
-            workspace=Path(snapshot.workspace_path).resolve()
-            if snapshot.workspace_path
-            else Path(self.config.cwd).resolve(),
+            workspace=target_workspace,
             agent=resumed_agent,
         )
         self.agent = resumed_agent
@@ -7098,24 +7119,34 @@ class ReupApp(App):
         *,
         display_message: str | None = None,
         suppress_user_echo: bool = False,
+        session_id: str | None = None,
     ) -> None:
         rendered_message = display_message or message
-        if not suppress_user_echo:
-            await self.add_user_message(rendered_message)
-            await self._broadcast_remote_state()
-
         await self.ensure_agent()
-        if not self.agent or not self.agent.session:
+        target_session_id = session_id or self._active_session_id()
+        active_agent = (
+            self._session_agents.get(target_session_id or "")
+            if target_session_id
+            else self.agent
+        )
+        if active_agent is None:
+            active_agent = self.agent
+        if not active_agent or not active_agent.session:
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
-        session_id = self._active_session_id()
+        session_id = self._session_id(active_agent.session) or target_session_id
         if not session_id:
             self.post_system("Error", "No active thread.", is_error=True)
             return
-        active_agent = self.agent
+        workspace = self._workspace_for_session_id(session_id)
+        is_visible_session = self._active_session_id() == session_id
+        if not suppress_user_echo and is_visible_session:
+            await self.add_user_message(rendered_message)
+            await self._broadcast_remote_state()
         run_state = self._run_state(session_id)
-        self._last_rendered_plan_text = None
+        if is_visible_session:
+            self._last_rendered_plan_text = None
         run_state.turn_had_error = False
         run_state.turn_made_progress = False
         run_state.last_error_message = None
@@ -7147,6 +7178,7 @@ class ReupApp(App):
             message=message,
             attachments=attachments,
             turn_id=turn_id,
+            workspace=workspace,
         )
         if prepared is None:
             return
@@ -7165,8 +7197,11 @@ class ReupApp(App):
             )
         )
         run_state.is_turn_running = True
-        self._set_loading_state(self._progress_state_label(), busy=True)
-        self.refresh_header()
+        if self._active_session_id() == session_id:
+            self._set_loading_state(self._progress_state_label(), busy=True)
+            self.refresh_header()
+        else:
+            self._queue_session_tabs_refresh()
         await self._broadcast_remote_state()
         completed_normally = False
 
@@ -7175,7 +7210,10 @@ class ReupApp(App):
             run_state.active_turn_task = None
             run_state.is_turn_running = False
             run_state.context_meter_floor_pct = None
-            self.refresh_header()
+            if self._active_session_id() == session_id:
+                self.refresh_header()
+            else:
+                self._queue_session_tabs_refresh()
             if (
                 self._active_session_id() == session_id
                 and run_state.auto_resume_payload is None
@@ -7184,12 +7222,11 @@ class ReupApp(App):
             if self._active_session_id() == session_id:
                 await self.auto_save()
             else:
-                previous_agent = self.agent
-                self.agent = active_agent
-                try:
-                    await self.auto_save()
-                finally:
-                    self.agent = previous_agent
+                await self._auto_save_session(
+                    active_agent.session,
+                    workspace=workspace,
+                    refresh_ui=False,
+                )
             await self._broadcast_remote_state()
             completed_normally = not run_state.turn_had_error
         except asyncio.CancelledError:
@@ -7208,7 +7245,10 @@ class ReupApp(App):
             run_state.is_turn_running = False
             if run_state.context_meter_floor_pct is not None and not completed_normally:
                 run_state.context_meter_floor_pct = None
-            self.refresh_header()
+            if self._active_session_id() == session_id:
+                self.refresh_header()
+            else:
+                self._queue_session_tabs_refresh()
             if (
                 self._active_session_id() == session_id
                 and run_state.auto_resume_payload is None
@@ -7254,7 +7294,9 @@ class ReupApp(App):
                 await self.handle_agent_event(event, session_id, turn_id)
         finally:
             if attachment_turn_id:
-                AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
+                AttachmentManager(
+                    self._workspace_for_session_id(session_id)
+                ).cleanup_turn(attachment_turn_id)
 
     async def handle_agent_event(
         self, event: AgentEvent, session_id: str, turn_id: int
@@ -10869,7 +10911,7 @@ class ReupApp(App):
         ):
             await self.auto_save()
 
-        fresh = Session(config=self.config)
+        fresh = Session(config=self._session_config_for_workspace())
         fresh_agent = self._build_session_agent(fresh)
         await fresh_agent.__aenter__()
         self._remember_open_session(fresh, agent=fresh_agent)
@@ -10939,7 +10981,7 @@ class ReupApp(App):
         if next_session_id:
             await self._activate_open_session(next_session_id)
         else:
-            fresh = Session(config=self.config)
+            fresh = Session(config=self._session_config_for_workspace())
             fresh_agent = self._build_session_agent(fresh)
             await fresh_agent.__aenter__()
             self._remember_open_session(fresh, agent=fresh_agent)
@@ -10962,21 +11004,35 @@ class ReupApp(App):
         if not self.agent or not self.agent.session:
             return
 
-        session = self.agent.session
+        await self._auto_save_session(
+            self.agent.session,
+            workspace=Path(self.config.cwd).resolve(),
+            refresh_ui=True,
+        )
+
+    async def _auto_save_session(
+        self,
+        session: Session,
+        *,
+        workspace: Path,
+        refresh_ui: bool,
+    ) -> None:
         if session.turn_count == 0:
             return
 
         if session.name is None:
             session.set_auto_name(await self.generate_session_name(session))
-            self.refresh_header()
+            if refresh_ui:
+                self.refresh_header()
         elif session.should_refresh_auto_name():
             refreshed = await self.generate_session_name(session)
             if refreshed and refreshed.strip() and refreshed.strip() != session.name:
                 session.set_auto_name(refreshed)
-                self.refresh_header()
+                if refresh_ui:
+                    self.refresh_header()
 
         snapshot = SessionSnapshot(
-            **session.snapshot_kwargs(workspace_path=str(self.config.cwd.resolve()))
+            **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
         )
         SessionManager().save_session(snapshot)
 
