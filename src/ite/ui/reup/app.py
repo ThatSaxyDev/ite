@@ -1932,6 +1932,13 @@ class ReupApp(App):
             session = self._open_sessions.get(session_id)
             if session is None:
                 continue
+            is_running = self._run_state(session_id).is_turn_running
+            if (
+                getattr(session, "turn_count", 0) == 0
+                and not is_running
+                and self._session_title(session) == "New thread"
+            ):
+                continue
             open_session_ids.add(session_id)
             discovered_order.append(session_id)
             title = self._session_title(session)
@@ -1939,7 +1946,7 @@ class ReupApp(App):
             state = ""
             if session_id == active_session_id:
                 state = "current"
-            elif self._run_state(session_id).is_turn_running:
+            elif is_running:
                 state = "running"
             rows_by_session_id[session_id] = (session_id, title, state, "open")
         sessions = SessionManager().list_sessions(
