@@ -1005,6 +1005,7 @@ class ReupApp(App):
         self._thread_switcher_panel: ThreadSwitcherSidePanel | None = None
         self._thread_switcher_dismissed_count: int = 0
         self._thread_switcher_sync_lock = asyncio.Lock()
+        self._thread_nav_order: list[str] = []
         self._shutdown_started: bool = False
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
@@ -1909,6 +1910,9 @@ class ReupApp(App):
             sid for sid in self._open_session_order if sid != session_id
         ]
         self._session_run_states.pop(session_id, None)
+        self._thread_nav_order = [
+            sid for sid in self._thread_nav_order if sid != session_id
+        ]
         return self._session_agents.pop(session_id, None)
 
     def _session_tab_label(self, session_id: str) -> str:
@@ -1921,13 +1925,15 @@ class ReupApp(App):
 
     def _thread_switcher_threads(self) -> list[tuple[str, str, str, str]]:
         active_session_id = self._active_session_id()
-        threads: list[tuple[str, str, str, str]] = []
+        rows_by_session_id: dict[str, tuple[str, str, str, str]] = {}
+        discovered_order: list[str] = []
         open_session_ids: set[str] = set()
         for session_id in self._open_session_order:
             session = self._open_sessions.get(session_id)
             if session is None:
                 continue
             open_session_ids.add(session_id)
+            discovered_order.append(session_id)
             title = self._session_title(session)
             title = re.sub(r"\s+", " ", title).strip() or "New thread"
             state = ""
@@ -1935,21 +1941,39 @@ class ReupApp(App):
                 state = "current"
             elif self._run_state(session_id).is_turn_running:
                 state = "running"
-            threads.append((session_id, title, state, "open"))
+            rows_by_session_id[session_id] = (session_id, title, state, "open")
         sessions = SessionManager().list_sessions(
             workspace_path=self.config.cwd,
             include_legacy_unscoped=False,
         )
         for session in sessions:
             session_id = str(session.get("session_id", "") or "").strip()
-            if not session_id or session_id in open_session_ids:
+            if not session_id:
                 continue
             if int(session.get("turn_count", 0) or 0) <= 0:
                 continue
+            if session_id not in discovered_order:
+                discovered_order.append(session_id)
+            if session_id in open_session_ids:
+                continue
             title = str(session.get("name") or "").strip()
             title = re.sub(r"\s+", " ", title).strip() or "Untitled thread"
-            threads.append((session_id, title, "saved", "saved"))
-        return threads
+            rows_by_session_id[session_id] = (session_id, title, "saved", "saved")
+        if not self._thread_nav_order:
+            self._thread_nav_order = list(discovered_order)
+        else:
+            available = set(rows_by_session_id)
+            self._thread_nav_order = [
+                sid for sid in self._thread_nav_order if sid in available
+            ]
+            for session_id in discovered_order:
+                if session_id not in self._thread_nav_order:
+                    self._thread_nav_order.append(session_id)
+        return [
+            rows_by_session_id[session_id]
+            for session_id in self._thread_nav_order
+            if session_id in rows_by_session_id
+        ]
 
     def _thread_switcher_should_auto_open(self) -> bool:
         return (
@@ -10841,6 +10865,9 @@ class ReupApp(App):
         self._open_session_workspaces.pop(current_session_id, None)
         self._open_session_order = [
             sid for sid in self._open_session_order if sid != current_session_id
+        ]
+        self._thread_nav_order = [
+            sid for sid in self._thread_nav_order if sid != current_session_id
         ]
         self._session_run_states.pop(current_session_id, None)
         closed_agent = self._session_agents.pop(current_session_id, None)
