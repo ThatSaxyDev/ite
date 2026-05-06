@@ -1024,7 +1024,7 @@ class ReupApp(App):
         yield Header(show_clock=True)
         with Vertical(id="shell"):
             with Horizontal(id="topbar"):
-                yield Button("☰", id="threads-toggle", variant="default")
+                yield Button("≡", id="threads-toggle", variant="default")
                 yield Static("New thread", id="title")
                 yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
@@ -2008,7 +2008,7 @@ class ReupApp(App):
             return
         visible = not self._cloud_signed_out
         toggle.display = visible and not self._thread_switcher_panel_is_open()
-        toggle.label = "☰"
+        toggle.label = "≡"
 
     def _queue_session_tabs_refresh(self) -> None:
         self._session_tabs_version += 1
