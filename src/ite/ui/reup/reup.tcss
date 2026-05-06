@@ -3,6 +3,11 @@ Screen {
     background: $background;
 }
 
+Widget {
+    scrollbar-size-horizontal: 1;
+    scrollbar-size-vertical: 1;
+}
+
 #shell {
     height: 1fr;
     layout: vertical;
