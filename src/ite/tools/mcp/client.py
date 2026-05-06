@@ -156,6 +156,7 @@ class MCPClient:
                 args=list(self.config.args),
                 env=env,
                 cwd=str(cwd),
+                keep_alive=False,
                 log_file=self._prepare_stdio_log_file(),
             )
         if transport == "sse":

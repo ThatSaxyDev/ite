@@ -173,6 +173,7 @@ class MCPClientTests(unittest.IsolatedAsyncioTestCase):
             transport = client._create_transport()
 
             self.assertEqual(type(transport).__name__, "StdioTransport")
+            self.assertFalse(transport.keep_alive)
             self.assertIn("npm_config_cache", transport.env)
             self.assertTrue(transport.env["npm_config_cache"])
             self.assertEqual(transport.env["npm_config_update_notifier"], "false")

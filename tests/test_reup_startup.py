@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from ite.cloud.auth import CloudAuthError
 from ite.cloud.auth import has_valid_cloud_auth
+from ite.client.response import TokenUsage
 from ite.config.config import Config
 from textual.widgets import Select
 
@@ -224,6 +226,76 @@ class ReupStartupTests(unittest.TestCase):
                 {"selected_option": "", "free_text": "", "selected_index": None},
             )
             self.assertIsNone(app._plan_question_future)
+
+        asyncio.run(run_test())
+
+    def test_perform_quit_skips_model_title_generation(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            session = SimpleNamespace(
+                turn_count=1,
+                name=None,
+                name_source=None,
+                name_locked=False,
+                name_last_generated_turn=0,
+                session_id="session-1",
+                name_generation_context=lambda: {"first_user": "Investigate exit bug."},
+                set_auto_name=lambda value: setattr(session, "name", value),
+                should_refresh_auto_name=lambda: False,
+                snapshot_kwargs=lambda workspace_path: {
+                    "session_id": "session-1",
+                    "name": session.name,
+                    "name_source": session.name_source,
+                    "name_locked": session.name_locked,
+                    "name_last_generated_turn": session.name_last_generated_turn,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc),
+                    "turn_count": 1,
+                    "workspace_path": workspace_path,
+                    "messages": [],
+                    "total_usage": TokenUsage(),
+                },
+            )
+            app.agent = SimpleNamespace(session=session)
+
+            with (
+                patch.object(app, "generate_session_name", AsyncMock()) as generate_name,
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_shutdown_remote_server", AsyncMock()),
+                patch.object(app, "_shutdown_agents", AsyncMock()),
+                patch.object(app, "exit"),
+                patch("ite.ui.reup.app.SessionManager") as session_manager,
+            ):
+                await app._perform_quit()
+
+            generate_name.assert_not_awaited()
+            self.assertEqual(session.name, "Investigate exit bug")
+            session_manager.return_value.save_session.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_shutdown_agents_closes_open_sessions_concurrently(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            async def _slow_close(_exc_type, _exc, _tb) -> None:
+                await asyncio.sleep(10)
+
+            agents = [
+                SimpleNamespace(__aexit__=AsyncMock(side_effect=_slow_close))
+                for _ in range(3)
+            ]
+            app._session_agents = {
+                f"session-{idx}": agent for idx, agent in enumerate(agents)
+            }
+
+            started = time.monotonic()
+            await asyncio.wait_for(app._shutdown_agents(), timeout=3.0)
+            elapsed = time.monotonic() - started
+
+            self.assertLess(elapsed, 2.8)
+            for agent in agents:
+                agent.__aexit__.assert_awaited_once()
 
         asyncio.run(run_test())
 

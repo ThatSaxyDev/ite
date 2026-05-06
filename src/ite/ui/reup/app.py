@@ -1500,11 +1500,16 @@ class ReupApp(App):
                 agents_to_close[session_id] = self.agent
         agents_to_close.update(self._session_agents)
 
-        for agent in agents_to_close.values():
+        async def _close_agent(agent: Agent) -> None:
             try:
                 await asyncio.wait_for(agent.__aexit__(None, None, None), timeout=2.0)
             except Exception:
                 pass
+
+        await asyncio.gather(
+            *(_close_agent(agent) for agent in agents_to_close.values()),
+            return_exceptions=True,
+        )
 
         if self.agent is not None:
             self.agent = None
@@ -5439,7 +5444,10 @@ class ReupApp(App):
     async def _perform_quit(self) -> None:
         self._resolve_pending_plan_question(empty=True)
         try:
-            await self.auto_save()
+            await asyncio.wait_for(
+                self.auto_save(allow_name_generation=False),
+                timeout=1.0,
+            )
         except Exception:
             pass
         await self._shutdown_remote_server()
@@ -11000,7 +11008,7 @@ class ReupApp(App):
                 pass
         await self._broadcast_remote_state()
 
-    async def auto_save(self) -> None:
+    async def auto_save(self, *, allow_name_generation: bool = True) -> None:
         if not self.agent or not self.agent.session:
             return
 
@@ -11008,6 +11016,7 @@ class ReupApp(App):
             self.agent.session,
             workspace=Path(self.config.cwd).resolve(),
             refresh_ui=True,
+            allow_name_generation=allow_name_generation,
         )
 
     async def _auto_save_session(
@@ -11016,15 +11025,19 @@ class ReupApp(App):
         *,
         workspace: Path,
         refresh_ui: bool,
+        allow_name_generation: bool = True,
     ) -> None:
         if session.turn_count == 0:
             return
 
         if session.name is None:
-            session.set_auto_name(await self.generate_session_name(session))
+            if allow_name_generation:
+                session.set_auto_name(await self.generate_session_name(session))
+            else:
+                session.set_auto_name(self._fallback_session_name(session))
             if refresh_ui:
                 self.refresh_header()
-        elif session.should_refresh_auto_name():
+        elif allow_name_generation and session.should_refresh_auto_name():
             refreshed = await self.generate_session_name(session)
             if refreshed and refreshed.strip() and refreshed.strip() != session.name:
                 session.set_auto_name(refreshed)
@@ -11035,6 +11048,14 @@ class ReupApp(App):
             **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
         )
         SessionManager().save_session(snapshot)
+
+    def _fallback_session_name(self, session: Session) -> str:
+        try:
+            first_user = str(session.name_generation_context().get("first_user", ""))
+        except Exception:
+            first_user = ""
+        fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
+        return fallback.strip() or "New thread"
 
     async def generate_session_name(self, session: Session) -> str:
         first_user = ""
@@ -11083,8 +11104,7 @@ class ReupApp(App):
         except Exception:
             pass
 
-        fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
-        return fallback.strip() or "New thread"
+        return self._fallback_session_name(session)
 
 
 def run_reup(config: Config) -> None:
