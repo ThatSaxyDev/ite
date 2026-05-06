@@ -1927,20 +1927,22 @@ class ReupApp(App):
         active_session_id = self._active_session_id()
         rows_by_session_id: dict[str, tuple[str, str, str, str]] = {}
         discovered_order: list[str] = []
+        hidden_session_ids: set[str] = set()
         open_session_ids: set[str] = set()
         for session_id in self._open_session_order:
             session = self._open_sessions.get(session_id)
             if session is None:
                 continue
+            open_session_ids.add(session_id)
+            discovered_order.append(session_id)
             is_running = self._run_state(session_id).is_turn_running
             if (
                 getattr(session, "turn_count", 0) == 0
                 and not is_running
                 and self._session_title(session) == "New thread"
             ):
+                hidden_session_ids.add(session_id)
                 continue
-            open_session_ids.add(session_id)
-            discovered_order.append(session_id)
             title = self._session_title(session)
             title = re.sub(r"\s+", " ", title).strip() or "New thread"
             state = ""
@@ -1969,7 +1971,7 @@ class ReupApp(App):
         if not self._thread_nav_order:
             self._thread_nav_order = list(discovered_order)
         else:
-            available = set(rows_by_session_id)
+            available = set(rows_by_session_id) | hidden_session_ids
             self._thread_nav_order = [
                 sid for sid in self._thread_nav_order if sid in available
             ]
