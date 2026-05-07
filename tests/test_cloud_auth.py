@@ -4,10 +4,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ite.cloud.auth import (
+    CloudSessionState,
     CloudSession,
     ensure_cloud_auth,
     get_activity,
     get_bundled_models,
+    get_cloud_auth_status,
     get_cloud_entitlements,
     get_cloud_session,
     has_stored_cloud_auth,
@@ -182,3 +184,20 @@ class CloudAuthTests(unittest.TestCase):
     def test_has_stored_cloud_auth_checks_local_session_only(self) -> None:
         with patch("ite.cloud.auth._load_cloud_session", return_value=self.session):
             self.assertTrue(has_stored_cloud_auth(self.config))
+
+    def test_cloud_auth_status_refreshes_rejected_access_token_once(self) -> None:
+        refresh_payload = {
+            "ok": True,
+            "accessToken": "new-access",
+            "refreshToken": "new-refresh",
+            "expiresIn": 3600,
+        }
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=self.session),
+            patch("ite.cloud.auth._get_json", return_value=(401, {"ok": False})),
+            patch("ite.cloud.auth._post_json", return_value=(200, refresh_payload)),
+            patch("ite.cloud.auth._save_cloud_session"),
+        ):
+            status = get_cloud_auth_status(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.VALID)

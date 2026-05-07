@@ -12,6 +12,7 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.config.config import Config
+from ite.cloud.auth import BundledModelsResult, CloudAuthStatus, CloudSessionState
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp
@@ -32,6 +33,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
     def _app(self) -> ReupApp:
         return ReupApp(Config(cwd=self.cwd, api_key="test-key"))
+
+    def _bundled_models_result(
+        self, models: list[dict[str, object]]
+    ) -> BundledModelsResult:
+        return BundledModelsResult(
+            models=models,
+            auth=CloudAuthStatus(state=CloudSessionState.VALID),
+        )
 
     def test_extract_slash_query_only_when_editing_first_token(self) -> None:
         self.assertEqual(ReupApp._extract_slash_query("/ap"), "/ap")
@@ -460,7 +469,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
         app.agent = SimpleNamespace(session=session)
 
-        with patch("ite.ui.reup.app.get_bundled_models") as get_bundled_models:
+        with patch("ite.ui.reup.app.get_bundled_models_result") as get_bundled_models:
             rendered = app._composer_meta_text()
 
         self.assertIn("kimi-k2.6", rendered.plain)
@@ -475,8 +484,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app.config.base_url = ""
 
             with patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[{"model_name": "z-ai/glm-5.1", "label": "GLM-5.1"}],
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result(
+                    [{"model_name": "z-ai/glm-5.1", "label": "GLM-5.1"}]
+                ),
             ), patch(
                 "ite.ui.reup.app.load_saved_custom_provider", return_value={}
             ), patch(
@@ -507,7 +518,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.load_saved_custom_provider", return_value={}
             ), patch(
-                "ite.ui.reup.app.get_bundled_models"
+                "ite.ui.reup.app.get_bundled_models_result"
             ) as get_bundled_models, patch.object(
                 app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
             ):
@@ -576,7 +587,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app.agent = SimpleNamespace(session=session)
 
         with patch(
-            "ite.ui.reup.app.get_bundled_models",
+            "ite.ui.reup.app.get_bundled_models_result",
             return_value=[{"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}],
         ), patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
             rendered = app._composer_meta_text()
@@ -652,8 +663,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.load_saved_custom_provider", return_value={}
             ), patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
                     {
                         "model_name": "minimax/minimax-m2.7",
                         "label": "MiniMax M2.7",
@@ -668,13 +679,49 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "available": True,
                         "unavailable_reason": "",
                     },
-                ],
+                ]),
             ), patch.object(app, "_open_modal", AsyncMock(side_effect=fake_open_modal)), patch.object(
                 app, "post_system"
             ) as post_system:
                 await app._open_model_picker_from_meta()
 
             post_system.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_open_model_picker_marks_invalid_cloud_session_signed_out(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
+
+            result = BundledModelsResult(
+                models=[],
+                auth=CloudAuthStatus(
+                    state=CloudSessionState.INVALID,
+                    message="Stored iTE Cloud session is expired or revoked.",
+                ),
+                message="Stored iTE Cloud session is expired or revoked.",
+            )
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=result,
+            ), patch(
+                "ite.ui.reup.app.clear_cloud_auth"
+            ) as clear_auth, patch.object(
+                app, "_set_signed_out_state"
+            ) as set_signed_out, patch.object(
+                app, "post_system"
+            ) as post_system, patch.object(
+                app, "_open_modal", AsyncMock()
+            ) as open_modal:
+                await app._open_model_picker_from_meta()
+
+            clear_auth.assert_called_once_with(revoke_remote=False)
+            set_signed_out.assert_called_once_with(True)
+            post_system.assert_called_once()
+            open_modal.assert_not_awaited()
 
         asyncio.run(run_test())
 
@@ -703,8 +750,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     }
                 },
             ), patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
                     {
                         "model_name": "minimax/minimax-m2.7",
                         "label": "MiniMax M2.7",
@@ -712,7 +759,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "available": True,
                         "unavailable_reason": "",
                     }
-                ],
+                ]),
             ), patch.object(app, "_open_modal", AsyncMock(side_effect=fake_open_modal)):
                 await app._open_model_picker_from_meta()
 
@@ -747,8 +794,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     }
                 },
             ), patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
                     {
                         "model_name": "z-ai/glm-5.1",
                         "label": "GLM-5.1",
@@ -756,7 +803,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "available": True,
                         "unavailable_reason": "",
                     }
-                ],
+                ]),
             ), patch(
                 "ite.ui.reup.app.save_system_config"
             ) as save_system_config, patch.object(
@@ -800,8 +847,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     }
                 },
             ), patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
                     {
                         "model_name": "minimax/minimax-m2.5:free",
                         "label": "MiniMax M2.5 (free)",
@@ -809,7 +856,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "available": True,
                         "unavailable_reason": "",
                     }
-                ],
+                ]),
             ), patch(
                 "ite.ui.reup.app.save_system_config"
             ) as save_system_config, patch.object(
@@ -843,8 +890,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     }
                 },
             ), patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
                     {
                         "model_name": "minimax/minimax-m2.7",
                         "label": "MiniMax M2.7",
@@ -852,7 +899,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "available": True,
                         "unavailable_reason": "",
                     }
-                ],
+                ]),
             ), patch(
                 "ite.ui.reup.app.save_system_config"
             ) as save_system_config, patch.object(
@@ -901,8 +948,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     }
                 },
             ), patch(
-                "ite.ui.reup.app.get_bundled_models",
-                return_value=[
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
                     {
                         "model_name": "z-ai/glm-5.1",
                         "label": "GLM-5.1",
@@ -910,7 +957,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                         "available": True,
                         "unavailable_reason": "",
                     }
-                ],
+                ]),
             ), patch(
                 "ite.ui.reup.app.save_system_config"
             ) as save_system_config, patch.object(

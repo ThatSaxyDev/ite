@@ -74,10 +74,12 @@ from ite.attachments import (
 from ite.cloud import (
     CloudAuthError,
     CloudConnectionError,
+    CloudSessionState,
     clear_cloud_auth,
     ensure_cloud_auth,
     get_activity,
-    get_bundled_models,
+    get_bundled_models_result,
+    get_cloud_auth_status,
     get_usage_summary,
     has_remote_companion_access,
     has_stored_cloud_auth,
@@ -2192,7 +2194,7 @@ class ReupApp(App):
             return
         await self._sync_thread_switcher_panel(force_open=True)
 
-    def refresh_header(self) -> None:
+    def refresh_header(self, *, refresh_session_tabs: bool = True) -> None:
         current_workspace_key = str(Path(self.config.cwd).resolve())
         if (
             self._agents_recommendation_last_workspace_key is not None
@@ -2210,7 +2212,8 @@ class ReupApp(App):
             meta.update(f"Workspace: {self.config.cwd}")
         self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
-        self._queue_session_tabs_refresh()
+        if refresh_session_tabs:
+            self._queue_session_tabs_refresh()
 
     def _update_composer_meta_line(self) -> None:
         try:
@@ -2488,12 +2491,60 @@ class ReupApp(App):
         }
         return model in bundled_models
 
+    def _apply_cloud_auth_status(
+        self,
+        auth: Any,
+        *,
+        context: str = "iTE Cloud",
+        interactive: bool = False,
+    ) -> bool:
+        state = str(getattr(auth, "state", "") or "")
+        message = str(getattr(auth, "message", "") or "").strip()
+        if state == CloudSessionState.VALID:
+            if self._cloud_signed_out:
+                self._set_signed_out_state(False)
+            return True
+        if state in {CloudSessionState.SIGNED_OUT, CloudSessionState.INVALID}:
+            if state == CloudSessionState.INVALID:
+                clear_cloud_auth(revoke_remote=False)
+            self._cloud_bootstrap_busy = False
+            self._set_signed_out_state(True)
+            if interactive:
+                self.post_system(
+                    context,
+                    message or "Sign in with `/login` to continue.",
+                    is_error=True,
+                )
+            return False
+        if state == CloudSessionState.NETWORK_ERROR:
+            if interactive:
+                self.post_system(
+                    context,
+                    message
+                    or "iTE Cloud is unreachable right now. Your stored session was kept.",
+                    is_error=True,
+                )
+            return False
+        if interactive:
+            self.post_system(
+                context,
+                message or "iTE Cloud is not available right now.",
+                is_error=True,
+            )
+        return False
+
     async def _refresh_bundled_models_cache(self) -> None:
         try:
-            bundled = await asyncio.to_thread(get_bundled_models, self.config)
+            result = await asyncio.to_thread(get_bundled_models_result, self.config)
         except Exception:
             return
-        self._bundled_models_cache = bundled
+        if not self._apply_cloud_auth_status(
+            result.auth,
+            context="Bundled models",
+            interactive=False,
+        ):
+            return
+        self._bundled_models_cache = result.models
         self._migrate_legacy_bundled_selection_if_needed()
         self.refresh_header()
 
@@ -3054,7 +3105,20 @@ class ReupApp(App):
             current_model = self.config.model_name
             bundled_items = self._bundled_models_cache
             if not bundled_items:
-                bundled_items = await asyncio.to_thread(get_bundled_models, self.config)
+                result = await asyncio.to_thread(get_bundled_models_result, self.config)
+                if not self._apply_cloud_auth_status(
+                    result.auth,
+                    context="Bundled models",
+                    interactive=True,
+                ):
+                    if str(result.auth.state) in {
+                        CloudSessionState.SIGNED_OUT,
+                        CloudSessionState.INVALID,
+                    }:
+                        return
+                bundled_items = result.models
+                if not bundled_items and result.message:
+                    self.post_system("Bundled models", result.message, is_error=True)
             self._bundled_models_cache = bundled_items
             saved_providers = load_saved_custom_provider()
             bundled_model_names = {
@@ -3758,7 +3822,12 @@ class ReupApp(App):
             empty = self.query_one("#empty-state", Static)
         except (NoMatches, ScreenStackError):
             return
-        if self._cloud_signed_out or self._startup_active or self._onboarding_active:
+        if (
+            self._cloud_signed_out
+            or self._startup_active
+            or self._onboarding_active
+            or self._cloud_bootstrap_busy
+        ):
             empty.display = False
             return
         if self._message_count > 0 or self._is_turn_running:
@@ -3780,7 +3849,12 @@ class ReupApp(App):
         )
 
     def _maybe_post_workspace_agents_recommendation(self) -> None:
-        if self._startup_active or self._cloud_signed_out or self._onboarding_active:
+        if (
+            self._startup_active
+            or self._cloud_signed_out
+            or self._onboarding_active
+            or self._cloud_bootstrap_busy
+        ):
             return
         workspace = Path(self.config.cwd).resolve()
         workspace_key = str(workspace)
@@ -3884,9 +3958,10 @@ class ReupApp(App):
         header = self.query_one(Header)
 
         in_startup = self._startup_active
+        in_bootstrap = self._cloud_bootstrap_busy
         in_signed_out = (not in_startup) and self._cloud_signed_out
         in_onboarding = (not in_signed_out) and self._onboarding_active
-        in_chat = (not in_startup) and (not in_signed_out) and (not in_onboarding)
+        in_chat = (not in_startup) and (not in_signed_out) and (not in_onboarding) and (not in_bootstrap)
 
         startup.display = in_startup
         signed_out.display = in_signed_out
@@ -3900,7 +3975,7 @@ class ReupApp(App):
         header.display = in_chat
         chat_body.styles.padding = (
             (0, 0, 0, 0)
-            if (in_startup or in_signed_out or in_onboarding)
+            if (in_startup or in_signed_out or in_onboarding or in_bootstrap)
             else (0, 2, 0, 2)
         )
         prompt.disabled = not in_chat
@@ -3983,6 +4058,29 @@ class ReupApp(App):
     async def _run_cloud_login_flow(self) -> None:
         if self._cloud_auth_busy:
             return
+        auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
+        auth_state = str(getattr(auth, "state", CloudSessionState.SIGNED_OUT) or "")
+        if auth_state == CloudSessionState.VALID:
+            self._apply_cloud_auth_status(auth)
+            self._prefetch_cloud_caches()
+            if self._should_show_onboarding():
+                self._set_onboarding_state(True)
+                self.query_one("#onboarding-name", Input).focus()
+                return
+            await self.ensure_agent()
+            self._refresh_empty_state()
+            self.query_one("#prompt", TextArea).focus()
+            self.post_notice("iTE Cloud", "Already signed in.")
+            return
+        if auth_state == CloudSessionState.NETWORK_ERROR:
+            self._apply_cloud_auth_status(
+                auth,
+                context="iTE Cloud",
+                interactive=True,
+            )
+            return
+        if auth_state == CloudSessionState.INVALID:
+            clear_cloud_auth(revoke_remote=False)
         if not self.config.cloud_auth_enabled:
             self.config.cloud_auth_enabled = True
             save_cloud_settings(enabled=True)
@@ -4024,11 +4122,68 @@ class ReupApp(App):
         self._refresh_empty_state()
         self.query_one("#prompt", TextArea).focus()
 
-    async def _run_cloud_logout_flow(self) -> None:
+    async def _reset_runtime_after_cloud_logout(self) -> None:
         if self._is_turn_running:
             await self.cancel_active_turn()
+        if self.agent and self.agent.session and self.agent.session.turn_count > 0:
+            await self.auto_save()
+
+        agents_to_close: dict[str, Agent] = {}
+        if self.agent is not None and self.agent.session is not None:
+            session_id = self._session_id(self.agent.session)
+            if session_id:
+                agents_to_close[session_id] = self.agent
+        agents_to_close.update(self._session_agents)
+
+        async def _close_agent(agent: Agent) -> None:
+            try:
+                await asyncio.wait_for(agent.__aexit__(None, None, None), timeout=2.0)
+            except Exception:
+                pass
+
+        await asyncio.gather(
+            *(_close_agent(agent) for agent in agents_to_close.values()),
+            return_exceptions=True,
+        )
+        self.agent = None
+        self._session_agents.clear()
+        self._open_sessions.clear()
+        self._open_session_order.clear()
+        self._open_session_workspaces.clear()
+        self._thread_nav_order.clear()
+        self._session_run_states.clear()
+        self._bundled_models_cache = []
+        self._usage_summary_cache = None
+        self._activity_cache = None
+        self._usage_remaining_percent = None
+        if self.is_mounted:
+            conversation = self.query_one("#conversation", VerticalScroll)
+            await conversation.remove_children()
+            self._message_count = 0
+            self._reset_session_local_ui_state()
+
+    async def _run_cloud_logout_flow(self) -> None:
+        await self._reset_runtime_after_cloud_logout()
         clear_cloud_auth()
         self._set_signed_out_state(True)
+
+    async def _run_cloud_status_flow(self) -> None:
+        auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
+        if auth.state == CloudSessionState.VALID:
+            self._apply_cloud_auth_status(auth)
+            self._prefetch_cloud_caches()
+            self.post_notice("iTE Cloud", "Signed in.")
+            return
+        if auth.state in {CloudSessionState.SIGNED_OUT, CloudSessionState.INVALID}:
+            self._apply_cloud_auth_status(
+                auth,
+                context="iTE Cloud",
+                interactive=(auth.state == CloudSessionState.INVALID),
+            )
+            if auth.state == CloudSessionState.SIGNED_OUT:
+                self.post_notice("iTE Cloud", "Signed out. Use `/login` to sign in.")
+            return
+        self._apply_cloud_auth_status(auth, context="iTE Cloud", interactive=True)
 
     async def _finish_onboarding_flow(self, *, skip: bool) -> None:
         if self._onboarding_busy:
@@ -4102,6 +4257,16 @@ class ReupApp(App):
         self._set_onboarding_state(False)
         if self.config.needs_setup:
             await self._open_setup_modal(exit_on_cancel=False)
+            # After setup saves new credentials, the agent created during onboarding
+            # has empty credentials. Reset client to force re-creation with new creds.
+            await self._reset_active_provider_client()
+            self.agent = None  # Force fresh agent with valid credentials
+        # Ensure agent is created after onboarding + optional setup completes.
+        # This was previously skipped because onboarding blocked the initial ensure_agent() call.
+        await self.ensure_agent()
+        # Sync the dismissed count to prevent unintended thread nav auto-open.
+        # After onboarding, user has just one session, so they shouldn't see the nav.
+        self._thread_switcher_dismissed_count = len(self._open_session_order)
         self._apply_shell_surface()
         self._refresh_empty_state()
         self.query_one("#prompt", TextArea).focus()
@@ -5589,7 +5754,7 @@ class ReupApp(App):
         self.config.model.source_kind = "saved"
         self.config.approval = ApprovalPolicy(result["approval"])
         await self._reset_active_provider_client()
-        self.refresh_header()
+        self.refresh_header(refresh_session_tabs=False)
         self.post_notice("Setup complete", "Credentials saved and applied.")
 
     async def _open_setup_modal(self, *, exit_on_cancel: bool = False) -> bool:
@@ -6942,6 +7107,10 @@ class ReupApp(App):
             await self._open_setup_modal(exit_on_cancel=False)
             return
 
+        if command == "/login":
+            await self._run_cloud_login_flow()
+            return
+
         if command == "/branch" and not args:
             await self._open_branch_picker_from_meta()
             return
@@ -6953,10 +7122,7 @@ class ReupApp(App):
         if command == "/cloud":
             subcommand = args[0].lower() if args else "status"
             if subcommand in {"status", "show"}:
-                if self._cloud_signed_out:
-                    self._set_signed_out_state(True)
-                else:
-                    self.post_notice("iTE Cloud", "Signed in.")
+                await self._run_cloud_status_flow()
                 return
             if subcommand == "login":
                 await self._run_cloud_login_flow()

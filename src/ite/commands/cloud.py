@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 from ite.commands import Command, CommandContext, CommandRegistry
-from ite.cloud import CloudAuthError, CloudConnectionError, clear_cloud_auth, ensure_cloud_auth, get_usage_summary, get_activity
+from ite.cloud import (
+    CloudAuthError,
+    CloudConnectionError,
+    CloudSessionState,
+    clear_cloud_auth,
+    ensure_cloud_auth,
+    get_activity,
+    get_cloud_auth_status,
+    get_usage_summary,
+)
 from ite.config.loader import save_cloud_settings
 from rich.panel import Panel
 from rich.table import Table
@@ -13,6 +22,7 @@ from rich import box
 
 
 def _cloud_status_panel(ctx: CommandContext) -> Panel:
+    auth = get_cloud_auth_status(ctx.config)
     table = Table.grid(padding=(0, 2))
     table.add_column(style="muted", justify="right", min_width=12)
     table.add_column(style="bold white")
@@ -20,6 +30,9 @@ def _cloud_status_panel(ctx: CommandContext) -> Panel:
         Text("Enabled", style="muted"),
         Text("true" if ctx.config.cloud_auth_enabled else "false", style="info"),
     )
+    table.add_row(Text("Session", style="muted"), Text(auth.state, style="info"))
+    if auth.message:
+        table.add_row(Text("Detail", style="muted"), Text(auth.message, style="dim"))
     return Panel(
         table,
         title=Text.assemble(("☁ ", ""), ("iTE Cloud", "bold bright_white")),
@@ -42,6 +55,15 @@ async def cmd_cloud(ctx: CommandContext, args: list[str]) -> None:
         if not ctx.config.cloud_auth_enabled:
             ctx.config.cloud_auth_enabled = True
             save_cloud_settings(enabled=True)
+        auth = get_cloud_auth_status(ctx.config)
+        if auth.state == CloudSessionState.VALID:
+            ctx.console.print("[bold green]Already signed in to iTE Cloud.[/bold green]")
+            return
+        if auth.state == CloudSessionState.NETWORK_ERROR:
+            ctx.console.print(f"[error]{auth.message}[/error]")
+            return
+        if auth.state == CloudSessionState.INVALID:
+            clear_cloud_auth(revoke_remote=False)
         clear_cloud_auth()
         try:
             ensure_cloud_auth(ctx.console, ctx.config)
@@ -66,6 +88,10 @@ async def cmd_cloud(ctx: CommandContext, args: list[str]) -> None:
         "[error]Unknown /cloud command.[/error] "
         "[dim]Use /cloud status, /cloud login, or /cloud logout[/dim]"
     )
+
+
+async def cmd_login(ctx: CommandContext, args: list[str]) -> None:
+    await cmd_cloud(ctx, ["login"])
 
 
 async def cmd_usage(ctx: CommandContext, args: list[str]) -> None:
@@ -147,6 +173,13 @@ def register(registry: CommandRegistry) -> None:
             name="/cloud",
             description="Manage iTE Cloud auth and API settings",
             handler=cmd_cloud,
+        )
+    )
+    registry.register(
+        Command(
+            name="/login",
+            description="Sign in to iTE Cloud",
+            handler=cmd_login,
         )
     )
     registry.register(

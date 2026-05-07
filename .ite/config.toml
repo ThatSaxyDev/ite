@@ -1,4 +1,4 @@
-hooks_enabled = true
+hooks_enabled = false
 
 [model]
 context_window = 200000

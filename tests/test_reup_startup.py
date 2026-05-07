@@ -356,7 +356,7 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "run_worker"),
                 patch(
                     "ite.ui.reup.app.asyncio.to_thread",
-                    AsyncMock(side_effect=[True, False]),
+                    AsyncMock(return_value=False),
                 ),
             ):
                 await app._bootstrap_after_mount()
@@ -579,6 +579,8 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_apply_change_review_panel_state"),
                 patch.object(app, "set_interval"),
                 patch.object(app, "set_timer"),
+                patch.object(app, "_set_startup_phase"),
+                patch.object(app, "_set_startup_state"),
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
                 patch.object(app, "_refresh_change_review_source", AsyncMock()) as refresh_change_review,
@@ -593,7 +595,7 @@ class ReupStartupTests(unittest.TestCase):
                     }[selector],
                 ),
             ):
-                await app.on_mount()
+                await app._bootstrap_after_mount()
 
             set_signed_out_state.assert_called_once_with(True)
             ensure_agent.assert_not_awaited()

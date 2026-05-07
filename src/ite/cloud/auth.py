@@ -64,6 +64,24 @@ class CloudSession:
         )
 
 
+@dataclass(frozen=True)
+class CloudAuthStatus:
+    state: str
+    session: CloudSession | None = None
+    message: str = ""
+
+    @property
+    def is_valid(self) -> bool:
+        return self.state == CloudSessionState.VALID and self.session is not None
+
+
+@dataclass(frozen=True)
+class BundledModelsResult:
+    models: list[dict[str, Any]]
+    auth: CloudAuthStatus
+    message: str = ""
+
+
 def _cloud_session_path() -> Path:
     path = get_data_dir() / "auth" / "cloud_session.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -229,9 +247,12 @@ def _cloud_browser_ready(payload: dict[str, Any]) -> bool:
 class CloudSessionState:
     """Result of cloud session verification."""
 
+    DISABLED = "disabled"
+    SIGNED_OUT = "signed_out"
     VALID = "valid"
     INVALID = "invalid"  # Expired or revoked
     NETWORK_ERROR = "network_error"  # Can't reach API, credentials may still be valid
+    NO_ENTITLEMENT = "no_entitlement"  # Signed in, but cloud feature is unavailable
 
 
 def _verify_cloud_session(session: CloudSession) -> bool:
@@ -271,7 +292,12 @@ def check_cloud_session(session: CloudSession) -> str:
             # Server errors (5xx) when server is down/spinning up - keep session
             if status >= 500:
                 return CloudSessionState.NETWORK_ERROR
-            # Auth errors (401/403) - session is invalid
+            if status == 401:
+                refreshed = _refresh_cloud_session(session)
+                if refreshed is not None:
+                    return CloudSessionState.VALID
+                return CloudSessionState.INVALID
+            # Remaining auth errors (403, etc.) mean the session is invalid.
             return CloudSessionState.INVALID
         except CloudConnectionError:
             return CloudSessionState.NETWORK_ERROR
@@ -287,6 +313,50 @@ def check_cloud_session(session: CloudSession) -> str:
         return CloudSessionState.NETWORK_ERROR
     except CloudAuthError:
         return CloudSessionState.INVALID
+
+
+def get_cloud_auth_status(config: Config) -> CloudAuthStatus:
+    if not config.cloud_auth_enabled:
+        return CloudAuthStatus(
+            state=CloudSessionState.DISABLED,
+            message="iTE Cloud auth is disabled.",
+        )
+    cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
+    if not cloud_api_url:
+        return CloudAuthStatus(
+            state=CloudSessionState.SIGNED_OUT,
+            message="Cloud auth is enabled but no cloud endpoint is configured.",
+        )
+    existing = _load_cloud_session()
+    if existing is None or existing.api_url != cloud_api_url:
+        return CloudAuthStatus(
+            state=CloudSessionState.SIGNED_OUT,
+            message="No local iTE Cloud session is stored.",
+        )
+    state = check_cloud_session(existing)
+    if state == CloudSessionState.VALID:
+        refreshed = _load_cloud_session()
+        session = (
+            refreshed
+            if refreshed is not None and refreshed.api_url == cloud_api_url
+            else existing
+        )
+        return CloudAuthStatus(
+            state=CloudSessionState.VALID,
+            session=session,
+            message="iTE Cloud session is active.",
+        )
+    if state == CloudSessionState.NETWORK_ERROR:
+        return CloudAuthStatus(
+            state=CloudSessionState.NETWORK_ERROR,
+            session=existing,
+            message="Stored iTE Cloud session found, but the API is unreachable.",
+        )
+    return CloudAuthStatus(
+        state=CloudSessionState.INVALID,
+        session=existing,
+        message="Stored iTE Cloud session is expired or revoked.",
+    )
 
 
 def has_valid_cloud_auth(config: Config) -> bool:
@@ -343,24 +413,11 @@ def get_cloud_session(config: Config) -> CloudSession | None:
         return None
 
 
-def get_bundled_models(config: Config) -> list[dict[str, Any]]:
-    try:
-        session = get_cloud_session(config)
-        if session is None:
-            return []
-
-        status, payload = _get_json(
-            f"{session.api_url.rstrip('/')}/models/bundled",
-            access_token=session.access_token,
-        )
-    except CloudAuthError:
-        return []
-    if status != 200 or not payload.get("ok"):
-        return []
-
+def _parse_bundled_models(payload: dict[str, Any]) -> list[dict[str, Any]]:
     models = payload.get("models")
     if not isinstance(models, list):
         return []
+
 
     bundled: list[dict[str, Any]] = []
     for item in models:
@@ -390,6 +447,90 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
             }
         )
     return bundled
+
+
+def _cloud_payload_message(payload: dict[str, Any]) -> str:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        for key in ("message", "detail", "code"):
+            value = str(error.get(key) or "").strip()
+            if value:
+                return value
+    for key in ("message", "detail", "error"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def get_bundled_models_result(config: Config) -> BundledModelsResult:
+    auth = get_cloud_auth_status(config)
+    if not auth.is_valid:
+        return BundledModelsResult(models=[], auth=auth, message=auth.message)
+
+    session = auth.session
+    assert session is not None
+    try:
+        status, payload = _get_json(
+            f"{session.api_url.rstrip('/')}/models/bundled",
+            access_token=session.access_token,
+        )
+        if status == 401:
+            refreshed = _refresh_cloud_session(session)
+            if refreshed is None:
+                invalid = CloudAuthStatus(
+                    state=CloudSessionState.INVALID,
+                    session=session,
+                    message="Stored iTE Cloud session is expired or revoked.",
+                )
+                return BundledModelsResult(models=[], auth=invalid, message=invalid.message)
+            status, payload = _get_json(
+                f"{refreshed.api_url.rstrip('/')}/models/bundled",
+                access_token=refreshed.access_token,
+            )
+            auth = CloudAuthStatus(
+                state=CloudSessionState.VALID,
+                session=refreshed,
+                message="iTE Cloud session is active.",
+            )
+    except CloudConnectionError as exc:
+        network = CloudAuthStatus(
+            state=CloudSessionState.NETWORK_ERROR,
+            session=session,
+            message=str(exc),
+        )
+        return BundledModelsResult(models=[], auth=network, message=str(exc))
+    except CloudAuthError as exc:
+        invalid = CloudAuthStatus(
+            state=CloudSessionState.INVALID,
+            session=session,
+            message=str(exc) or "Stored iTE Cloud session is expired or revoked.",
+        )
+        return BundledModelsResult(models=[], auth=invalid, message=invalid.message)
+
+    if status != 200 or not payload.get("ok"):
+        message = _cloud_payload_message(payload) or f"iTE Cloud returned {status}."
+        state = (
+            CloudSessionState.INVALID
+            if status == 401
+            else CloudSessionState.NO_ENTITLEMENT
+            if status == 403
+            else CloudSessionState.NETWORK_ERROR
+            if status >= 500
+            else CloudSessionState.VALID
+        )
+        result_auth = CloudAuthStatus(state=state, session=session, message=message)
+        return BundledModelsResult(models=[], auth=result_auth, message=message)
+
+    return BundledModelsResult(
+        models=_parse_bundled_models(payload),
+        auth=auth,
+        message="",
+    )
+
+
+def get_bundled_models(config: Config) -> list[dict[str, Any]]:
+    return get_bundled_models_result(config).models
 
 
 def get_cloud_entitlements(config: Config) -> dict[str, Any]:
