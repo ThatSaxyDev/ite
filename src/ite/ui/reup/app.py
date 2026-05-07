@@ -1008,10 +1008,11 @@ class ReupApp(App):
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
+        self._ensure_agent_lock = asyncio.Lock()
         self._bundled_models_cache: list[dict[str, Any]] = []
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
-        self._startup_active: bool = True
+        self._startup_active: bool = False
         self._startup_phase_text: str = "Preparing your workspace"
         self._startup_error_text: str | None = None
         self._onboarding_active: bool = False
@@ -1222,10 +1223,8 @@ class ReupApp(App):
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
         self.set_interval(1.0, self._poll_change_review_panel)
-        self._set_loading_state("starting up", busy=True)
         if self.config.cloud_auth_enabled:
             self._cloud_bootstrap_busy = True
-            self._set_signed_out_state(True)
         self.run_worker(self._initialize_command_palette(), exclusive=False)
         self.run_worker(self._bootstrap_after_mount(), exclusive=False)
 
@@ -5768,17 +5767,18 @@ class ReupApp(App):
         return True
 
     async def ensure_agent(self) -> None:
-        if self.agent is not None:
+        async with self._ensure_agent_lock:
+            if self.agent is not None:
+                if self.agent.session is not None:
+                    self._remember_open_session(self.agent.session, agent=self.agent)
+                    await self._broadcast_remote_state()
+                return
+            fresh = Session(config=self._session_config_for_workspace())
+            self.agent = self._build_session_agent(fresh)
+            await self.agent.__aenter__()
             if self.agent.session is not None:
                 self._remember_open_session(self.agent.session, agent=self.agent)
-                await self._broadcast_remote_state()
-            return
-        fresh = Session(config=self._session_config_for_workspace())
-        self.agent = self._build_session_agent(fresh)
-        await self.agent.__aenter__()
-        if self.agent.session is not None:
-            self._remember_open_session(self.agent.session, agent=self.agent)
-        await self._broadcast_remote_state()
+            await self._broadcast_remote_state()
 
     def _build_session_agent(self, session: Session) -> Agent:
         session_id = self._session_id(session) or ""

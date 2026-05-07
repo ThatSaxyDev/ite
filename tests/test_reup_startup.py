@@ -35,6 +35,7 @@ class ReupStartupTests(unittest.TestCase):
     def test_on_mount_allows_signed_in_user_without_byok_setup(self) -> None:
         async def run_test() -> None:
             app = self._app()
+            app.config.cloud_auth_enabled = True
             app.config.onboarding_completed = True
             prompt = SimpleNamespace(focus=lambda: None)
             toggle = SimpleNamespace(display=True)
@@ -50,14 +51,14 @@ class ReupStartupTests(unittest.TestCase):
             with (
                 patch("ite.ui.reup.app.load_theme", return_value=None),
                 patch.object(app, "refresh_header"),
-                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_set_loading_state") as set_loading_state,
                 patch.object(app, "_refresh_empty_state"),
                 patch.object(app, "_resize_composer_for_prompt"),
                 patch.object(app, "_apply_aside_panel_state"),
                 patch.object(app, "_apply_change_review_panel_state"),
                 patch.object(app, "set_interval"),
                 patch.object(app, "set_timer"),
-                patch.object(app, "_set_signed_out_state"),
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "run_worker", side_effect=_consume) as run_worker,
                 patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
                 patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)),
@@ -74,6 +75,15 @@ class ReupStartupTests(unittest.TestCase):
                 await app.on_mount()
 
             open_setup_modal.assert_not_called()
+            set_signed_out_state.assert_not_called()
+            self.assertNotIn(
+                "starting up",
+                [
+                    str(call.args[0])
+                    for call in set_loading_state.call_args_list
+                    if call.args
+                ],
+            )
             self.assertTrue(
                 any(
                     "_bootstrap_after_mount"
