@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import socket
 import ssl
 import time
@@ -12,6 +13,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import certifi
+import keyring
 from rich.console import Console
 
 from ite.config.config import Config
@@ -30,6 +32,10 @@ class CloudConnectionError(RuntimeError):
 
 _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 _CLOUD_HTTP_TIMEOUT_SEC = 10
+_CLOUD_KEYRING_SERVICE = "ite.cloud.auth"
+_CLOUD_REFRESH_TOKEN_KEY = "refresh_token"
+_CLOUD_SESSION_FORMAT_VERSION = 2
+_CLOUD_ACCESS_TOKEN_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 
 
 @dataclass
@@ -46,8 +52,7 @@ class CloudSession:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "access_token": self.access_token,
-            "refresh_token": self.refresh_token,
+            "version": _CLOUD_SESSION_FORMAT_VERSION,
             "access_expires_at": self.access_expires_at,
             "api_url": self.api_url,
             "client_id": self.client_id,
@@ -85,7 +90,89 @@ class BundledModelsResult:
 def _cloud_session_path() -> Path:
     path = get_data_dir() / "auth" / "cloud_session.json"
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
     return path
+
+
+def _cloud_keyring_username(api_url: str, client_id: str) -> str:
+    normalized_api_url = str(api_url or "").strip().rstrip("/")
+    normalized_client_id = str(client_id or DEFAULT_CLOUD_CLIENT_ID)
+    return f"{normalized_api_url}|{normalized_client_id}|{_CLOUD_REFRESH_TOKEN_KEY}"
+
+
+def _load_cloud_refresh_token(api_url: str, client_id: str) -> str:
+    try:
+        return keyring.get_password(
+            _CLOUD_KEYRING_SERVICE,
+            _cloud_keyring_username(api_url, client_id),
+        ) or ""
+    except Exception:
+        return ""
+
+
+def _save_cloud_refresh_token(api_url: str, client_id: str, refresh_token: str) -> None:
+    try:
+        keyring.set_password(
+            _CLOUD_KEYRING_SERVICE,
+            _cloud_keyring_username(api_url, client_id),
+            refresh_token,
+        )
+    except Exception as exc:
+        raise CloudAuthError(
+            "Could not store iTE Cloud credentials in the OS credential store."
+        ) from exc
+
+
+def _delete_cloud_refresh_token(api_url: str, client_id: str) -> bool:
+    try:
+        keyring.delete_password(
+            _CLOUD_KEYRING_SERVICE,
+            _cloud_keyring_username(api_url, client_id),
+        )
+        return True
+    except keyring.errors.PasswordDeleteError:
+        return False
+    except Exception:
+        return False
+
+
+def _cached_cloud_access_token(api_url: str, client_id: str) -> tuple[str, float]:
+    token, expires_at = _CLOUD_ACCESS_TOKEN_CACHE.get((api_url, client_id), ("", 0.0))
+    if (expires_at - time.time()) <= 30:
+        return "", 0.0
+    return token, expires_at
+
+
+def _atomic_write_cloud_session_metadata(path: Path, payload: dict[str, Any]) -> None:
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, path)
+        os.chmod(path, 0o600)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def _clear_local_cloud_session(path: Path, api_url: str, client_id: str) -> None:
+    _delete_cloud_refresh_token(api_url, client_id)
+    _CLOUD_ACCESS_TOKEN_CACHE.pop((api_url, client_id), None)
+    if path.exists():
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 def _load_cloud_session() -> CloudSession | None:
@@ -94,17 +181,51 @@ def _load_cloud_session() -> CloudSession | None:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        session = CloudSession.from_dict(data)
-        if not session.access_token or not session.refresh_token or not session.api_url:
+        os.chmod(path, 0o600)
+        api_url = str(data.get("api_url") or "").strip().rstrip("/")
+        client_id = str(data.get("client_id") or DEFAULT_CLOUD_CLIENT_ID)
+        if not api_url:
             return None
-        return session
+        if int(data.get("version") or 0) != _CLOUD_SESSION_FORMAT_VERSION:
+            _clear_local_cloud_session(path, api_url, client_id)
+            return None
+        legacy_access_token = str(data.get("access_token") or "")
+        legacy_refresh_token = str(data.get("refresh_token") or "")
+        if legacy_refresh_token:
+            _clear_local_cloud_session(path, api_url, client_id)
+            return None
+        refresh_token = _load_cloud_refresh_token(api_url, client_id)
+        if not refresh_token:
+            return None
+        access_token, access_expires_at = _cached_cloud_access_token(api_url, client_id)
+        if not access_token and legacy_access_token:
+            access_token = legacy_access_token
+            access_expires_at = float(data.get("access_expires_at") or 0)
+            if (access_expires_at - time.time()) > 30:
+                _CLOUD_ACCESS_TOKEN_CACHE[(api_url, client_id)] = (
+                    access_token,
+                    access_expires_at,
+                )
+        return CloudSession(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            access_expires_at=access_expires_at if access_token else 0,
+            api_url=api_url,
+            client_id=client_id,
+        )
     except Exception:
         return None
 
 
 def _save_cloud_session(session: CloudSession) -> None:
     path = _cloud_session_path()
-    path.write_text(json.dumps(session.to_dict(), indent=2), encoding="utf-8")
+    _save_cloud_refresh_token(session.api_url, session.client_id, session.refresh_token)
+    if session.access_token:
+        _CLOUD_ACCESS_TOKEN_CACHE[(session.api_url, session.client_id)] = (
+            session.access_token,
+            session.access_expires_at,
+        )
+    _atomic_write_cloud_session_metadata(path, session.to_dict())
 
 
 def clear_cloud_auth(*, revoke_remote: bool = True) -> bool:
@@ -123,6 +244,10 @@ def clear_cloud_auth(*, revoke_remote: bool = True) -> bool:
     if path.exists():
         path.unlink()
         cleared = True
+    if session:
+        if _delete_cloud_refresh_token(session.api_url, session.client_id):
+            cleared = True
+        _CLOUD_ACCESS_TOKEN_CACHE.pop((session.api_url, session.client_id), None)
     return cleared
 
 
@@ -383,7 +508,7 @@ def has_stored_cloud_auth(config: Config) -> bool:
     existing = _load_cloud_session()
     if existing is None or existing.api_url != cloud_api_url:
         return False
-    return bool(existing.access_token and existing.refresh_token)
+    return bool(existing.refresh_token)
 
 
 def get_cloud_session(config: Config) -> CloudSession | None:
