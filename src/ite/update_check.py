@@ -23,6 +23,7 @@ class RuntimeUpdateNotice:
     upgrade_command: str
     release_url: str | None
     update_required: bool
+    current_version: str = ""
 
     @property
     def notice_key(self) -> str:
@@ -69,14 +70,14 @@ def _save_state(state: dict[str, Any]) -> None:
 
 
 def should_show_update_notice(notice: RuntimeUpdateNotice) -> bool:
-    if notice.update_required:
+    if notice.update_required or notice.severity == "recommended":
         return True
     state = _load_state()
     return str(state.get("last_notice_key") or "") != notice.notice_key
 
 
 def mark_update_notice_seen(notice: RuntimeUpdateNotice) -> None:
-    if notice.update_required:
+    if notice.update_required or notice.severity == "recommended":
         return
     _save_state({"last_notice_key": notice.notice_key})
 
@@ -86,6 +87,7 @@ def _coerce_notice(payload: dict[str, Any]) -> RuntimeUpdateNotice | None:
         return None
     latest = str(payload.get("latestVersion") or "").strip()
     minimum = str(payload.get("minimumSupportedVersion") or "").strip()
+    current = str(payload.get("currentVersion") or "").strip()
     severity = str(payload.get("severity") or "info").strip().lower()
     title = str(payload.get("title") or "Update available").strip()
     message = str(payload.get("message") or "").strip()
@@ -104,6 +106,7 @@ def _coerce_notice(payload: dict[str, Any]) -> RuntimeUpdateNotice | None:
         upgrade_command=upgrade or "pipx upgrade ite-agent",
         release_url=release_url,
         update_required=bool(payload.get("updateRequired")),
+        current_version=current,
     )
 
 

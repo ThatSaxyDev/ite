@@ -12,6 +12,7 @@ from ite.cloud.auth import CloudAuthError
 from ite.cloud.auth import has_valid_cloud_auth
 from ite.client.response import TokenUsage
 from ite.config.config import Config
+from ite.update_check import RuntimeUpdateNotice
 from textual.widgets import Select
 
 from ite.ui.reup.app import ONBOARDING_OTHER_VALUE, ReupApp
@@ -31,6 +32,223 @@ class ReupStartupTests(unittest.TestCase):
             ReupApp(Config(cwd=self.cwd))
 
         build_registry.assert_not_called()
+
+    def test_required_update_state_populates_command_box(self) -> None:
+        app = self._app()
+        copy = SimpleNamespace(
+            value="", update=lambda value: setattr(copy, "value", value)
+        )
+        meta = SimpleNamespace(
+            value="", update=lambda value: setattr(meta, "value", value)
+        )
+        command_box = SimpleNamespace(
+            command="", set_command=lambda value: setattr(command_box, "command", value)
+        )
+        notice = SimpleNamespace(
+            latest_version="0.0.46",
+            minimum_supported_version="0.0.45",
+            current_version="0.0.45",
+            message="A newer iTE runtime is required before you can continue. Run below, then reopen iTE.",
+            upgrade_command="pipx upgrade ite-agent",
+            release_url="https://example.test/releases/0.0.46",
+        )
+        app._required_update_notice = notice
+
+        with patch.object(
+            app,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#update-required-copy": copy,
+                "#update-required-meta": meta,
+            }.get(selector, command_box),
+        ):
+            app._refresh_required_update_state()
+
+        self.assertEqual(
+            copy.value,
+            "A newer iTE runtime is required before you can continue. Exit iTE, run the command below, then reopen it.",
+        )
+        self.assertEqual(command_box.command, "pipx upgrade ite-agent")
+        self.assertIn("Latest 0.0.46", meta.value)
+        self.assertIn("Your version 0.0.45", meta.value)
+        self.assertNotIn("Required", meta.value)
+        self.assertIn("https://example.test/releases/0.0.46", meta.value)
+
+    def test_required_update_state_appends_missing_instruction(self) -> None:
+        app = self._app()
+        copy = SimpleNamespace(
+            value="", update=lambda value: setattr(copy, "value", value)
+        )
+        meta = SimpleNamespace(value="", update=lambda _value: None)
+        command_box = SimpleNamespace(command="", set_command=lambda _value: None)
+        app._required_update_notice = SimpleNamespace(
+            latest_version="0.0.46",
+            minimum_supported_version="0.0.46",
+            current_version="0.0.45",
+            message="A critical runtime update is required.",
+            upgrade_command="pipx upgrade ite-agent",
+            release_url=None,
+        )
+
+        with patch.object(
+            app,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#update-required-copy": copy,
+                "#update-required-meta": meta,
+            }.get(selector, command_box),
+        ):
+            app._refresh_required_update_state()
+
+        self.assertEqual(
+            copy.value,
+            "A critical runtime update is required. Exit iTE, run the command below, then reopen it.",
+        )
+
+    def test_required_update_exit_uses_clean_exit_flow(self) -> None:
+        app = self._app()
+
+        with patch.object(app, "run_worker") as run_worker:
+            app.on_update_required_exit_pressed(SimpleNamespace())
+
+        self.assertEqual(run_worker.call_count, 1)
+        work = run_worker.call_args.args[0]
+        self.assertIn("_exit_app", getattr(work, "__qualname__", ""))
+        work.close()
+
+    def test_recommended_update_notice_copy_is_launch_prompt(self) -> None:
+        app = self._app()
+        notice = SimpleNamespace(
+            latest_version="0.0.46",
+            minimum_supported_version="0.0.45",
+            severity="recommended",
+            title="Update available",
+            message="",
+            upgrade_command="pipx upgrade ite-agent",
+            release_url=None,
+        )
+
+        title, message = app._runtime_update_notice_copy(notice)
+
+        self.assertEqual(title, "A new update is available")
+        self.assertIn("Version 0.0.46 is available", message)
+        self.assertIn("Exit iTE, run: pipx upgrade ite-agent, then reopen it", message)
+
+    def test_info_update_notice_copy_uses_inline_command(self) -> None:
+        app = self._app()
+        notice = SimpleNamespace(
+            latest_version="0.0.46",
+            minimum_supported_version="0.0.45",
+            severity="info",
+            title="Update available",
+            message="",
+            upgrade_command="pipx upgrade ite-agent",
+            release_url=None,
+        )
+
+        title, message = app._runtime_update_notice_copy(notice)
+
+        self.assertEqual(title, "Update available")
+        self.assertIn("Version 0.0.46 is available", message)
+        self.assertIn("Exit iTE, run: pipx upgrade ite-agent, then reopen it", message)
+
+    def test_info_update_notice_appends_inline_instruction_to_custom_message(
+        self,
+    ) -> None:
+        app = self._app()
+        notice = SimpleNamespace(
+            latest_version="0.0.46",
+            minimum_supported_version="0.0.45",
+            severity="info",
+            title="Update available",
+            message="A small update is available.",
+            upgrade_command="pipx upgrade ite-agent",
+            release_url=None,
+        )
+
+        _title, message = app._runtime_update_notice_copy(notice)
+
+        self.assertEqual(
+            message,
+            "A small update is available. Exit iTE, run: pipx upgrade ite-agent, then reopen it.",
+        )
+
+    def test_recommended_update_feed_card_has_copyable_command_block(self) -> None:
+        app = self._app()
+        notice = SimpleNamespace(
+            latest_version="0.0.46",
+            minimum_supported_version="0.0.45",
+            severity="recommended",
+            title="Update available",
+            message="",
+            upgrade_command="pipx upgrade ite-agent",
+            release_url=None,
+        )
+
+        title, body = app._runtime_update_notice_feed_card(notice)
+
+        self.assertEqual(title, "A new update is available")
+        self.assertIn("Version 0.0.46 is ready", body)
+        self.assertIn("Exit iTE, run the command below, then reopen it", body)
+        self.assertIn("```bash\npipx upgrade ite-agent\n```", body)
+
+    def test_recommended_update_notice_posts_to_chat_feed(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            notice = RuntimeUpdateNotice(
+                latest_version="0.0.46",
+                minimum_supported_version="0.0.45",
+                severity="recommended",
+                title="Update available",
+                message="",
+                upgrade_command="pipx upgrade ite-agent",
+                release_url=None,
+                update_required=False,
+            )
+
+            with (
+                patch("ite.ui.reup.app.check_runtime_update", return_value=notice),
+                patch("ite.ui.reup.app.should_show_update_notice", return_value=True),
+                patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+                patch.object(app, "post_notice") as post_notice,
+                patch("ite.ui.reup.app.mark_update_notice_seen") as mark_seen,
+            ):
+                await app._refresh_runtime_update_notice()
+
+            add_card.assert_awaited_once()
+            post_notice.assert_not_called()
+            mark_seen.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_info_update_notice_posts_to_toast(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            notice = RuntimeUpdateNotice(
+                latest_version="0.0.46",
+                minimum_supported_version="0.0.45",
+                severity="info",
+                title="Update available",
+                message="",
+                upgrade_command="pipx upgrade ite-agent",
+                release_url=None,
+                update_required=False,
+            )
+
+            with (
+                patch("ite.ui.reup.app.check_runtime_update", return_value=notice),
+                patch("ite.ui.reup.app.should_show_update_notice", return_value=True),
+                patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+                patch.object(app, "post_notice") as post_notice,
+                patch("ite.ui.reup.app.mark_update_notice_seen") as mark_seen,
+            ):
+                await app._refresh_runtime_update_notice()
+
+            add_card.assert_not_awaited()
+            post_notice.assert_called_once()
+            mark_seen.assert_called_once_with(notice)
+
+        asyncio.run(run_test())
 
     def test_on_mount_allows_signed_in_user_without_byok_setup(self) -> None:
         async def run_test() -> None:
@@ -61,7 +279,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "run_worker", side_effect=_consume) as run_worker,
                 patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
-                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)
+                ),
                 patch.object(
                     app,
                     "query_one",
@@ -101,9 +321,14 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_on_mount_uses_detected_light_theme_when_still_on_default_dark(self) -> None:
+    def test_on_mount_uses_detected_light_theme_when_still_on_default_dark(
+        self,
+    ) -> None:
         async def run_test() -> None:
-            with patch("ite.ui.reup.app.detect_host_textual_theme", return_value="textual-light"):
+            with patch(
+                "ite.ui.reup.app.detect_host_textual_theme",
+                return_value="textual-light",
+            ):
                 app = self._app()
             app.config.onboarding_completed = True
             prompt = SimpleNamespace(focus=lambda: None)
@@ -130,7 +355,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", AsyncMock()),
                 patch.object(app, "_refresh_change_review_source", AsyncMock()),
                 patch.object(app, "_sync_command_palette"),
-                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)
+                ),
                 patch.object(
                     app,
                     "query_one",
@@ -160,7 +387,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
                 patch.object(app, "_reset_session_local_ui_state"),
                 patch.object(app, "_refresh_empty_state"),
-                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)
+                ),
                 patch.object(
                     app,
                     "query_one",
@@ -178,14 +407,20 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_remote_command_requires_bundled_access_before_starting_bridge(self) -> None:
+    def test_remote_command_requires_bundled_access_before_starting_bridge(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
 
             with (
-                patch.object(app, "_has_remote_companion_access", AsyncMock(return_value=False)),
+                patch.object(
+                    app, "_has_remote_companion_access", AsyncMock(return_value=False)
+                ),
                 patch.object(app, "post_system") as post_system,
-                patch.object(app, "_ensure_remote_server", AsyncMock()) as ensure_remote_server,
+                patch.object(
+                    app, "_ensure_remote_server", AsyncMock()
+                ) as ensure_remote_server,
             ):
                 await app._run_remote_command_native(["on"])
 
@@ -202,7 +437,9 @@ class ReupStartupTests(unittest.TestCase):
             async def _never_finishes() -> None:
                 await asyncio.sleep(10)
 
-            app._remote_server = SimpleNamespace(stop=AsyncMock(side_effect=_never_finishes))
+            app._remote_server = SimpleNamespace(
+                stop=AsyncMock(side_effect=_never_finishes)
+            )
 
             with (
                 patch.object(app, "auto_save", AsyncMock()),
@@ -269,7 +506,9 @@ class ReupStartupTests(unittest.TestCase):
             app.agent = SimpleNamespace(session=session)
 
             with (
-                patch.object(app, "generate_session_name", AsyncMock()) as generate_name,
+                patch.object(
+                    app, "generate_session_name", AsyncMock()
+                ) as generate_name,
                 patch.object(app, "refresh_header"),
                 patch.object(app, "_shutdown_remote_server", AsyncMock()),
                 patch.object(app, "_shutdown_agents", AsyncMock()),
@@ -342,7 +581,7 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_bootstrap_does_not_show_onboarding_before_cloud_auth_verifies(self) -> None:
+    def test_bootstrap_shows_onboarding_without_cloud_session(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.cloud_auth_enabled = True
@@ -361,8 +600,14 @@ class ReupStartupTests(unittest.TestCase):
             ):
                 await app._bootstrap_after_mount()
 
-            set_onboarding_state.assert_not_called()
-            set_signed_out_state.assert_called_once_with(True)
+            self.assertGreaterEqual(set_signed_out_state.call_count, 1)
+            self.assertTrue(
+                all(
+                    call.args == (False,)
+                    for call in set_signed_out_state.call_args_list
+                )
+            )
+            set_onboarding_state.assert_called_once_with(True)
 
         asyncio.run(run_test())
 
@@ -473,7 +718,9 @@ class ReupStartupTests(unittest.TestCase):
             stale_time = datetime.now(timezone.utc) - timedelta(days=20)
             stale_timestamp = stale_time.timestamp()
             os.utime(str(stale_agents), (stale_timestamp, stale_timestamp))
-            (fresh_workspace / "AGENTS.md").write_text("# AGENTS.md\n", encoding="utf-8")
+            (fresh_workspace / "AGENTS.md").write_text(
+                "# AGENTS.md\n", encoding="utf-8"
+            )
 
             app = ReupApp(Config(cwd=stale_workspace))
             app.config.cloud_auth_enabled = False
@@ -564,10 +811,12 @@ class ReupStartupTests(unittest.TestCase):
         ):
             self.assertFalse(has_valid_cloud_auth(config))
 
-    def test_on_mount_treats_missing_cloud_session_as_signed_out(self) -> None:
+    def test_bootstrap_allows_runtime_without_cloud_session(self) -> None:
         async def run_test() -> None:
             app = self._app()
+            app.config.onboarding_completed = True
             toggle = SimpleNamespace(display=True)
+            prompt = SimpleNamespace(focus=lambda: None)
 
             with (
                 patch("ite.ui.reup.app.load_theme", return_value=None),
@@ -583,24 +832,81 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_set_startup_state"),
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
-                patch.object(app, "_refresh_change_review_source", AsyncMock()) as refresh_change_review,
+                patch.object(
+                    app, "_refresh_change_review_source", AsyncMock()
+                ) as refresh_change_review,
                 patch.object(app, "_sync_command_palette") as sync_command_palette,
-                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=False)),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=False)
+                ),
                 patch.object(
                     app,
                     "query_one",
                     side_effect=lambda selector, *_args: {
                         "#aside-toggle": toggle,
                         "#changes-toggle": toggle,
+                        "#prompt": prompt,
                     }[selector],
                 ),
             ):
                 await app._bootstrap_after_mount()
 
+            self.assertGreaterEqual(set_signed_out_state.call_count, 1)
+            self.assertTrue(
+                all(
+                    call.args == (False,)
+                    for call in set_signed_out_state.call_args_list
+                )
+            )
+            ensure_agent.assert_awaited_once()
+            refresh_change_review.assert_awaited_once()
+            sync_command_palette.assert_called_once_with("")
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_respects_explicit_cloud_logout_marker(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            app.config.onboarding_completed = True
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "_set_startup_state") as set_startup_state,
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+                patch.object(app, "_set_loading_state") as set_loading_state,
+                patch.object(app, "_schedule_runtime_update_check"),
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread",
+                    AsyncMock(side_effect=[False, True]),
+                ),
+            ):
+                await app._bootstrap_after_mount()
+
+            set_startup_state.assert_called_once_with(False)
             set_signed_out_state.assert_called_once_with(True)
+            set_loading_state.assert_called_once_with("idle", busy=False)
             ensure_agent.assert_not_awaited()
-            refresh_change_review.assert_not_awaited()
-            sync_command_palette.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_cloud_logout_marks_explicit_signed_out_state(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            with (
+                patch.object(app, "_reset_runtime_after_cloud_logout", AsyncMock()),
+                patch("ite.ui.reup.app.clear_cloud_auth") as clear_auth,
+                patch("ite.ui.reup.app.mark_cloud_signed_out") as mark_signed_out,
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+            ):
+                await app._run_cloud_logout_flow()
+
+            clear_auth.assert_called_once()
+            mark_signed_out.assert_called_once()
+            set_signed_out_state.assert_called_once_with(True)
 
         asyncio.run(run_test())
 
@@ -630,7 +936,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_set_onboarding_state") as set_onboarding_state,
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
                 patch.object(app, "_reset_session_local_ui_state"),
-                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)
+                ),
                 patch.object(
                     app,
                     "query_one",
@@ -674,7 +982,9 @@ class ReupStartupTests(unittest.TestCase):
 
     def test_onboarding_role_select_hides_other_input_for_preset_choice(self) -> None:
         app = self._app()
-        other_input = SimpleNamespace(display=True, value="Custom role", focus=lambda: None)
+        other_input = SimpleNamespace(
+            display=True, value="Custom role", focus=lambda: None
+        )
         use_case_select = SimpleNamespace(focus=lambda: None)
 
         with patch.object(
@@ -734,7 +1044,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_refresh_empty_state"),
                 patch.object(app, "_open_setup_modal", AsyncMock()),
                 patch.object(app, "ensure_agent", AsyncMock()),
-                patch("ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)),
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)
+                ),
                 patch.object(
                     app,
                     "query_one",

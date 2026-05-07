@@ -27,6 +27,7 @@ class CloudAuthError(RuntimeError):
 
 class CloudConnectionError(RuntimeError):
     """Raised when there's a network/connection issue but credentials may still be valid."""
+
     pass
 
 
@@ -97,6 +98,38 @@ def _cloud_session_path() -> Path:
     return path
 
 
+def _cloud_signed_out_marker_path() -> Path:
+    path = get_data_dir() / "auth" / "cloud_signed_out"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    return path
+
+
+def mark_cloud_signed_out() -> None:
+    path = _cloud_signed_out_marker_path()
+    path.write_text("1\n", encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def clear_cloud_signed_out_marker() -> None:
+    path = _cloud_signed_out_marker_path()
+    if path.exists():
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def is_cloud_signed_out() -> bool:
+    return _cloud_signed_out_marker_path().is_file()
+
+
 def _cloud_keyring_username(api_url: str, client_id: str) -> str:
     normalized_api_url = str(api_url or "").strip().rstrip("/")
     normalized_client_id = str(client_id or DEFAULT_CLOUD_CLIENT_ID)
@@ -105,10 +138,13 @@ def _cloud_keyring_username(api_url: str, client_id: str) -> str:
 
 def _load_cloud_refresh_token(api_url: str, client_id: str) -> str:
     try:
-        return keyring.get_password(
-            _CLOUD_KEYRING_SERVICE,
-            _cloud_keyring_username(api_url, client_id),
-        ) or ""
+        return (
+            keyring.get_password(
+                _CLOUD_KEYRING_SERVICE,
+                _cloud_keyring_username(api_url, client_id),
+            )
+            or ""
+        )
     except Exception:
         return ""
 
@@ -219,6 +255,7 @@ def _load_cloud_session() -> CloudSession | None:
 
 def _save_cloud_session(session: CloudSession) -> None:
     path = _cloud_session_path()
+    clear_cloud_signed_out_marker()
     _save_cloud_refresh_token(session.api_url, session.client_id, session.refresh_token)
     if session.access_token:
         _CLOUD_ACCESS_TOKEN_CACHE[(session.api_url, session.client_id)] = (
@@ -382,7 +419,7 @@ class CloudSessionState:
 
 def _verify_cloud_session(session: CloudSession) -> bool:
     """Verify session is valid, refreshing if needed. Returns True if valid.
-    
+
     Raises CloudAuthError for auth failures, CloudConnectionError for network issues.
     """
     if session.is_access_valid:
@@ -543,7 +580,6 @@ def _parse_bundled_models(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(models, list):
         return []
 
-
     bundled: list[dict[str, Any]] = []
     for item in models:
         if not isinstance(item, dict):
@@ -566,7 +602,9 @@ def _parse_bundled_models(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "label": label,
                 "provider": "Bundled",
                 "context_window": context_window,
-                "context_window_source": "bundled_provider_api" if context_window else None,
+                "context_window_source": "bundled_provider_api"
+                if context_window
+                else None,
                 "available": available,
                 "unavailable_reason": unavailable_reason,
             }
@@ -608,7 +646,9 @@ def get_bundled_models_result(config: Config) -> BundledModelsResult:
                     session=session,
                     message="Stored iTE Cloud session is expired or revoked.",
                 )
-                return BundledModelsResult(models=[], auth=invalid, message=invalid.message)
+                return BundledModelsResult(
+                    models=[], auth=invalid, message=invalid.message
+                )
             status, payload = _get_json(
                 f"{refreshed.api_url.rstrip('/')}/models/bundled",
                 access_token=refreshed.access_token,
@@ -728,7 +768,11 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
         )
 
     existing = _load_cloud_session()
-    if existing and existing.api_url == cloud_api_url and _verify_cloud_session(existing):
+    if (
+        existing
+        and existing.api_url == cloud_api_url
+        and _verify_cloud_session(existing)
+    ):
         return
 
     status, payload = _post_json(
@@ -749,11 +793,15 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
     interval = int(payload.get("interval") or 5)
     if console is not None:
         console.print()
-        console.print("[bold bright_white]iTE Cloud sign-in required[/bold bright_white]")
+        console.print(
+            "[bold bright_white]iTE Cloud sign-in required[/bold bright_white]"
+        )
         console.print("[dim]Opening your browser to complete sign-in...[/dim]")
     opened = webbrowser.open(auth_url)
     if not opened and console is not None:
-        console.print(f"[dim]Browser did not open automatically. Open:[/dim] {auth_url}")
+        console.print(
+            f"[dim]Browser did not open automatically. Open:[/dim] {auth_url}"
+        )
 
     deadline = time.time() + expires_in
     while time.time() < deadline:
@@ -785,7 +833,10 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
         if code == "authorization_pending":
             continue
         if code == "slow_down":
-            interval = max(interval + 1, int((error.get("details") or {}).get("interval") or interval + 1))
+            interval = max(
+                interval + 1,
+                int((error.get("details") or {}).get("interval") or interval + 1),
+            )
             continue
         if code == "access_denied":
             raise CloudAuthError("Cloud login was denied in the browser.")

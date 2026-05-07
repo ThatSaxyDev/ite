@@ -84,6 +84,8 @@ from ite.cloud import (
     has_remote_companion_access,
     has_stored_cloud_auth,
     has_valid_cloud_auth,
+    is_cloud_signed_out,
+    mark_cloud_signed_out,
 )
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
@@ -579,6 +581,44 @@ class RemoteBridgeField(Horizontal):
                 )
 
 
+class UpdateCommandBox(Horizontal):
+    def __init__(self, command: str = "pipx upgrade ite-agent") -> None:
+        super().__init__(id="update-command-box")
+        self._command = command
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._command, id="update-command-text")
+        yield Button("Copy", id="update-command-copy", variant="default")
+
+    def set_command(self, command: str) -> None:
+        self._command = command
+        try:
+            self.query_one("#update-command-text", Static).update(command)
+        except NoMatches:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "update-command-copy":
+            return
+        event.stop()
+        command = self._command.strip()
+        if not command:
+            return
+        try:
+            self.app.copy_to_clipboard(command)
+            self.notify("Upgrade command copied", timeout=2)
+        except Exception:
+            try:
+                import pyperclip
+
+                pyperclip.copy(command)
+                self.notify("Upgrade command copied", timeout=2)
+            except Exception:
+                self.notify(
+                    "Failed to copy command", severity="error", title="Copy Error"
+                )
+
+
 class RemoteBridgeCard(Vertical):
     def __init__(
         self,
@@ -1048,6 +1088,7 @@ class ReupApp(App):
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
         self._runtime_update_check_in_flight: bool = False
+        self._required_update_notice: Any | None = None
         self._bundled_access_announced: bool = False
         self._remote_access_cache: tuple[bool, float] | None = None
         self._command_palette_options: list[SlashCommandOption] = []
@@ -1139,6 +1180,20 @@ class ReupApp(App):
                                         "Exit", id="cloud-exit", variant="default"
                                     )
                                 yield Static("", id="signed-out-status")
+                        with Container(id="update-required-state"):
+                            with Vertical(id="update-required-stack"):
+                                yield Static(
+                                    "Update required", id="update-required-title"
+                                )
+                                yield Static("", id="update-required-copy")
+                                yield UpdateCommandBox()
+                                yield Static("", id="update-required-meta")
+                                with Horizontal(id="update-required-actions"):
+                                    yield Button(
+                                        "Exit",
+                                        id="update-required-exit",
+                                        variant="default",
+                                    )
                         with Container(id="onboarding-state"):
                             with Vertical(id="onboarding-stack"):
                                 yield Static(
@@ -1270,16 +1325,18 @@ class ReupApp(App):
                 )
                 if not has_cloud_session:
                     self._cloud_bootstrap_busy = False
-                    self._set_startup_state(False)
-                    self._set_signed_out_state(True)
-                    self._set_loading_state("idle", busy=False)
-                    self._schedule_runtime_update_check()
-                    return
-
-                self._set_signed_out_state(False)
-                self._cloud_bootstrap_busy = False
-                self._prefetch_cloud_caches()
-                # Cloud verification is on-demand; startup should not block on network reachability.
+                    if await asyncio.to_thread(is_cloud_signed_out):
+                        self._set_startup_state(False)
+                        self._set_signed_out_state(True)
+                        self._set_loading_state("idle", busy=False)
+                        self._schedule_runtime_update_check()
+                        return
+                    self._set_signed_out_state(False)
+                else:
+                    self._set_signed_out_state(False)
+                    self._cloud_bootstrap_busy = False
+                    self._prefetch_cloud_caches()
+                    # Cloud verification is on-demand; startup should not block on network reachability.
 
             if self._should_show_onboarding():
                 self._set_startup_state(False)
@@ -2608,22 +2665,108 @@ class ReupApp(App):
             should_show = await asyncio.to_thread(should_show_update_notice, notice)
             if not should_show:
                 return
-            title = notice.title or "Update available"
-            parts = [
-                notice.message
-                or f"iTE {notice.latest_version or notice.minimum_supported_version} is available.",
-                f"Run `{notice.upgrade_command}`.",
-            ]
-            if notice.release_url:
-                parts.append(notice.release_url)
-            message = " ".join(part for part in parts if part).strip()
             if notice.update_required:
-                self.post_system(title, message, is_error=True)
+                self._set_required_update_notice(notice)
             else:
-                self.post_notice(title, message, timeout=8)
-                await asyncio.to_thread(mark_update_notice_seen, notice)
+                if str(getattr(notice, "severity", "") or "").lower() == "recommended":
+                    title, body = self._runtime_update_notice_feed_card(notice)
+                    await self.add_assistant_card(
+                        title, CopyableMarkdown(body), css_class="system"
+                    )
+                else:
+                    title, message = self._runtime_update_notice_copy(notice)
+                    self.post_notice(title, message, timeout=8)
+                    await asyncio.to_thread(mark_update_notice_seen, notice)
         finally:
             self._runtime_update_check_in_flight = False
+
+    def _runtime_update_notice_copy(
+        self, notice: Any, *, include_command: bool = True
+    ) -> tuple[str, str]:
+        latest = str(getattr(notice, "latest_version", "") or "").strip()
+        minimum = str(getattr(notice, "minimum_supported_version", "") or "").strip()
+        severity = str(getattr(notice, "severity", "") or "").strip().lower()
+        command = (
+            str(getattr(notice, "upgrade_command", "") or "").strip()
+            or "pipx upgrade ite-agent"
+        )
+        title = str(getattr(notice, "title", "") or "").strip()
+        if severity == "recommended" and title.lower() in {
+            "",
+            "update available",
+            "update strongly recommended",
+        }:
+            title = "A new update is available"
+        title = title or (
+            "A new update is available"
+            if severity == "recommended"
+            else "Update available"
+        )
+        message = str(getattr(notice, "message", "") or "").strip()
+        if severity == "recommended" and message.lower() in {
+            "",
+            "a new update is available",
+            "update available",
+        }:
+            message = ""
+        if not message:
+            target = latest or minimum or "a newer version"
+            if include_command:
+                message = (
+                    f"Version {target} is available. Exit iTE, run: {command}, "
+                    "then reopen it."
+                )
+            elif severity == "recommended":
+                message = (
+                    f"Version {target} is ready. Exit iTE, run the command below, "
+                    "then reopen it."
+                )
+            else:
+                message = (
+                    f"Version {target} is available. Exit iTE, run the command below, "
+                    "then reopen it."
+                )
+        message = message.replace("Run below", "Run the command below")
+        message = message.replace(
+            "Run the command below, then reopen iTE",
+            "Exit iTE, run the command below, then reopen it",
+        )
+        instruction = (
+            f"Exit iTE, run: {command}, then reopen it."
+            if include_command
+            else "Exit iTE, run the command below, then reopen it."
+        )
+        message = self._append_update_instruction(message, instruction)
+        release_url = str(getattr(notice, "release_url", "") or "").strip()
+        if release_url and release_url not in message:
+            message = f"{message} {release_url}"
+        return title, message
+
+    def _runtime_update_notice_feed_card(self, notice: Any) -> tuple[str, str]:
+        title, message = self._runtime_update_notice_copy(notice, include_command=False)
+        command = (
+            str(getattr(notice, "upgrade_command", "") or "").strip()
+            or "pipx upgrade ite-agent"
+        )
+        body = f"{message}\n\n```bash\n{command}\n```"
+        return title, body
+
+    @staticmethod
+    def _append_update_instruction(message: str, instruction: str) -> str:
+        normalized = message.lower()
+        has_instruction = (
+            ("exit" in normalized or "quit" in normalized)
+            and "run" in normalized
+            and ("reopen" in normalized or "restart" in normalized)
+        )
+        if has_instruction:
+            return message
+        separator = "" if not message else " "
+        return (
+            f"{message.rstrip('.')}.{separator}{instruction}"
+            if message
+            else instruction
+        )
 
     def _migrate_legacy_bundled_selection_if_needed(self) -> None:
         current_model = str(self.config.model_name or "").strip()
@@ -3972,7 +4115,10 @@ class ReupApp(App):
         except (NoMatches, ScreenStackError):
             return
         prompt.disabled = (
-            self._cloud_signed_out or self._startup_active or self._onboarding_active
+            self._cloud_signed_out
+            or self._startup_active
+            or self._onboarding_active
+            or self._required_update_notice is not None
         )
         self._refresh_empty_state()
 
@@ -4010,11 +4156,16 @@ class ReupApp(App):
                 pass
         self._apply_shell_surface()
 
+    def _set_required_update_notice(self, notice: Any | None) -> None:
+        self._required_update_notice = notice
+        self._apply_shell_surface()
+
     def _apply_shell_surface(self) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         empty = self.query_one("#empty-state", Static)
         startup = self.query_one("#startup-state", Container)
         signed_out = self.query_one("#signed-out-state", Container)
+        update_required = self.query_one("#update-required-state", Container)
         onboarding = self.query_one("#onboarding-state", Container)
         composer = self.query_one("#composer", Horizontal)
         topbar = self.query_one("#topbar", Horizontal)
@@ -4027,16 +4178,25 @@ class ReupApp(App):
 
         in_startup = self._startup_active
         in_bootstrap = self._cloud_bootstrap_busy
-        in_signed_out = (not in_startup) and self._cloud_signed_out
-        in_onboarding = (not in_signed_out) and self._onboarding_active
+        in_required_update = (
+            not in_startup
+        ) and self._required_update_notice is not None
+        in_signed_out = (
+            (not in_startup) and (not in_required_update) and self._cloud_signed_out
+        )
+        in_onboarding = (
+            (not in_required_update) and (not in_signed_out) and self._onboarding_active
+        )
         in_chat = (
             (not in_startup)
+            and (not in_required_update)
             and (not in_signed_out)
             and (not in_onboarding)
             and (not in_bootstrap)
         )
 
         startup.display = in_startup
+        update_required.display = in_required_update
         signed_out.display = in_signed_out
         onboarding.display = in_onboarding
         conversation.display = in_chat
@@ -4048,7 +4208,13 @@ class ReupApp(App):
         header.display = in_chat
         chat_body.styles.padding = (
             (0, 0, 0, 0)
-            if (in_startup or in_signed_out or in_onboarding or in_bootstrap)
+            if (
+                in_startup
+                or in_required_update
+                or in_signed_out
+                or in_onboarding
+                or in_bootstrap
+            )
             else (0, 2, 0, 2)
         )
         prompt.disabled = not in_chat
@@ -4061,6 +4227,8 @@ class ReupApp(App):
         self.query_one("#signed-out-status", Static).update(
             self._signed_out_status_text()
         )
+        if in_required_update:
+            self._refresh_required_update_state()
         if in_onboarding:
             self.query_one("#onboarding-status", Static).update(
                 self._onboarding_status_text()
@@ -4071,6 +4239,48 @@ class ReupApp(App):
         self._apply_change_review_panel_state()
         self._apply_thread_switcher_button_state()
         self.refresh_header()
+
+    def _refresh_required_update_state(self) -> None:
+        notice = self._required_update_notice
+        if notice is None:
+            return
+        latest = str(getattr(notice, "latest_version", "") or "").strip()
+        minimum = str(getattr(notice, "minimum_supported_version", "") or "").strip()
+        current = (
+            str(getattr(notice, "current_version", "") or "").strip()
+            or current_runtime_version()
+        )
+        command = (
+            str(getattr(notice, "upgrade_command", "") or "").strip()
+            or "pipx upgrade ite-agent"
+        )
+        message = str(getattr(notice, "message", "") or "").strip()
+        if not message:
+            target = latest or minimum or "the latest version"
+            message = (
+                f"Version {target} is required before you can continue. "
+                "Exit iTE, run the command below, then reopen it."
+            )
+        message = message.replace("Run below", "Run the command below")
+        message = message.replace(
+            "Run the command below, then reopen iTE",
+            "Exit iTE, run the command below, then reopen it",
+        )
+        message = self._append_update_instruction(
+            message,
+            "Exit iTE, run the command below, then reopen it.",
+        )
+        self.query_one("#update-required-copy", Static).update(message)
+        self.query_one(UpdateCommandBox).set_command(command)
+        meta_parts = []
+        if latest:
+            meta_parts.append(f"Latest {latest}")
+        if current:
+            meta_parts.append(f"Your version {current}")
+        release_url = str(getattr(notice, "release_url", "") or "").strip()
+        if release_url:
+            meta_parts.append(release_url)
+        self.query_one("#update-required-meta", Static).update("  •  ".join(meta_parts))
 
     def _startup_status_text(self) -> Text:
         status = Text(justify="center")
@@ -4238,6 +4448,7 @@ class ReupApp(App):
     async def _run_cloud_logout_flow(self) -> None:
         await self._reset_runtime_after_cloud_logout()
         clear_cloud_auth()
+        mark_cloud_signed_out()
         self._set_signed_out_state(True)
 
     async def _run_cloud_status_flow(self) -> None:
@@ -5379,6 +5590,10 @@ class ReupApp(App):
 
     @on(Button.Pressed, "#cloud-exit")
     def on_cloud_exit_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._exit_app(), exclusive=False)
+
+    @on(Button.Pressed, "#update-required-exit")
+    def on_update_required_exit_pressed(self, _event: Button.Pressed) -> None:
         self.run_worker(self._exit_app(), exclusive=False)
 
     async def _exit_app(self) -> None:
