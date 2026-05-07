@@ -871,6 +871,146 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_open_model_picker_preserves_ollama_cloud_named_model_as_saved_byok(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax-m2.5:cloud"
+            app.config.model.source_kind = "saved"
+            app.config.api_key = "ollama"
+            app.config.base_url = "http://localhost:11434/v1"
+            session_config = Config(
+                cwd=self.cwd,
+                model={"name": "minimax-m2.5:cloud", "source_kind": "saved"},
+                api_key="ollama",
+                base_url="http://localhost:11434/v1",
+            )
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    config=session_config,
+                    client=SimpleNamespace(close=AsyncMock()),
+                )
+            )
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "minimax-m2.5:cloud": {
+                        "api_key": "ollama",
+                        "base_url": "http://localhost:11434/v1",
+                        "model_name": "minimax-m2.5:cloud",
+                        "context_window": 200000,
+                    }
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
+                    {
+                        "model_name": "minimax/minimax-m2.5",
+                        "label": "MiniMax M2.5",
+                        "provider": "Bundled",
+                        "available": True,
+                        "unavailable_reason": "",
+                    }
+                ]),
+            ), patch(
+                "ite.ui.reup.app.save_system_config"
+            ) as save_system_config, patch.object(
+                app,
+                "_open_modal",
+                AsyncMock(
+                    return_value={
+                        "action": "select",
+                        "entry_id": "saved:minimax-m2.5:cloud",
+                        "model_name": "minimax-m2.5:cloud",
+                        "source_kind": "saved",
+                    }
+                ),
+            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                await app._open_model_picker_from_meta()
+
+            save_system_config.assert_not_called()
+            self.assertEqual(app.config.model.source_kind, "saved")
+            self.assertEqual(app.config.api_key, "ollama")
+            self.assertEqual(app.config.base_url, "http://localhost:11434/v1")
+            self.assertEqual(session_config.model.source_kind, "saved")
+            self.assertEqual(session_config.api_key, "ollama")
+            self.assertEqual(session_config.base_url, "http://localhost:11434/v1")
+
+        asyncio.run(run_test())
+
+    def test_open_model_picker_selects_bundled_minimax_without_byok_credentials(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax-m2.5:cloud"
+            app.config.model.source_kind = "saved"
+            app.config.api_key = "ollama"
+            app.config.base_url = "http://localhost:11434/v1"
+            session_config = Config(
+                cwd=self.cwd,
+                model={"name": "minimax-m2.5:cloud", "source_kind": "saved"},
+                api_key="ollama",
+                base_url="http://localhost:11434/v1",
+            )
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    config=session_config,
+                    client=SimpleNamespace(close=AsyncMock()),
+                )
+            )
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "minimax-m2.5:cloud": {
+                        "api_key": "ollama",
+                        "base_url": "http://localhost:11434/v1",
+                        "model_name": "minimax-m2.5:cloud",
+                        "context_window": 200000,
+                    }
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result([
+                    {
+                        "model_name": "minimax/minimax-m2.5",
+                        "label": "MiniMax M2.5",
+                        "provider": "Bundled",
+                        "available": True,
+                        "unavailable_reason": "",
+                    }
+                ]),
+            ), patch(
+                "ite.ui.reup.app.save_system_config"
+            ) as save_system_config, patch.object(
+                app,
+                "_open_modal",
+                AsyncMock(
+                    return_value={
+                        "action": "select",
+                        "entry_id": "bundled:minimax/minimax-m2.5",
+                        "model_name": "minimax/minimax-m2.5",
+                        "source_kind": "bundled",
+                    }
+                ),
+            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                await app._open_model_picker_from_meta()
+
+            save_system_config.assert_called_once()
+            _, kwargs = save_system_config.call_args
+            self.assertEqual(kwargs["api_key"], "")
+            self.assertEqual(kwargs["base_url"], "")
+            self.assertEqual(kwargs["model_name"], "minimax/minimax-m2.5")
+            self.assertEqual(kwargs["source_kind"], "bundled")
+            self.assertEqual(app.config.api_key, "")
+            self.assertEqual(app.config.base_url, "")
+            self.assertEqual(app.config.model.source_kind, "bundled")
+            self.assertEqual(session_config.api_key, "")
+            self.assertEqual(session_config.base_url, "")
+            self.assertEqual(session_config.model.name, "minimax/minimax-m2.5")
+            self.assertEqual(session_config.model.source_kind, "bundled")
+
+        asyncio.run(run_test())
+
     def test_open_model_picker_restores_saved_custom_provider_credentials(self) -> None:
         async def run_test() -> None:
             app = self._app()

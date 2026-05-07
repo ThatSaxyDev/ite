@@ -3304,7 +3304,10 @@ class ReupApp(App):
 
             action = str(result.get("action") or "").strip().lower()
             selected_entry_id = str(result.get("entry_id") or "").strip()
+            selected_source_kind = str(result.get("source_kind") or "").strip().lower()
             selected = str(result.get("model_name") or "").strip()
+            if not selected_entry_id and selected_source_kind and selected:
+                selected_entry_id = f"{selected_source_kind}:{selected}"
             if not selected and selected_entry_id:
                 selected = next(
                     (
@@ -3315,7 +3318,9 @@ class ReupApp(App):
                     "",
                 )
             if not selected_entry_id and selected:
-                if selected in bundled_model_names:
+                if selected in saved_providers and self._has_active_user_provider_credentials():
+                    selected_entry_id = f"saved:{selected}"
+                elif selected in bundled_model_names:
                     selected_entry_id = f"bundled:{selected}"
                 elif selected in saved_providers:
                     selected_entry_id = f"saved:{selected}"
@@ -5769,7 +5774,17 @@ class ReupApp(App):
         return True
 
     async def _reset_active_provider_client(self) -> None:
-        if not self.agent or not self.agent.session or not self.agent.session.client:
+        if not self.agent or not self.agent.session:
+            return
+        session_config = getattr(self.agent.session, "config", None)
+        if session_config is not None:
+            session_config.api_key = self.config.api_key
+            session_config.base_url = self.config.base_url
+            session_config.model.name = self.config.model.name
+            session_config.model.context_window = self.config.model.context_window
+            session_config.model.context_window_source = self.config.model.context_window_source
+            session_config.model.source_kind = self.config.model.source_kind
+        if not getattr(self.agent.session, "client", None):
             return
         try:
             await self.agent.session.client.close()

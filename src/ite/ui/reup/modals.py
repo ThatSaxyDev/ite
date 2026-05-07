@@ -1130,6 +1130,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
                     "action": "select",
                     "entry_id": self._model_entry_ids[event.cursor_row],
                     "model_name": self._model_names[event.cursor_row],
+                    "source_kind": self._model_entry_ids[event.cursor_row].split(":", 1)[0],
                 }
             )
 
@@ -1143,6 +1144,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
                     "action": "select",
                     "entry_id": self._model_entry_ids[row],
                     "model_name": self._model_names[row],
+                    "source_kind": self._model_entry_ids[row].split(":", 1)[0],
                 }
             )
 
@@ -1159,6 +1161,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
                     "action": "delete",
                     "entry_id": self._model_entry_ids[row],
                     "model_name": self._model_names[row],
+                    "source_kind": self._model_entry_ids[row].split(":", 1)[0],
                 }
             )
 
