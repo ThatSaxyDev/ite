@@ -258,6 +258,9 @@ class Agent:
                     event.data.get("final", True)
                 ):
                     final_response = event.data.get("content")
+        except Exception as e:
+            await session.hook_system.trigger_on_error(e)
+            raise
         finally:
             session.todo_execution_handoff_active = False
             session.change_history.finalize_batch()

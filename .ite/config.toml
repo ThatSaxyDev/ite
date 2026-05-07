@@ -1,4 +1,4 @@
-hooks_enabled = false
+hooks_enabled = true
 
 [model]
 context_window = 200000
@@ -7,12 +7,32 @@ temperature = 0.6
 [[hooks]]
 name = "test_before_tool"
 trigger = "before_tool"
-command = "python3 ./scripts/test_tool.py"
+command = "python3 ./scripts/hook_logger.py"
+blocking = false
 
 [[hooks]]
 name = "test_before_agent"
 trigger = "before_agent"
-command = "python3 ./scripts/test_tool.py"
+command = "python3 ./scripts/hook_logger.py"
+blocking = false
+
+[[hooks]]
+name = "test_after_agent"
+trigger = "after_agent"
+command = "python3 ./scripts/hook_logger.py"
+blocking = false
+
+[[hooks]]
+name = "test_after_tool"
+trigger = "after_tool"
+command = "python3 ./scripts/hook_logger.py"
+blocking = false
+
+[[hooks]]
+name = "test_on_error"
+trigger = "on_error"
+command = "python3 ./scripts/hook_logger.py"
+blocking = false
 
 # [sandbox]
 # enabled = true

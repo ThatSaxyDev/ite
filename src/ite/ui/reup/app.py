@@ -691,6 +691,23 @@ class CommandsSidePanel(Widget):
         self.app.run_worker(self.app._hide_commands_panel(), exclusive=False)
 
 
+class HooksSidePanel(Widget):
+    ALLOW_MAXIMIZE = False
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="hooks-panel-header"):
+            yield Static("Hooks", classes="hooks-panel-title")
+            yield Button("Close", id="hooks-panel-close", classes="hooks-panel-close")
+        yield Static("", id="hooks-panel-summary", classes="hooks-panel-summary")
+        yield VerticalScroll(id="hooks-panel-body", classes="hooks-panel-body")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "hooks-panel-close":
+            return
+        event.stop()
+        self.app.run_worker(self.app._hide_hooks_panel(), exclusive=False)
+
+
 class ThreadSwitcherRow(Static):
     class Selected(Message):
         def __init__(self, session_id: str) -> None:
@@ -1063,6 +1080,10 @@ class ReupApp(App):
         self._remote_port_preference: int = 0
         self._commands_panel: CommandsSidePanel | None = None
         self._change_review_panel: ChangeReviewSidePanel | None = None
+        self._hooks_panel: HooksSidePanel | None = None
+        self._hooks_snapshot_key: tuple[Any, ...] | None = None
+        self._hooks_panel_layout_key: tuple[Any, ...] | None = None
+        self._hooks_run_widgets: dict[str, Static] = {}
         self._agents_recommendation_last_workspace_key: str | None = None
         self._agents_recommendation_current_visit: tuple[str, str] | None = None
         self._suppress_agents_recommendation_once: bool = False
@@ -1079,6 +1100,7 @@ class ReupApp(App):
                 yield Static("New thread", id="title")
                 yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
+                yield Button("/hooks", id="hooks-toggle", variant="default")
                 yield Button("/aside", id="aside-toggle", variant="default")
             with HorizontalScroll(id="session-tabs-scroll"):
                 yield Horizontal(id="session-tabs")
@@ -1181,15 +1203,24 @@ class ReupApp(App):
             self._suppress_theme_prompt_sync = False
         self.query_one("#aside-toggle", Button).display = False
         self.query_one("#changes-toggle", Button).display = False
-        self.query_one("#threads-toggle", Button).display = False
+        try:
+            self.query_one("#hooks-toggle", Button).display = False
+        except Exception:
+            pass
+        try:
+            self.query_one("#threads-toggle", Button).display = False
+        except Exception:
+            pass
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
+        self._apply_hooks_panel_state()
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(0.35, self._tick_live_context_meter)
+        self.set_interval(0.35, self._poll_hooks_panel)
         self.set_interval(1.0, self._poll_change_review_panel)
         self._set_loading_state("starting up", busy=True)
         if self.config.cloud_auth_enabled:
@@ -1419,6 +1450,12 @@ class ReupApp(App):
         current_selection = self._change_review_selected_rel_path
         await self._populate_change_review_panel()
 
+    async def _rerender_hooks_panel_for_theme(self) -> None:
+        """Re-render hooks panel Rich text when theme changes."""
+        if not self._hooks_panel_is_open():
+            return
+        await self._populate_hooks_panel(snapshot=self._active_hooks_snapshot())
+
     def watch_theme(self, _old_theme: str, _new_theme: str) -> None:
         self.refresh_header()
         self._refresh_empty_state()
@@ -1450,6 +1487,10 @@ class ReupApp(App):
             if self._change_review_panel_is_open():
                 self.run_worker(
                     self._rerender_change_review_for_theme(), exclusive=False
+                )
+            if self._hooks_panel_is_open():
+                self.run_worker(
+                    self._rerender_hooks_panel_for_theme(), exclusive=False
                 )
 
         self.call_after_refresh(_rerender_theme_sensitive_ui)
@@ -3378,6 +3419,7 @@ class ReupApp(App):
         if registry is None:
             return
         await self._hide_thread_switcher_panel(remember=False)
+        await self._hide_hooks_panel()
         self.screen.query("HelpPanel").remove()
         commands = sorted(
             [
@@ -3401,6 +3443,40 @@ class ReupApp(App):
             pass
         await self._sync_thread_switcher_panel()
 
+    def _hooks_panel_is_open(self) -> bool:
+        panel = self._hooks_panel
+        return bool(panel is not None and panel.is_mounted)
+
+    async def _toggle_hooks_panel(self) -> None:
+        if self._hooks_panel_is_open():
+            await self._hide_hooks_panel()
+            return
+        await self._show_hooks_panel()
+
+    async def _show_hooks_panel(self) -> None:
+        await self._hide_commands_panel()
+        await self._hide_thread_switcher_panel(remember=False)
+        await self._hide_change_review_panel()
+        self.screen.query("HelpPanel").remove()
+        panel = HooksSidePanel(id="hooks-panel")
+        self._hooks_panel = panel
+        await self.screen.mount(panel)
+        await self._populate_hooks_panel(force=True)
+        self._apply_hooks_panel_state()
+
+    async def _hide_hooks_panel(self) -> None:
+        panel = self._hooks_panel
+        self._hooks_panel = None
+        self._hooks_panel_layout_key = None
+        self._hooks_run_widgets = {}
+        if panel is None:
+            return
+        try:
+            await panel.remove()
+        except Exception:
+            pass
+        self._apply_hooks_panel_state()
+
     def _change_review_panel_is_open(self) -> bool:
         return self._change_review_panel is not None
 
@@ -3414,6 +3490,7 @@ class ReupApp(App):
             return None
 
     async def _show_change_review_panel(self) -> None:
+        await self._hide_hooks_panel()
         await self._refresh_change_review_source()
         if not self._change_review_change_set or not getattr(
             self._change_review_change_set, "changes", None
@@ -4135,6 +4212,386 @@ class ReupApp(App):
             toggle.label = f"/push {count} {noun} ↑"
         self._update_change_review_action_state()
 
+    def _active_hooks_snapshot(self) -> dict[str, Any]:
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is not None:
+            return session.hook_system.snapshot()
+        return {
+            "enabled": bool(self.config.hooks_enabled),
+            "configured": [
+                {
+                    "name": hook.name,
+                    "trigger": hook.trigger.value,
+                    "command": hook.command or "<inline script>",
+                    "timeout_sec": hook.timeout_sec,
+                    "enabled": hook.enabled,
+                }
+                for hook in self.config.hooks
+            ],
+            "runs": [],
+        }
+
+    def _hooks_snapshot_signature(self, snapshot: dict[str, Any]) -> tuple[Any, ...]:
+        configured = tuple(
+            (
+                str(item.get("name", "")),
+                str(item.get("trigger", "")),
+                bool(item.get("enabled", True)),
+            )
+            for item in snapshot.get("configured", [])
+            if isinstance(item, dict)
+        )
+        runs = tuple(
+            (
+                str(item.get("id", "")),
+                str(item.get("status", "")),
+                item.get("duration_ms"),
+                item.get("exit_code"),
+            )
+            for item in snapshot.get("runs", [])
+            if isinstance(item, dict)
+        )
+        return (bool(snapshot.get("enabled")), configured, runs)
+
+    def _hooks_panel_layout_signature(self, snapshot: dict[str, Any]) -> tuple[Any, ...]:
+        configured = tuple(
+            (
+                str(item.get("name", "")),
+                str(item.get("trigger", "")),
+                bool(item.get("enabled", True)),
+            )
+            for item in snapshot.get("configured", [])
+            if isinstance(item, dict)
+        )
+        return (bool(snapshot.get("enabled")), configured)
+
+    def _apply_hooks_panel_state(self) -> None:
+        try:
+            toggle = self.query_one("#hooks-toggle", Button)
+        except Exception:
+            return
+        snapshot = self._active_hooks_snapshot()
+        configured = [
+            item
+            for item in snapshot.get("configured", [])
+            if isinstance(item, dict)
+        ]
+        runs = [item for item in snapshot.get("runs", []) if isinstance(item, dict)]
+        has_failed = any(
+            str(item.get("status", "")).lower() in {"failed", "timed_out"}
+            for item in runs[-20:]
+        )
+        has_running = any(
+            str(item.get("status", "")).lower() == "running" for item in runs
+        )
+        toggle.display = (
+            not self._cloud_signed_out
+            and not self._hooks_panel_is_open()
+            and (bool(snapshot.get("enabled")) or bool(configured) or bool(runs))
+        )
+        if has_failed:
+            toggle.label = "/hooks !"
+        elif has_running:
+            toggle.label = "/hooks *"
+        else:
+            toggle.label = "/hooks"
+
+    def _poll_hooks_panel(self) -> None:
+        self.run_worker(
+            self._sync_hooks_panel_state(),
+            exclusive=True,
+            group="hooks-panel-sync",
+        )
+
+    async def _sync_hooks_panel_state(self) -> None:
+        snapshot = self._active_hooks_snapshot()
+        signature = self._hooks_snapshot_signature(snapshot)
+        if signature == self._hooks_snapshot_key:
+            self._apply_hooks_panel_state()
+            return
+        self._hooks_snapshot_key = signature
+        if self._hooks_panel_is_open():
+            layout_signature = self._hooks_panel_layout_signature(snapshot)
+            if layout_signature == self._hooks_panel_layout_key:
+                await self._refresh_hooks_panel_rows(snapshot)
+            else:
+                await self._populate_hooks_panel(snapshot=snapshot)
+        self._apply_hooks_panel_state()
+
+    def _hook_status_style(self, status: str) -> str:
+        normalized = str(status or "").strip().lower()
+        if normalized == "running":
+            return self._style("warning")
+        if normalized == "completed":
+            return self._style("success")
+        if normalized in {"failed", "timed_out"}:
+            return self._style("error")
+        return self._style("muted")
+
+    def _hook_trigger_order(self) -> tuple[str, ...]:
+        return (
+            "before_agent",
+            "before_tool",
+            "after_tool",
+            "after_agent",
+            "on_error",
+        )
+
+    def _hook_trigger_title(self, trigger: str) -> str:
+        titles = {
+            "before_agent": "Turn starts",
+            "before_tool": "Before tools",
+            "after_tool": "After tools",
+            "after_agent": "Turn finishes",
+            "on_error": "Errors",
+        }
+        return titles.get(str(trigger or "").strip(), str(trigger or "Other"))
+
+    def _group_hooks_by_trigger(
+        self, items: list[dict[str, Any]]
+    ) -> list[tuple[str, list[dict[str, Any]]]]:
+        by_trigger: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            trigger = str(item.get("trigger") or "other").strip() or "other"
+            by_trigger.setdefault(trigger, []).append(item)
+        ordered: list[tuple[str, list[dict[str, Any]]]] = []
+        for trigger in self._hook_trigger_order():
+            if trigger in by_trigger:
+                ordered.append((trigger, by_trigger.pop(trigger)))
+        for trigger in sorted(by_trigger):
+            ordered.append((trigger, by_trigger[trigger]))
+        return ordered
+
+    def _hook_run_text(self, run: dict[str, Any]) -> Text:
+        status = str(run.get("status") or "unknown")
+        trigger = str(run.get("trigger") or "").strip()
+        name = str(run.get("name") or "hook")
+        tool_name = str(run.get("tool_name") or "").strip()
+        duration = run.get("duration_ms")
+        exit_code = run.get("exit_code")
+        status_label = status.replace("_", " ")
+        text = Text()
+        marker = "●" if status == "running" else "●"
+        text.append(marker, style=self._hook_status_style(status))
+        text.append(" ")
+        if trigger:
+            text.append(self._hook_trigger_title(trigger), style=self._style("muted"))
+            text.append(" · ", style=self._style("muted"))
+        text.append(name, style=self._style("fg"))
+        if tool_name:
+            text.append(f" · {tool_name}", style=self._style("muted"))
+        text.append("  ")
+        text.append(status_label, style=self._hook_status_style(status))
+        if isinstance(duration, int):
+            text.append(f" · {duration}ms", style=self._style("muted"))
+        if exit_code not in (None, 0):
+            text.append(f" · exit {exit_code}", style=self._style("error"))
+        error = str(run.get("error") or "").strip()
+        if error:
+            text.append(f"\n  {error}", style=self._style("error"))
+        stderr = str(run.get("stderr") or "").strip()
+        if stderr:
+            text.append("\n  stderr: ", style=self._style("muted"))
+            text.append(stderr[:500], style=self._style("error"))
+        stdout = str(run.get("stdout") or "").strip()
+        if stdout and status != "completed":
+            text.append("\n  stdout: ", style=self._style("muted"))
+            text.append(stdout[:500], style=self._style("muted"))
+        return text
+
+    def _hook_run_classes(self, run: dict[str, Any]) -> str:
+        status = str(run.get("status") or "").strip().lower()
+        classes = "hooks-run-row"
+        if status:
+            classes += f" {status}"
+        return classes
+
+    def _sync_hook_row_classes(self, widget: Static, classes: str) -> None:
+        for class_name in (
+            "running",
+            "completed",
+            "failed",
+            "timed_out",
+            "idle",
+        ):
+            widget.remove_class(class_name)
+        for class_name in classes.split():
+            if class_name != "hooks-run-row":
+                widget.add_class(class_name)
+
+    async def _refresh_hooks_panel_rows(self, snapshot: dict[str, Any]) -> None:
+        panel = self._hooks_panel
+        if panel is None:
+            return
+        try:
+            summary = panel.query_one("#hooks-panel-summary", Static)
+            run_list = panel.query_one("#hooks-runs-list", Vertical)
+        except NoMatches:
+            return
+        configured = [
+            item
+            for item in snapshot.get("configured", [])
+            if isinstance(item, dict)
+        ]
+        runs = [item for item in snapshot.get("runs", []) if isinstance(item, dict)]
+        enabled_count = len([item for item in configured if item.get("enabled", True)])
+        running_count = len(
+            [
+                item
+                for item in runs
+                if str(item.get("status", "")).lower() == "running"
+            ]
+        )
+        failed_count = len(
+            [
+                item
+                for item in runs
+                if str(item.get("status", "")).lower() in {"failed", "timed_out"}
+            ]
+        )
+        state = "enabled" if snapshot.get("enabled") else "disabled"
+        summary.update(
+            f"{state} · {enabled_count}/{len(configured)} active hooks · "
+            f"{len(runs)} runs · {running_count} running · {failed_count} attention"
+        )
+        visible_runs = list(reversed(runs))
+        visible_ids = {
+            str(run.get("id") or "")
+            for run in visible_runs
+            if str(run.get("id") or "")
+        }
+        for run_id, widget in list(self._hooks_run_widgets.items()):
+            if run_id not in visible_ids:
+                try:
+                    await widget.remove()
+                except Exception:
+                    pass
+                self._hooks_run_widgets.pop(run_id, None)
+
+        if not visible_runs:
+            empty = self._hooks_run_widgets.get("__empty__")
+            if empty is None:
+                empty = Static(
+                    Text("waiting for hook activity", style=self._style("muted")),
+                    classes="hooks-run-row idle",
+                )
+                self._hooks_run_widgets["__empty__"] = empty
+                await run_list.mount(empty)
+            else:
+                empty.display = True
+            return
+
+        empty = self._hooks_run_widgets.pop("__empty__", None)
+        if empty is not None:
+            try:
+                await empty.remove()
+            except Exception:
+                pass
+
+        for index, run in enumerate(visible_runs):
+            run_id = str(run.get("id") or "")
+            widget = self._hooks_run_widgets.get(run_id)
+            if widget is None:
+                widget = Static(
+                    self._hook_run_text(run),
+                    classes=self._hook_run_classes(run),
+                )
+                self._hooks_run_widgets[run_id] = widget
+                before = (
+                    run_list.children[index] if index < len(run_list.children) else None
+                )
+                await run_list.mount(widget, before=before)
+            else:
+                widget.update(self._hook_run_text(run))
+                self._sync_hook_row_classes(widget, self._hook_run_classes(run))
+                if widget.parent is run_list and index < len(run_list.children):
+                    target = run_list.children[index]
+                    if target is not widget:
+                        run_list.move_child(widget, before=target)
+
+    async def _populate_hooks_panel(
+        self,
+        *,
+        snapshot: dict[str, Any] | None = None,
+        force: bool = False,
+    ) -> None:
+        panel = self._hooks_panel
+        if panel is None:
+            return
+        snapshot = snapshot or self._active_hooks_snapshot()
+        if force:
+            self._hooks_snapshot_key = self._hooks_snapshot_signature(snapshot)
+        self._hooks_panel_layout_key = self._hooks_panel_layout_signature(snapshot)
+        try:
+            summary = panel.query_one("#hooks-panel-summary", Static)
+            body = panel.query_one("#hooks-panel-body", VerticalScroll)
+        except NoMatches:
+            return
+        configured = [
+            item
+            for item in snapshot.get("configured", [])
+            if isinstance(item, dict)
+        ]
+        runs = [item for item in snapshot.get("runs", []) if isinstance(item, dict)]
+        enabled_count = len([item for item in configured if item.get("enabled", True)])
+        running_count = len(
+            [
+                item
+                for item in runs
+                if str(item.get("status", "")).lower() == "running"
+            ]
+        )
+        failed_count = len(
+            [
+                item
+                for item in runs
+                if str(item.get("status", "")).lower() in {"failed", "timed_out"}
+            ]
+        )
+        state = "enabled" if snapshot.get("enabled") else "disabled"
+        summary.update(
+            f"{state} · {enabled_count}/{len(configured)} active hooks · "
+            f"{len(runs)} runs · {running_count} running · {failed_count} attention"
+        )
+        await body.remove_children()
+        self._hooks_run_widgets = {}
+        if configured:
+            await body.mount(Static("Configured", classes="hooks-section-title"))
+            for trigger, hook_group in self._group_hooks_by_trigger(configured):
+                await body.mount(
+                    Static(
+                        self._hook_trigger_title(trigger),
+                        classes="hooks-trigger-title",
+                    )
+                )
+                for hook in hook_group:
+                    classes = "hooks-config-row"
+                    if not hook.get("enabled", True):
+                        classes += " disabled"
+                    label = Text()
+                    label.append(str(hook.get("name") or "hook"), style=self._style("fg"))
+                    timeout = hook.get("timeout_sec")
+                    if timeout is not None:
+                        label.append(f" · {timeout:g}s", style=self._style("muted"))
+                    if hook.get("blocking", False):
+                        label.append(" · blocking", style=self._style("warning"))
+                    else:
+                        label.append(" · async", style=self._style("muted"))
+                    if not hook.get("enabled", True):
+                        label.append(" · off", style=self._style("muted"))
+                    await body.mount(Static(label, classes=classes))
+        else:
+            await body.mount(
+                Static(
+                    "No hooks configured. Add [[hooks]] entries to .ite/config.toml.",
+                    classes="hooks-empty",
+                )
+            )
+
+        await body.mount(Static("Latest runs", classes="hooks-section-title"))
+        await body.mount(Vertical(id="hooks-runs-list", classes="hooks-runs-list"))
+        await self._refresh_hooks_panel_rows(snapshot)
+
     def _change_review_path_flags(self, rel_path: str | None) -> tuple[bool, bool]:
         if not rel_path or not self._change_review_change_set:
             return False, False
@@ -4664,6 +5121,10 @@ class ReupApp(App):
     @on(Button.Pressed, "#threads-toggle")
     async def on_threads_toggle_pressed(self, _event: Button.Pressed) -> None:
         await self._toggle_thread_switcher_panel()
+
+    @on(Button.Pressed, "#hooks-toggle")
+    async def on_hooks_toggle_pressed(self, _event: Button.Pressed) -> None:
+        await self._toggle_hooks_panel()
 
     @on(ThreadSwitcherRow.Selected)
     async def on_thread_switcher_row_selected(
@@ -6451,6 +6912,10 @@ class ReupApp(App):
 
         if command == "/changes":
             await self._run_changes_command_native()
+            return
+
+        if command == "/hooks":
+            await self._toggle_hooks_panel()
             return
 
         if command == "/publish":

@@ -196,6 +196,7 @@ class HookTrigger(str, Enum):
     AFTER_AGENT = "after_agent"
     BEFORE_TOOL = "before_tool"
     AFTER_TOOL = "after_tool"
+    ON_ERROR = "on_error"
 
 
 class HookConfig(BaseModel):
@@ -205,6 +206,7 @@ class HookConfig(BaseModel):
     script: str | None = None
     timeout_sec: float = 30
     enabled: bool = True
+    blocking: bool = False
 
     @model_validator(mode="after")
     def validate_hook(self) -> HookConfig:

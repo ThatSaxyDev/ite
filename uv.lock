@@ -596,7 +596,7 @@ wheels = [
 
 [[package]]
 name = "ite-agent"
-version = "0.0.38"
+version = "0.0.44"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },

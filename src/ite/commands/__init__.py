@@ -88,6 +88,7 @@ def build_registry() -> CommandRegistry:
     from ite.commands.cloud import register as register_cloud
     from ite.commands.skills import register as register_skills
     from ite.commands.remote import register as register_remote
+    from ite.commands.hooks import register as register_hooks
 
     from ite.commands.init import register as register_init
     from ite.commands.remind import register as register_remind
@@ -111,4 +112,5 @@ def build_registry() -> CommandRegistry:
     register_cloud(registry)
     register_skills(registry)
     register_remote(registry)
+    register_hooks(registry)
     return registry

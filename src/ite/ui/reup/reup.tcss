@@ -198,6 +198,20 @@ Widget {
     content-align: center middle;
 }
 
+#hooks-toggle {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    min-height: 1;
+    margin-left: 2;
+    padding: 0;
+    color: $text-warning;
+    text-style: bold;
+    background: transparent;
+    border: none;
+    content-align: center middle;
+}
+
 #chat-panel {
     height: 1fr;
     background: $background;
@@ -688,6 +702,126 @@ Widget {
 #commands-panel .commands-panel-table {
     width: 1fr;
     height: 1fr;
+}
+
+#hooks-panel {
+    split: right;
+    width: 38%;
+    min-width: 42;
+    max-width: 72;
+    height: 1fr;
+    background: $surface;
+    border-left: vkey $foreground 30%;
+    padding: 0 1;
+    padding-left: 2;
+    layout: vertical;
+}
+
+#hooks-panel .hooks-panel-header {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#hooks-panel .hooks-panel-title {
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#hooks-panel .hooks-panel-close {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+#hooks-panel .hooks-panel-close:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+#hooks-panel .hooks-panel-close:focus {
+    background: $primary;
+    color: $text-primary;
+}
+
+#hooks-panel .hooks-panel-summary {
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
+#hooks-panel .hooks-panel-body {
+    width: 1fr;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+
+#hooks-panel .hooks-section-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#hooks-panel .hooks-trigger-title {
+    color: $foreground-muted;
+    text-style: bold;
+    margin-bottom: 1;
+    padding-left: 1;
+}
+
+#hooks-panel .hooks-config-row {
+    height: auto;
+    min-height: 1;
+    padding: 0 1 0 2;
+    margin-bottom: 1;
+    border-left: solid $primary;
+    color: $foreground;
+}
+
+#hooks-panel .hooks-config-row.disabled {
+    border-left: solid $foreground-muted;
+    color: $foreground-muted;
+}
+
+#hooks-panel .hooks-run-row {
+    height: auto;
+    min-height: 1;
+    padding: 0 1 0 2;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+    border-left: solid $foreground-muted;
+}
+
+#hooks-panel .hooks-runs-list {
+    height: auto;
+}
+
+#hooks-panel .hooks-run-row.running {
+    border-left: solid $warning;
+}
+
+#hooks-panel .hooks-run-row.completed {
+    border-left: solid $success;
+}
+
+#hooks-panel .hooks-run-row.failed,
+#hooks-panel .hooks-run-row.timed_out {
+    border-left: solid $error;
+}
+
+#hooks-panel .hooks-run-row.idle {
+    background: transparent;
+    border-left: solid $foreground-muted;
+}
+
+#hooks-panel .hooks-empty {
+    color: $foreground-muted;
+    margin-bottom: 1;
 }
 
 #thread-switcher-panel {
