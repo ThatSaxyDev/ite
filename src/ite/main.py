@@ -1,7 +1,12 @@
+from ite import __version__
 from ite.config.config import Config
 from pathlib import Path
 from typing import Any
-from ite.config.loader import ensure_workspace_layout, load_config, save_mcp_server_config
+from ite.config.loader import (
+    ensure_workspace_layout,
+    load_config,
+    save_mcp_server_config,
+)
 import logging
 import sys
 
@@ -47,7 +52,9 @@ class _HintingMixin:
             option_name = str(exc.option_name or "").strip()
             hint = self._hint_map.get(option_name)
             if hint:
-                rendered = f"-{option_name}" if len(option_name) == 1 else f"--{option_name}"
+                rendered = (
+                    f"-{option_name}" if len(option_name) == 1 else f"--{option_name}"
+                )
                 raise click.UsageError(f"No such option '{rendered}'. {hint}") from None
             raise
 
@@ -226,7 +233,9 @@ class CLI:
 
         paths: list[str] = []
         for candidate in candidates:
-            if not any(sep in candidate for sep in ("/", "\\")) and not candidate.startswith("~"):
+            if not any(
+                sep in candidate for sep in ("/", "\\")
+            ) and not candidate.startswith("~"):
                 return False
             path = Path(candidate).expanduser()
             if not path.exists() or not path.is_file():
@@ -245,7 +254,9 @@ class CLI:
         session = self._get_prompt_session()
         if session is not None:
             try:
-                return (await session.prompt_async("\n> ", complete_while_typing=True)).strip()
+                return (
+                    await session.prompt_async("\n> ", complete_while_typing=True)
+                ).strip()
             except KeyboardInterrupt:
                 raise
             except EOFError:
@@ -356,7 +367,6 @@ class CLI:
         except Exception:
             pass
 
-
     async def run_interactive(self) -> str | None:
         self.tui.print_welcome(
             model=self.config.model_name,
@@ -378,7 +388,11 @@ class CLI:
                             continue
                         if self._consume_dropped_path_text(user_input):
                             continue
-                        if self.agent and self.agent.session and not user_input.startswith("/"):
+                        if (
+                            self.agent
+                            and self.agent.session
+                            and not user_input.startswith("/")
+                        ):
                             resolution = resolve_inline_attachment_refs(
                                 user_input,
                                 cwd=self.config.cwd,
@@ -388,7 +402,9 @@ class CLI:
                                 for error in resolution.errors:
                                     console.print(f"[warning]{error}[/warning]")
                                 continue
-                            self.agent.session.pending_attachment_paths = resolution.queued_paths
+                            self.agent.session.pending_attachment_paths = (
+                                resolution.queued_paths
+                            )
                             user_input = resolution.message
                         if not self._confirm_before_send(user_input):
                             continue
@@ -410,7 +426,11 @@ class CLI:
 
                         user_model_content = None
                         attachment_turn_id: str | None = None
-                        if self.agent and self.agent.session and self.agent.session.pending_attachment_paths:
+                        if (
+                            self.agent
+                            and self.agent.session
+                            and self.agent.session.pending_attachment_paths
+                        ):
                             manager = AttachmentManager(self.config.cwd)
                             attachment_turn_id = f"tui_{self.agent.session.session_id}_{self.agent.session.turn_count + 1}"
                             staged, errors = manager.stage_paths(
@@ -511,7 +531,9 @@ class CLI:
         )
 
     async def _run_tui_recovery_flow(self, reason: str) -> bool:
-        console.print(f"[bold bright_white]Recovery:[/bold bright_white] [dim]{reason}[/dim]")
+        console.print(
+            f"[bold bright_white]Recovery:[/bold bright_white] [dim]{reason}[/dim]"
+        )
         choice = Prompt.ask(
             "1) Continue from last step  2) Retry last prompt  3) Stop",
             choices=["1", "2", "3"],
@@ -525,7 +547,9 @@ class CLI:
         if choice == "2":
             retry = (self._last_user_message_for_retry or "").strip()
             if not retry:
-                console.print("[dim]No previous prompt to retry; using continue prompt instead.[/dim]")
+                console.print(
+                    "[dim]No previous prompt to retry; using continue prompt instead.[/dim]"
+                )
             else:
                 next_message = retry
 
@@ -533,13 +557,17 @@ class CLI:
         await self._process_message(next_message)
         return True
 
-    def _should_suppress_intent_detection(self, message: str, *, plan_enabled: bool) -> bool:
+    def _should_suppress_intent_detection(
+        self, message: str, *, plan_enabled: bool
+    ) -> bool:
         text = (message or "").strip()
         min_len = 7 if plan_enabled else 12
         if len(text) < min_len:
             return True
         if len(text.split()) < 3:
-            if not (plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())):
+            if not (
+                plan_enabled and re.search(r"\b(let'?s|lets|let us)\b", text.lower())
+            ):
                 return True
         if message == Agent.PLAN_EXECUTE_PROMPT:
             return True
@@ -562,7 +590,11 @@ class CLI:
             return True
 
         # Treat collaborative "let's build/create/design ..." asks as planning-first.
-        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text)):
+        if bool(
+            re.search(
+                r"\b(let'?s|lets|let us)\s+(build|create|design|architect)\b", text
+            )
+        ):
             return True
 
         build_intent_markers = (
@@ -590,10 +622,14 @@ class CLI:
             "api",
             "dashboard",
         )
-        if any(m in text for m in build_intent_markers) and any(t in text for t in product_targets):
+        if any(m in text for m in build_intent_markers) and any(
+            t in text for t in product_targets
+        ):
             return True
 
-        return bool(re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text)
+        return bool(
+            re.search(r"\b(plan|roadmap|steps)\b", text) and "implement" not in text
+        )
 
     def _detect_execution_intent(self, message: str) -> bool:
         text = (message or "").strip().lower()
@@ -620,9 +656,16 @@ class CLI:
         )
         if any(p in text for p in phrases):
             return True
-        if bool(re.search(r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text)):
+        if bool(
+            re.search(
+                r"\b(let'?s|lets|let us)\s+(build|built|implement|code|execute)\b", text
+            )
+        ):
             return True
-        if bool(re.search(r"\b(build|implement|start coding|execute)\b", text) and re.search(r"\b(then|next)\b", text)):
+        if bool(
+            re.search(r"\b(build|implement|start coding|execute)\b", text)
+            and re.search(r"\b(then|next)\b", text)
+        ):
             return True
         return bool(
             re.search(r"\b(implement|build|built|code|execute|apply)\b", text)
@@ -700,7 +743,9 @@ class CLI:
             if choice == "1":
                 session.set_plan_mode(False)
                 session.set_plan_phase("idle")
-                console.print("[dim]Plan mode disabled. You can also do this manually with /plan off.[/dim]")
+                console.print(
+                    "[dim]Plan mode disabled. You can also do this manually with /plan off.[/dim]"
+                )
                 return message
             console.print(
                 "[dim]Staying in plan mode; will continue with planning flow. "
@@ -790,7 +835,9 @@ class CLI:
             session.set_auto_name(generated)
             session_manager = SessionManager()
             snapshot = SessionSnapshot(
-                **session.snapshot_kwargs(workspace_path=str(session.config.cwd.resolve()))
+                **session.snapshot_kwargs(
+                    workspace_path=str(session.config.cwd.resolve())
+                )
             )
             session_manager.save_session(snapshot)
         except Exception as e:
@@ -855,7 +902,11 @@ class CLI:
                         "Prefer the current active work focus over the initial exploratory question if they differ. "
                         "Reply with ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n"
                         f"Initial user: {first_user}\n"
-                        + (f"Initial assistant: {first_assistant}\n" if first_assistant else "")
+                        + (
+                            f"Initial assistant: {first_assistant}\n"
+                            if first_assistant
+                            else ""
+                        )
                         + (f"Latest user: {latest_user}\n" if latest_user else "")
                         + (f"Active focus: {focus_hint}" if focus_hint else "")
                     ),
@@ -928,11 +979,17 @@ class CLI:
         # Start spinner while waiting for LLM
         self.tui.start_spinner(
             progress_label(
-                plan_mode=bool(self.agent and self.agent.session and self.agent.session.plan_mode_enabled)
+                plan_mode=bool(
+                    self.agent
+                    and self.agent.session
+                    and self.agent.session.plan_mode_enabled
+                )
             )
         )
         try:
-            async for event in self.agent.run(message, user_model_content=user_model_content):
+            async for event in self.agent.run(
+                message, user_model_content=user_model_content
+            ):
                 if event.type == AgentEventType.TEXT_DELTA:
                     content = event.data.get("content", "")
                     if not assistant_streaming:
@@ -964,7 +1021,9 @@ class CLI:
                     self._flush_pending_tool_failures()
                     error = event.data.get("error", "Unknown error")
                     if "Maximum turns" in str(error):
-                        console.print("\n[warning]Turn limit reached before completion.[/warning]")
+                        console.print(
+                            "\n[warning]Turn limit reached before completion.[/warning]"
+                        )
                         handled = await self._run_tui_recovery_flow(
                             reason="Maximum turns reached.",
                         )
@@ -983,7 +1042,9 @@ class CLI:
                         and self.agent.session.plan_phase != "executing"
                     )
                     if tool_name == "todos":
-                        scope = self._resolve_todo_scope(arguments=event.data.get("arguments", {}))
+                        scope = self._resolve_todo_scope(
+                            arguments=event.data.get("arguments", {})
+                        )
                         if self._should_hide_planning_todos(scope):
                             self.tui.start_spinner(
                                 progress_label(
@@ -994,7 +1055,8 @@ class CLI:
                             )
                             continue
                     if tool_name in {"memory", "plan_question"} or (
-                        plan_only_phase and tool_name not in {"todos", "web_search", "web_fetch"}
+                        plan_only_phase
+                        and tool_name not in {"todos", "web_search", "web_fetch"}
                     ):
                         self.tui.start_spinner(
                             progress_label(
@@ -1029,7 +1091,9 @@ class CLI:
                         and self.agent.session.plan_phase != "executing"
                     )
                     if tool_name == "todos":
-                        scope = self._resolve_todo_scope(metadata=event.data.get("metadata"))
+                        scope = self._resolve_todo_scope(
+                            metadata=event.data.get("metadata")
+                        )
                         if self._should_hide_planning_todos(scope):
                             self.tui.start_spinner(
                                 progress_label(
@@ -1054,7 +1118,9 @@ class CLI:
                         plan_only_phase
                         and tool_name not in {"web_search", "web_fetch"}
                         and not event.data.get("success", False)
-                        and str(event.data.get("error") or "").startswith("Invalid parameters:")
+                        and str(event.data.get("error") or "").startswith(
+                            "Invalid parameters:"
+                        )
                     ):
                         # In planning phase, model may probe tool schemas with partial calls.
                         # Keep this out of user transcript to reduce noise.
@@ -1152,17 +1218,19 @@ class CLI:
                         if self.agent and self.agent.session
                         else 0
                     )
-                    approved = self.tui.prompt_plan_implementation(asked_questions=asked)
+                    approved = self.tui.prompt_plan_implementation(
+                        asked_questions=asked
+                    )
                     if approved and self.agent and self.agent.session:
                         self.agent.session.seed_execution_todos_from_plan(
                             self.agent.session.pending_plan_text
                         )
                         self.agent.session.promote_pending_plan_to_active()
                         self.agent.session.set_plan_phase("executing")
-                        console.print("[dim]Plan approved · starting implementation[/dim]")
-                        await self._process_message(
-                            Agent.PLAN_EXECUTE_PROMPT
+                        console.print(
+                            "[dim]Plan approved · starting implementation[/dim]"
                         )
+                        await self._process_message(Agent.PLAN_EXECUTE_PROMPT)
                     elif self.agent and self.agent.session:
                         self.agent.session.set_plan_phase(
                             "awaiting_implementation_confirmation"
@@ -1183,6 +1251,7 @@ class CLI:
             self.tui.stop_spinner()
             if attachment_turn_id:
                 AttachmentManager(self.config.cwd).cleanup_turn(attachment_turn_id)
+
 
 def _load_runtime_config(
     *,
@@ -1236,7 +1305,7 @@ def _run_main_app(
 
 
 @click.group(cls=IteGroup, invoke_without_command=True)
-@click.version_option(version="0.0.44", prog_name="ite")
+@click.version_option(version=__version__, prog_name="ite")
 @click.option(
     "--cwd",
     "-w",
@@ -1279,7 +1348,9 @@ def mcp_group() -> None:
 @click.argument("target", required=False)
 @click.argument("target_args", nargs=-1, type=str)
 @click.option("--url", "url_value", help="Remote MCP server URL.")
-@click.option("--command", "command_value", help="stdio command to launch the MCP server.")
+@click.option(
+    "--command", "command_value", help="stdio command to launch the MCP server."
+)
 @click.option("--transport", help="Explicit MCP transport override.")
 @click.option("--arg", "command_args", multiple=True, help="Repeatable stdio argument.")
 @click.option(
@@ -1321,7 +1392,9 @@ def mcp_add(
             payload["command"] = target
             inferred_args.extend(target_args)
     else:
-        raise click.ClickException("Provide a URL or command. Example: `ite mcp add figma https://mcp.figma.com/mcp`")
+        raise click.ClickException(
+            "Provide a URL or command. Example: `ite mcp add figma https://mcp.figma.com/mcp`"
+        )
 
     if "url" in payload and target_args:
         raise click.ClickException("Unexpected extra arguments after URL target.")
@@ -1338,7 +1411,9 @@ def mcp_add(
             config=payload,
         )
     except Exception as exc:
-        raise click.ClickException(f"Failed to save MCP server '{server}': {exc}") from exc
+        raise click.ClickException(
+            f"Failed to save MCP server '{server}': {exc}"
+        ) from exc
     console.print(
         f"[success]Saved MCP server[/success] [cyan]{server}[/cyan] "
         f"[dim]to {normalized_scope} config ({path})[/dim]"

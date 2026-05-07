@@ -143,6 +143,12 @@ from ite.tools.mcp.mcp_tool import MCPTool
 from ite.tools.subagent import SubagentTool
 from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
+from ite.update_check import (
+    check_runtime_update,
+    current_runtime_version,
+    mark_update_notice_seen,
+    should_show_update_notice,
+)
 
 from .adapters.registry import StreamingCommandOutput, build_command_context
 from .change_tree import ChangedFilesTree
@@ -338,8 +344,9 @@ class ReupTUIAdapter:
         model: str = "",
         cwd: str = "",
         commands: list[str] | None = None,
-        version: str = "0.0.44",
+        version: str = "",
     ) -> None:
+        version = version or current_runtime_version()
         msg = f"iTE ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
         if commands:
             msg += "\nCommands: " + ", ".join(commands)
@@ -842,7 +849,9 @@ class ThreadSwitcherSidePanel(Widget):
     def _thread_label(cls, title: str, state: str) -> str:
         if state == "running":
             prefix = "●●● "
-            return prefix + cls._ellipsize(title, cls.MAX_LABEL_CELLS - cell_len(prefix))
+            return prefix + cls._ellipsize(
+                title, cls.MAX_LABEL_CELLS - cell_len(prefix)
+            )
         return cls._ellipsize(title, cls.MAX_LABEL_CELLS)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -876,9 +885,7 @@ class ChangeReviewSidePanel(Widget):
                 id="change-review-commit",
                 classes="change-review-action",
             )
-            yield Button(
-                "Close", id="change-review-close", variant="default"
-            )
+            yield Button("Close", id="change-review-close", variant="default")
         with Horizontal(id="change-review-body"):
             yield ChangedFilesTree(id="change-review-tree")
             with Vertical(id="change-review-preview-column"):
@@ -1040,6 +1047,7 @@ class ReupApp(App):
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
+        self._runtime_update_check_in_flight: bool = False
         self._bundled_access_announced: bool = False
         self._remote_access_cache: tuple[bool, float] | None = None
         self._command_palette_options: list[SlashCommandOption] = []
@@ -1265,6 +1273,7 @@ class ReupApp(App):
                     self._set_startup_state(False)
                     self._set_signed_out_state(True)
                     self._set_loading_state("idle", busy=False)
+                    self._schedule_runtime_update_check()
                     return
 
                 self._set_signed_out_state(False)
@@ -1276,6 +1285,7 @@ class ReupApp(App):
                 self._set_startup_state(False)
                 self._set_onboarding_state(True)
                 self._set_loading_state("idle", busy=False)
+                self._schedule_runtime_update_check()
                 self.query_one("#onboarding-name", Input).focus()
                 return
 
@@ -1287,6 +1297,7 @@ class ReupApp(App):
             self._set_loading_state("idle", busy=False)
             self.query_one("#prompt", TextArea).focus()
             self._sync_command_palette("")
+            self._schedule_runtime_update_check()
         except Exception as exc:
             self._cloud_bootstrap_busy = False
             self._set_loading_state("idle", busy=False)
@@ -1366,7 +1377,9 @@ class ReupApp(App):
         styles = self._render_styles()
         is_light = self._prefer_terminal_safe_source_rendering()
 
-        async def replace_card_body(card: Widget, body_widget: Static, body: Any) -> None:
+        async def replace_card_body(
+            card: Widget, body_widget: Static, body: Any
+        ) -> None:
             new_body_widget = Static(classes=" ".join(body_widget.classes))
             new_body_widget.update(body)
             await body_widget.remove()
@@ -1439,7 +1452,10 @@ class ReupApp(App):
 
     async def _rerender_change_review_for_theme(self) -> None:
         """Re-render change review panel when theme changes."""
-        if not self._change_review_panel_is_open() or not self._change_review_change_set:
+        if (
+            not self._change_review_panel_is_open()
+            or not self._change_review_change_set
+        ):
             return
         panel = self._change_review_panel
         if panel is None:
@@ -1482,17 +1498,13 @@ class ReupApp(App):
             self.run_worker(
                 self._rerender_completed_tool_cards_for_theme(), exclusive=False
             )
-            self.run_worker(
-                self._rerender_assistant_cards_for_theme(), exclusive=False
-            )
+            self.run_worker(self._rerender_assistant_cards_for_theme(), exclusive=False)
             if self._change_review_panel_is_open():
                 self.run_worker(
                     self._rerender_change_review_for_theme(), exclusive=False
                 )
             if self._hooks_panel_is_open():
-                self.run_worker(
-                    self._rerender_hooks_panel_for_theme(), exclusive=False
-                )
+                self.run_worker(self._rerender_hooks_panel_for_theme(), exclusive=False)
 
         self.call_after_refresh(_rerender_theme_sensitive_ui)
 
@@ -1609,11 +1621,9 @@ class ReupApp(App):
             else int(self._remote_port_preference or 0)
         )
         bind_host = "0.0.0.0" if lan else "127.0.0.1"
-        if (
-            self._remote_server.is_running
-            and self._remote_server.connection_info().get("exposure_mode")
-            != ("lan" if lan else "local")
-        ):
+        if self._remote_server.is_running and self._remote_server.connection_info().get(
+            "exposure_mode"
+        ) != ("lan" if lan else "local"):
             await self._remote_server.stop()
         info = await self._remote_server.start(host=bind_host, port=selected_port)
         self._remote_port_preference = int(info.get("port") or selected_port or 0)
@@ -1746,7 +1756,9 @@ class ReupApp(App):
                 connect_uri=str(info["connect_uri"]),
                 authenticated_clients=int(info.get("authenticated_clients") or 0),
                 trusted_devices=int(info.get("trusted_devices") or 0),
-                intro="Mobile bridge ready." if lan else "Remote bridge ready for local-only mode.",
+                intro="Mobile bridge ready."
+                if lan
+                else "Remote bridge ready for local-only mode.",
                 footer="Open the mobile app and use Paste and Connect with the secure link."
                 if lan
                 else "This bridge is local-only. Run `/remote on` when you want your phone to connect.",
@@ -2432,7 +2444,10 @@ class ReupApp(App):
             return False
         if load_saved_custom_provider():
             return False
-        if str(getattr(self.config.model, "source_kind", "") or "").strip().lower() == "bundled":
+        if (
+            str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
+            == "bundled"
+        ):
             return False
         if self._bundled_models_cache:
             return False
@@ -2473,9 +2488,9 @@ class ReupApp(App):
         Returns False for user keys (Ollama, OpenRouter, custom providers).
         """
         model = str(self.config.model_name or "").strip()
-        persisted_source_kind = str(
-            getattr(self.config.model, "source_kind", "") or ""
-        ).strip().lower()
+        persisted_source_kind = (
+            str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
+        )
         if persisted_source_kind == "bundled":
             return True
         if persisted_source_kind in {"saved", "custom"}:
@@ -2577,13 +2592,47 @@ class ReupApp(App):
         if self._is_bundled_model():
             self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
 
+    def _schedule_runtime_update_check(self) -> None:
+        if not self.is_mounted or self._runtime_update_check_in_flight:
+            return
+        self.run_worker(self._refresh_runtime_update_notice(), exclusive=False)
+
+    async def _refresh_runtime_update_notice(self) -> None:
+        if self._runtime_update_check_in_flight:
+            return
+        self._runtime_update_check_in_flight = True
+        try:
+            notice = await asyncio.to_thread(check_runtime_update, self.config)
+            if notice is None:
+                return
+            should_show = await asyncio.to_thread(should_show_update_notice, notice)
+            if not should_show:
+                return
+            title = notice.title or "Update available"
+            parts = [
+                notice.message
+                or f"iTE {notice.latest_version or notice.minimum_supported_version} is available.",
+                f"Run `{notice.upgrade_command}`.",
+            ]
+            if notice.release_url:
+                parts.append(notice.release_url)
+            message = " ".join(part for part in parts if part).strip()
+            if notice.update_required:
+                self.post_system(title, message, is_error=True)
+            else:
+                self.post_notice(title, message, timeout=8)
+                await asyncio.to_thread(mark_update_notice_seen, notice)
+        finally:
+            self._runtime_update_check_in_flight = False
+
     def _migrate_legacy_bundled_selection_if_needed(self) -> None:
         current_model = str(self.config.model_name or "").strip()
         canonical_model = self._canonical_bundled_model_name(current_model)
         if not current_model or canonical_model == current_model:
             return
         bundled_model_names = {
-            str(item.get("model_name") or "").strip() for item in self._bundled_models_cache
+            str(item.get("model_name") or "").strip()
+            for item in self._bundled_models_cache
         }
         if canonical_model not in bundled_model_names:
             return
@@ -2597,7 +2646,9 @@ class ReupApp(App):
                 api_key=self.config.api_key or "",
                 base_url=self.config.base_url or "",
                 model_name=canonical_model,
-                context_window=int(self.config.model.context_window or DEFAULT_CONTEXT_WINDOW),
+                context_window=int(
+                    self.config.model.context_window or DEFAULT_CONTEXT_WINDOW
+                ),
                 context_window_source=str(
                     getattr(self.config.model, "context_window_source", "") or ""
                 ).strip()
@@ -3132,9 +3183,11 @@ class ReupApp(App):
                 normalized_current = str(current_model or "").strip()
                 if not normalized_current:
                     return ""
-                persisted_source_kind = str(
-                    getattr(self.config.model, "source_kind", "") or ""
-                ).strip().lower()
+                persisted_source_kind = (
+                    str(getattr(self.config.model, "source_kind", "") or "")
+                    .strip()
+                    .lower()
+                )
                 if persisted_source_kind in {"bundled", "saved", "custom"}:
                     return f"{persisted_source_kind}:{normalized_current}"
                 if self._has_active_user_provider_credentials():
@@ -3205,7 +3258,8 @@ class ReupApp(App):
                         (
                             index
                             for index, existing in enumerate(model_options)
-                            if str(existing.get("model_name") or "").strip() == normalized
+                            if str(existing.get("model_name") or "").strip()
+                            == normalized
                         ),
                         len(model_options),
                     )
@@ -3224,7 +3278,9 @@ class ReupApp(App):
                         if isinstance(profile.get("context_window"), int)
                         else None
                     ),
-                    context_window_source=str(profile.get("context_window_source") or "").strip()
+                    context_window_source=str(
+                        profile.get("context_window_source") or ""
+                    ).strip()
                     or None,
                     saved_profile=True,
                 )
@@ -3257,7 +3313,9 @@ class ReupApp(App):
                         if isinstance(item.get("context_window"), int)
                         else None
                     ),
-                    context_window_source=str(item.get("context_window_source") or "").strip()
+                    context_window_source=str(
+                        item.get("context_window_source") or ""
+                    ).strip()
                     or None,
                     available=bool(item.get("available", True)),
                     unavailable_reason=str(item.get("unavailable_reason") or ""),
@@ -3318,7 +3376,10 @@ class ReupApp(App):
                     "",
                 )
             if not selected_entry_id and selected:
-                if selected in saved_providers and self._has_active_user_provider_credentials():
+                if (
+                    selected in saved_providers
+                    and self._has_active_user_provider_credentials()
+                ):
                     selected_entry_id = f"saved:{selected}"
                 elif selected in bundled_model_names:
                     selected_entry_id = f"bundled:{selected}"
@@ -3548,7 +3609,9 @@ class ReupApp(App):
     def _change_review_panel_is_open(self) -> bool:
         return self._change_review_panel is not None
 
-    def _get_change_review_widget(self, id: str, widget_type: type[Widget]) -> Widget | None:
+    def _get_change_review_widget(
+        self, id: str, widget_type: type[Widget]
+    ) -> Widget | None:
         panel = self._change_review_panel
         if panel is None:
             return None
@@ -3966,7 +4029,12 @@ class ReupApp(App):
         in_bootstrap = self._cloud_bootstrap_busy
         in_signed_out = (not in_startup) and self._cloud_signed_out
         in_onboarding = (not in_signed_out) and self._onboarding_active
-        in_chat = (not in_startup) and (not in_signed_out) and (not in_onboarding) and (not in_bootstrap)
+        in_chat = (
+            (not in_startup)
+            and (not in_signed_out)
+            and (not in_onboarding)
+            and (not in_bootstrap)
+        )
 
         startup.display = in_startup
         signed_out.display = in_signed_out
@@ -4422,7 +4490,9 @@ class ReupApp(App):
         )
         return (bool(snapshot.get("enabled")), configured, runs)
 
-    def _hooks_panel_layout_signature(self, snapshot: dict[str, Any]) -> tuple[Any, ...]:
+    def _hooks_panel_layout_signature(
+        self, snapshot: dict[str, Any]
+    ) -> tuple[Any, ...]:
         configured = tuple(
             (
                 str(item.get("name", "")),
@@ -4441,9 +4511,7 @@ class ReupApp(App):
             return
         snapshot = self._active_hooks_snapshot()
         configured = [
-            item
-            for item in snapshot.get("configured", [])
-            if isinstance(item, dict)
+            item for item in snapshot.get("configured", []) if isinstance(item, dict)
         ]
         runs = [item for item in snapshot.get("runs", []) if isinstance(item, dict)]
         has_failed = any(
@@ -4600,18 +4668,12 @@ class ReupApp(App):
         except NoMatches:
             return
         configured = [
-            item
-            for item in snapshot.get("configured", [])
-            if isinstance(item, dict)
+            item for item in snapshot.get("configured", []) if isinstance(item, dict)
         ]
         runs = [item for item in snapshot.get("runs", []) if isinstance(item, dict)]
         enabled_count = len([item for item in configured if item.get("enabled", True)])
         running_count = len(
-            [
-                item
-                for item in runs
-                if str(item.get("status", "")).lower() == "running"
-            ]
+            [item for item in runs if str(item.get("status", "")).lower() == "running"]
         )
         failed_count = len(
             [
@@ -4627,9 +4689,7 @@ class ReupApp(App):
         )
         visible_runs = list(reversed(runs))
         visible_ids = {
-            str(run.get("id") or "")
-            for run in visible_runs
-            if str(run.get("id") or "")
+            str(run.get("id") or "") for run in visible_runs if str(run.get("id") or "")
         }
         for run_id, widget in list(self._hooks_run_widgets.items()):
             if run_id not in visible_ids:
@@ -4699,18 +4759,12 @@ class ReupApp(App):
         except NoMatches:
             return
         configured = [
-            item
-            for item in snapshot.get("configured", [])
-            if isinstance(item, dict)
+            item for item in snapshot.get("configured", []) if isinstance(item, dict)
         ]
         runs = [item for item in snapshot.get("runs", []) if isinstance(item, dict)]
         enabled_count = len([item for item in configured if item.get("enabled", True)])
         running_count = len(
-            [
-                item
-                for item in runs
-                if str(item.get("status", "")).lower() == "running"
-            ]
+            [item for item in runs if str(item.get("status", "")).lower() == "running"]
         )
         failed_count = len(
             [
@@ -4740,7 +4794,9 @@ class ReupApp(App):
                     if not hook.get("enabled", True):
                         classes += " disabled"
                     label = Text()
-                    label.append(str(hook.get("name") or "hook"), style=self._style("fg"))
+                    label.append(
+                        str(hook.get("name") or "hook"), style=self._style("fg")
+                    )
                     timeout = hook.get("timeout_sec")
                     if timeout is not None:
                         label.append(f" · {timeout:g}s", style=self._style("muted"))
@@ -5660,7 +5716,9 @@ class ReupApp(App):
 
     @on(events.Click, "#change-review-stage-all")
     async def on_change_review_stage_all(self, _event: events.Click) -> None:
-        stage_all_chip = self._get_change_review_widget("change-review-stage-all", Static)
+        stage_all_chip = self._get_change_review_widget(
+            "change-review-stage-all", Static
+        )
         if not stage_all_chip or stage_all_chip.disabled:
             return
         git_fn = (
@@ -5732,16 +5790,26 @@ class ReupApp(App):
                 api_key=result["api_key"],
                 base_url=result["base_url"],
                 model_name=result["model_name"],
-                context_window=int(result.get("context_window") or DEFAULT_CONTEXT_WINDOW),
-                context_window_source=str(result.get("context_window_source") or "").strip() or None,
+                context_window=int(
+                    result.get("context_window") or DEFAULT_CONTEXT_WINDOW
+                ),
+                context_window_source=str(
+                    result.get("context_window_source") or ""
+                ).strip()
+                or None,
                 source_kind="saved",
             )
             save_saved_custom_provider(
                 api_key=result["api_key"],
                 base_url=result["base_url"],
                 model_name=result["model_name"],
-                context_window=int(result.get("context_window") or DEFAULT_CONTEXT_WINDOW),
-                context_window_source=str(result.get("context_window_source") or "").strip() or None,
+                context_window=int(
+                    result.get("context_window") or DEFAULT_CONTEXT_WINDOW
+                ),
+                context_window_source=str(
+                    result.get("context_window_source") or ""
+                ).strip()
+                or None,
             )
             save_global_approval_mode(result["approval"])
         except Exception as exc:
@@ -5782,7 +5850,9 @@ class ReupApp(App):
             session_config.base_url = self.config.base_url
             session_config.model.name = self.config.model.name
             session_config.model.context_window = self.config.model.context_window
-            session_config.model.context_window_source = self.config.model.context_window_source
+            session_config.model.context_window_source = (
+                self.config.model.context_window_source
+            )
             session_config.model.source_kind = self.config.model.source_kind
         if not getattr(self.agent.session, "client", None):
             return
@@ -5973,11 +6043,14 @@ class ReupApp(App):
         ) -> dict[str, Any]:
             return await self._plan_question_callback_for_session(sid, payload)
 
-        agent_config = getattr(
-            session,
-            "config",
-            None,
-        ) or self._session_config_for_workspace()
+        agent_config = (
+            getattr(
+                session,
+                "config",
+                None,
+            )
+            or self._session_config_for_workspace()
+        )
         return Agent(
             config=agent_config,
             session=session,
@@ -6687,9 +6760,7 @@ class ReupApp(App):
         if not staged:
             return None
         user_model_content = build_user_model_content(message, staged, workspace)
-        prepared_message = build_user_text_with_manifest(
-            message, staged, workspace
-        )
+        prepared_message = build_user_text_with_manifest(message, staged, workspace)
         return prepared_message, user_model_content, temp_turn_id, staged
 
     def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
@@ -7556,9 +7627,7 @@ class ReupApp(App):
             session.hook_system.config = self.config
             # Reload enabled hooks
             session.hook_system.hooks = (
-                [hook for hook in self.config.hooks if hook.enabled]
-                if enable
-                else []
+                [hook for hook in self.config.hooks if hook.enabled] if enable else []
             )
 
         # Refresh the toggle button visibility by forcing a poll
@@ -7610,7 +7679,9 @@ class ReupApp(App):
                 metadata={
                     "kind": "workboard",
                     "summary": {
-                        "plan_mode_enabled": bool(workboard_payload["plan_mode_enabled"]),
+                        "plan_mode_enabled": bool(
+                            workboard_payload["plan_mode_enabled"]
+                        ),
                         "plan_phase": str(workboard_payload["plan_phase"]),
                         "show_planning": bool(workboard_payload["show_planning"]),
                         "completed": int(workboard_payload["completed"]),
@@ -7644,9 +7715,7 @@ class ReupApp(App):
             entries = todos_state.get(scope, [])
             if not isinstance(entries, list):
                 continue
-            normalized_entries = [
-                item for item in entries if isinstance(item, dict)
-            ]
+            normalized_entries = [item for item in entries if isinstance(item, dict)]
             done_entries = [
                 entry
                 for entry in normalized_entries
@@ -9132,9 +9201,7 @@ class ReupApp(App):
                         "built_in": len(sections.get("Built-in", [])),
                         "verification": len(sections.get("Verification", [])),
                         "runtime": len(sections.get("Subagent Runtime", [])),
-                        "specialists": len(
-                            sections.get("Subagent Specialists", [])
-                        ),
+                        "specialists": len(sections.get("Subagent Specialists", [])),
                         "custom": len(sections.get("Custom", [])),
                         "mcp": len(sections.get("MCP", [])),
                     },
@@ -9212,19 +9279,11 @@ class ReupApp(App):
                         "latest_cached_tokens": int(
                             stats.get("latest_cached_tokens") or 0
                         ),
-                        "context_used_pct": float(
-                            stats.get("context_used_pct") or 0.0
-                        ),
-                        "context_left_pct": float(
-                            stats.get("context_left_pct") or 0.0
-                        ),
+                        "context_used_pct": float(stats.get("context_used_pct") or 0.0),
+                        "context_left_pct": float(stats.get("context_left_pct") or 0.0),
                         "compaction_count": int(stats.get("compaction_count") or 0),
-                        "last_compacted_at": str(
-                            stats.get("last_compacted_at") or ""
-                        ),
-                        "pruned_tool_msgs": int(
-                            stats.get("pruned_tool_msgs") or 0
-                        ),
+                        "last_compacted_at": str(stats.get("last_compacted_at") or ""),
+                        "pruned_tool_msgs": int(stats.get("pruned_tool_msgs") or 0),
                         "plan_mode_enabled": bool(stats.get("plan_mode_enabled")),
                         "plan_phase": str(stats.get("plan_phase") or "idle"),
                         "plan_questions_asked": int(
@@ -9245,15 +9304,11 @@ class ReupApp(App):
                         "tools_enabled": int(stats.get("tools_enabled") or 0),
                         "mcp_servers": int(stats.get("mcp_servers") or 0),
                         "mcp_tools": int(stats.get("mcp_tools") or 0),
-                        "mcp_failed_servers": int(
-                            stats.get("mcp_failed_servers") or 0
-                        ),
+                        "mcp_failed_servers": int(stats.get("mcp_failed_servers") or 0),
                         "tool_discovery_errors": int(
                             stats.get("tool_discovery_errors") or 0
                         ),
-                        "available_skills": int(
-                            stats.get("available_skills") or 0
-                        ),
+                        "available_skills": int(stats.get("available_skills") or 0),
                         "active_skills": int(stats.get("active_skills") or 0),
                         "token_usage": self._serialize_remote_token_usage(
                             stats.get("token_usage")
@@ -9283,9 +9338,7 @@ class ReupApp(App):
             return metadata
 
         if command == "/skills":
-            active_ids = {
-                skill.identifier for skill in session.get_active_skills()
-            }
+            active_ids = {skill.identifier for skill in session.get_active_skills()}
             action = args[0].lower() if args else "list"
             if action in {"list", "ls"}:
                 skills = session.skill_manager.list_skills()
@@ -10259,7 +10312,9 @@ class ReupApp(App):
             "apply_patch": {"Parameter 'patch': Field required"},
             "memory": {"Parameter 'action': Field required"},
             "todos": set(),
-            "skills": {"Parameter '': Value error, skill is required for show, activate, and deactivate"},
+            "skills": {
+                "Parameter '': Value error, skill is required for show, activate, and deactivate"
+            },
         }
         return detail in required_errors.get(tool_name, set())
 
