@@ -8,9 +8,53 @@ from rich.table import Table
 from rich.text import Text
 
 from ite.commands import Command, CommandContext, CommandRegistry
+from ite.config.loader import save_workspace_hooks_enabled
 
 
 async def cmd_hooks(ctx: CommandContext, args: list[str]) -> None:
+    if args and args[0].lower() in {"on", "off"}:
+        enable = args[0].lower() == "on"
+        old_state = ctx.config.hooks_enabled
+        ctx.config.hooks_enabled = enable
+
+        # Persist to workspace config
+        saved_path = save_workspace_hooks_enabled(ctx.config.cwd, enable)
+
+        # Update session hook system
+        if ctx.agent and ctx.agent.session:
+            ctx.agent.session.hook_system.hooks = (
+                [hook for hook in ctx.config.hooks if hook.enabled]
+                if enable
+                else []
+            )
+
+        # Trigger immediate UI refresh for the toggle button
+        try:
+            ctx.tui._apply_hooks_panel_state()
+        except Exception:
+            pass
+
+        title = Text.assemble(("🪝 ", ""), ("Hooks " + ("Enabled" if enable else "Disabled"), "bold bright_white"))
+        state_change = "enabled" if enable else "disabled"
+        ctx.console.print()
+        ctx.console.print(
+            Panel(
+                Text.assemble(
+                    (str(old_state).lower(), "dim strikethrough"),
+                    (" → ", "muted"),
+                    (state_change, "bold cyan"),
+                    "\n\n",
+                    (f"Hooks {state_change} and saved to {saved_path.name}", "green"),
+                ),
+                title=title,
+                title_align="left",
+                border_style="green",
+                box=box.ROUNDED,
+                padding=(1, 2),
+            )
+        )
+        return
+
     session = ctx.agent.session if ctx.agent and ctx.agent.session else None
     snapshot = (
         session.hook_system.snapshot()
@@ -100,7 +144,7 @@ def register(registry: CommandRegistry) -> None:
     registry.register(
         Command(
             name="/hooks",
-            description="Show configured hooks and recent hook runs",
+            description="Show configured hooks, or use /hooks on|off to enable/disable hooks",
             handler=cmd_hooks,
         )
     )

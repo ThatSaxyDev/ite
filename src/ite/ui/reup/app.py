@@ -4448,10 +4448,12 @@ class ReupApp(App):
         has_running = any(
             str(item.get("status", "")).lower() == "running" for item in runs
         )
+        is_enabled = bool(snapshot.get("enabled"))
         toggle.display = (
             not self._cloud_signed_out
             and not self._hooks_panel_is_open()
-            and (bool(snapshot.get("enabled")) or bool(configured) or bool(runs))
+            and is_enabled
+            and (bool(configured) or bool(runs))
         )
         if has_failed:
             toggle.label = "/hooks !"
@@ -7080,6 +7082,11 @@ class ReupApp(App):
             return
 
         if command == "/hooks":
+            if args and args[0].lower() in {"on", "off"}:
+                # Handle on/off - persist and notify
+                await self._run_hooks_command_native(args)
+                return
+            # No args - just toggle the panel
             await self._toggle_hooks_panel()
             return
 
@@ -7508,6 +7515,47 @@ class ReupApp(App):
             f"## Plan Mode `{mode}`\n\n{details}",
         )
         await self._broadcast_remote_state()
+
+    async def _run_hooks_command_native(self, args: list[str]) -> None:
+        """Handle /hooks on|off - persist and notify, don't open panel."""
+        arg = args[0].lower()
+        if arg not in {"on", "off"}:
+            self.post_system("Hooks", "Use `/hooks on` or `/hooks off`.", is_error=True)
+            return
+
+        enable = arg == "on"
+        old_state = self.config.hooks_enabled
+
+        # Update in-memory config (this should propagate to session's hook_system)
+        self.config.hooks_enabled = enable
+
+        # Persist to workspace config
+        from ite.config.loader import save_workspace_hooks_enabled
+
+        saved_path = save_workspace_hooks_enabled(self.config.cwd, enable)
+
+        # Update session hook system - reload hooks based on current config
+        if self.agent and self.agent.session:
+            session = self.agent.session
+            # Update the config reference in hook_system
+            session.hook_system.config = self.config
+            # Reload enabled hooks
+            session.hook_system.hooks = (
+                [hook for hook in self.config.hooks if hook.enabled]
+                if enable
+                else []
+            )
+
+        # Refresh the toggle button visibility by forcing a poll
+        self._hooks_snapshot_key = None  # Force refresh
+        await self._sync_hooks_panel_state()
+
+        # Notify user via toast notification (not chat feed)
+        mode = "ENABLED" if enable else "DISABLED"
+        self.post_notice(
+            f"Hooks {mode}",
+            f"Hooks {mode.lower()} and saved to {saved_path.name}",
+        )
 
     async def _run_workboard_command_native(
         self,

@@ -778,6 +778,40 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     return config_path
 
 
+def save_workspace_hooks_enabled(cwd: Path, enabled: bool) -> Path:
+    """Persist hooks_enabled in workspace .ite/config.toml."""
+    workspace = cwd.resolve()
+    config_path = workspace / WORKSPACE_DIR_NAME / CONFIG_FILE_NAME
+
+    if not config_path.exists():
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(f"hooks_enabled = {str(enabled).lower()}\n", encoding="utf-8")
+        return config_path
+
+    original = config_path.read_text(encoding="utf-8")
+    lines = original.splitlines()
+    replaced = False
+    out_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("hooks_enabled") and "=" in stripped and not stripped.startswith("#"):
+            out_lines.append(f"hooks_enabled = {str(enabled).lower()}")
+            replaced = True
+        else:
+            out_lines.append(line)
+
+    if not replaced:
+        # Insert after comments at the top for discoverability.
+        insert_at = 0
+        while insert_at < len(out_lines) and out_lines[insert_at].strip().startswith("#"):
+            insert_at += 1
+        out_lines.insert(insert_at, f"hooks_enabled = {str(enabled).lower()}")
+
+    config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+    return config_path
+
+
 def save_theme(theme: str) -> Path:
     """Persist the selected UI theme to a JSON file in data dir."""
     theme_path = get_theme_path()
