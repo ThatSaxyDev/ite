@@ -104,16 +104,34 @@ def _save_state(state: dict[str, Any]) -> None:
 
 
 def should_show_update_notice(notice: RuntimeUpdateNotice) -> bool:
+    # Always show forced updates
     if notice.update_required:
         return True
-    state = _load_state()
-    return str(state.get("last_notice_key") or "") != notice.notice_key
+    # Soft notifications: always show (decision happens in UI layer)
+    return True
 
 
 def mark_update_notice_seen(notice: RuntimeUpdateNotice) -> None:
+    """Track soft notification count for chat feed vs toast decision."""
     if notice.update_required:
         return
-    _save_state({"last_notice_key": notice.notice_key})
+    state = _load_state()
+    current_key = notice.notice_key
+    # Increment the count for this specific notice
+    key_count = int(state.get(f"count_{current_key}", 0)) + 1
+    state[f"count_{current_key}"] = key_count
+    _save_state(state)
+
+
+def get_notification_type(notice: RuntimeUpdateNotice) -> str:
+    """Determine notification type: 'toast' or 'feed' based on count."""
+    if notice.update_required:
+        return "feed"  # Forced updates use the full screen
+    state = _load_state()
+    current_key = notice.notice_key
+    count = int(state.get(f"count_{current_key}", 0))
+    # 1-3 times: toast, 4+ times: chat feed
+    return "toast" if count < 3 else "feed"
 
 
 def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdateNotice | None:

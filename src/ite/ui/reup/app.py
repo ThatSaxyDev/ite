@@ -148,6 +148,7 @@ from ite.ui.tool_narrative import activity_title, describe_tool_activity, progre
 from ite.update_check import (
     check_runtime_update,
     current_runtime_version,
+    get_notification_type,
     mark_update_notice_seen,
     should_show_update_notice,
 )
@@ -2677,8 +2678,16 @@ class ReupApp(App):
             if notice.update_required:
                 self._set_required_update_notice(notice)
             else:
+                # Determine notification type: toast (1-3 times) or feed (4+ times)
+                notif_type = await asyncio.to_thread(get_notification_type, notice)
                 title, message = self._runtime_update_notice_copy(notice)
-                self.post_notice(title, message, timeout=8)
+                if notif_type == "feed":
+                    title, body = self._runtime_update_notice_feed_card(notice)
+                    await self.add_assistant_card(
+                        title, CopyableMarkdown(body), css_class="system"
+                    )
+                else:
+                    self.post_notice(title, message, timeout=8)
                 await asyncio.to_thread(mark_update_notice_seen, notice)
         finally:
             self._runtime_update_check_in_flight = False
