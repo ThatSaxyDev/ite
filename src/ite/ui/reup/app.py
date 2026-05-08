@@ -7022,7 +7022,7 @@ class ReupApp(App):
 
         if message.startswith("/"):
             await self.run_command(message)
-            return
+            return  # Command handlers may open modals; prevent fallthrough to agent send
 
         self.run_worker(
             self._handle_agent_send_with_intent(
@@ -7348,7 +7348,7 @@ class ReupApp(App):
         command_feed_id: str | None = None
 
         if command in {"/exit", "/quit"}:
-            await self._confirm_quit()
+            self.run_worker(self._confirm_quit(), exclusive=False)
             return
 
         # Native in-app session picker flow (replaces curses picker in old /sessions command).
