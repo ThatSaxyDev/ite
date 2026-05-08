@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -13,11 +14,38 @@ from ite.config.config import Config
 from ite.config.loader import get_data_dir
 
 
+def _normalize_version(value: str) -> str:
+    return value.strip().lstrip("vV")
+
+
+def _version_parts(value: str) -> list[int]:
+    normalized = _normalize_version(value)
+    return [
+        int(part) if part.isdigit() else 0
+        for part in re.split(r"[-.+]", normalized)
+        if part
+    ]
+
+
+def _compare_versions(left: str, right: str) -> int:
+    """Compare two version strings. Returns -1 if left < right, 0 if equal, 1 if left > right."""
+    left_parts = _version_parts(left)
+    right_parts = _version_parts(right)
+    max_len = max(len(left_parts), len(right_parts), 3)
+    for i in range(max_len):
+        left_value = left_parts[i] if i < len(left_parts) else 0
+        right_value = right_parts[i] if i < len(right_parts) else 0
+        if left_value < right_value:
+            return -1
+        if left_value > right_value:
+            return 1
+    return 0
+
+
 @dataclass(frozen=True)
 class RuntimeUpdateNotice:
     latest_version: str
-    minimum_supported_version: str
-    severity: str
+    required: bool
     title: str
     message: str
     upgrade_command: str
@@ -30,8 +58,7 @@ class RuntimeUpdateNotice:
         return "|".join(
             [
                 self.latest_version,
-                self.minimum_supported_version,
-                self.severity,
+                str(self.required),
                 self.title,
                 self.message,
             ]
@@ -39,10 +66,17 @@ class RuntimeUpdateNotice:
 
 
 def current_runtime_version() -> str:
+    # Prefer source version (from ite.__version__) over package version
+    # This ensures development runs use the correct version
+    from ite import __version__
+    source_version = __version__.strip().lstrip("vV")
+    if source_version:
+        return source_version
+    # Fallback to package version if source version is empty
     try:
         return version("ite-agent")
     except PackageNotFoundError:
-        return __version__
+        return source_version or "0.0.0"
 
 
 def _state_path() -> Path:
@@ -70,43 +104,52 @@ def _save_state(state: dict[str, Any]) -> None:
 
 
 def should_show_update_notice(notice: RuntimeUpdateNotice) -> bool:
-    if notice.update_required or notice.severity == "recommended":
+    if notice.update_required:
         return True
     state = _load_state()
     return str(state.get("last_notice_key") or "") != notice.notice_key
 
 
 def mark_update_notice_seen(notice: RuntimeUpdateNotice) -> None:
-    if notice.update_required or notice.severity == "recommended":
+    if notice.update_required:
         return
     _save_state({"last_notice_key": notice.notice_key})
 
 
-def _coerce_notice(payload: dict[str, Any]) -> RuntimeUpdateNotice | None:
-    if not bool(payload.get("updateAvailable") or payload.get("updateRequired")):
+def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdateNotice | None:
+    # Check if updates are enabled
+    enabled = payload.get("enabled", False)
+    if not enabled:
         return None
+
     latest = str(payload.get("latestVersion") or "").strip()
-    minimum = str(payload.get("minimumSupportedVersion") or "").strip()
-    current = str(payload.get("currentVersion") or "").strip()
-    severity = str(payload.get("severity") or "info").strip().lower()
-    title = str(payload.get("title") or "Update available").strip()
+
+    # No latest version defined - nothing to do
+    if not latest:
+        return None
+
+    # Compare local version with latest
+    if _compare_versions(local_version, latest) >= 0:
+        # We have latest or newer version, no update needed
+        return None
+
+    # Get required flag from backend (true = force update, false = soft notification)
+    required = payload.get("updateRequired", False)
+
+    title = str(payload.get("title") or "Update available").strip() or "Update available"
     message = str(payload.get("message") or "").strip()
     upgrade = str(payload.get("upgradeCommand") or "pipx upgrade ite-agent").strip()
     release_url = str(payload.get("releaseUrl") or "").strip() or None
-    if not latest and not minimum:
-        return None
-    if severity not in {"info", "recommended", "required"}:
-        severity = "info"
+
     return RuntimeUpdateNotice(
         latest_version=latest,
-        minimum_supported_version=minimum,
-        severity=severity,
-        title=title or "Update available",
+        required=required,
+        title=title,
         message=message,
         upgrade_command=upgrade or "pipx upgrade ite-agent",
         release_url=release_url,
-        update_required=bool(payload.get("updateRequired")),
-        current_version=current,
+        update_required=required,
+        current_version=local_version,
     )
 
 
@@ -114,12 +157,12 @@ def check_runtime_update(config: Config) -> RuntimeUpdateNotice | None:
     base_url = str(config.cloud_api_url or "").strip().rstrip("/")
     if not base_url:
         return None
-    current = current_runtime_version()
-    query = urlencode({"currentVersion": current})
+    local_version = current_runtime_version()
+    query = urlencode({"currentVersion": local_version})
     try:
         status, payload = _get_json(f"{base_url}/runtime/version-check?{query}")
     except CloudConnectionError:
         return None
     if status != 200 or not payload.get("ok"):
         return None
-    return _coerce_notice(payload)
+    return _coerce_notice(payload, local_version)

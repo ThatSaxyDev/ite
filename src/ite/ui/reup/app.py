@@ -2677,15 +2677,9 @@ class ReupApp(App):
             if notice.update_required:
                 self._set_required_update_notice(notice)
             else:
-                if str(getattr(notice, "severity", "") or "").lower() == "recommended":
-                    title, body = self._runtime_update_notice_feed_card(notice)
-                    await self.add_assistant_card(
-                        title, CopyableMarkdown(body), css_class="system"
-                    )
-                else:
-                    title, message = self._runtime_update_notice_copy(notice)
-                    self.post_notice(title, message, timeout=8)
-                    await asyncio.to_thread(mark_update_notice_seen, notice)
+                title, message = self._runtime_update_notice_copy(notice)
+                self.post_notice(title, message, timeout=8)
+                await asyncio.to_thread(mark_update_notice_seen, notice)
         finally:
             self._runtime_update_check_in_flight = False
 
@@ -2693,48 +2687,18 @@ class ReupApp(App):
         self, notice: Any, *, include_command: bool = True
     ) -> tuple[str, str]:
         latest = str(getattr(notice, "latest_version", "") or "").strip()
-        minimum = str(getattr(notice, "minimum_supported_version", "") or "").strip()
-        severity = str(getattr(notice, "severity", "") or "").strip().lower()
         command = (
             str(getattr(notice, "upgrade_command", "") or "").strip()
             or "pipx upgrade ite-agent"
         )
-        title = str(getattr(notice, "title", "") or "").strip()
-        if severity == "recommended" and title.lower() in {
-            "",
-            "update available",
-            "update strongly recommended",
-        }:
-            title = "A new update is available"
-        title = title or (
-            "A new update is available"
-            if severity == "recommended"
-            else "Update available"
-        )
+        title = str(getattr(notice, "title", "") or "").strip() or "Update available"
         message = str(getattr(notice, "message", "") or "").strip()
-        if severity == "recommended" and message.lower() in {
-            "",
-            "a new update is available",
-            "update available",
-        }:
-            message = ""
         if not message:
-            target = latest or minimum or "a newer version"
-            if include_command:
-                message = (
-                    f"Version {target} is available. Exit iTE, run: {command}, "
-                    "then reopen it."
-                )
-            elif severity == "recommended":
-                message = (
-                    f"Version {target} is ready. Exit iTE, run the command below, "
-                    "then reopen it."
-                )
-            else:
-                message = (
-                    f"Version {target} is available. Exit iTE, run the command below, "
-                    "then reopen it."
-                )
+            target = latest or "a newer version"
+            message = (
+                f"Version {target} is available. Exit iTE, run: {command}, "
+                "then reopen it."
+            )
         message = message.replace("Run below", "Run the command below")
         message = message.replace(
             "Run the command below, then reopen iTE",
@@ -4257,7 +4221,6 @@ class ReupApp(App):
         if notice is None:
             return
         latest = str(getattr(notice, "latest_version", "") or "").strip()
-        minimum = str(getattr(notice, "minimum_supported_version", "") or "").strip()
         current = (
             str(getattr(notice, "current_version", "") or "").strip()
             or current_runtime_version()
@@ -4268,7 +4231,7 @@ class ReupApp(App):
         )
         message = str(getattr(notice, "message", "") or "").strip()
         if not message:
-            target = latest or minimum or "the latest version"
+            target = latest or "the latest version"
             message = (
                 f"Version {target} is required before you can continue. "
                 "Exit iTE, run the command below, then reopen it."
