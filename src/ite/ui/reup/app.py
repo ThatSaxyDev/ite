@@ -2576,24 +2576,28 @@ class ReupApp(App):
             if self._cloud_signed_out:
                 self._set_signed_out_state(False)
             return True
-        if state in {CloudSessionState.SIGNED_OUT, CloudSessionState.INVALID}:
-            if state == CloudSessionState.INVALID:
-                clear_cloud_auth(revoke_remote=False)
-            self._cloud_bootstrap_busy = False
-            self._set_signed_out_state(True)
-            if interactive:
-                self.post_system(
-                    context,
-                    message or "Sign in with `/login` to continue.",
-                    is_error=True,
-                )
-            return False
         if state == CloudSessionState.NETWORK_ERROR:
             if interactive:
                 self.post_system(
                     context,
                     message
                     or "iTE Cloud is unreachable right now. Your stored session was kept.",
+                    is_error=True,
+                )
+            return False
+        stored_session = getattr(auth, "session", None)
+        if state in {CloudSessionState.SIGNED_OUT, CloudSessionState.INVALID}:
+            if state == CloudSessionState.INVALID and stored_session is None:
+                clear_cloud_auth(revoke_remote=False)
+            self._cloud_bootstrap_busy = False
+            if stored_session is not None:
+                self._set_signed_out_state(False)
+            else:
+                self._set_signed_out_state(True)
+            if interactive:
+                self.post_system(
+                    context,
+                    message or "Sign in with `/login` to continue.",
                     is_error=True,
                 )
             return False
@@ -4350,7 +4354,7 @@ class ReupApp(App):
         if self._cloud_auth_busy:
             return
         auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
-        auth_state = str(getattr(auth, "state", CloudSessionState.SIGNED_OUT) or "")
+        auth_state = auth.state if auth else CloudSessionState.SIGNED_OUT
         if auth_state == CloudSessionState.VALID:
             self._apply_cloud_auth_status(auth)
             self._prefetch_cloud_caches()
@@ -4371,7 +4375,24 @@ class ReupApp(App):
             )
             return
         if auth_state == CloudSessionState.INVALID:
+            stored_session = getattr(auth, "session", None)
+            if stored_session is not None:
+                self._apply_cloud_auth_status(
+                    auth,
+                    context="iTE Cloud",
+                    interactive=True,
+                )
+                return
             clear_cloud_auth(revoke_remote=False)
+        if auth_state == CloudSessionState.SIGNED_OUT:
+            stored_session = getattr(auth, "session", None)
+            if stored_session is not None:
+                self._apply_cloud_auth_status(
+                    auth,
+                    context="iTE Cloud",
+                    interactive=True,
+                )
+                return
         if not self.config.cloud_auth_enabled:
             self.config.cloud_auth_enabled = True
             save_cloud_settings(enabled=True)

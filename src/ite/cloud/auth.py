@@ -531,8 +531,15 @@ def has_valid_cloud_auth(config: Config) -> bool:
     if existing is None or existing.api_url != cloud_api_url:
         return False
     try:
-        return _verify_cloud_session(existing)
-    except (CloudAuthError, CloudConnectionError):
+        state = check_cloud_session(existing)
+        if state == CloudSessionState.VALID:
+            return True
+        if state == CloudSessionState.NETWORK_ERROR:
+            return True
+        return False
+    except CloudConnectionError:
+        return True
+    except CloudAuthError:
         return False
 
 

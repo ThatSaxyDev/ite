@@ -63,8 +63,14 @@ async def cmd_cloud(ctx: CommandContext, args: list[str]) -> None:
             ctx.console.print(f"[error]{auth.message}[/error]")
             return
         if auth.state == CloudSessionState.INVALID:
+            stored_session = getattr(auth, "session", None)
+            if stored_session is not None:
+                ctx.console.print(f"[error]{auth.message}[/error]")
+                return
             clear_cloud_auth(revoke_remote=False)
-        clear_cloud_auth()
+        if auth.state == CloudSessionState.SIGNED_OUT and getattr(auth, "session", None) is not None:
+            ctx.console.print(f"[error]{auth.message}[/error]")
+            return
         try:
             ensure_cloud_auth(ctx.console, ctx.config)
         except CloudConnectionError as exc:
