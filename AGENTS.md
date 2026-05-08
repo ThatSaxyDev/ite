@@ -169,7 +169,7 @@ class ToolResult(BaseModel):
 ```toml
 [project]
 name = "ite-agent"
-version = "0.0.50"
+version = "0.0.51"
 dependencies = [
     "click",
     "pydantic",
