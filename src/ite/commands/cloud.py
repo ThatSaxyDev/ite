@@ -102,17 +102,32 @@ async def cmd_usage(ctx: CommandContext, args: list[str]) -> None:
         return
 
     quotas = summary.get("quotas") or {}
-    five_hour = quotas.get("fiveHour") or {}
-    used = int(five_hour.get("usedUsdCents") or 0)
-    cap = max(1, int(five_hour.get("capUsdCents") or 1))
-    remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+    quota_rows = (
+        ("5-Hour", "fiveHour"),
+        ("Weekly", "sevenDay"),
+        ("Monthly", "thirtyDay"),
+    )
 
     table = Table.grid(padding=(0, 2))
     table.add_column(style="muted", justify="right", min_width=12)
     table.add_column(style="bold white")
-    table.add_row(Text("5-Hour Cap", style="muted"), Text(f"{cap / 100:.2f} USD", style="bold cyan"))
-    table.add_row(Text("Used", style="muted"), Text(f"{used / 100:.2f} USD", style="bold yellow"))
-    table.add_row(Text("Remaining", style="muted"), Text(f"{remaining}%", style="bold green"))
+    for label, key in quota_rows:
+        quota = quotas.get(key) or {}
+        used = int(quota.get("usedUsdCents") or 0)
+        cap = max(1, int(quota.get("capUsdCents") or 1))
+        remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+        table.add_row(
+            Text(f"{label} Cap", style="muted"),
+            Text(f"{cap / 100:.2f} USD", style="bold cyan"),
+        )
+        table.add_row(
+            Text("Used", style="muted"),
+            Text(f"{used / 100:.2f} USD", style="bold yellow"),
+        )
+        table.add_row(
+            Text("Remaining", style="muted"),
+            Text(f"{remaining}%", style="bold green"),
+        )
 
     ctx.console.print()
     ctx.console.print(

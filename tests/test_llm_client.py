@@ -132,6 +132,54 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("500", message)
         self.assertIn("abc-123", message)
 
+    def test_format_cloud_error_points_entitlement_denied_to_pricing(self) -> None:
+        client = LLMClient(self._config())
+
+        message = client._format_cloud_error(
+            {
+                "error": {
+                    "code": "entitlement_denied",
+                    "message": "Bundled access is not enabled for this account.",
+                }
+            }
+        )
+
+        self.assertIn("/pricing", message)
+        self.assertIn("iTE Pro", message)
+        self.assertIn("own model provider", message)
+
+    def test_format_cloud_error_points_quota_exhausted_to_billing_usage(self) -> None:
+        client = LLMClient(self._config())
+
+        message = client._format_cloud_error(
+            {
+                "error": {
+                    "code": "quota_exhausted",
+                    "message": "Bundled usage limit reached.",
+                    "details": {"window": "seven_day"},
+                }
+            }
+        )
+
+        self.assertIn("account billing", message)
+        self.assertIn("own key", message)
+        self.assertIn("local model", message)
+
+    def test_format_cloud_error_labels_monthly_quota_window(self) -> None:
+        client = LLMClient(self._config())
+
+        message = client._format_cloud_error(
+            {
+                "error": {
+                    "code": "quota_exhausted",
+                    "message": "Bundled usage limit reached.",
+                    "details": {"window": "thirty_day"},
+                }
+            }
+        )
+
+        self.assertIn("30-day window", message)
+
     def test_cloud_suffix_uses_local_provider_when_user_base_url_is_configured(self) -> None:
         config = Config(
             model={"name": "kimi-k2.5:cloud"},

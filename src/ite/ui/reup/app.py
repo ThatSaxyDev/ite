@@ -2628,10 +2628,15 @@ class ReupApp(App):
         self._usage_summary_cache = summary
         if summary:
             quotas = summary.get("quotas") or {}
-            five_hour = quotas.get("fiveHour") or {}
-            used = int(five_hour.get("usedUsdCents") or 0)
-            cap = max(1, int(five_hour.get("capUsdCents") or 1))
-            remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+            remaining_values: list[int] = []
+            for key in ("fiveHour", "sevenDay", "thirtyDay"):
+                quota = quotas.get(key) or {}
+                used = int(quota.get("usedUsdCents") or 0)
+                cap = max(1, int(quota.get("capUsdCents") or 1))
+                remaining_values.append(
+                    max(0, min(100, round(((cap - used) / cap) * 100)))
+                )
+            remaining = min(remaining_values) if remaining_values else 100
             if remaining != self._usage_remaining_percent:
                 self._usage_remaining_percent = remaining
                 self.refresh_header()
@@ -3905,12 +3910,15 @@ class ReupApp(App):
             return
         self._usage_summary_cache = summary
         quotas = summary.get("quotas") or {}
-        five_hour = quotas.get("fiveHour") or {}
-        used = int(five_hour.get("usedUsdCents") or 0)
-        cap = max(1, int(five_hour.get("capUsdCents") or 1))
-        self._usage_remaining_percent = max(
-            0, min(100, round(((cap - used) / cap) * 100))
-        )
+        remaining_values: list[int] = []
+        for key in ("fiveHour", "sevenDay", "thirtyDay"):
+            quota = quotas.get(key) or {}
+            used = int(quota.get("usedUsdCents") or 0)
+            cap = max(1, int(quota.get("capUsdCents") or 1))
+            remaining_values.append(
+                max(0, min(100, round(((cap - used) / cap) * 100)))
+            )
+        self._usage_remaining_percent = min(remaining_values) if remaining_values else 100
         self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
 

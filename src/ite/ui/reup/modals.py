@@ -1346,7 +1346,12 @@ class UsageSummaryModal(ModalScreen[None]):
         else:
             fg = "#f3f4f6"
             muted = "#8f949d"
-        for label, key in (("5h", "fiveHour"), ("Weekly", "sevenDay")):
+        quota_rows = (
+            ("5h", "fiveHour"),
+            ("Weekly", "sevenDay"),
+            ("Monthly", "thirtyDay"),
+        )
+        for index, (label, key) in enumerate(quota_rows):
             quota = quotas.get(key) or {}
             used = int(quota.get("usedUsdCents") or 0)
             cap = max(1, int(quota.get("capUsdCents") or 1))
@@ -1367,7 +1372,7 @@ class UsageSummaryModal(ModalScreen[None]):
                 )
             )
             sections.append(self._build_bar(remaining))
-            if key != "sevenDay":
+            if index < len(quota_rows) - 1:
                 sections.append(Text(""))
         return Group(*sections)
 

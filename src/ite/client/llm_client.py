@@ -153,6 +153,7 @@ class LLMClient:
             return {
                 "five_hour": "5-hour window",
                 "seven_day": "7-day window",
+                "thirty_day": "30-day window",
             }.get(value, "current usage window")
 
         def _format_reset(value: str, window_name: str) -> str | None:
@@ -174,17 +175,18 @@ class LLMClient:
                 return (
                     f"Bundled usage is unavailable right now. "
                     f"Your {window_label} is full and resets {reset_label}. "
-                    f"Use your own key or a local model for now."
+                    f"Review usage in account billing, or use your own key or a local model for now."
                 )
             return (
                 f"Bundled usage is unavailable right now. "
-                f"Your {window_label} is full. Use your own key or a local model for now."
+                f"Your {window_label} is full. Review usage in account billing, "
+                f"or use your own key or a local model for now."
             )
 
         if code == "entitlement_denied":
             return (
                 "This account does not have bundled model access yet. "
-                "Run `/setup` to connect your own model provider, then try again."
+                "Visit /pricing to start iTE Pro, or run `/setup` to connect your own model provider."
             )
 
         if code == "provider_not_configured":
