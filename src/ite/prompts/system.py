@@ -1,8 +1,9 @@
 import platform
 import subprocess
-from functools import lru_cache
 from datetime import datetime
+from functools import lru_cache
 from typing import Any
+
 from ite.config.config import Config
 from ite.tools.base import Tool
 
@@ -272,14 +273,18 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
             description = str(entry.get("description", "")).strip()
             name = str(entry.get("name", identifier)).strip() or identifier
             source = str(entry.get("source", "")).strip()
-            invocable = bool(str(entry.get("user_invocable", "")).strip().lower() == "true")
+            invocable = bool(
+                str(entry.get("user_invocable", "")).strip().lower() == "true"
+            )
             argument_hint = str(entry.get("argument_hint", "")).strip()
             trusted = bool(str(entry.get("trusted", "")).strip().lower() == "true")
             suffix = f" [{source}]" if source else ""
             invoke_suffix = " user-invocable" if invocable else ""
             hint_suffix = f" {argument_hint}" if argument_hint else ""
             trust_suffix = "" if trusted else " untrusted"
-            lines.append(f"  - `{identifier}` ({name}){suffix}{invoke_suffix}{hint_suffix}{trust_suffix} — {description}")
+            lines.append(
+                f"  - `{identifier}` ({name}){suffix}{invoke_suffix}{hint_suffix}{trust_suffix} — {description}"
+            )
 
     if isinstance(active, list) and active:
         lines.append("- Active skill instructions:")
@@ -309,7 +314,10 @@ def _get_skills_section(skill_context: dict[str, Any]) -> str:
             if skill_file:
                 lines.append(f"Skill file: {skill_file}")
             if isinstance(reference_files, list) and reference_files:
-                lines.append("References: " + ", ".join(str(item) for item in reference_files[:8]))
+                lines.append(
+                    "References: "
+                    + ", ".join(str(item) for item in reference_files[:8])
+                )
                 if directory:
                     lines.append(
                         "Reference paths above are relative to the skill directory unless they are already absolute."
@@ -358,21 +366,72 @@ def _get_operational_section() -> str:
 
 When requested to perform tasks like fixing bugs, adding features, refactoring, or explaining code, follow this sequence:
 
-1. **Understand:** Think about the user's request and the relevant codebase context. Use search tools extensively (in parallel if independent) to understand file structures, existing code patterns, and conventions. Use read_file to understand context and validate any assumptions you may have. If you need to read multiple files, make multiple parallel calls to read_file.
+# 12-rule template
 
-2. **Plan:** Build a coherent and grounded (based on the understanding in step 1) plan for how you intend to resolve the user's task. For complex tasks, break them down into smaller, manageable subtasks and use the `todos` tool to track your progress. Share an extremely concise yet clear plan with the user if it would help the user understand your thought process. As part of the plan, you should use an iterative development process that includes writing unit tests to verify your changes.
+These rules apply to every task in this project unless explicitly overridden.
+Bias: caution over speed on non-trivial work. Use judgment on trivial tasks.
 
-3. **Implement:** Use the available tools to act on the plan, strictly adhering to the project's established conventions.
+## Rule 1 — Think Before Coding
+State assumptions explicitly. If uncertain, ask rather than guess.
+Present multiple interpretations when ambiguity exists.
+Push back when a simpler approach exists.
+Stop when confused. Name what's unclear.
 
-4. **Verify (Tests):** If applicable and feasible, verify the changes using the project's testing procedures. Identify the correct test commands and frameworks by examining 'README' files, build/package configuration (e.g., 'package.json'), or existing test execution patterns. NEVER assume standard test commands.
+## Rule 2 — Simplicity First
+Minimum code that solves the problem. Nothing speculative.
+No features beyond what was asked. No abstractions for single-use code.
+Test: would a senior engineer say this is overcomplicated? If yes, simplify.
 
-5. **Verify (Standards):** VERY IMPORTANT: After making code changes, execute the project-specific build, linting and type-checking commands (e.g., 'tsc', 'npm run lint', 'ruff check .' etc.) that you have identified for this project. This ensures code quality and adherence to standards.
+## Rule 3 — Surgical Changes
+Touch only what you must. Clean up only your own mess.
+Don't "improve" adjacent code, comments, or formatting.
+Don't refactor what isn't broken. Match existing style.
 
-6. **Finalize:** After all verification passes, consider the task complete. Do not remove or revert any changes or created files (like tests). Await the user's next instruction.
+## Rule 4 — Goal-Driven Execution
+Define success criteria. Loop until verified.
+Don't follow steps. Define success and iterate.
+Strong success criteria let you loop independently.
+
+## Rule 5 — Use the model only for judgment calls
+Use me for: classification, drafting, summarization, extraction.
+Do NOT use me for: routing, retries, deterministic transforms.
+If code can answer, code answers.
+
+## Rule 6 — Token budgets are not advisory
+Per-task: 4,000 tokens. Per-session: 30,000 tokens.
+If approaching budget, summarize and start fresh.
+Surface the breach. Do not silently overrun.
+
+## Rule 7 — Surface conflicts, don't average them
+If two patterns contradict, pick one (more recent / more tested).
+Explain why. Flag the other for cleanup.
+Don't blend conflicting patterns.
+
+## Rule 8 — Read before you write
+Before adding code, read exports, immediate callers, shared utilities.
+"Looks orthogonal" is dangerous. If unsure why code is structured a way, ask.
+
+## Rule 9 — Tests verify intent, not just behavior
+Tests must encode WHY behavior matters, not just WHAT it does.
+A test that can't fail when business logic changes is wrong.
+
+## Rule 10 — Checkpoint after every significant step
+Summarize what was done, what's verified, what's left.
+Don't continue from a state you can't describe back.
+If you lose track, stop and restate.
+
+## Rule 11 — Match the codebase's conventions, even if you disagree
+Conformance > taste inside the codebase.
+If you genuinely think a convention is harmful, surface it. Don't fork silently.
+
+## Rule 12 — Fail loud
+"Completed" is wrong if anything was skipped silently.
+"Tests pass" is wrong if any were skipped.
+Default to surfacing uncertainty, not hiding it.
 
 ## Task Execution
 
-You are a coding agent. Your primary job is to answer the user's immediate request. 
+You are a coding agent. Your primary job is to answer the user's immediate request.
 
 - When the user asks for **information or research only** (e.g., "check this", "explain", "analyze"), provide the answer and **stop** — do not proceed to implementation unless explicitly asked.
 - When the user asks for **code changes** (e.g., "fix", "implement", "add feature"), then and only then should you proceed to implementation.
@@ -463,8 +522,14 @@ def _get_memory_section(memory: dict) -> str:
         for record in durable[:6]:
             if not isinstance(record, dict):
                 continue
-            title = str(record.get("title", "")).strip() or str(record.get("key", "")).strip()
-            summary = str(record.get("summary", "")).strip() or str(record.get("body", "")).strip()
+            title = (
+                str(record.get("title", "")).strip()
+                or str(record.get("key", "")).strip()
+            )
+            summary = (
+                str(record.get("summary", "")).strip()
+                or str(record.get("body", "")).strip()
+            )
             memory_type = str(record.get("type", "")).strip() or "project"
             scope = str(record.get("scope", "")).strip() or "workspace"
             why = str(record.get("why", "")).strip()
@@ -540,10 +605,14 @@ def _get_controls_section(controls: dict) -> str:
         return ""
 
     instructions: list[str] = []
-    matched_contexts = controls.get("matched_contexts", []) if isinstance(controls, dict) else []
+    matched_contexts = (
+        controls.get("matched_contexts", []) if isinstance(controls, dict) else []
+    )
     if matched_contexts:
         context_label = ", ".join(str(item) for item in matched_contexts)
-        instructions.append(f"These controls apply because the current request matches: {context_label}.")
+        instructions.append(
+            f"These controls apply because the current request matches: {context_label}."
+        )
 
     answer_length = str(controls.get("answer_length", "")).strip()
     if answer_length == "short":
@@ -560,7 +629,9 @@ def _get_controls_section(controls: dict) -> str:
     elif bullet_style == "helpful":
         instructions.append("Use bullet lists when they materially improve clarity.")
     elif bullet_style == "default":
-        instructions.append("Use bullet lists by default when explaining or organizing information.")
+        instructions.append(
+            "Use bullet lists by default when explaining or organizing information."
+        )
 
     file_paths = str(controls.get("file_paths", "")).strip()
     if file_paths == "absolute":
@@ -573,7 +644,11 @@ def _get_controls_section(controls: dict) -> str:
     if not instructions:
         return ""
 
-    lines = ["# Active Response Controls", "", "Apply these user preferences unless the user overrides them in the current request."]
+    lines = [
+        "# Active Response Controls",
+        "",
+        "Apply these user preferences unless the user overrides them in the current request.",
+    ]
     lines.extend(f"- {instruction}" for instruction in instructions)
     return "\n".join(lines)
 
@@ -679,6 +754,7 @@ You have access to the following tools to accomplish your tasks:
 #   - assumptions/risks
 # - After writing the plan, wait for explicit user confirmation before implementation.
 # """
+
 
 def _get_plan_mode_section(plan_phase: str) -> str:
     return f"""# Plan Mode (Active)

@@ -5,13 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "ite-agent"
 version = "0.0.52"
-description = "Interactive Terminal Environment — an AI coding agent for your terminal"
+description = "Your AI coding agent for your terminal"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 keywords = ["ai", "agent", "terminal", "cli", "llm"]
 classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Intended Audience :: Developers", "Programming Language :: Python :: 3", "Topic :: Software Development :: Libraries"]
-dependencies = ["click", "rich", "openai", "pydantic", "tiktoken", "html2text", "beautifulsoup4", "PyYAML", "pypdf", "Pillow", "pytesseract", "ddgs", "tomli", "platformdirs", "fastmcp", "lxml", "flet", "textual[syntax]>=0.70.0", "prompt_toolkit>=3.0.52", "certifi", "cryptography>=46.0.0"]
+dependencies = ["click", "rich", "openai", "pydantic", "tiktoken", "html2text", "beautifulsoup4", "PyYAML", "pypdf", "Pillow", "pytesseract", "ddgs", "tomli", "platformdirs", "fastmcp", "lxml", "flet", "textual[syntax]>=8.2.0", "prompt_toolkit>=3.0.52", "certifi", "cryptography>=46.0.0"]
 
 [project.scripts]
 ite = "ite.main:main"
