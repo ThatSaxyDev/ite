@@ -1261,6 +1261,36 @@ class ReupApp(App):
                     yield Static("", id="composer-meta-line")
         yield Footer()
 
+    def copy_to_clipboard(self, text: str) -> None:
+        """Copy text to clipboard.
+
+        Warp and some other terminals don't support OSC 52 clipboard protocol.
+        Use pbcopy directly on macOS as a reliable fallback.
+        """
+        # Try pbcopy first on macOS - this is the most reliable method
+        if sys.platform == "darwin":
+            try:
+                import subprocess
+
+                proc = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+                proc.communicate(input=text.encode("utf-8"))
+                if proc.returncode == 0:
+                    return
+            except Exception:
+                pass
+
+        # Fallback to pyperclip
+        try:
+            import pyperclip
+
+            pyperclip.copy(text)
+            return
+        except Exception:
+            pass
+
+        # Last resort: try Textual's OSC 52
+        super().copy_to_clipboard(text)
+
     async def on_mount(self) -> None:
         saved_theme = load_theme()
         self._suppress_theme_prompt_sync = True
