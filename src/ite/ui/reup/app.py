@@ -164,6 +164,7 @@ from .command_views import (
     build_mcp_command_renderable,
     build_memory_command_renderable,
     build_memory_prompt_command_renderable,
+    build_sandbox_command_renderable,
     build_stats_command_renderable,
     build_tools_command_renderable,
     build_workboard_command_renderable,
@@ -10287,16 +10288,24 @@ class ReupApp(App):
                     short_term=manager.list_entries("short_term"),
                     episodic=manager.list_episodes()[-5:],
                 )
+        elif command == "/sandbox":
+            body = build_sandbox_command_renderable(
+                enabled=self.config.sandbox.enabled,
+                allowed_paths=[str(p) for p in self.config.sandbox.allowed_paths],
+                cwd=str(self.config.cwd),
+                styles=self._render_styles(),
+            )
 
         if body is None:
             return False
 
+        extra_cls = "stats" if command == "/stats" else ("sandbox" if command == "/sandbox" else "")
         self.run_worker(
             self.add_assistant_card(
                 self._build_command_title_widget(command),
                 body,
                 css_class="command",
-                extra_classes="stats" if command == "/stats" else "",
+                extra_classes=extra_cls,
             ),
             exclusive=False,
         )

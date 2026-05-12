@@ -1375,6 +1375,25 @@ Widget {
     padding: 0;
 }
 
+.block.sandbox {
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.sandbox .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.block.sandbox .card-body {
+    margin-top: 0;
+    padding: 0;
+}
+
 .workboard-root {
     layout: vertical;
     height: auto;

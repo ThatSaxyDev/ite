@@ -664,6 +664,62 @@ def _truncate_tool_desc(tool: Tool, max_chars: int = 88) -> str:
     return desc[: max_chars - 3].rstrip() + "..."
 
 
+def build_sandbox_command_renderable(
+    enabled: bool,
+    allowed_paths: list[str],
+    cwd: str,
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+    warning = _style_token(styles, "warning", "#d5b07a")
+
+    summary = Text()
+    summary.append("filesystem ", style=muted)
+    summary.append(
+        "on",
+        style=f"bold {success}" if enabled else f"bold {warning}",
+    )
+    summary.append("  •  ", style=disabled)
+    summary.append(str(len(allowed_paths)), style=f"bold {fg}")
+    summary.append(" allowed path(s)", style=muted)
+
+    blocks: list[object] = [
+        Text("sandbox", style=f"bold {fg}"),
+        summary,
+    ]
+
+    blocks.append(Text(""))
+    blocks.append(Text("project cwd", style=f"bold {secondary}"))
+    blocks.append(Text(cwd, style=primary))
+
+    if allowed_paths:
+        blocks.append(Text(""))
+        blocks.append(Text("allowed paths", style=f"bold {secondary}"))
+        for path in allowed_paths:
+            blocks.append(Text(f"  + {path}", style=primary))
+
+    blocks.append(Text(""))
+    blocks.append(Text("commands", style=f"bold {fg}"))
+    blocks.append(Text("  on|off    ", style=f"{muted}"))
+    blocks.append(Text("toggle filesystem sandbox", style=muted))
+    blocks.append(Text("  allow     ", style=f"{muted}"))
+    blocks.append(Text("allow an extra path", style=muted))
+    blocks.append(Text("  remove    ", style=f"{muted}"))
+    blocks.append(Text("remove an allowed path", style=muted))
+    blocks.append(Text("  clear     ", style=f"{muted}"))
+    blocks.append(Text("clear all allowed paths", style=muted))
+    blocks.append(Text("  list      ", style=f"{muted}"))
+    blocks.append(Text("list allowed paths", style=muted))
+
+    return Group(*blocks)
+
+
 def _section_icon(section_name: str) -> str:
     icons = {
         "Built-in": "◆",
