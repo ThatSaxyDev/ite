@@ -83,6 +83,14 @@ class CopyableCodeBlock(MarkdownFence):
         except Exception:
             pass
 
+    def notify_style_update(self) -> None:
+        """Override to prevent parent from managing #code-content.
+        
+        Textual 8.2+ expects #code-content to be a Label, but we use Static.
+        Do nothing - let Textual handle it without cache clearing overhead.
+        """
+        pass
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle copy button press."""
         if event.button.id == "copy-btn":
