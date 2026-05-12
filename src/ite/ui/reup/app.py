@@ -1517,6 +1517,20 @@ class ReupApp(App):
                 except Exception:
                     pass
 
+            # Re-render sandbox cards
+            if child.has_class("sandbox"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    new_body = build_sandbox_command_renderable(
+                        enabled=self.config.sandbox.enabled,
+                        allowed_paths=[str(p) for p in self.config.sandbox.allowed_paths],
+                        cwd=str(self.config.cwd),
+                        styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
+                except Exception:
+                    pass
+
             # Re-render change cards
             if child.has_class("change"):
                 try:

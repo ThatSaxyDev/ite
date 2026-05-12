@@ -706,16 +706,17 @@ def build_sandbox_command_renderable(
 
     blocks.append(Text(""))
     blocks.append(Text("commands", style=f"bold {fg}"))
-    blocks.append(Text("  on|off    ", style=f"{muted}"))
-    blocks.append(Text("toggle filesystem sandbox", style=muted))
-    blocks.append(Text("  allow     ", style=f"{muted}"))
-    blocks.append(Text("allow an extra path", style=muted))
-    blocks.append(Text("  remove    ", style=f"{muted}"))
-    blocks.append(Text("remove an allowed path", style=muted))
-    blocks.append(Text("  clear     ", style=f"{muted}"))
-    blocks.append(Text("clear all allowed paths", style=muted))
-    blocks.append(Text("  list      ", style=f"{muted}"))
-    blocks.append(Text("list allowed paths", style=muted))
+
+    # Use a table for better formatting
+    commands_table = Table(show_header=False, box=None, padding=(0, 1, 0, 0))
+    commands_table.add_column("alias", style=primary, width=12)
+    commands_table.add_column("description", style=muted)
+    commands_table.add_row("on|off", "toggle filesystem sandbox")
+    commands_table.add_row("allow <path>", "allow an extra path")
+    commands_table.add_row("remove <path>", "remove an allowed path")
+    commands_table.add_row("clear", "clear all allowed paths")
+    commands_table.add_row("list", "list allowed paths")
+    blocks.append(commands_table)
 
     return Group(*blocks)
 
