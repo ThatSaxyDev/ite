@@ -561,6 +561,7 @@ class CompactToolCard(Static):
         self._header: Text | None = None
         self._compact_blocks: list[Any] = []
         self._full_blocks: list[Any] = []
+        self.stack_key = ""
 
     def set_tool_content(
         self,
@@ -600,6 +601,65 @@ class CompactToolCard(Static):
         if self._header is not None:
             header.append_text(self._header.copy())
         return header
+
+    def stack_title(self) -> Text:
+        return self._header.copy() if self._header is not None else Text("Tool calls")
+
+
+class ToolCardStack(Vertical):
+    can_focus = True
+    BINDINGS = [
+        Binding("enter", "toggle_expanded", "Toggle stack", show=False),
+        Binding("space", "toggle_expanded", "Toggle stack", show=False),
+    ]
+
+    def __init__(
+        self,
+        *,
+        stack_key: str,
+        title: Text,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(classes=classes)
+        self.stack_key = stack_key
+        self.expanded = False
+        self._title = title
+        self._header = Static(classes="tool-stack-header")
+        self._body = Vertical(classes="tool-stack-body")
+
+    def compose(self) -> ComposeResult:
+        yield self._header
+        yield self._body
+
+    async def add_card(self, card: CompactToolCard) -> None:
+        if card.parent is not self._body:
+            try:
+                await card.remove()
+            except Exception:
+                pass
+            await self._body.mount(card)
+        self._refresh_content()
+
+    def action_toggle_expanded(self) -> None:
+        self.expanded = not self.expanded
+        self._refresh_content()
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.action_toggle_expanded()
+
+    def _refresh_content(self) -> None:
+        count = len(self._body.children)
+        header = Text()
+        header.append("▾ " if self.expanded else "▸ ", style="bold")
+        header.append_text(self._title.copy())
+        header.append(f"  {count} calls", style="dim")
+        self._header.update(header)
+        self._body.display = self.expanded
+
+    def refresh_title(self, title: Text) -> None:
+        self._title = title
+        self._refresh_content()
 
 
 class RemoteBridgeField(Horizontal):
@@ -10807,6 +10867,59 @@ class ReupApp(App):
             pass
         await conversation.mount(card)
 
+    async def _stack_completed_tool_card(self, card: CompactToolCard) -> None:
+        if not card.stack_key:
+            return
+        parent = card.parent
+        if isinstance(parent, Vertical) and parent.has_class("tool-stack-body"):
+            stack = parent.parent
+            if isinstance(stack, ToolCardStack):
+                first_child = next(
+                    (
+                        child
+                        for child in parent.children
+                        if isinstance(child, CompactToolCard)
+                    ),
+                    None,
+                )
+                if first_child is card:
+                    stack.refresh_title(card.stack_title())
+                else:
+                    stack._refresh_content()
+            return
+
+        conversation = self.query_one("#conversation", VerticalScroll)
+        siblings = list(conversation.children)
+        try:
+            index = siblings.index(card)
+        except ValueError:
+            return
+        if index <= 0:
+            return
+
+        previous = siblings[index - 1]
+        if isinstance(previous, ToolCardStack):
+            if previous.stack_key != card.stack_key:
+                return
+            await previous.add_card(card)
+            self._message_count = max(0, self._message_count - 1)
+            return
+
+        if not isinstance(previous, CompactToolCard):
+            return
+        if previous.stack_key != card.stack_key or not previous.has_completed_content:
+            return
+
+        stack = ToolCardStack(
+            stack_key=card.stack_key,
+            title=previous.stack_title(),
+            classes="block tool tool-stack success",
+        )
+        await conversation.mount(stack, before=previous)
+        await stack.add_card(previous)
+        await stack.add_card(card)
+        self._message_count = max(0, self._message_count - 1)
+
     def _render_wait_subagent_running_card(
         self,
         *,
@@ -11228,7 +11341,7 @@ class ReupApp(App):
         policy_redirect = bool(md.get("policy_blocked") and md.get("redirect_to"))
         recoverable = bool(md.get("recoverable")) or policy_redirect
         status = (
-            "done"
+            ""
             if success
             else (
                 "redirected" if policy_redirect else ("" if recoverable else "failed")
@@ -11897,6 +12010,7 @@ class ReupApp(App):
         if isinstance(card, CompactToolCard):
             default_expanded = not success or recoverable
             expanded = card.expanded if card.has_completed_content else default_expanded
+            card.stack_key = f"{tool_kind or 'builtin'}:{name}:{title_text}"
             card.set_tool_content(
                 header=header,
                 compact_blocks=compact_tool_preview_blocks(
@@ -11913,6 +12027,9 @@ class ReupApp(App):
             card.add_class("success")
         else:
             card.add_class("error")
+
+        if isinstance(card, CompactToolCard) and success and not recoverable:
+            await self._stack_completed_tool_card(card)
 
         if pin_after_update:
             await self._pin_activity_indicator_to_end()

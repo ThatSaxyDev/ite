@@ -1651,6 +1651,33 @@ Widget {
     margin-bottom: 2;
 }
 
+.block.tool-stack {
+    border: none;
+    background: $surface;
+    padding: 0 1;
+    margin-top: 0;
+    margin-bottom: 2;
+    height: auto;
+}
+
+.tool-stack-header {
+    color: $foreground;
+    text-style: bold;
+}
+
+.tool-stack-body {
+    height: auto;
+    margin-top: 1;
+    padding-left: 2;
+    border-left: solid $border;
+}
+
+.tool-stack-body .block.tool,
+.tool-stack-body .block.success,
+.tool-stack-body .block.tool.error {
+    margin-bottom: 1;
+}
+
 .block.shell-card {
     background: $surface;
     padding: 1 2;
