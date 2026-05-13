@@ -562,6 +562,7 @@ class CompactToolCard(Static):
         self._compact_blocks: list[Any] = []
         self._full_blocks: list[Any] = []
         self.stack_key = ""
+        self._stack_child_mode = False
 
     def set_tool_content(
         self,
@@ -578,6 +579,13 @@ class CompactToolCard(Static):
         self.has_completed_content = True
         self._refresh_content()
 
+    def set_stack_child_mode(self, enabled: bool) -> None:
+        if self._stack_child_mode == enabled:
+            return
+        self._stack_child_mode = enabled
+        if self.has_completed_content:
+            self._refresh_content()
+
     def action_toggle_expanded(self) -> None:
         if not self.has_completed_content:
             return
@@ -592,18 +600,94 @@ class CompactToolCard(Static):
 
     def _refresh_content(self) -> None:
         header = self._disclosure_header()
-        blocks = self._full_blocks if self.expanded else self._compact_blocks
+        blocks = self._visible_blocks()
         self.update(Group(header, *blocks))
 
     def _disclosure_header(self) -> Text:
         header = Text()
         header.append("▾ " if self.expanded else "▸ ", style="bold")
+        if self._stack_child_mode:
+            header.append_text(self.stack_child_header())
+            return header
         if self._header is not None:
             header.append_text(self._header.copy())
         return header
 
     def stack_title(self) -> Text:
         return self._header.copy() if self._header is not None else Text("Tool calls")
+
+    def plural_stack_title(self) -> Text:
+        title = self.stack_title()
+        plain = title.plain
+        pluralized = pluralize_tool_title(plain)
+        if pluralized == plain:
+            return title
+        return _replace_text_plain(title, pluralized)
+
+    def stack_child_header(self) -> Text:
+        for block in self._compact_blocks:
+            if isinstance(block, Text):
+                plain = block.plain.strip()
+                if plain:
+                    return _strip_repeated_child_prefix(block.copy())
+            if isinstance(block, str) and block.strip():
+                return Text(block.strip())
+        return self.stack_title()
+
+    def _visible_blocks(self) -> list[Any]:
+        if not self._stack_child_mode:
+            return self._full_blocks if self.expanded else self._compact_blocks
+        if not self.expanded:
+            return []
+        child_header = self.stack_child_header().plain.strip()
+        blocks = list(self._full_blocks)
+        if blocks and isinstance(blocks[0], Text) and blocks[0].plain.strip() == child_header:
+            return blocks[1:]
+        return blocks
+
+
+def pluralize_tool_title(title: str) -> str:
+    text = str(title or "").strip()
+    custom = {
+        "Checked folder": "Checked folders",
+        "Completed reading": "Completed readings",
+        "Finished searching code": "Finished code searches",
+        "Matched files": "Matched file groups",
+        "Fetched webpage": "Fetched webpages",
+        "Loaded web results": "Loaded web result sets",
+    }
+    for singular, plural in custom.items():
+        if singular in text:
+            return text.replace(singular, plural, 1)
+    if text in custom:
+        return custom[text]
+    if not text or text.endswith("s"):
+        return text
+    words = text.split()
+    if len(words) >= 2:
+        last = words[-1]
+        if last.endswith("y") and len(last) > 1 and last[-2].lower() not in "aeiou":
+            words[-1] = last[:-1] + "ies"
+        elif last.endswith(("s", "x", "z", "ch", "sh")):
+            words[-1] = last + "es"
+        else:
+            words[-1] = last + "s"
+        return " ".join(words)
+    return text + "s"
+
+
+def _replace_text_plain(source: Text, plain: str) -> Text:
+    replacement = Text()
+    replacement.append(plain, style=source.style)
+    return replacement
+
+
+def _strip_repeated_child_prefix(source: Text) -> Text:
+    plain = source.plain.strip()
+    for prefix in ("Checked ", "Completed reading ", "Finished searching "):
+        if plain.startswith(prefix):
+            return _replace_text_plain(source, plain)
+    return source
 
 
 class ToolCardStack(Vertical):
@@ -632,6 +716,7 @@ class ToolCardStack(Vertical):
         yield self._body
 
     async def add_card(self, card: CompactToolCard) -> None:
+        card.set_stack_child_mode(True)
         if card.parent is not self._body:
             try:
                 await card.remove()
@@ -10883,7 +10968,7 @@ class ReupApp(App):
                     None,
                 )
                 if first_child is card:
-                    stack.refresh_title(card.stack_title())
+                    stack.refresh_title(card.plural_stack_title())
                 else:
                     stack._refresh_content()
             return
@@ -10912,7 +10997,7 @@ class ReupApp(App):
 
         stack = ToolCardStack(
             stack_key=card.stack_key,
-            title=previous.stack_title(),
+            title=previous.plural_stack_title(),
             classes="block tool tool-stack success",
         )
         await conversation.mount(stack, before=previous)
