@@ -709,7 +709,7 @@ def build_sandbox_command_renderable(
 
     # Use a table for better formatting
     commands_table = Table(show_header=False, box=None, padding=(0, 1, 0, 0))
-    commands_table.add_column("alias", style=primary, width=12)
+    commands_table.add_column("alias", style=primary, width=16)
     commands_table.add_column("description", style=muted)
     commands_table.add_row("on|off", "toggle filesystem sandbox")
     commands_table.add_row("allow <path>", "allow an extra path")
