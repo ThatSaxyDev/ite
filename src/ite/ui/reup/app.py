@@ -199,6 +199,7 @@ from .modals import (
     UsageSummaryModal,
 )
 from .tool_views import (
+    compact_tool_preview_blocks,
     detect_host_textual_theme,
     display_path,
     extract_read_file_code,
@@ -540,6 +541,65 @@ class ShellToolCard(Vertical):
         except NoMatches:
             return
         viewport.scroll_end(animate=False)
+
+
+class CompactToolCard(Static):
+    can_focus = True
+    BINDINGS = [
+        Binding("enter", "toggle_expanded", "Toggle details", show=False),
+        Binding("space", "toggle_expanded", "Toggle details", show=False),
+    ]
+
+    def __init__(
+        self,
+        *,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(classes=classes)
+        self.expanded = True
+        self.has_completed_content = False
+        self._header: Text | None = None
+        self._compact_blocks: list[Any] = []
+        self._full_blocks: list[Any] = []
+
+    def set_tool_content(
+        self,
+        *,
+        header: Text,
+        compact_blocks: list[Any],
+        full_blocks: list[Any],
+        expanded: bool,
+    ) -> None:
+        self._header = header
+        self._compact_blocks = list(compact_blocks)
+        self._full_blocks = list(full_blocks)
+        self.expanded = expanded
+        self.has_completed_content = True
+        self._refresh_content()
+
+    def action_toggle_expanded(self) -> None:
+        if not self.has_completed_content:
+            return
+        self.expanded = not self.expanded
+        self._refresh_content()
+
+    def on_click(self, event: events.Click) -> None:
+        if not self.has_completed_content:
+            return
+        event.stop()
+        self.action_toggle_expanded()
+
+    def _refresh_content(self) -> None:
+        header = self._disclosure_header()
+        blocks = self._full_blocks if self.expanded else self._compact_blocks
+        self.update(Group(header, *blocks))
+
+    def _disclosure_header(self) -> Text:
+        header = Text()
+        header.append("▾ " if self.expanded else "▸ ", style="bold")
+        if self._header is not None:
+            header.append_text(self._header.copy())
+        return header
 
 
 class RemoteBridgeField(Horizontal):
@@ -1009,7 +1069,7 @@ class ReupApp(App):
         self._command_registry_loading: bool = False
         self._streaming_widget: Widget | None = None
         self._streaming_buffer: str = ""
-        self._tool_widgets: dict[str, Static] = {}
+        self._tool_widgets: dict[str, Widget] = {}
         self._tool_args_by_call_id: dict[str, dict[str, Any]] = {}
         self._tool_name_by_call_id: dict[str, str] = {}
         self._tool_completion_state: dict[str, dict[str, Any]] = {}
@@ -10739,7 +10799,7 @@ class ReupApp(App):
 
         self._set_loading_state("idle", busy=False)
 
-    async def _move_card_to_bottom(self, card: Static) -> None:
+    async def _move_card_to_bottom(self, card: Widget) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         try:
             await card.remove()
@@ -11043,9 +11103,9 @@ class ReupApp(App):
         elif name == "shell":
             card = ShellToolCard(classes="block tool shell-card running")
         elif tool_kind == "mcp":
-            card = Static(classes="block tool mcp-card running")
+            card = CompactToolCard(classes="block tool mcp-card running")
         else:
-            card = Static(classes="block tool running")
+            card = CompactToolCard(classes="block tool running")
         mcp_md: dict[str, Any] | None = None
         if tool_kind == "mcp":
             inferred_server, inferred_tool = (name.split("__", 1) + [""])[:2]
@@ -11834,7 +11894,20 @@ class ReupApp(App):
                 style=self._style("muted"),
             )
 
-        card.update(Group(header, *blocks))
+        if isinstance(card, CompactToolCard):
+            default_expanded = not success or recoverable
+            expanded = card.expanded if card.has_completed_content else default_expanded
+            card.set_tool_content(
+                header=header,
+                compact_blocks=compact_tool_preview_blocks(
+                    blocks,
+                    theme_variables=self._theme_tokens(),
+                ),
+                full_blocks=blocks,
+                expanded=expanded,
+            )
+        else:
+            card.update(Group(header, *blocks))
         card.remove_class("running")
         if success:
             card.add_class("success")

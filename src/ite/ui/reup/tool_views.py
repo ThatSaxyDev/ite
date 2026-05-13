@@ -313,6 +313,40 @@ def todo_start_hint(arguments: dict[str, Any]) -> str:
     return "Updating checklist"
 
 
+def compact_tool_preview_blocks(
+    blocks: list[Any],
+    *,
+    theme_variables: dict[str, str] | None = None,
+    max_chars: int = 180,
+) -> list[Any]:
+    """Return the first useful text line from a completed tool render."""
+    palette = render_palette(theme_variables)
+    for block in blocks:
+        if isinstance(block, Text):
+            first_line = next(
+                (line.strip() for line in block.plain.splitlines() if line.strip()),
+                "",
+            )
+            if not first_line:
+                continue
+            preview = Text(style=block.style or palette["muted"])
+            if len(first_line) > max_chars:
+                first_line = first_line[: max_chars - 3].rstrip() + "..."
+            preview.append(first_line)
+            return [preview]
+        if isinstance(block, str):
+            first_line = next(
+                (line.strip() for line in block.splitlines() if line.strip()),
+                "",
+            )
+            if not first_line:
+                continue
+            if len(first_line) > max_chars:
+                first_line = first_line[: max_chars - 3].rstrip() + "..."
+            return [Text(first_line, style=palette["muted"])]
+    return [Text("Details hidden.", style=palette["muted"])]
+
+
 def truncate_for_tool(name: str, text: str) -> tuple[str, bool]:
     if not text:
         return "", False

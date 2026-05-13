@@ -4,6 +4,7 @@ from pathlib import Path
 from rich.table import Table
 from rich.text import Text
 
+from ite.ui.reup.tool_views import compact_tool_preview_blocks
 from ite.ui.reup.tool_views import normalize_unified_diff_paths
 from ite.ui.reup.tool_views import render_subagent_metrics_payload
 from ite.ui.reup.tool_views import render_subagent_payload
@@ -12,6 +13,27 @@ from ite.ui.reup.tool_views import render_git_log_output
 
 
 class ReupToolViewsTests(unittest.TestCase):
+    def test_compact_tool_preview_blocks_uses_first_useful_text_line(self) -> None:
+        blocks = [
+            Text(""),
+            Text("Completed reading /tmp/project/app.py (lines 1-100 of 2370).\nSecond line"),
+            Text("  1|from __future__ import annotations"),
+        ]
+
+        preview = compact_tool_preview_blocks(blocks, max_chars=80)
+
+        self.assertEqual(len(preview), 1)
+        self.assertIsInstance(preview[0], Text)
+        self.assertEqual(
+            preview[0].plain,
+            "Completed reading /tmp/project/app.py (lines 1-100 of 2370).",
+        )
+
+    def test_compact_tool_preview_blocks_truncates_long_preview(self) -> None:
+        preview = compact_tool_preview_blocks([Text("x" * 220)], max_chars=32)
+
+        self.assertEqual(preview[0].plain, ("x" * 29) + "...")
+
     def test_normalize_unified_diff_paths_makes_paths_relative(self) -> None:
         cwd = Path("/tmp/workspace")
         raw = (
