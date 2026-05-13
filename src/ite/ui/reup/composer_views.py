@@ -409,12 +409,12 @@ def build_empty_state_welcome(title: str, styles: dict[str, str] | None = None) 
 def build_empty_state_ascii(styles: dict[str, str] | None = None) -> Text:
     theme = styles or {}
     lines = [
-        "  ██╗ ██████╗ ███████╗",
-        "  ╚═╝ ╚═██╔═╝ ██╔═══╝",
-        "  ██╗   ██║   ████╗  ",
-        "  ██║   ██║   ██╔═╝  ",
-        "  ██║   ██║   ███████╗",
-        "  ╚═╝   ╚═╝   ╚══════╝",
+        "  ██╗ ████████╗ ███████╗",
+        "  ╚═╝ ╚══██╔══╝ ██╔════╝",
+        "  ██╗    ██║    █████╗  ",
+        "  ██║    ██║    ██╔══╝  ",
+        "  ██║    ██║    ███████╗",
+        "  ╚═╝    ╚═╝    ╚══════╝",
     ]
     art = Text(justify="center")
     for index, line in enumerate(lines):

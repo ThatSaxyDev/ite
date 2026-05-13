@@ -596,7 +596,7 @@ wheels = [
 
 [[package]]
 name = "ite-agent"
-version = "0.0.45"
+version = "0.0.57"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -642,7 +642,7 @@ requires-dist = [
     { name = "pytesseract" },
     { name = "pyyaml" },
     { name = "rich" },
-    { name = "textual", extras = ["syntax"], specifier = ">=0.70.0" },
+    { name = "textual", extras = ["syntax"], specifier = ">=8.2.0" },
     { name = "tiktoken" },
     { name = "tomli" },
 ]

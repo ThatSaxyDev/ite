@@ -16,6 +16,7 @@ from ite.update_check import RuntimeUpdateNotice
 from textual.widgets import Select
 
 from ite.ui.reup.app import ONBOARDING_OTHER_VALUE, ReupApp
+from ite.ui.reup.composer_views import build_empty_state_ascii
 
 
 class ReupStartupTests(unittest.TestCase):
@@ -26,6 +27,16 @@ class ReupStartupTests(unittest.TestCase):
 
     def _app(self) -> ReupApp:
         return ReupApp(Config(cwd=self.cwd))
+
+    def test_empty_state_ascii_uses_straight_embossed_logo(self) -> None:
+        logo = build_empty_state_ascii().plain
+        lines = logo.splitlines()
+
+        self.assertEqual(len(lines), 6)
+        self.assertEqual({len(line) for line in lines}, {24})
+        self.assertEqual(lines[0], "  ██╗ ████████╗ ███████╗")
+        self.assertEqual(lines[1], "  ╚═╝ ╚══██╔══╝ ██╔════╝")
+        self.assertNotIn("╚═██╔═╝", logo)
 
     def test_app_init_defers_command_registry_build(self) -> None:
         with patch("ite.ui.reup.app.build_registry") as build_registry:
