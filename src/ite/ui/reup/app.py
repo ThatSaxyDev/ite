@@ -2480,7 +2480,7 @@ class ReupApp(App):
 
     def _queue_session_tabs_refresh(self) -> None:
         self._session_tabs_version += 1
-        self.run_worker(
+        self._run_worker_safely(
             self._refresh_session_tabs(),
             exclusive=True,
             group="session-tabs",
@@ -2596,14 +2596,31 @@ class ReupApp(App):
         conversation = self.query_one("#conversation", VerticalScroll)
         await self._dedupe_activity_indicators(conversation)
         content = self._render_activity_indicator_text(label)
+        widget = self._activity_widget
+        mounted_new_widget = False
         if self._activity_widget is None:
-            self._activity_widget = Static(classes="activity-indicator")
-            await conversation.mount(self._activity_widget)
+            widget = Static(classes="activity-indicator")
+            self._activity_widget = widget
+            await conversation.mount(widget)
+            mounted_new_widget = True
             self._message_count += 1
             self._refresh_empty_state()
-        if version is not None and version != self._activity_version:
+        if (
+            widget is None
+            or self._activity_widget is not widget
+            or (version is not None and version != self._activity_version)
+        ):
+            if mounted_new_widget:
+                try:
+                    await widget.remove()
+                except Exception:
+                    pass
+                self._message_count = max(0, self._message_count - 1)
+                self._refresh_empty_state()
+                if self._activity_widget is widget:
+                    self._activity_widget = None
             return
-        self._activity_widget.update(content)
+        widget.update(content)
         await self._pin_activity_indicator_to_end()
 
     async def _pin_activity_indicator_to_end(self) -> None:
@@ -4417,13 +4434,22 @@ class ReupApp(App):
             timeout=8,
         )
 
-    def _run_worker_safely(self, work: Any, *, exclusive: bool = False) -> None:
+    def _run_worker_safely(
+        self,
+        work: Any,
+        *,
+        exclusive: bool = False,
+        group: str | None = None,
+    ) -> None:
         if self._shutdown_started:
             if inspect.iscoroutine(work):
                 work.close()
             return
+        kwargs: dict[str, Any] = {"exclusive": exclusive}
+        if group is not None:
+            kwargs["group"] = group
         try:
-            self.run_worker(work, exclusive=exclusive)
+            self.run_worker(work, **kwargs)
         except RuntimeError as exc:
             if "App is not running" not in str(exc):
                 raise

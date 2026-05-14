@@ -177,6 +177,16 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(app._top_state_text, "thinking")
         self.assertTrue(app._top_busy)
 
+    def test_session_tabs_refresh_closes_coroutine_when_app_stops(self) -> None:
+        app = self._app()
+
+        with patch.object(
+            app, "run_worker", side_effect=RuntimeError("App is not running")
+        ):
+            app._queue_session_tabs_refresh()
+
+        self.assertEqual(app._session_tabs_version, 1)
+
     def test_hide_activity_indicator_removes_orphaned_indicator_widgets(self) -> None:
         class FakeIndicator:
             def __init__(self) -> None:
@@ -207,6 +217,59 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertIsNone(app._activity_widget)
             self.assertEqual(app._message_count, 0)
             refresh_empty.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_show_activity_indicator_handles_widget_cleared_during_mount(self) -> None:
+        class FakeIndicator:
+            last_created: "FakeIndicator | None" = None
+
+            def __init__(self, *args, **kwargs) -> None:
+                self.removed = False
+                self.updated = False
+                self.parent = None
+                FakeIndicator.last_created = self
+
+            def has_class(self, class_name: str) -> bool:
+                return class_name == "activity-indicator"
+
+            def update(self, _content) -> None:
+                self.updated = True
+
+            async def remove(self) -> None:
+                self.removed = True
+
+        class DummyConversation:
+            def __init__(self, app: ReupApp) -> None:
+                self.children: list[FakeIndicator] = []
+                self._app = app
+
+            async def mount(self, widget: FakeIndicator) -> None:
+                widget.parent = self
+                self.children.append(widget)
+                self._app._activity_widget = None
+
+            def scroll_end(self, *, animate: bool = False) -> None:
+                return None
+
+        async def run_test() -> None:
+            app = self._app()
+            app._activity_version = 7
+            conversation = DummyConversation(app)
+
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_refresh_empty_state"),
+                patch("ite.ui.reup.app.Static", FakeIndicator),
+            ):
+                await app._show_activity_indicator("waiting on shell", version=7)
+
+            indicator = FakeIndicator.last_created
+            self.assertIsNotNone(indicator)
+            self.assertTrue(indicator.removed)
+            self.assertFalse(indicator.updated)
+            self.assertIsNone(app._activity_widget)
+            self.assertEqual(app._message_count, 0)
 
         asyncio.run(run_test())
 
