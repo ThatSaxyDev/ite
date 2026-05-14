@@ -177,6 +177,39 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(app._top_state_text, "thinking")
         self.assertTrue(app._top_busy)
 
+    def test_hide_activity_indicator_removes_orphaned_indicator_widgets(self) -> None:
+        class FakeIndicator:
+            def __init__(self) -> None:
+                self.removed = False
+
+            def has_class(self, class_name: str) -> bool:
+                return class_name == "activity-indicator"
+
+            async def remove(self) -> None:
+                self.removed = True
+
+        async def run_test() -> None:
+            app = self._app()
+            first = FakeIndicator()
+            second = FakeIndicator()
+            app._activity_widget = second
+            app._message_count = 2
+            conversation = SimpleNamespace(children=[first, second])
+
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_refresh_empty_state") as refresh_empty,
+            ):
+                await app._hide_activity_indicator()
+
+            self.assertTrue(first.removed)
+            self.assertTrue(second.removed)
+            self.assertIsNone(app._activity_widget)
+            self.assertEqual(app._message_count, 0)
+            refresh_empty.assert_called_once()
+
+        asyncio.run(run_test())
+
     def test_cancel_active_turn_resolves_pending_plan_question(self) -> None:
         async def run_test() -> None:
             app = self._app()

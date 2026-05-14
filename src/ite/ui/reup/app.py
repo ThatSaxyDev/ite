@@ -2594,6 +2594,7 @@ class ReupApp(App):
         if version is not None and version != self._activity_version:
             return
         conversation = self.query_one("#conversation", VerticalScroll)
+        await self._dedupe_activity_indicators(conversation)
         content = self._render_activity_indicator_text(label)
         if self._activity_widget is None:
             self._activity_widget = Static(classes="activity-indicator")
@@ -2619,18 +2620,62 @@ class ReupApp(App):
                 pass
         conversation.scroll_end(animate=False)
 
+    async def _dedupe_activity_indicators(
+        self, conversation: VerticalScroll | None = None
+    ) -> None:
+        if conversation is None:
+            conversation = self.query_one("#conversation", VerticalScroll)
+        indicators = [
+            child
+            for child in list(conversation.children)
+            if child.has_class("activity-indicator")
+        ]
+        if not indicators:
+            if (
+                self._activity_widget is not None
+                and self._activity_widget.parent is None
+            ):
+                self._activity_widget = None
+            return
+        keep = self._activity_widget if self._activity_widget in indicators else None
+        if keep is None:
+            keep = indicators[-1]
+            self._activity_widget = keep
+        removed = 0
+        for indicator in indicators:
+            if indicator is keep:
+                continue
+            try:
+                await indicator.remove()
+                removed += 1
+            except Exception:
+                pass
+        if removed:
+            self._message_count = max(0, self._message_count - removed)
+            self._refresh_empty_state()
+
     async def _hide_activity_indicator(self, version: int | None = None) -> None:
         if version is not None and version != self._activity_version:
             return
-        if self._activity_widget is None:
-            return
-        try:
-            await self._activity_widget.remove()
-        except Exception:
-            pass
+        conversation = self.query_one("#conversation", VerticalScroll)
+        indicators = [
+            child
+            for child in list(conversation.children)
+            if child.has_class("activity-indicator")
+        ]
+        if self._activity_widget is not None and self._activity_widget not in indicators:
+            indicators.append(self._activity_widget)
+        removed = 0
+        for indicator in indicators:
+            try:
+                await indicator.remove()
+                removed += 1
+            except Exception:
+                pass
         self._activity_widget = None
-        self._message_count = max(0, self._message_count - 1)
-        self._refresh_empty_state()
+        if removed:
+            self._message_count = max(0, self._message_count - removed)
+            self._refresh_empty_state()
 
     def _render_live_compaction_body(self, message: str, *, active: bool) -> Text:
         styles = self._render_styles()
