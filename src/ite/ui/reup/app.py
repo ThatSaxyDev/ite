@@ -141,6 +141,7 @@ from ite.skills import (
 from ite.skills.manager import SkillDefinition
 from ite.skills.rendering import skill_state
 from ite.tools.base import Tool, ToolRiskLevel
+from ite.tools.builtin.shell import send_input_to_shell_run
 from ite.tools.mcp.mcp_tool import MCPTool
 from ite.tools.subagent import SubagentTool
 from ite.ui.reup.markdown_widget import CopyableMarkdown
@@ -7289,6 +7290,34 @@ class ReupApp(App):
         self._show_turn_action_palette(payload, replacing_queue=replacing_queue)
         return True
 
+    def _active_shell_input_call_id(self) -> str | None:
+        run_state = self._run_state()
+        for call_id in reversed(list(self._live_shell_call_state.keys())):
+            if call_id not in run_state.running_shell_call_ids:
+                continue
+            state = self._live_shell_call_state.get(call_id)
+            md = state.metadata if state is not None else {}
+            if md.get("input_capable") is True and md.get("awaiting_input") is True:
+                return call_id
+        return None
+
+    async def _send_active_shell_input(self, text: str) -> bool:
+        call_id = self._active_shell_input_call_id()
+        if not call_id:
+            return False
+        sent = await send_input_to_shell_run(call_id, text, append_newline=True)
+        if not sent:
+            return False
+        prompt = self.query_one("#prompt", TextArea)
+        prompt.text = ""
+        self._resize_composer_for_prompt()
+        state = self._live_shell_call_state.get(call_id)
+        if state is not None:
+            state.metadata = dict(state.metadata)
+            state.metadata["awaiting_input"] = False
+        self._set_loading_state("sent shell input", busy=True)
+        return True
+
     async def _dispatch_queued_payload_if_ready(self) -> None:
         run_state = self._run_state()
         if run_state.auto_resume_payload is not None:
@@ -7328,6 +7357,8 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         message = prompt.text.strip()
         if not message:
+            return
+        if self._is_turn_running and await self._send_active_shell_input(message):
             return
         attachments: list[str] = []
         if self.agent and self.agent.session:

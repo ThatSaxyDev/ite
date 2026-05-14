@@ -218,6 +218,64 @@ class ShellSessionRecord:
             return output, self.next_cursor, cursor < self.base_cursor or truncated
 
 
+@dataclass
+class ShellRunInputRecord:
+    call_id: str
+    process: asyncio.subprocess.Process
+    master_fd: int
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+class ShellRunInputManager:
+    def __init__(self) -> None:
+        self._records: dict[str, ShellRunInputRecord] = {}
+        self._lock = asyncio.Lock()
+
+    async def register(
+        self,
+        *,
+        call_id: str | None,
+        process: asyncio.subprocess.Process,
+        master_fd: int,
+    ) -> None:
+        if not call_id:
+            return
+        async with self._lock:
+            self._records[call_id] = ShellRunInputRecord(
+                call_id=call_id,
+                process=process,
+                master_fd=master_fd,
+            )
+
+    async def unregister(self, call_id: str | None) -> None:
+        if not call_id:
+            return
+        async with self._lock:
+            self._records.pop(call_id, None)
+
+    async def send(self, call_id: str, text: str, *, append_newline: bool = True) -> bool:
+        async with self._lock:
+            record = self._records.get(call_id)
+        if record is None:
+            return False
+        if record.process.returncode is not None:
+            await self.unregister(call_id)
+            return False
+
+        payload = text + ("\n" if append_newline else "")
+        async with record.lock:
+            try:
+                await asyncio.to_thread(
+                    os.write,
+                    record.master_fd,
+                    payload.encode("utf-8", errors="replace"),
+                )
+            except OSError:
+                await self.unregister(call_id)
+                return False
+        return True
+
+
 class ShellSessionManager:
     def __init__(self) -> None:
         self._sessions: dict[str, ShellSessionRecord] = {}
@@ -333,6 +391,65 @@ class ShellSessionManager:
 
 
 _SHELL_SESSION_MANAGER = ShellSessionManager()
+_SHELL_RUN_INPUT_MANAGER = ShellRunInputManager()
+
+
+async def send_input_to_shell_run(
+    call_id: str,
+    text: str,
+    *,
+    append_newline: bool = True,
+) -> bool:
+    return await _SHELL_RUN_INPUT_MANAGER.send(
+        call_id,
+        text,
+        append_newline=append_newline,
+    )
+
+
+def _shell_output_looks_awaiting_input(output: str) -> bool:
+    text = str(output or "")
+    if not text:
+        return False
+
+    tail = text[-1000:]
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+    if not lines:
+        return False
+
+    last_line = lines[-1]
+    lowered = last_line.lower()
+    explicit_choice_markers = (
+        "y/n",
+        "yes/no",
+        "[y/n]",
+        "(y/n)",
+        "[yes/no]",
+        "(yes/no)",
+    )
+    if any(marker in lowered for marker in explicit_choice_markers):
+        return True
+
+    inline_prompt_markers = (
+        "enter ",
+        "enter your",
+        "password",
+        "passphrase",
+        "proceed",
+        "continue",
+        "confirm",
+        "overwrite",
+        "name:",
+    )
+    if not text.endswith(("\n", "\r")) and any(
+        marker in lowered for marker in inline_prompt_markers
+    ):
+        return True
+
+    if not text.endswith(("\n", "\r")) and last_line.endswith(("?", ":")):
+        return True
+
+    return False
 
 
 def _shell_session_status(
@@ -643,6 +760,7 @@ class ShellTool(_ShellCommonTool):
                 return
             async with state_lock:
                 output_snapshot = combined_output
+                awaiting_input = _shell_output_looks_awaiting_input(output_snapshot)
                 metadata = {
                     "command": params.command,
                     "cwd": str(cwd),
@@ -655,6 +773,8 @@ class ShellTool(_ShellCommonTool):
                     "running": True,
                     "status": "command_running",
                     "has_new_output": True,
+                    "input_capable": bool(invocation.call_id),
+                    "awaiting_input": awaiting_input,
                 }
             await invocation.progress_callback(
                 {
@@ -733,6 +853,11 @@ class ShellTool(_ShellCommonTool):
             loop = asyncio.get_event_loop()
             read_pipe = os.fdopen(master_fd, "rb", 0)
             transport, _ = await loop.connect_read_pipe(lambda: protocol, read_pipe)
+            await _SHELL_RUN_INPUT_MANAGER.register(
+                call_id=invocation.call_id,
+                process=process,
+                master_fd=master_fd,
+            )
             reader_tasks = [
                 asyncio.create_task(read_stream(reader, stream="stdout")),
             ]
@@ -751,6 +876,12 @@ class ShellTool(_ShellCommonTool):
                 task.cancel()
             raise
         except asyncio.TimeoutError:
+            async with state_lock:
+                timeout_output = combined_output.strip()
+                timeout_stdout_bytes = stdout_bytes
+                timeout_stderr_bytes = stderr_bytes
+                timeout_has_stdout = has_stdout
+                timeout_has_stderr = has_stderr
             try:
                 await _terminate_process(process)
             except ProcessLookupError:
@@ -759,15 +890,23 @@ class ShellTool(_ShellCommonTool):
                 task.cancel()
             return ToolResult.error_result(
                 f"Command timed out after {params.timeout} seconds",
+                output=timeout_output,
                 metadata={
                     "command": params.command,
                     "cwd": str(cwd),
                     "timeout_seconds": params.timeout,
                     "timed_out": True,
                     "safety_classification": safety.value,
+                    "stdout_bytes": timeout_stdout_bytes,
+                    "stderr_bytes": timeout_stderr_bytes,
+                    "has_stdout": timeout_has_stdout,
+                    "has_stderr": timeout_has_stderr,
+                    "input_capable": False,
+                    "awaiting_input": False,
                 },
             )
         finally:
+            await _SHELL_RUN_INPUT_MANAGER.unregister(invocation.call_id)
             if transport is not None:
                 transport.close()
             await asyncio.gather(*reader_tasks, return_exceptions=True)
@@ -802,6 +941,8 @@ class ShellTool(_ShellCommonTool):
                 "has_stderr": final_has_stderr,
                 "safety_classification": safety.value,
                 "timed_out": False,
+                "input_capable": False,
+                "awaiting_input": False,
             },
         )
 

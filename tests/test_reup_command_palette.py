@@ -2696,6 +2696,45 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
+    def test_handle_send_routes_prompt_text_to_waiting_shell(self) -> None:
+        app = self._app()
+        app._is_turn_running = True
+        app._run_state().running_shell_call_ids.add("call_prompt")
+        app._live_shell_call_state["call_prompt"] = SimpleNamespace(
+            metadata={"input_capable": True, "awaiting_input": True}
+        )
+
+        class DummyPrompt:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+        prompt = DummyPrompt("Ada")
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "query_one", return_value=prompt),
+                patch.object(app, "_resize_composer_for_prompt"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_resolve_active_turn_send", new=AsyncMock()) as resolve,
+                patch(
+                    "ite.ui.reup.app.send_input_to_shell_run",
+                    new=AsyncMock(return_value=True),
+                ) as shell_send,
+            ):
+                await app.handle_send()
+                shell_send.assert_awaited_once_with(
+                    "call_prompt",
+                    "Ada",
+                    append_newline=True,
+                )
+                resolve.assert_not_awaited()
+
+        asyncio.run(scenario())
+        self.assertEqual(prompt.text, "")
+        self.assertFalse(
+            app._live_shell_call_state["call_prompt"].metadata["awaiting_input"]
+        )
+
     def test_cancel_active_turn_cancels_active_session_subagents(self) -> None:
         app = self._app()
         runtime = SimpleNamespace(cancel=AsyncMock(return_value={"cancelled_run_ids": ["agent_001"]}))

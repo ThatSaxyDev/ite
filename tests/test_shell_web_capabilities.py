@@ -15,6 +15,7 @@ from ite.tools.builtin.shell import ShellStartTool
 from ite.tools.builtin.shell import ShellStopTool
 from ite.tools.builtin.shell import ShellTool
 from ite.tools.builtin.shell import _SHELL_SESSION_MANAGER
+from ite.tools.builtin.shell import send_input_to_shell_run
 from ite.tools.builtin.web_fetch import WebFetchTool
 from ite.tools.builtin.web_search import WebSearchTool
 from ite.tools.registry import create_default_registry
@@ -215,6 +216,54 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(updates)
             self.assertTrue(any("hello" in str(update.get("output") or "") for update in updates))
             self.assertTrue(all(isinstance(update.get("metadata"), dict) for update in updates))
+
+    async def test_shell_execute_accepts_stdin_for_prompting_command(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+            updates: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+
+            async def on_progress(update: dict[str, object]) -> None:
+                await updates.put(update)
+
+            task = asyncio.create_task(
+                tool.execute(
+                    ToolInvocation(
+                        params={
+                            "command": "python3 -c \"name=input('Proceed by entering your name: '); print('hello ' + name)\"",
+                            "timeout": 5,
+                        },
+                        cwd=cwd,
+                        call_id="call_prompt",
+                        progress_callback=on_progress,
+                    )
+                )
+            )
+
+            async def cleanup_task() -> None:
+                if task.done():
+                    return
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            self.addAsyncCleanup(cleanup_task)
+
+            prompt_update = await asyncio.wait_for(updates.get(), timeout=2)
+            metadata = prompt_update.get("metadata")
+            self.assertIsInstance(metadata, dict)
+            assert isinstance(metadata, dict)
+            self.assertTrue(metadata.get("awaiting_input"))
+            self.assertTrue(metadata.get("input_capable"))
+
+            sent = await send_input_to_shell_run("call_prompt", "Ada")
+            self.assertTrue(sent)
+            result = await asyncio.wait_for(task, timeout=5)
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIn("hello Ada", result.output)
 
     async def test_shell_environment_prepends_discovered_rg_directory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
