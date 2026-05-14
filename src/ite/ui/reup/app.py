@@ -650,24 +650,33 @@ class CompactToolCard(Static):
 
 def pluralize_tool_title(title: str) -> str:
     text = str(title or "").strip()
+    match = re.search(r"[A-Za-z]", text)
+    prefix = text[: match.start()] if match else ""
+    label = text[match.start() :] if match else text
     custom = {
         "Checked folder": "Checked folders",
-        "Completed reading": "Completed readings",
-        "Finished searching code": "Finished code searches",
+        "Saved file": "Saved files",
+        "Updated file": "Updated files",
+        "Applied patch": "Applied patches",
         "Matched files": "Matched file groups",
+        "Fetched page": "Fetched pages",
         "Fetched webpage": "Fetched webpages",
-        "Loaded web results": "Loaded web result sets",
+        "PDF loaded": "PDFs loaded",
+        "Image loaded": "Images loaded",
+        "Commit created": "Commits created",
+        "Tool completed": "Tools completed",
     }
-    for singular, plural in custom.items():
-        if singular in text:
-            return text.replace(singular, plural, 1)
-    if text in custom:
-        return custom[text]
-    if text.endswith(" ready"):
+    if label in custom:
+        return f"{prefix}{custom[label]}"
+    if label.endswith(" ready"):
         return text
-    if not text or text.endswith("s"):
+    words = label.split()
+    if len(words) >= 2 and (
+        words[0].endswith(("ed", "ing")) or words[-1].endswith("ed")
+    ):
         return text
-    words = text.split()
+    if not label or label.endswith("s"):
+        return text
     if len(words) >= 2:
         last = words[-1]
         if last.endswith("y") and len(last) > 1 and last[-2].lower() not in "aeiou":
@@ -676,8 +685,8 @@ def pluralize_tool_title(title: str) -> str:
             words[-1] = last + "es"
         else:
             words[-1] = last + "s"
-        return " ".join(words)
-    return text + "s"
+        return f"{prefix}{' '.join(words)}"
+    return f"{prefix}{label}s"
 
 
 def _replace_text_plain(source: Text, plain: str) -> Text:

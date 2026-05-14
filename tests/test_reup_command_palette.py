@@ -65,6 +65,22 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_plural_tool_title_preserves_ready_status(self) -> None:
         self.assertEqual(pluralize_tool_title("Skills ready"), "Skills ready")
 
+    def test_plural_tool_title_keeps_completed_actions_natural(self) -> None:
+        cases = {
+            "Finished searching code": "Finished searching code",
+            "🔎 Finished searching code": "🔎 Finished searching code",
+            "Completed reading": "Completed reading",
+            "📖 Completed reading": "📖 Completed reading",
+            "Updated git status": "Updated git status",
+            "Command finished": "Command finished",
+            "Saved file": "Saved files",
+            "💾 Saved file": "💾 Saved files",
+            "Tool completed": "Tools completed",
+        }
+        for title, expected in cases.items():
+            with self.subTest(title=title):
+                self.assertEqual(pluralize_tool_title(title), expected)
+
     def test_plan_intent_requires_explicit_plan_language(self) -> None:
         app = self._app()
 
