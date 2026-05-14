@@ -1023,7 +1023,7 @@ Widget {
     border: none;
     background: transparent;
     padding: 0;
-    margin: 0 4 2 0;
+    margin: 1 4 2 0;
 }
 
 .block.assistant .card-title {
@@ -1720,11 +1720,6 @@ Widget {
 .shell-card-body {
     color: $foreground;
 }
-
-.block.assistant {
-    margin-top: 1;
-}
-
 
 .card-body {
     margin-top: 1;
