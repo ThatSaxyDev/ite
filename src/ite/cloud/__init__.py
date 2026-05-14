@@ -1,13 +1,16 @@
 from ite.cloud.auth import ensure_cloud_auth
 from ite.cloud.auth import CloudAuthError
 from ite.cloud.auth import CloudConnectionError
+from ite.cloud.auth import CloudCredentialStoreError
 from ite.cloud.auth import CloudSessionState
 from ite.cloud.auth import clear_cloud_auth
 from ite.cloud.auth import get_bundled_models
 from ite.cloud.auth import get_bundled_models_result
 from ite.cloud.auth import get_cloud_auth_status
 from ite.cloud.auth import get_cloud_entitlements
+from ite.cloud.auth import get_cloud_entitlements_result
 from ite.cloud.auth import get_cloud_session
+from ite.cloud.auth import get_remote_companion_access_status
 from ite.cloud.auth import get_activity
 from ite.cloud.auth import get_usage_summary
 from ite.cloud.auth import has_remote_companion_access
@@ -21,13 +24,16 @@ __all__ = [
     "ensure_cloud_auth",
     "CloudAuthError",
     "CloudConnectionError",
+    "CloudCredentialStoreError",
     "CloudSessionState",
     "clear_cloud_auth",
     "get_bundled_models",
     "get_bundled_models_result",
     "get_cloud_auth_status",
     "get_cloud_entitlements",
+    "get_cloud_entitlements_result",
     "get_cloud_session",
+    "get_remote_companion_access_status",
     "get_activity",
     "get_usage_summary",
     "has_remote_companion_access",

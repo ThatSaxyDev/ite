@@ -9,6 +9,7 @@ from unittest.mock import patch
 from ite.cloud.auth import (
     CloudSessionState,
     CloudSession,
+    CloudCredentialStoreError,
     _CLOUD_ACCESS_TOKEN_CACHE,
     _load_cloud_session,
     _save_cloud_session,
@@ -17,6 +18,7 @@ from ite.cloud.auth import (
     get_bundled_models,
     get_cloud_auth_status,
     get_cloud_entitlements,
+    get_remote_companion_access_status,
     get_cloud_session,
     has_stored_cloud_auth,
     has_remote_companion_access,
@@ -125,6 +127,112 @@ class CloudAuthTests(unittest.TestCase):
         self.assertEqual(session.access_token, "")
         self.assertEqual(session.access_expires_at, 0)
         self.assertEqual(session.refresh_token, "stored-refresh")
+
+    def test_keyring_read_failure_is_reported_as_credential_error(self) -> None:
+        data_dir = self.base_path / "data"
+        session_path = data_dir / "auth" / "cloud_session.json"
+        session_path.parent.mkdir(parents=True)
+        session_path.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "access_expires_at": 9999999999,
+                    "api_url": "http://127.0.0.1:4000",
+                    "client_id": "test-device",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch("ite.cloud.auth.get_data_dir", return_value=data_dir),
+            patch(
+                "ite.cloud.auth.keyring.get_password",
+                side_effect=Exception("keychain unavailable"),
+            ),
+        ):
+            with self.assertRaises(CloudCredentialStoreError):
+                _load_cloud_session()
+            status = get_cloud_auth_status(self.config)
+            remote_status = get_remote_companion_access_status(self.config)
+            has_stored = has_stored_cloud_auth(self.config)
+
+        self.assertTrue(session_path.exists())
+        self.assertEqual(status.state, CloudSessionState.CREDENTIAL_ERROR)
+        self.assertIn("OS credential store", status.message)
+        self.assertEqual(remote_status.state, CloudSessionState.CREDENTIAL_ERROR)
+        self.assertTrue(has_stored)
+
+    def test_missing_keyring_refresh_token_is_reported_as_credential_error(self) -> None:
+        data_dir = self.base_path / "data"
+        session_path = data_dir / "auth" / "cloud_session.json"
+        session_path.parent.mkdir(parents=True)
+        session_path.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "access_expires_at": 9999999999,
+                    "api_url": "http://127.0.0.1:4000",
+                    "client_id": "test-device",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch("ite.cloud.auth.get_data_dir", return_value=data_dir),
+            patch("ite.cloud.auth.keyring.get_password", return_value=None),
+        ):
+            status = get_cloud_auth_status(self.config)
+            has_stored = has_stored_cloud_auth(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.CREDENTIAL_ERROR)
+        self.assertIn("refresh credential is missing", status.message)
+        self.assertTrue(has_stored)
+
+    def test_remote_access_uses_recent_cached_entitlement_on_keyring_failure(self) -> None:
+        data_dir = self.base_path / "data"
+        session = CloudSession(
+            access_token="access",
+            refresh_token="refresh",
+            access_expires_at=9999999999,
+            api_url="http://127.0.0.1:4000",
+            client_id=self.config.cloud_client_id,
+        )
+
+        with (
+            patch("ite.cloud.auth.get_data_dir", return_value=data_dir),
+            patch("ite.cloud.auth.keyring.set_password"),
+            patch("ite.cloud.auth.keyring.get_password", return_value="refresh"),
+            patch(
+                "ite.cloud.auth._get_json",
+                side_effect=[
+                    (200, {"ok": True}),
+                    (
+                        200,
+                        {
+                            "ok": True,
+                            "entitlements": {"remoteCompanion": True},
+                        },
+                    ),
+                ],
+            ),
+        ):
+            _save_cloud_session(session)
+            self.assertTrue(has_remote_companion_access(self.config))
+
+        _CLOUD_ACCESS_TOKEN_CACHE.clear()
+        with (
+            patch("ite.cloud.auth.get_data_dir", return_value=data_dir),
+            patch(
+                "ite.cloud.auth.keyring.get_password",
+                side_effect=Exception("keychain unavailable"),
+            ),
+        ):
+            status = get_remote_companion_access_status(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.VALID)
+        self.assertIn("entitlement cache", status.message)
 
     def test_cloud_accessors_return_empty_when_cloud_auth_errors(self) -> None:
         with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(

@@ -9,6 +9,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from ite.cloud.auth import CloudAuthError
+from ite.cloud.auth import CloudAuthStatus
+from ite.cloud.auth import CloudSessionState
 from ite.cloud.auth import has_valid_cloud_auth
 from ite.client.response import TokenUsage
 from ite.config.config import Config
@@ -423,10 +425,16 @@ class ReupStartupTests(unittest.TestCase):
     ) -> None:
         async def run_test() -> None:
             app = self._app()
+            status = CloudAuthStatus(
+                state=CloudSessionState.NO_ENTITLEMENT,
+                message="Remote companion requires bundled access for this iTE account.",
+            )
 
             with (
                 patch.object(
-                    app, "_has_remote_companion_access", AsyncMock(return_value=False)
+                    app,
+                    "_remote_companion_access_status",
+                    AsyncMock(return_value=status),
                 ),
                 patch.object(app, "post_system") as post_system,
                 patch.object(
@@ -440,6 +448,64 @@ class ReupStartupTests(unittest.TestCase):
             self.assertIn("bundled access", post_system.call_args.args[1])
 
         asyncio.run(run_test())
+
+    def test_remote_command_reports_credential_store_error_before_starting_bridge(
+        self,
+    ) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            status = CloudAuthStatus(
+                state=CloudSessionState.CREDENTIAL_ERROR,
+                message="Could not read iTE Cloud credentials from the OS credential store.",
+            )
+
+            with (
+                patch.object(
+                    app,
+                    "_remote_companion_access_status",
+                    AsyncMock(return_value=status),
+                ),
+                patch.object(app, "post_system") as post_system,
+                patch.object(
+                    app, "_ensure_remote_server", AsyncMock()
+                ) as ensure_remote_server,
+            ):
+                await app._run_remote_command_native(["on"])
+
+            ensure_remote_server.assert_not_awaited()
+            post_system.assert_called_once()
+            self.assertIn("OS credential store", post_system.call_args.args[1])
+            self.assertIn("/cloud login", post_system.call_args.args[1])
+
+        asyncio.run(run_test())
+
+    def test_credential_store_error_does_not_force_signed_out_startup(self) -> None:
+        app = self._app()
+        app._cloud_signed_out = True
+        app._cloud_bootstrap_busy = True
+        status = CloudAuthStatus(
+            state=CloudSessionState.CREDENTIAL_ERROR,
+            message="Could not read iTE Cloud credentials from the OS credential store.",
+        )
+
+        with (
+            patch.object(app, "_apply_shell_surface") as apply_shell_surface,
+            patch.object(app, "post_system") as post_system,
+            patch("ite.ui.reup.app.clear_cloud_auth") as clear_auth,
+        ):
+            result = app._apply_cloud_auth_status(
+                status,
+                context="iTE Cloud",
+                interactive=True,
+            )
+
+        self.assertFalse(result)
+        self.assertFalse(app._cloud_signed_out)
+        self.assertFalse(app._cloud_bootstrap_busy)
+        clear_auth.assert_not_called()
+        apply_shell_surface.assert_called_once()
+        post_system.assert_called_once()
+        self.assertIn("OS credential store", post_system.call_args.args[1])
 
     def test_perform_quit_does_not_hang_on_remote_shutdown(self) -> None:
         async def run_test() -> None:

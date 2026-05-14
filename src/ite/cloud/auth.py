@@ -31,11 +31,19 @@ class CloudConnectionError(RuntimeError):
     pass
 
 
+class CloudCredentialStoreError(CloudAuthError):
+    """Raised when local cloud credentials cannot be read from the OS credential store."""
+
+    pass
+
+
 _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 _CLOUD_HTTP_TIMEOUT_SEC = 10
 _CLOUD_KEYRING_SERVICE = "ite.cloud.auth"
 _CLOUD_REFRESH_TOKEN_KEY = "refresh_token"
 _CLOUD_SESSION_FORMAT_VERSION = 2
+_CLOUD_ENTITLEMENTS_CACHE_VERSION = 1
+_REMOTE_ENTITLEMENT_GRACE_SECONDS = 72 * 60 * 60
 _CLOUD_ACCESS_TOKEN_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 
 
@@ -88,6 +96,12 @@ class BundledModelsResult:
     message: str = ""
 
 
+@dataclass(frozen=True)
+class CloudEntitlementsResult:
+    entitlements: dict[str, Any]
+    auth: CloudAuthStatus
+
+
 def _cloud_session_path() -> Path:
     path = get_data_dir() / "auth" / "cloud_session.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,6 +114,16 @@ def _cloud_session_path() -> Path:
 
 def _cloud_signed_out_marker_path() -> Path:
     path = get_data_dir() / "auth" / "cloud_signed_out"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        pass
+    return path
+
+
+def _cloud_entitlements_cache_path() -> Path:
+    path = get_data_dir() / "auth" / "cloud_entitlements.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(path.parent, 0o700)
@@ -145,8 +169,10 @@ def _load_cloud_refresh_token(api_url: str, client_id: str) -> str:
             )
             or ""
         )
-    except Exception:
-        return ""
+    except Exception as exc:
+        raise CloudCredentialStoreError(
+            "Could not read iTE Cloud credentials from the OS credential store."
+        ) from exc
 
 
 def _save_cloud_refresh_token(api_url: str, client_id: str, refresh_token: str) -> None:
@@ -201,6 +227,48 @@ def _atomic_write_cloud_session_metadata(path: Path, payload: dict[str, Any]) ->
                 pass
 
 
+def _save_cloud_entitlements_cache(
+    session: CloudSession,
+    entitlements: dict[str, Any],
+) -> None:
+    path = _cloud_entitlements_cache_path()
+    payload = {
+        "version": _CLOUD_ENTITLEMENTS_CACHE_VERSION,
+        "api_url": session.api_url,
+        "client_id": session.client_id,
+        "fetched_at": time.time(),
+        "entitlements": entitlements,
+    }
+    _atomic_write_cloud_session_metadata(path, payload)
+
+
+def _load_cached_cloud_entitlements(
+    config: Config,
+    *,
+    max_age_seconds: int,
+) -> dict[str, Any]:
+    path = _cloud_entitlements_cache_path()
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if int(data.get("version") or 0) != _CLOUD_ENTITLEMENTS_CACHE_VERSION:
+            return {}
+        api_url = str(data.get("api_url") or "").strip().rstrip("/")
+        client_id = str(data.get("client_id") or DEFAULT_CLOUD_CLIENT_ID)
+        if api_url != str(config.cloud_api_url or "").strip().rstrip("/"):
+            return {}
+        if client_id != str(config.cloud_client_id or DEFAULT_CLOUD_CLIENT_ID):
+            return {}
+        fetched_at = float(data.get("fetched_at") or 0)
+        if fetched_at <= 0 or time.time() - fetched_at > max_age_seconds:
+            return {}
+        entitlements = data.get("entitlements")
+        return entitlements if isinstance(entitlements, dict) else {}
+    except Exception:
+        return {}
+
+
 def _clear_local_cloud_session(path: Path, api_url: str, client_id: str) -> None:
     _delete_cloud_refresh_token(api_url, client_id)
     _CLOUD_ACCESS_TOKEN_CACHE.pop((api_url, client_id), None)
@@ -232,7 +300,10 @@ def _load_cloud_session() -> CloudSession | None:
             return None
         refresh_token = _load_cloud_refresh_token(api_url, client_id)
         if not refresh_token:
-            return None
+            raise CloudCredentialStoreError(
+                "iTE Cloud session metadata exists, but the refresh credential "
+                "is missing from the OS credential store."
+            )
         access_token, access_expires_at = _cached_cloud_access_token(api_url, client_id)
         if not access_token and legacy_access_token:
             access_token = legacy_access_token
@@ -249,6 +320,8 @@ def _load_cloud_session() -> CloudSession | None:
             api_url=api_url,
             client_id=client_id,
         )
+    except CloudCredentialStoreError:
+        raise
     except Exception:
         return None
 
@@ -266,7 +339,10 @@ def _save_cloud_session(session: CloudSession) -> None:
 
 
 def clear_cloud_auth(*, revoke_remote: bool = True) -> bool:
-    session = _load_cloud_session()
+    try:
+        session = _load_cloud_session()
+    except CloudCredentialStoreError:
+        session = None
     cleared = False
     if session and revoke_remote:
         try:
@@ -415,6 +491,7 @@ class CloudSessionState:
     INVALID = "invalid"  # Expired or revoked
     NETWORK_ERROR = "network_error"  # Can't reach API, credentials may still be valid
     NO_ENTITLEMENT = "no_entitlement"  # Signed in, but cloud feature is unavailable
+    CREDENTIAL_ERROR = "credential_error"  # Local credential store is unavailable
 
 
 def _verify_cloud_session(session: CloudSession) -> bool:
@@ -489,7 +566,13 @@ def get_cloud_auth_status(config: Config) -> CloudAuthStatus:
             state=CloudSessionState.SIGNED_OUT,
             message="Cloud auth is enabled but no cloud endpoint is configured.",
         )
-    existing = _load_cloud_session()
+    try:
+        existing = _load_cloud_session()
+    except CloudCredentialStoreError as exc:
+        return CloudAuthStatus(
+            state=CloudSessionState.CREDENTIAL_ERROR,
+            message=str(exc),
+        )
     if existing is None or existing.api_url != cloud_api_url:
         return CloudAuthStatus(
             state=CloudSessionState.SIGNED_OUT,
@@ -497,7 +580,10 @@ def get_cloud_auth_status(config: Config) -> CloudAuthStatus:
         )
     state = check_cloud_session(existing)
     if state == CloudSessionState.VALID:
-        refreshed = _load_cloud_session()
+        try:
+            refreshed = _load_cloud_session()
+        except CloudCredentialStoreError:
+            refreshed = None
         session = (
             refreshed
             if refreshed is not None and refreshed.api_url == cloud_api_url
@@ -527,7 +613,10 @@ def has_valid_cloud_auth(config: Config) -> bool:
     cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
     if not cloud_api_url:
         return False
-    existing = _load_cloud_session()
+    try:
+        existing = _load_cloud_session()
+    except CloudCredentialStoreError:
+        return False
     if existing is None or existing.api_url != cloud_api_url:
         return False
     try:
@@ -549,7 +638,10 @@ def has_stored_cloud_auth(config: Config) -> bool:
     cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
     if not cloud_api_url:
         return False
-    existing = _load_cloud_session()
+    try:
+        existing = _load_cloud_session()
+    except CloudCredentialStoreError:
+        return True
     if existing is None or existing.api_url != cloud_api_url:
         return False
     return bool(existing.refresh_token)
@@ -563,7 +655,10 @@ def get_cloud_session(config: Config) -> CloudSession | None:
     if not cloud_api_url:
         return None
 
-    existing = _load_cloud_session()
+    try:
+        existing = _load_cloud_session()
+    except CloudCredentialStoreError:
+        return None
     if existing is None or existing.api_url != cloud_api_url:
         return None
 
@@ -705,29 +800,113 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
     return get_bundled_models_result(config).models
 
 
-def get_cloud_entitlements(config: Config) -> dict[str, Any]:
-    try:
-        session = get_cloud_session(config)
-        if session is None:
-            return {}
+def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
+    auth = get_cloud_auth_status(config)
+    if not auth.is_valid:
+        return CloudEntitlementsResult(entitlements={}, auth=auth)
 
+    session = auth.session
+    assert session is not None
+    try:
         status, payload = _get_json(
             f"{session.api_url.rstrip('/')}/auth/me",
             access_token=session.access_token,
         )
-    except (CloudAuthError, CloudConnectionError):
-        return {}
+    except CloudConnectionError as exc:
+        return CloudEntitlementsResult(
+            entitlements={},
+            auth=CloudAuthStatus(
+                state=CloudSessionState.NETWORK_ERROR,
+                session=session,
+                message=str(exc),
+            ),
+        )
+    except CloudAuthError as exc:
+        return CloudEntitlementsResult(
+            entitlements={},
+            auth=CloudAuthStatus(
+                state=CloudSessionState.INVALID,
+                session=session,
+                message=str(exc) or "Stored iTE Cloud session is expired or revoked.",
+            ),
+        )
     if status != 200 or not payload.get("ok"):
-        return {}
+        message = _cloud_payload_message(payload) or f"iTE Cloud returned {status}."
+        state = (
+            CloudSessionState.INVALID
+            if status in {401, 403}
+            else CloudSessionState.NETWORK_ERROR
+            if status >= 500
+            else CloudSessionState.INVALID
+        )
+        return CloudEntitlementsResult(
+            entitlements={},
+            auth=CloudAuthStatus(state=state, session=session, message=message),
+        )
     entitlements = payload.get("entitlements")
-    return entitlements if isinstance(entitlements, dict) else {}
+    normalized_entitlements = entitlements if isinstance(entitlements, dict) else {}
+    try:
+        _save_cloud_entitlements_cache(session, normalized_entitlements)
+    except Exception:
+        pass
+    return CloudEntitlementsResult(
+        entitlements=normalized_entitlements,
+        auth=auth,
+    )
+
+
+def get_cloud_entitlements(config: Config) -> dict[str, Any]:
+    return get_cloud_entitlements_result(config).entitlements
+
+
+def get_remote_companion_access_status(config: Config) -> CloudAuthStatus:
+    result = get_cloud_entitlements_result(config)
+    if result.auth.state in {
+        CloudSessionState.CREDENTIAL_ERROR,
+        CloudSessionState.NETWORK_ERROR,
+    }:
+        cached_entitlements = _load_cached_cloud_entitlements(
+            config,
+            max_age_seconds=_REMOTE_ENTITLEMENT_GRACE_SECONDS,
+        )
+        cached_allowed = (
+            bool(cached_entitlements.get("remoteCompanion"))
+            if "remoteCompanion" in cached_entitlements
+            else bool(cached_entitlements.get("bundledInference"))
+        )
+        if cached_allowed:
+            return CloudAuthStatus(
+                state=CloudSessionState.VALID,
+                session=result.auth.session,
+                message=(
+                    "Remote companion access is using a recently verified local "
+                    "entitlement cache because iTE Cloud credentials could not be "
+                    "checked right now."
+                ),
+            )
+    if not result.auth.is_valid:
+        return result.auth
+    entitlements = result.entitlements
+    allowed = (
+        bool(entitlements.get("remoteCompanion"))
+        if "remoteCompanion" in entitlements
+        else bool(entitlements.get("bundledInference"))
+    )
+    if allowed:
+        return CloudAuthStatus(
+            state=CloudSessionState.VALID,
+            session=result.auth.session,
+            message="Remote companion access is active.",
+        )
+    return CloudAuthStatus(
+        state=CloudSessionState.NO_ENTITLEMENT,
+        session=result.auth.session,
+        message="Remote companion requires bundled access for this iTE account.",
+    )
 
 
 def has_remote_companion_access(config: Config) -> bool:
-    entitlements = get_cloud_entitlements(config)
-    if "remoteCompanion" in entitlements:
-        return bool(entitlements.get("remoteCompanion"))
-    return bool(entitlements.get("bundledInference"))
+    return get_remote_companion_access_status(config).is_valid
 
 
 def get_usage_summary(config: Config) -> dict[str, Any] | None:
@@ -774,7 +953,10 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
             "Cloud auth is enabled but no cloud endpoint is configured."
         )
 
-    existing = _load_cloud_session()
+    try:
+        existing = _load_cloud_session()
+    except CloudCredentialStoreError:
+        existing = None
     if (
         existing
         and existing.api_url == cloud_api_url

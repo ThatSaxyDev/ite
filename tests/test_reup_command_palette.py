@@ -2774,6 +2774,49 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app._live_shell_call_state["call_prompt"].metadata["awaiting_input"]
         )
 
+    def test_shell_progress_broadcasts_when_remote_input_becomes_available(
+        self,
+    ) -> None:
+        app = self._app()
+        app._run_state().running_shell_call_ids.add("call_prompt")
+        app._tool_widgets["call_prompt"] = SimpleNamespace(update=lambda _value: None)
+        app._tool_args_by_call_id["call_prompt"] = {
+            "command": "python scripts/interactive_prompt_demo.py"
+        }
+
+        async def scenario() -> None:
+            with (
+                patch.object(
+                    app,
+                    "_build_shell_session_card_content",
+                    return_value=("header", "body"),
+                ),
+                patch.object(app, "_set_loading_state") as set_loading_state,
+                patch.object(
+                    app,
+                    "_broadcast_remote_state",
+                    new=AsyncMock(),
+                ) as broadcast,
+            ):
+                await app._update_tool_call_progress(
+                    call_id="call_prompt",
+                    name="shell",
+                    output="Enter a project label: ",
+                    metadata={
+                        "input_capable": True,
+                        "awaiting_input": True,
+                    },
+                    exit_code=None,
+                )
+                broadcast.assert_awaited_once()
+                set_loading_state.assert_called_once_with(
+                    "waiting on shell",
+                    busy=True,
+                )
+
+        asyncio.run(scenario())
+        self.assertEqual(app._active_shell_input_call_id(), "call_prompt")
+
     def test_cancel_active_turn_cancels_active_session_subagents(self) -> None:
         app = self._app()
         runtime = SimpleNamespace(cancel=AsyncMock(return_value={"cancelled_run_ids": ["agent_001"]}))

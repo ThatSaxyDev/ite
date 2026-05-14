@@ -80,8 +80,8 @@ from ite.cloud import (
     get_activity,
     get_bundled_models_result,
     get_cloud_auth_status,
+    get_remote_companion_access_status,
     get_usage_summary,
-    has_remote_companion_access,
     has_stored_cloud_auth,
     has_valid_cloud_auth,
     is_cloud_signed_out,
@@ -1300,7 +1300,7 @@ class ReupApp(App):
         self._runtime_update_check_in_flight: bool = False
         self._required_update_notice: Any | None = None
         self._bundled_access_announced: bool = False
-        self._remote_access_cache: tuple[bool, float] | None = None
+        self._remote_access_cache: tuple[Any, float] | None = None
         self._command_palette_options: list[SlashCommandOption] = []
         self._filtered_command_palette_options: list[SlashCommandOption] = []
         self._command_palette_index: int = 0
@@ -1891,21 +1891,53 @@ class ReupApp(App):
             self._remote_server = None
 
     async def _has_remote_companion_access(self, *, refresh: bool = False) -> bool:
+        status = await self._remote_companion_access_status(refresh=refresh)
+        return bool(getattr(status, "is_valid", False))
+
+    async def _remote_companion_access_status(self, *, refresh: bool = False) -> Any:
         now = time.monotonic()
         if not refresh and self._remote_access_cache is not None:
-            allowed, checked_at = self._remote_access_cache
+            status, checked_at = self._remote_access_cache
             if now - checked_at < 60:
-                return allowed
-        allowed = await asyncio.to_thread(has_remote_companion_access, self.config)
-        self._remote_access_cache = (allowed, now)
-        return allowed
+                return status
+        status = await asyncio.to_thread(
+            get_remote_companion_access_status,
+            self.config,
+        )
+        self._remote_access_cache = (status, now)
+        return status
+
+    def _remote_access_error_message(self, status: Any) -> str:
+        state = str(getattr(status, "state", "") or "")
+        message = str(getattr(status, "message", "") or "").strip()
+        if state == CloudSessionState.CREDENTIAL_ERROR:
+            return (
+                message
+                or "Could not read iTE Cloud credentials from the OS credential store."
+            ) + " Unlock Keychain Access if needed, then try `/remote on` again. If that keeps failing, run `/cloud login` to refresh the stored credential."
+        if state == CloudSessionState.NETWORK_ERROR:
+            return (
+                message
+                or "iTE Cloud is unreachable right now. Your stored session was kept."
+            )
+        if state == CloudSessionState.SIGNED_OUT:
+            return "Sign in with `/cloud login`, then try `/remote on` again."
+        if state == CloudSessionState.INVALID:
+            return (
+                message or "Stored iTE Cloud session is expired or revoked."
+            ) + " Run `/cloud login` to sign in again."
+        return (
+            message
+            or "Remote companion requires bundled access. Sign in with `/cloud login` using an account with bundled access, or manage your plan, then try `/remote on` again."
+        )
 
     async def _require_remote_companion_access(self, *, refresh: bool = True) -> bool:
-        if await self._has_remote_companion_access(refresh=refresh):
+        status = await self._remote_companion_access_status(refresh=refresh)
+        if bool(getattr(status, "is_valid", False)):
             return True
         self.post_system(
             "Remote",
-            "Remote companion requires bundled access. Sign in with `/cloud login` using an account with bundled access, or manage your plan, then try `/remote on` again.",
+            self._remote_access_error_message(status),
             is_error=True,
         )
         return False
@@ -2018,7 +2050,6 @@ class ReupApp(App):
             message,
             clear_composer=False,
         ):
-            await self._broadcast_remote_state()
             return
         payload = self._build_turn_payload(message)
         await self._dispatch_payload(payload)
@@ -2843,6 +2874,20 @@ class ReupApp(App):
                     context,
                     message
                     or "iTE Cloud is unreachable right now. Your stored session was kept.",
+                    is_error=True,
+                )
+            return False
+        if state == CloudSessionState.CREDENTIAL_ERROR:
+            self._cloud_bootstrap_busy = False
+            self._set_signed_out_state(False)
+            if interactive:
+                self.post_system(
+                    context,
+                    (
+                        message
+                        or "Could not read iTE Cloud credentials from the OS credential store."
+                    )
+                    + " Unlock Keychain Access if needed, then try again. If that keeps failing, run `/cloud login`.",
                     is_error=True,
                 )
             return False
@@ -7328,8 +7373,12 @@ class ReupApp(App):
             self._resize_composer_for_prompt()
         state = self._live_shell_call_state.get(call_id)
         if state is not None:
+            was_awaiting_shell_input = self._active_shell_input_call_id() is not None
             state.metadata = dict(state.metadata)
             state.metadata["awaiting_input"] = False
+            is_awaiting_shell_input = self._active_shell_input_call_id() is not None
+            if was_awaiting_shell_input != is_awaiting_shell_input:
+                await self._broadcast_remote_state()
         self._set_loading_state("waiting on shell", busy=True)
         return True
 
@@ -10958,6 +11007,7 @@ class ReupApp(App):
     ) -> None:
         if name != "shell":
             return
+        was_awaiting_shell_input = self._active_shell_input_call_id() is not None
         md = metadata if isinstance(metadata, dict) else {}
         card = self._tool_widgets.get(call_id)
         args = self._tool_args_by_call_id.get(call_id, {})
@@ -10988,7 +11038,13 @@ class ReupApp(App):
         else:
             card.update(Group(header, body))
 
-        self._set_loading_state("idle", busy=False)
+        is_awaiting_shell_input = self._active_shell_input_call_id() is not None
+        if is_awaiting_shell_input:
+            self._set_loading_state("waiting on shell", busy=True)
+        else:
+            self._set_loading_state("idle", busy=False)
+        if was_awaiting_shell_input != is_awaiting_shell_input:
+            await self._broadcast_remote_state()
 
     async def _move_card_to_bottom(self, card: Widget) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
