@@ -19,7 +19,6 @@ from ite.tools.builtin.shell import ShellSendTool
 from ite.tools.builtin.shell import ShellStartTool
 from ite.tools.builtin.shell import ShellStopTool
 from ite.tools.builtin.shell import ShellTool
-from ite.tools.builtin.apply_patch import ApplyPatchTool
 from ite.tools.builtin.config_tools import ReadEnvTool
 from ite.tools.builtin.config_tools import ReadTomlTool
 from ite.tools.builtin.config_tools import ReadYamlTool
@@ -54,7 +53,6 @@ __all__ = [
     "ShellPollTool",
     "ShellSendTool",
     "ShellStopTool",
-    "ApplyPatchTool",
     "ReadTomlTool",
     "WriteTomlTool",
     "ReadEnvTool",
@@ -105,7 +103,6 @@ def get_all_builtin_tools() -> list[type]:
         ShellPollTool,
         ShellSendTool,
         ShellStopTool,
-        ApplyPatchTool,
         ReadTomlTool,
         WriteTomlTool,
         ReadEnvTool,

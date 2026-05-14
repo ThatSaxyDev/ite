@@ -636,6 +636,13 @@ Edit JSON files safely.
 
 
 class ApplyPatchToolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_apply_patch_is_not_registered_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            registry = create_default_registry(Config(cwd=Path(td), api_key="test"))
+            tool_names = {tool.name for tool in registry.get_tools()}
+
+            self.assertNotIn("apply_patch", tool_names)
+
     async def test_apply_patch_mixed_operations(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
