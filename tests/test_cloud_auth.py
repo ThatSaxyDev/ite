@@ -12,6 +12,7 @@ from ite.cloud.auth import (
     CloudCredentialStoreError,
     _CLOUD_ACCESS_TOKEN_CACHE,
     _load_cloud_session,
+    _refresh_cloud_session,
     _save_cloud_session,
     ensure_cloud_auth,
     get_activity,
@@ -409,3 +410,73 @@ class CloudAuthTests(unittest.TestCase):
             status = get_cloud_auth_status(self.config)
 
         self.assertEqual(status.state, CloudSessionState.VALID)
+
+    def test_cloud_auth_status_treats_forbidden_me_as_signed_in(self) -> None:
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=self.session),
+            patch("ite.cloud.auth._get_json", return_value=(403, {"ok": False})),
+        ):
+            status = get_cloud_auth_status(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.VALID)
+        self.assertIs(status.session, self.session)
+
+    def test_remote_access_reports_forbidden_me_as_no_entitlement(self) -> None:
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=self.session),
+            patch("ite.cloud.auth._get_json", return_value=(403, {"ok": False})),
+        ):
+            status = get_remote_companion_access_status(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.NO_ENTITLEMENT)
+        self.assertIn("403", status.message)
+
+    def test_refresh_preserves_refresh_token_when_response_omits_rotation(self) -> None:
+        session = CloudSession(
+            access_token="",
+            refresh_token="stored-refresh",
+            access_expires_at=0,
+            api_url="http://127.0.0.1:4000",
+            client_id="test-device",
+        )
+        refresh_payload = {
+            "ok": True,
+            "accessToken": "new-access",
+            "expiresIn": 3600,
+        }
+
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=session),
+            patch("ite.cloud.auth._post_json", return_value=(200, refresh_payload)),
+            patch("ite.cloud.auth._save_cloud_session") as save_session,
+        ):
+            status = get_cloud_auth_status(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.VALID)
+        saved_session = save_session.call_args.args[0]
+        self.assertEqual(saved_session.refresh_token, "stored-refresh")
+
+    def test_refresh_reuses_newer_session_after_concurrent_rotation(self) -> None:
+        stale = CloudSession(
+            access_token="",
+            refresh_token="old-refresh",
+            access_expires_at=0,
+            api_url="http://127.0.0.1:4000",
+            client_id="test-device",
+        )
+        current = CloudSession(
+            access_token="new-access",
+            refresh_token="new-refresh",
+            access_expires_at=9999999999,
+            api_url="http://127.0.0.1:4000",
+            client_id="test-device",
+        )
+
+        with (
+            patch("ite.cloud.auth._load_cloud_session", return_value=current),
+            patch("ite.cloud.auth._post_json") as post_json,
+        ):
+            refreshed = _refresh_cloud_session(stale)
+
+        self.assertIs(refreshed, current)
+        post_json.assert_not_called()

@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import ssl
+import threading
 import time
 import webbrowser
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ _CLOUD_SESSION_FORMAT_VERSION = 2
 _CLOUD_ENTITLEMENTS_CACHE_VERSION = 1
 _REMOTE_ENTITLEMENT_GRACE_SECONDS = 72 * 60 * 60
 _CLOUD_ACCESS_TOKEN_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
+_CLOUD_SESSION_REFRESH_LOCK = threading.Lock()
 
 
 @dataclass
@@ -425,25 +427,46 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
 
 
 def _refresh_cloud_session(session: CloudSession) -> CloudSession | None:
-    status, payload = _post_json(
-        f"{session.api_url.rstrip('/')}/auth/refresh",
-        {"refreshToken": session.refresh_token},
-    )
-    if status != 200 or not payload.get("ok"):
-        # Server errors (5xx) when server is down/spinning up - raise connection error
-        if status >= 500:
-            raise CloudConnectionError(f"iTE Cloud API returned server error {status}")
-        # Auth errors (401/403) - session expired or revoked
-        return None
-    refreshed = CloudSession(
-        access_token=str(payload.get("accessToken") or ""),
-        refresh_token=str(payload.get("refreshToken") or ""),
-        access_expires_at=time.time() + int(payload.get("expiresIn") or 0),
-        api_url=session.api_url,
-        client_id=session.client_id,
-    )
-    _save_cloud_session(refreshed)
-    return refreshed
+    with _CLOUD_SESSION_REFRESH_LOCK:
+        refresh_source = session
+        current = _load_cloud_session()
+        if (
+            current is not None
+            and current.api_url == session.api_url
+            and current.client_id == session.client_id
+        ):
+            if current.is_access_valid:
+                return current
+            if current.refresh_token and current.refresh_token != session.refresh_token:
+                refresh_source = current
+
+        status, payload = _post_json(
+            f"{refresh_source.api_url.rstrip('/')}/auth/refresh",
+            {"refreshToken": refresh_source.refresh_token},
+        )
+        if status != 200 or not payload.get("ok"):
+            # Server errors (5xx) when server is down/spinning up - raise connection error
+            if status >= 500:
+                raise CloudConnectionError(
+                    f"iTE Cloud API returned server error {status}"
+                )
+            # Auth errors (401/403) - session expired or revoked
+            return None
+        refreshed = CloudSession(
+            access_token=str(
+                payload.get("accessToken") or payload.get("access_token") or ""
+            ),
+            refresh_token=str(
+                payload.get("refreshToken")
+                or payload.get("refresh_token")
+                or refresh_source.refresh_token
+            ),
+            access_expires_at=time.time() + int(payload.get("expiresIn") or 0),
+            api_url=refresh_source.api_url,
+            client_id=refresh_source.client_id,
+        )
+        _save_cloud_session(refreshed)
+        return refreshed
 
 
 def _coerce_optional_bool(value: Any) -> bool | None:
@@ -504,6 +527,8 @@ def _verify_cloud_session(session: CloudSession) -> bool:
             f"{session.api_url.rstrip('/')}/auth/me",
             access_token=session.access_token,
         )
+        if status == 403:
+            return True
         return status == 200 and bool(payload.get("ok"))
     # Try to refresh
     try:
@@ -528,6 +553,8 @@ def check_cloud_session(session: CloudSession) -> str:
             )
             if status == 200 and bool(payload.get("ok")):
                 return CloudSessionState.VALID
+            if status == 403:
+                return CloudSessionState.VALID
             # Server errors (5xx) when server is down/spinning up - keep session
             if status >= 500:
                 return CloudSessionState.NETWORK_ERROR
@@ -536,7 +563,7 @@ def check_cloud_session(session: CloudSession) -> str:
                 if refreshed is not None:
                     return CloudSessionState.VALID
                 return CloudSessionState.INVALID
-            # Remaining auth errors (403, etc.) mean the session is invalid.
+            # Remaining auth errors mean the session is invalid.
             return CloudSessionState.INVALID
         except CloudConnectionError:
             return CloudSessionState.NETWORK_ERROR
@@ -834,7 +861,9 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
         message = _cloud_payload_message(payload) or f"iTE Cloud returned {status}."
         state = (
             CloudSessionState.INVALID
-            if status in {401, 403}
+            if status == 401
+            else CloudSessionState.NO_ENTITLEMENT
+            if status == 403
             else CloudSessionState.NETWORK_ERROR
             if status >= 500
             else CloudSessionState.INVALID

@@ -1,13 +1,15 @@
 """General commands: /ite, /exit, /quit, /help, /clear, /new, /close."""
 
 import sys
-from ite.commands import Command, CommandContext, CommandRegistry
-from ite.cloud import clear_cloud_auth
-from ite.memory import MemoryManager
+
+from rich import box
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
-from rich.markdown import Markdown
-from rich import box
+
+from ite.cloud import clear_cloud_auth
+from ite.commands import Command, CommandContext, CommandRegistry
+from ite.memory import MemoryManager
 
 
 async def cmd_ite(ctx: CommandContext, args: list[str]) -> None:
@@ -20,7 +22,7 @@ async def cmd_ite(ctx: CommandContext, args: list[str]) -> None:
 async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
     # Auto-save session before exiting (skip empty sessions)
     try:
-        from ite.agent.session_manager import SessionSnapshot, SessionManager
+        from ite.agent.session_manager import SessionManager, SessionSnapshot
 
         session = ctx.agent.session
         if session.turn_count > 0:
@@ -39,7 +41,9 @@ async def cmd_exit(ctx: CommandContext, args: list[str]) -> None:
         pass
 
     try:
-        MemoryManager(ctx.config.cwd, session_id=ctx.agent.session.session_id).clear_session_short_term()
+        MemoryManager(
+            ctx.config.cwd, session_id=ctx.agent.session.session_id
+        ).clear_session_short_term()
     except Exception:
         pass
 
@@ -107,7 +111,7 @@ async def cmd_new(ctx: CommandContext, args: list[str]) -> None:
         return
 
     from ite.agent.session import Session
-    from ite.agent.session_manager import SessionSnapshot, SessionManager
+    from ite.agent.session_manager import SessionManager, SessionSnapshot
 
     previous = ctx.agent.session
 
@@ -157,45 +161,73 @@ async def cmd_close(ctx: CommandContext, args: list[str]) -> None:
         await close_current_thread()
         return
 
-    ctx.console.print("[error]/close is only available in multi-thread surfaces.[/error]")
+    ctx.console.print(
+        "[error]/close is only available in multi-thread surfaces.[/error]"
+    )
 
 
 async def cmd_logout(ctx: CommandContext, args: list[str]) -> None:
     cleared = clear_cloud_auth()
     if cleared:
         ctx.console.print("[bold green]Cloud session cleared.[/bold green]")
-        ctx.console.print("[dim]Run `ite` again or use `/cloud login` to start sign-in from scratch.[/dim]")
+        ctx.console.print(
+            "[dim]Run `ite` again or use `/cloud login` to start sign-in from scratch.[/dim]"
+        )
         return
     ctx.console.print("[dim]No local cloud session was present.[/dim]")
 
 
 def register(registry: CommandRegistry) -> None:
-    registry.register(Command(
-        name="/ite", description="Show welcome screen", handler=cmd_ite,
-    ))
-    registry.register(Command(
-        name="/exit", description="Exit the agent",
-        handler=cmd_exit, aliases=["/quit"],
-    ))
-    registry.register(Command(
-        name="/help", description="Show this help", handler=cmd_help,
-    ))
-    registry.register(Command(
-        name="/clear", description="Clear conversation history",
-        handler=cmd_clear,
-    ))
-    registry.register(Command(
-        name="/new", description="Start a new thread/session",
-        handler=cmd_new,
-    ))
-    registry.register(Command(
-        name="/close", description="Close the current thread/session",
-        handler=cmd_close,
-    ))
-    registry.register(Command(
-        name="/logout", description="Log out of iTE Cloud for terminal auth testing",
-        handler=cmd_logout,
-    ))
+    registry.register(
+        Command(
+            name="/ite",
+            description="Show welcome screen",
+            handler=cmd_ite,
+        )
+    )
+    registry.register(
+        Command(
+            name="/exit",
+            description="Exit the agent",
+            handler=cmd_exit,
+            aliases=["/quit"],
+        )
+    )
+    registry.register(
+        Command(
+            name="/help",
+            description="Show this help",
+            handler=cmd_help,
+        )
+    )
+    registry.register(
+        Command(
+            name="/clear",
+            description="Clear conversation history",
+            handler=cmd_clear,
+        )
+    )
+    registry.register(
+        Command(
+            name="/new",
+            description="Start a new thread/session",
+            handler=cmd_new,
+        )
+    )
+    registry.register(
+        Command(
+            name="/close",
+            description="Close the current thread/session",
+            handler=cmd_close,
+        )
+    )
+    registry.register(
+        Command(
+            name="/logout",
+            description="Log out of iTE",
+            handler=cmd_logout,
+        )
+    )
     registry.register(
         Command(
             name="/setup",
