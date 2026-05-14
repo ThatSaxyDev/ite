@@ -15,7 +15,7 @@ from ite.config.config import Config
 from ite.cloud.auth import BundledModelsResult, CloudAuthStatus, CloudSessionState
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
-from ite.ui.reup.app import ReupApp
+from ite.ui.reup.app import ReupApp, pluralize_tool_title
 from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
@@ -61,6 +61,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertTrue(ReupApp._is_internal_todo_event("todos_exec_progress_abcd1234"))
         self.assertTrue(ReupApp._is_internal_todo_event("todos_seed_abcd1234"))
         self.assertFalse(ReupApp._is_internal_todo_event("manual_todos_call"))
+
+    def test_plural_tool_title_preserves_ready_status(self) -> None:
+        self.assertEqual(pluralize_tool_title("Skills ready"), "Skills ready")
 
     def test_plan_intent_requires_explicit_plan_language(self) -> None:
         app = self._app()

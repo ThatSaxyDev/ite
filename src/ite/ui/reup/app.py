@@ -662,6 +662,8 @@ def pluralize_tool_title(title: str) -> str:
             return text.replace(singular, plural, 1)
     if text in custom:
         return custom[text]
+    if text.endswith(" ready"):
+        return text
     if not text or text.endswith("s"):
         return text
     words = text.split()
