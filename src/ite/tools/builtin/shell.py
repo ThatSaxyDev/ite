@@ -12,7 +12,7 @@ if sys.platform != "win32":
     import pty
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 import shlex
@@ -223,6 +223,7 @@ class ShellRunInputRecord:
     call_id: str
     process: asyncio.subprocess.Process
     master_fd: int
+    on_input_sent: Callable[[], None] | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -237,6 +238,7 @@ class ShellRunInputManager:
         call_id: str | None,
         process: asyncio.subprocess.Process,
         master_fd: int,
+        on_input_sent: Callable[[], None] | None = None,
     ) -> None:
         if not call_id:
             return
@@ -245,6 +247,7 @@ class ShellRunInputManager:
                 call_id=call_id,
                 process=process,
                 master_fd=master_fd,
+                on_input_sent=on_input_sent,
             )
 
     async def unregister(self, call_id: str | None) -> None:
@@ -273,6 +276,8 @@ class ShellRunInputManager:
             except OSError:
                 await self.unregister(call_id)
                 return False
+        if record.on_input_sent is not None:
+            record.on_input_sent()
         return True
 
 
@@ -754,6 +759,11 @@ class ShellTool(_ShellCommonTool):
         stderr_bytes = 0
         has_stdout = False
         has_stderr = False
+        last_interaction_at = time.monotonic()
+
+        def mark_interaction() -> None:
+            nonlocal last_interaction_at
+            last_interaction_at = time.monotonic()
 
         async def emit_progress() -> None:
             if invocation.progress_callback is None:
@@ -790,6 +800,7 @@ class ShellTool(_ShellCommonTool):
             if not text:
                 return
             async with state_lock:
+                mark_interaction()
                 payload = text
                 if stream == "stderr" and last_stream != "stderr":
                     separator = "\n" if combined_output and not combined_output.endswith("\n") else ""
@@ -857,16 +868,26 @@ class ShellTool(_ShellCommonTool):
                 call_id=invocation.call_id,
                 process=process,
                 master_fd=master_fd,
+                on_input_sent=mark_interaction,
             )
             reader_tasks = [
                 asyncio.create_task(read_stream(reader, stream="stdout")),
             ]
 
         try:
-            await asyncio.wait_for(
-                process.wait(),
-                timeout=params.timeout,
-            )
+            while True:
+                idle_for = max(0.0, time.monotonic() - last_interaction_at)
+                remaining = max(0.1, float(params.timeout) - idle_for)
+                try:
+                    await asyncio.wait_for(
+                        process.wait(),
+                        timeout=remaining,
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    if time.monotonic() - last_interaction_at < float(params.timeout):
+                        continue
+                    raise
         except asyncio.CancelledError:
             try:
                 await _terminate_process(process)

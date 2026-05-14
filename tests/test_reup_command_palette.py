@@ -2738,6 +2738,42 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app._live_shell_call_state["call_prompt"].metadata["awaiting_input"]
         )
 
+    def test_remote_prompt_routes_text_to_waiting_shell(self) -> None:
+        app = self._app()
+        app._is_turn_running = True
+        app._run_state().running_shell_call_ids.add("call_prompt")
+        app._live_shell_call_state["call_prompt"] = SimpleNamespace(
+            metadata={"input_capable": True, "awaiting_input": True}
+        )
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "query_one") as query_one,
+                patch.object(app, "_resize_composer_for_prompt") as resize,
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch,
+                patch.object(app, "_broadcast_remote_state", new=AsyncMock()) as broadcast,
+                patch(
+                    "ite.ui.reup.app.send_input_to_shell_run",
+                    new=AsyncMock(return_value=True),
+                ) as shell_send,
+            ):
+                await app._submit_remote_prompt("Ada")
+                shell_send.assert_awaited_once_with(
+                    "call_prompt",
+                    "Ada",
+                    append_newline=True,
+                )
+                dispatch.assert_not_awaited()
+                broadcast.assert_awaited_once()
+                query_one.assert_not_called()
+                resize.assert_not_called()
+
+        asyncio.run(scenario())
+        self.assertFalse(
+            app._live_shell_call_state["call_prompt"].metadata["awaiting_input"]
+        )
+
     def test_cancel_active_turn_cancels_active_session_subagents(self) -> None:
         app = self._app()
         runtime = SimpleNamespace(cancel=AsyncMock(return_value={"cancelled_run_ids": ["agent_001"]}))

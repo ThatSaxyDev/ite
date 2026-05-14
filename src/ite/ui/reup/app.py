@@ -1986,6 +1986,7 @@ class ReupApp(App):
                 "is_turn_running": bool(run_state.is_turn_running),
                 "activity_label": str(self._top_state_text or ""),
                 "activity_busy": bool(self._top_busy),
+                "awaiting_shell_input": self._active_shell_input_call_id() is not None,
                 "turn_had_error": bool(run_state.turn_had_error),
                 "last_error_message": str(run_state.last_error_message or ""),
             },
@@ -2013,6 +2014,12 @@ class ReupApp(App):
         )
 
     async def _submit_remote_prompt(self, message: str) -> None:
+        if self._is_turn_running and await self._send_active_shell_input(
+            message,
+            clear_composer=False,
+        ):
+            await self._broadcast_remote_state()
+            return
         payload = self._build_turn_payload(message)
         await self._dispatch_payload(payload)
 
@@ -7303,21 +7310,27 @@ class ReupApp(App):
                 return call_id
         return None
 
-    async def _send_active_shell_input(self, text: str) -> bool:
+    async def _send_active_shell_input(
+        self,
+        text: str,
+        *,
+        clear_composer: bool = True,
+    ) -> bool:
         call_id = self._active_shell_input_call_id()
         if not call_id:
             return False
         sent = await send_input_to_shell_run(call_id, text, append_newline=True)
         if not sent:
             return False
-        prompt = self.query_one("#prompt", TextArea)
-        prompt.text = ""
-        self._resize_composer_for_prompt()
+        if clear_composer:
+            prompt = self.query_one("#prompt", TextArea)
+            prompt.text = ""
+            self._resize_composer_for_prompt()
         state = self._live_shell_call_state.get(call_id)
         if state is not None:
             state.metadata = dict(state.metadata)
             state.metadata["awaiting_input"] = False
-        self._set_loading_state("sent shell input", busy=True)
+        self._set_loading_state("waiting on shell", busy=True)
         return True
 
     async def _dispatch_queued_payload_if_ready(self) -> None:

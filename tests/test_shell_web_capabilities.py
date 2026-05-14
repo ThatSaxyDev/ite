@@ -265,6 +265,49 @@ class ShellCapabilityTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.success, msg=result.error)
             self.assertIn("hello Ada", result.output)
 
+    async def test_shell_execute_timeout_resets_after_stdin_input(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            tool = ShellTool(Config(cwd=cwd, api_key="test"))
+            updates: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+
+            async def on_progress(update: dict[str, object]) -> None:
+                await updates.put(update)
+
+            task = asyncio.create_task(
+                tool.execute(
+                    ToolInvocation(
+                        params={
+                            "command": "python3 -c \"import time; name=input('Name: '); time.sleep(0.7); print('hello ' + name)\"",
+                            "timeout": 1,
+                        },
+                        cwd=cwd,
+                        call_id="call_delayed_prompt",
+                        progress_callback=on_progress,
+                    )
+                )
+            )
+
+            async def cleanup_task() -> None:
+                if task.done():
+                    return
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+            self.addAsyncCleanup(cleanup_task)
+
+            await asyncio.wait_for(updates.get(), timeout=2)
+            await asyncio.sleep(0.6)
+            sent = await send_input_to_shell_run("call_delayed_prompt", "Ada")
+            self.assertTrue(sent)
+            result = await asyncio.wait_for(task, timeout=3)
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIn("hello Ada", result.output)
+
     async def test_shell_environment_prepends_discovered_rg_directory(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
