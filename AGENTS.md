@@ -11,7 +11,7 @@ Based on my investigation of the project, here is the complete AGENTS.md content
 An AI coding agent for your terminal. Connect your model service and start coding.
 
 - **Package:** `ite-agent`
-- **Version:** 0.0.52
+- **Version:** 0.0.57
 - **Install:** `pipx install ite-agent` or `uv tool install ite-agent`
 
 ## Architecture
