@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import difflib
 import inspect
 import io
@@ -12293,16 +12294,36 @@ class ReupApp(App):
             await self._pin_activity_indicator_to_end()
 
     async def confirmation_callback(self, confirmation) -> bool:
-        if (
-            self._remote_server is not None
-            and self._remote_server.is_running
-            and self._remote_server.has_authenticated_clients()
+        body = confirmation.description
+        if confirmation.command:
+            body += f"\n\n$ {confirmation.command}"
+        if confirmation.diff:
+            body += f"\n\n{confirmation.diff.to_diff()}"
+
+        modal = ConfirmModal(
+            title=f"Approval required: {confirmation.tool_name}",
+            body=body,
+            yes_label="Approve",
+            no_label="Deny",
+        )
+
+        remote_server = self._remote_server
+        should_request_remote = (
+            remote_server is not None
+            and remote_server.is_running
+            and remote_server.has_authenticated_clients()
             and self.agent
             and self.agent.session
-        ):
-            approved = await self._remote_server.request_approval(
+        )
+        if not should_request_remote:
+            approved = await self._open_modal(modal)
+            return bool(approved)
+
+        request_id = uuid.uuid4().hex
+        remote_task = asyncio.create_task(
+            remote_server.request_approval(
                 serialize_approval_request(
-                    request_id="",
+                    request_id=request_id,
                     tool_name=str(confirmation.tool_name or "tool"),
                     description=str(confirmation.description or ""),
                     command=confirmation.command,
@@ -12311,24 +12332,43 @@ class ReupApp(App):
                     or self.agent.session.session_id,
                 )
             )
-            if approved is not None:
+        )
+        local_task = asyncio.create_task(self._open_modal(modal))
+
+        try:
+            done, _pending = await asyncio.wait(
+                {remote_task, local_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if local_task in done:
+                approved = bool(local_task.result())
+                await remote_server.resolve_approval_request(request_id, approved)
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(remote_task, timeout=0.5)
                 await self._broadcast_remote_state()
                 return approved
-        body = confirmation.description
-        if confirmation.command:
-            body += f"\n\n$ {confirmation.command}"
-        if confirmation.diff:
-            body += f"\n\n{confirmation.diff.to_diff()}"
 
-        approved = await self._open_modal(
-            ConfirmModal(
-                title=f"Approval required: {confirmation.tool_name}",
-                body=body,
-                yes_label="Approve",
-                no_label="Deny",
-            )
-        )
-        return bool(approved)
+            remote_result = remote_task.result()
+            if remote_result is None:
+                approved = bool(await local_task)
+                await self._broadcast_remote_state()
+                return approved
+
+            approved = bool(remote_result)
+            if not local_task.done():
+                modal.dismiss(approved)
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(local_task, timeout=0.5)
+            await self._broadcast_remote_state()
+            return approved
+        except Exception:
+            if not local_task.done():
+                return bool(await local_task)
+            raise
+        finally:
+            for task in (remote_task, local_task):
+                if not task.done():
+                    task.cancel()
 
     async def plan_question_callback(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._set_loading_state("planning", busy=True)

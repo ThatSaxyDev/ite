@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ite.remote.server import RemoteRuntimeServer
+from ite.remote.server import _ApprovalRequest
 from ite.remote.server import _PlanQuestionRequest
 from ite.remote.server import _PlanReadyRequest
 from ite.remote.server import _TrustedDevice
@@ -155,6 +156,45 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(resolved)
         self.assertTrue(future.result())
+
+    async def test_resolve_approval_request_completes_pending_future(self) -> None:
+        server = self._isolated_server()
+        client = _FakeClient(authenticated=True)
+        server._clients[client.client_id] = client
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        server._approval_requests["approval-1"] = _ApprovalRequest(
+            future=future,
+            created_at=datetime.now(timezone.utc),
+            payload={"tool_name": "git_commit"},
+        )
+
+        resolved = await server.resolve_approval_request("approval-1", True)
+
+        self.assertTrue(resolved)
+        self.assertTrue(future.result())
+        self.assertEqual(client.writer.frames[0]["type"], "approval_resolved")
+        self.assertEqual(client.writer.frames[0]["payload"]["request_id"], "approval-1")
+
+    async def test_resolve_approval_before_request_prevents_stale_mobile_prompt(
+        self,
+    ) -> None:
+        server = self._isolated_server()
+        client = _FakeClient(authenticated=True)
+        server._clients[client.client_id] = client
+
+        resolved = await server.resolve_approval_request("approval-early", False)
+        approved = await server.request_approval(
+            {"request_id": "approval-early", "tool_name": "git_commit"},
+            timeout=0.01,
+        )
+
+        self.assertFalse(resolved)
+        self.assertFalse(approved)
+        self.assertEqual(
+            [frame["type"] for frame in client.writer.frames],
+            ["approval_resolved"],
+        )
+        self.assertFalse(client.writer.frames[0]["payload"]["approved"])
 
     async def test_connection_info_exposes_secure_link_fields(self) -> None:
         server = self._isolated_server()

@@ -3202,6 +3202,112 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIs(app._open_sessions["s1"], previous)
         self.assertIs(app._open_sessions["s2"], fresh)
 
+    def test_confirmation_callback_keeps_local_approval_available_with_remote(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=SimpleNamespace(session_id="session-1"))
+        remote_result: asyncio.Future[bool] | None = None
+        captured_payloads: list[dict[str, object]] = []
+        resolved: list[tuple[str, bool]] = []
+
+        class FakeRemoteServer:
+            is_running = True
+
+            def has_authenticated_clients(self) -> bool:
+                return True
+
+            async def request_approval(self, payload):
+                nonlocal remote_result
+                captured_payloads.append(payload)
+                remote_result = asyncio.get_running_loop().create_future()
+                return await remote_result
+
+            async def resolve_approval_request(self, request_id, approved):
+                resolved.append((request_id, approved))
+                if remote_result is not None and not remote_result.done():
+                    remote_result.set_result(approved)
+                return True
+
+        app._remote_server = FakeRemoteServer()
+        confirmation = SimpleNamespace(
+            tool_name="git_commit",
+            description="Create git commit",
+            command=None,
+            diff=None,
+        )
+
+        async def scenario() -> bool:
+            with (
+                patch.object(app, "_active_session_id", return_value="session-1"),
+                patch.object(app, "_broadcast_remote_state", new=AsyncMock()),
+                patch.object(app, "_open_modal", new=AsyncMock(return_value=True)) as modal,
+            ):
+                approved = await app.confirmation_callback(confirmation)
+                modal.assert_awaited_once()
+                return approved
+
+        approved = asyncio.run(scenario())
+
+        self.assertTrue(approved)
+        self.assertEqual(len(captured_payloads), 1)
+        request_id = str(captured_payloads[0]["request_id"])
+        self.assertTrue(request_id)
+        self.assertEqual(resolved, [(request_id, True)])
+
+    def test_confirmation_callback_dismisses_runtime_modal_when_remote_denies(
+        self,
+    ) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(session=SimpleNamespace(session_id="session-1"))
+        dismissed: list[bool] = []
+
+        class FakeRemoteServer:
+            is_running = True
+
+            def has_authenticated_clients(self) -> bool:
+                return True
+
+            async def request_approval(self, _payload):
+                await asyncio.sleep(0)
+                return False
+
+            async def resolve_approval_request(self, _request_id, _approved):
+                return True
+
+        class FakeConfirmModal:
+            def __init__(self, **_kwargs) -> None:
+                self.future: asyncio.Future[bool] | None = None
+
+            def dismiss(self, approved: bool) -> None:
+                dismissed.append(approved)
+                if self.future is not None and not self.future.done():
+                    self.future.set_result(approved)
+
+        async def fake_open_modal(modal) -> bool:
+            modal.future = asyncio.get_running_loop().create_future()
+            return await modal.future
+
+        app._remote_server = FakeRemoteServer()
+        confirmation = SimpleNamespace(
+            tool_name="git_commit",
+            description="Create git commit",
+            command=None,
+            diff=None,
+        )
+
+        async def scenario() -> bool:
+            with (
+                patch.object(app, "_active_session_id", return_value="session-1"),
+                patch.object(app, "_broadcast_remote_state", new=AsyncMock()),
+                patch.object(app, "_open_modal", side_effect=fake_open_modal),
+                patch("ite.ui.reup.app.ConfirmModal", FakeConfirmModal),
+            ):
+                return await app.confirmation_callback(confirmation)
+
+        approved = asyncio.run(scenario())
+
+        self.assertFalse(approved)
+        self.assertEqual(dismissed, [False])
+
     def test_resume_snapshot_reuses_already_open_session(self) -> None:
         app = self._app()
         current = SimpleNamespace(

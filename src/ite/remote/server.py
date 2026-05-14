@@ -29,6 +29,12 @@ class _ApprovalRequest:
 
 
 @dataclass
+class _ResolvedApprovalRequest:
+    approved: bool
+    created_at: datetime
+
+
+@dataclass
 class _PlanQuestionRequest:
     future: asyncio.Future[dict[str, Any]]
     created_at: datetime
@@ -145,6 +151,7 @@ class RemoteRuntimeServer:
         self._trusted_devices: dict[str, _TrustedDevice] = {}
         self._failed_auth_attempts: dict[str, list[datetime]] = {}
         self._approval_requests: dict[str, _ApprovalRequest] = {}
+        self._resolved_approval_requests: dict[str, _ResolvedApprovalRequest] = {}
         self._plan_question_requests: dict[str, _PlanQuestionRequest] = {}
         self._plan_ready_requests: dict[str, _PlanReadyRequest] = {}
         self._trusted_devices_path = remote_storage_dir() / "trusted-devices.json"
@@ -506,6 +513,9 @@ class RemoteRuntimeServer:
         if not self.has_authenticated_clients():
             return None
         request_id = str(payload.get("request_id") or uuid.uuid4())
+        resolved = self._resolved_approval_requests.pop(request_id, None)
+        if resolved is not None:
+            return resolved.approved
         future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         self._approval_requests[request_id] = _ApprovalRequest(
             future=future,
@@ -521,6 +531,28 @@ class RemoteRuntimeServer:
             return None
         finally:
             self._approval_requests.pop(request_id, None)
+
+    async def resolve_approval_request(
+        self,
+        request_id: str,
+        approved: bool,
+    ) -> bool:
+        if not request_id:
+            return False
+        request = self._approval_requests.get(request_id)
+        resolved = request is not None
+        if request is None:
+            self._resolved_approval_requests[request_id] = _ResolvedApprovalRequest(
+                approved=bool(approved),
+                created_at=datetime.now(timezone.utc),
+            )
+        elif not request.future.done():
+            request.future.set_result(bool(approved))
+        await self._broadcast(
+            "approval_resolved",
+            {"request_id": request_id, "approved": bool(approved)},
+        )
+        return resolved
 
     async def request_plan_question(
         self,
@@ -892,9 +924,9 @@ class RemoteRuntimeServer:
             return
         if msg_type == "approval_response":
             approval_id = str(payload.get("request_id") or "").strip()
-            request = self._approval_requests.get(approval_id)
             approved = bool(payload.get("approved"))
-            if request is None:
+            resolved = await self.resolve_approval_request(approval_id, approved)
+            if not resolved:
                 await self._send(
                     client,
                     "command_ack",
@@ -902,12 +934,6 @@ class RemoteRuntimeServer:
                     request_id=request_id,
                 )
                 return
-            if not request.future.done():
-                request.future.set_result(approved)
-            await self._broadcast(
-                "approval_resolved",
-                {"request_id": approval_id, "approved": approved},
-            )
             await self._send(
                 client,
                 "command_ack",

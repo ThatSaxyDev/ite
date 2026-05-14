@@ -107,6 +107,7 @@ src/ite/
 
 ## Reup Textual UI Constraints
 
+- VERY IMPORTANT: Reup background workers must be lifecycle-safe around Textual widgets. Widgets such as `_activity_widget`, session tabs, thread nav, and change review panels can be removed, replaced, or nulled while an async worker is awaiting `mount()`, `remove()`, `query_one()`, or another UI operation. Never dereference a mutable widget field after an `await` unless you re-check that it is still the same non-`None` mounted widget. Prefer capturing the widget in a local variable, checking `self._field is widget` after awaits, and returning quietly if the version/widget changed. This specifically prevents recurring crashes like `AttributeError: 'NoneType' object has no attribute 'update'` in `_show_activity_indicator`.
 - Textual scrollbar sizes are terminal-cell based.
 - `scrollbar-size-vertical: 1` and `scrollbar-size-horizontal: 1` are the smallest practical visible scrollbar sizes.
 - `scrollbar-size-horizontal: 1` can still look visually thick because one terminal row is a full character cell tall.
