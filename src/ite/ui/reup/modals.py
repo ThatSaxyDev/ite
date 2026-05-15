@@ -1524,9 +1524,9 @@ class ActivityModal(ModalScreen[None]):
     def _title_for(event_type: str) -> str:
         mapping = {
             "billing.checkout_started": "Started checkout",
-            "billing.subscription_updated": "Subscription updated",
+            "billing.access_granted": "Pro access granted",
+            "billing.subscription_updated": "Billing updated",
             "billing.subscription_synced": "Billing synced",
-            "billing.portal_opened": "Opened billing portal",
             "billing.plan_downgraded": "Moved to Free",
             "auth.cli_approved": "Approved terminal sign-in",
             "session.terminal_created": "Created terminal session",
