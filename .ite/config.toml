@@ -100,6 +100,10 @@ auto_connect = false
 startup_timeout_sec = 45
 url = "http://127.0.0.1:29979/mcp"
 
+[mcp_servers.bachs]
+url = "https://docs.bachs.io/mcp"
+auto_connect = true
+
 # [mcp_servers.filesystem2]
 # enabled = true
 # command = "np"
