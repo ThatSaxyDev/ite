@@ -1624,7 +1624,7 @@ Widget {
 
 .block.tool.running {
     border: none;
-    background: $surface;
+    background: transparent;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
@@ -1637,7 +1637,7 @@ Widget {
 
 .block.success {
     border: none;
-    background: $surface;
+    background: transparent;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
@@ -1645,7 +1645,7 @@ Widget {
 
 .block.tool.error {
     border: none;
-    background: $warning-muted;
+    background: transparent;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
@@ -1653,7 +1653,7 @@ Widget {
 
 .block.tool-stack {
     border: none;
-    background: $surface;
+    background: transparent;
     padding: 0 1;
     margin-top: 0;
     margin-bottom: 2;
