@@ -84,8 +84,6 @@ from ite.cloud import (
     get_remote_companion_access_status,
     get_usage_summary,
     has_stored_cloud_auth,
-    has_valid_cloud_auth,
-    is_cloud_signed_out,
     mark_cloud_signed_out,
 )
 from ite.commands import build_registry
@@ -1575,13 +1573,11 @@ class ReupApp(App):
                 )
                 if not has_cloud_session:
                     self._cloud_bootstrap_busy = False
-                    if await asyncio.to_thread(is_cloud_signed_out):
-                        self._set_startup_state(False)
-                        self._set_signed_out_state(True)
-                        self._set_loading_state("idle", busy=False)
-                        self._schedule_runtime_update_check()
-                        return
-                    self._set_signed_out_state(False)
+                    self._set_startup_state(False)
+                    self._set_signed_out_state(True)
+                    self._set_loading_state("idle", busy=False)
+                    self._schedule_runtime_update_check()
+                    return
                 else:
                     self._set_signed_out_state(False)
                     self._cloud_bootstrap_busy = False

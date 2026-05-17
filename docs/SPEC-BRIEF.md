@@ -14,13 +14,18 @@
 6. [The Five-Layer Code Review System](#the-five-layer-code-review-system)
 7. [Tool Specification](#tool-specification)
 8. [Memory Architecture](#memory-architecture)
-9. [Persona & Voice](#persona--voice)
-10. [Storage Layer](#storage-layer)
-11. [Configuration](#configuration)
-12. [Implementation Order](#implementation-order)
-13. [Extensibility Points](#extensibility-points)
-14. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
-15. [Testing Strategy](#testing-strategy)
+9. [Extraction Policy](#extraction-policy)
+10. [Query Scope Control](#query-scope-control)
+11. [Performance Targets](#performance-targets)
+12. [Deduplication Strategy](#deduplication-strategy)
+13. [Search Logic](#search-logic)
+14. [Persona & Voice](#persona--voice)
+15. [Storage Layer](#storage-layer)
+16. [Configuration](#configuration)
+17. [Implementation Order](#implementation-order)
+18. [Extensibility Points](#extensibility-points)
+19. [Anti-Patterns to Avoid](#anti-patterns-to-avoid)
+20. [Testing Strategy](#testing-strategy)
 
 ---
 
@@ -490,6 +495,244 @@ For semantic search, use one of:
   }
 }
 ```
+
+---
+
+## Extraction Policy
+
+### The "Not Everything" Principle
+
+Not every commit creates a BRIEF entity. ~90% of commits are likely noise (typos, whitespace fixes, trivial changes). BRIEF extracts **meaningful** entities only.
+
+### What Gets Stored by Source Type
+
+| Source | Extraction Criteria | Expected Volume |
+|--------|---------------------|-----------------|
+| **Commits** | Message contains architectural keywords: "chose", "migrated", "moved to", "replaced", "decision", "architecture", "选择" | 100-500 per repo lifetime |
+| **Issues** | Body contains "will", "should", "must", "promise", "we need to", "technical debt" | 50-200 per repo |
+| **PR Descriptions** | Contains "rationale", "why", "because", "decision" | 50-200 per repo |
+| **Code Reviews** | Reviewer patterns: "don't do X", "always use Y", "we should" | 20-100 per repo |
+| **Incidents** | Tagged issues with "outage", "bug", "incident", "failure", "hotfix" | 10-50 per repo |
+| **Random commits** | "fix typo", "update", "wip" | Ignored (no entity created) |
+
+### Decision to Extract
+
+The extraction engine uses the LLM to classify:
+
+1. **Is this commit/issue/PR describing a decision?**
+2. **If yes, what category?** (decision, promise, rule, pattern, incident)
+3. **Is the context non-trivial?** (skip 1-liners that say "fix" or "update")
+
+If all answers are "yes" → create entity. Otherwise → skip.
+
+### Example Extraction Flow
+
+```
+Commit: "Chose PostgreSQL over MongoDB for user data. 
+        Relational model better fits permissions. ACID for billing."
+
+Classification:
+  - Decision: YES
+  - Category: decision
+  - Files affected: src/db/models.go, src/auth/permissions.go
+  - Participants: git author (mapped to team member)
+  
+Entity created: Decision{title: "Chose PostgreSQL over MongoDB", ...}
+```
+
+```
+Commit: "fix typo in comment"
+
+Classification:
+  - Decision: NO
+  
+Result: No entity created. Not stored.
+```
+
+---
+
+## Query Scope Control
+
+### Search, Not Dump
+
+When you ask BRIEF, it doesn't scan "everything." It searches for **relevant matches** only. Context bloat is avoided by design.
+
+### How Queries Work
+
+```
+You ask: "Why do we use PostgreSQL?"
+
+1. BRIEF converts question to embedding vector
+2. Searches Decision store for similarity > 0.85
+3. Returns top 3-5 most relevant entities (not all matches)
+4. Loads only those entities into context (~500 words)
+5. Passes to LLM for answer generation
+
+Result: ~500 words of relevant context, not 100,000.
+```
+
+### Per-Command Context Limits
+
+| Command | Context Scope | Typical Tokens |
+|---------|--------------|----------------|
+| `/brief ask <question>` | Top 3-5 relevant entities | ~500-800 |
+| `/brief pre-mortem` | Related incidents + similar decisions | ~600-1000 |
+| `/brief review --staged` | Layer outputs only | ~400-600 |
+| `/brief decisions` | Last 10 decisions (summarized) | ~300-500 |
+| `/brief onboarding` | Summarized summary of everything | ~1500-2000 |
+| `/brief promises` | Active promises + verification status | ~400-600 |
+
+### Context Compression
+
+When a query needs multiple entities, BRIEF can summarize them before sending to LLM:
+
+```
+Original: 3 decisions × 200 words = 600 words
+Compressed: "In March and May 2024, team decided to use PostgreSQL 
+             for user data due to ACID compliance. Avoided MongoDB
+             for the same reason. Related decisions."
+             
+Result: ~80 words (92% reduction)
+```
+
+This keeps LLM context lean while preserving meaning.
+
+---
+
+## Performance Targets
+
+### Storage Scale
+
+A mature repo using BRIEF actively:
+
+| Entity Type | Expected Count |
+|-------------|----------------|
+| Decisions | 100-500 |
+| Promises (active) | 20-50 |
+| Promises (fulfilled) | 50-150 |
+| Rules | 20-50 |
+| Incidents | 10-30 |
+| Patterns | 10-30 |
+| **Total** | **~300-1000 entities |
+
+Not millions. Hundreds.
+
+### Query Performance
+
+| Operation | Target |
+|------------|--------|
+| Semantic search (top 5) | < 500ms |
+| Full repo index (10,000 commits) | < 5 minutes |
+| Pre-mortem analysis | < 2 seconds |
+| Onboarding generation | < 5 seconds |
+| Layer 5 review (50-file PR) | < 30 seconds |
+
+### Context Budgets
+
+| Scenario | Max Context |
+|----------|-------------|
+| Simple ask | 1,000 tokens |
+| Pre-mortem | 2,000 tokens |
+| Full review | 3,000 tokens |
+| Onboarding | 4,000 tokens |
+
+---
+
+## Deduplication Strategy
+
+### The Memory Bloat Problem
+
+If BRIEF indexes every similar commit, the Ledger grows unmanageably. Need to prevent this.
+
+### Deduplication Approaches
+
+**1. Semantic Deduplication**
+- When extracting a new decision, search for similar existing ones (similarity > 0.90)
+- If found, optionally merge or link rather than create duplicate
+
+**2. Commit-Level Deduplication**
+- Maintain a commit SHA index (already in `.index`)
+- If commit already indexed → skip
+
+**3. Temporal Deduplication**
+- Related decisions within 7 days of each other → suggest merge
+- Example: Multiple commits all about "choosing auth framework"
+
+**4. Auto-Archiving**
+- Decisions older than 2 years → move to "archive" (still queryable but not in main index)
+- Incidents resolved > 1 year ago → reduced priority in search
+
+### What Doesn't Get Deduplicated
+
+- Promises: Each issue/promise is unique
+- Rules: Each rule may have different patterns
+- Incidents: Each incident is a distinct historical record
+
+---
+
+## Search Logic
+
+### The Three-Tier Search System
+
+**Tier 1: Semantic Search (Primary)**
+- Embed query → vector search → top-K entities by similarity
+- Threshold: 0.85 (configurable)
+- Returns: scored results with confidence
+
+**Tier 2: Keyword Fallback**
+- If embedding provider unavailable → BM25 keyword search
+- Weaker semantic understanding but no embedding dependency
+
+**Tier 3: Exact Match**
+- For structured queries like `/brief decisions --id <uuid>`
+- Direct lookup, no search needed
+
+### Search Flow Diagram
+
+```
+Query: "Why do we use PostgreSQL?"
+         │
+         ▼
+    [Convert to embedding]
+         │
+         ▼
+    [Tier 1: Semantic Search] ──→ Similarity > 0.85?
+         │                              │
+         │                         YES ▼
+         │                     [Return top 5]
+         │                              │
+         ▼                              ▼
+    [Tier 2: BM25] ─────────────────────┘
+         │
+         ▼
+    [Tier 3: Exact Match (if ID provided)]
+         │
+         ▼
+    [Return results to LLM]
+```
+
+### Confidence Scoring
+
+Every search result includes a confidence score:
+
+```json
+{
+  "answers": [
+    {
+      "text": "PostgreSQL was chosen for ACID compliance...",
+      "source": {"type": "decision", "id": "uuid-42"},
+      "confidence": 0.92
+    },
+    {
+      "text": "Related: team avoided MongoDB due to...",
+      "source": {"type": "decision", "id": "uuid-89"},
+      "confidence": 0.78
+    }
+  ]
+}
+```
+
+Results below `min_conflict_score` (default 0.85) can be filtered out.
 
 ---
 

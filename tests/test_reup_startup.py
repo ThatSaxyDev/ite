@@ -658,7 +658,7 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_bootstrap_shows_onboarding_without_cloud_session(self) -> None:
+    def test_bootstrap_requires_sign_in_without_cloud_session(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.cloud_auth_enabled = True
@@ -677,14 +677,8 @@ class ReupStartupTests(unittest.TestCase):
             ):
                 await app._bootstrap_after_mount()
 
-            self.assertGreaterEqual(set_signed_out_state.call_count, 1)
-            self.assertTrue(
-                all(
-                    call.args == (False,)
-                    for call in set_signed_out_state.call_args_list
-                )
-            )
-            set_onboarding_state.assert_called_once_with(True)
+            set_signed_out_state.assert_called_once_with(True)
+            set_onboarding_state.assert_not_called()
 
         asyncio.run(run_test())
 
@@ -888,7 +882,7 @@ class ReupStartupTests(unittest.TestCase):
         ):
             self.assertFalse(has_valid_cloud_auth(config))
 
-    def test_bootstrap_allows_runtime_without_cloud_session(self) -> None:
+    def test_bootstrap_allows_runtime_with_stored_cloud_session(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.onboarding_completed = True
@@ -915,7 +909,7 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_sync_command_palette") as sync_command_palette,
                 patch.object(app, "_schedule_usage_meta_refresh"),
                 patch(
-                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=False)
+                    "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=True)
                 ),
                 patch.object(
                     app,
@@ -942,7 +936,9 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_bootstrap_respects_explicit_cloud_logout_marker(self) -> None:
+    def test_bootstrap_requires_sign_in_without_cloud_session_after_onboarding(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.cloud_auth_enabled = True
@@ -957,7 +953,7 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
                 patch(
                     "ite.ui.reup.app.asyncio.to_thread",
-                    AsyncMock(side_effect=[False, True]),
+                    AsyncMock(return_value=False),
                 ),
             ):
                 await app._bootstrap_after_mount()
