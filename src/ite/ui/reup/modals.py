@@ -61,7 +61,18 @@ RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
 )
 OPENROUTER_DEBUG_KEY_ALIAS = "slethware"
 OPENROUTER_DEBUG_API_KEY = "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"
-HIDDEN_TEXTUAL_THEMES = {"textual-ansi"}
+HIDDEN_TEXTUAL_THEMES = {
+    "ansi_dark",
+    "ansi_light",
+    "textual_ansi",
+    "textual_ansi_dark",
+    "textual_ansi_light",
+}
+
+
+def is_hidden_textual_theme(name: str) -> bool:
+    normalized = str(name or "").strip().lower().replace("-", "_")
+    return normalized in HIDDEN_TEXTUAL_THEMES
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -1242,7 +1253,7 @@ class ThemePickerModal(ModalScreen[str | None]):
         super().__init__()
         self._current = current
         self._theme_names = sorted(
-            name for name in BUILTIN_THEMES.keys() if name not in HIDDEN_TEXTUAL_THEMES
+            name for name in BUILTIN_THEMES.keys() if not is_hidden_textual_theme(name)
         )
 
     def compose(self) -> ComposeResult:

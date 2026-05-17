@@ -5,6 +5,8 @@ from pathlib import Path
 from ite.config.config import Config
 from ite.ui.reup.modals import AttachPickerModal
 from ite.ui.reup.modals import CommitModal
+from ite.ui.reup.modals import ThemePickerModal
+from ite.ui.reup.modals import is_hidden_textual_theme
 
 
 class AttachPickerModalTests(unittest.TestCase):
@@ -49,6 +51,29 @@ class AttachPickerModalTests(unittest.TestCase):
 
             self.assertIn("alpha.txt", summary)
             self.assertIn("(+1 more)", summary)
+
+
+class ThemePickerModalTests(unittest.TestCase):
+    def test_hidden_textual_theme_names_cover_ansi_variants(self) -> None:
+        hidden_names = {
+            "textual-ansi",
+            "ansi_light",
+            "ansi-light",
+            "ansi_dark",
+            "ansi-dark",
+            "textual-ansi-light",
+            "textual_ansi_dark",
+        }
+
+        self.assertTrue(all(is_hidden_textual_theme(name) for name in hidden_names))
+        self.assertFalse(is_hidden_textual_theme("textual-dark"))
+
+    def test_theme_picker_excludes_hidden_ansi_themes(self) -> None:
+        modal = ThemePickerModal("textual-dark")
+
+        self.assertNotIn("textual-ansi", modal._theme_names)
+        self.assertNotIn("ansi_light", modal._theme_names)
+        self.assertNotIn("ansi_dark", modal._theme_names)
 
 
 class _FakeLLMClient:
