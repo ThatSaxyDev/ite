@@ -182,6 +182,7 @@ from .composer_views import (
     filtered_command_palette,
     render_command_palette,
     render_turn_action_palette,
+    send_control_text,
 )
 from .modals import (
     ActivityModal,
@@ -1334,7 +1335,6 @@ class ReupApp(App):
         self._composer_usage_hitbox: tuple[int, int] | None = None
         self._composer_context_hitbox: tuple[int, int] = (0, 0)
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
-        self._composer_send_hitbox: tuple[int, int] = (0, 0)
         self._send_meta_frame: int = 0
         self._composer_flow_hitbox: tuple[int, int] = (0, 0)
         self._flow_meta_frame: int = 0
@@ -1507,7 +1507,9 @@ class ReupApp(App):
                         yield VerticalScroll(id="aside-panel-body")
             with Horizontal(id="composer"):
                 with Container(id="prompt-container"):
-                    yield ReupPromptTextArea(id="prompt", language="markdown")
+                    with Horizontal(id="prompt-row"):
+                        yield ReupPromptTextArea(id="prompt", language="markdown")
+                        yield Static("", id="composer-send-control")
                     yield Static("", id="command-palette")
                     yield Static("", id="composer-gap")
                     yield Static("", id="composer-meta-line")
@@ -2626,6 +2628,20 @@ class ReupApp(App):
         except Exception:
             return
         composer_meta_line.update(self._composer_meta_text())
+        self._update_composer_send_control()
+
+    def _update_composer_send_control(self) -> None:
+        try:
+            send_control = self.query_one("#composer-send-control", Static)
+        except Exception:
+            return
+        send_control.update(
+            send_control_text(
+                turn_running=self._is_turn_running,
+                send_frame=self._send_meta_frame,
+                styles=self._render_styles(),
+            )
+        )
 
     def _tick_live_context_meter(self) -> None:
         if not self.is_mounted or not self._is_turn_running:
@@ -2875,7 +2891,6 @@ class ReupApp(App):
             usage_hitbox,
             context_hitbox,
             activity_hitbox,
-            send_hitbox,
             flow_hitbox,
         ) = composer_meta_text(
             cwd=Path(self.config.cwd),
@@ -2889,8 +2904,6 @@ class ReupApp(App):
             flow_enabled=bool(self.config.voice.enabled),
             flow_state=self._flow_meta_state(),
             flow_frame=self._flow_meta_frame,
-            turn_running=self._is_turn_running,
-            send_frame=self._send_meta_frame,
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -2899,7 +2912,6 @@ class ReupApp(App):
         self._composer_usage_hitbox = usage_hitbox
         self._composer_context_hitbox = context_hitbox
         self._composer_activity_hitbox = activity_hitbox
-        self._composer_send_hitbox = send_hitbox
         self._composer_flow_hitbox = flow_hitbox
         return text
 
@@ -3627,7 +3639,6 @@ class ReupApp(App):
         usage_end = usage_hitbox[1] if usage_hitbox else -1
         context_start, context_end = self._composer_context_hitbox
         activity_start, activity_end = self._composer_activity_hitbox
-        send_start, send_end = self._composer_send_hitbox
         flow_start, flow_end = self._composer_flow_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
@@ -3654,10 +3665,6 @@ class ReupApp(App):
             self.run_worker(self._open_activity_modal_from_meta(), exclusive=False)
             event.stop()
             return
-        if send_start <= event.x < send_end:
-            self.run_worker(self._activate_send_stop_control(), exclusive=False)
-            event.stop()
-            return
         if flow_start <= event.x < flow_end:
             self.action_toggle_voice_input()
             event.stop()
@@ -3665,6 +3672,11 @@ class ReupApp(App):
         if start <= event.x < end:
             self.run_worker(self._toggle_plan_mode_from_meta(), exclusive=False)
             event.stop()
+
+    @on(events.Click, "#composer-send-control")
+    def on_composer_send_control_click(self, event: events.Click) -> None:
+        self.run_worker(self._activate_send_stop_control(), exclusive=False)
+        event.stop()
 
     @on(events.Click, "#command-palette")
     def on_command_palette_click(self, event: events.Click) -> None:
@@ -6548,7 +6560,7 @@ class ReupApp(App):
         self._top_spinner_index += 1
         if send_animating:
             self._send_meta_frame += 1
-            self._update_composer_meta_line()
+            self._update_composer_send_control()
         if flow_animating:
             self._flow_meta_frame += 1
             self._update_composer_meta_line()
@@ -7454,6 +7466,7 @@ class ReupApp(App):
 
     def _resize_composer_for_prompt(self) -> None:
         prompt = self.query_one("#prompt", TextArea)
+        prompt_row = self.query_one("#prompt-row", Horizontal)
         prompt_container = self.query_one("#prompt-container", Container)
         composer = self.query_one("#composer", Horizontal)
 
@@ -7472,6 +7485,7 @@ class ReupApp(App):
         composer_height = container_height + self.COMPOSER_EXTRA
 
         prompt.styles.height = prompt_height
+        prompt_row.styles.height = prompt_height
         prompt_container.styles.height = container_height
         composer.styles.height = composer_height
 

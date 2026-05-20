@@ -626,6 +626,12 @@ Widget {
     display: none;
 }
 
+#prompt-row {
+    width: 1fr;
+    height: auto;
+    layout: horizontal;
+}
+
 #aside-panel {
     width: 44;
     min-width: 36;
@@ -2949,6 +2955,24 @@ AttachPickerModal #attach-clear:hover {
 
 #prompt:focus {
     border: none;
+}
+
+#composer-send-control {
+    width: auto;
+    min-width: 8;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    margin: 0 0 0 1;
+    color: $primary;
+    text-style: bold;
+    text-align: right;
+    text-wrap: nowrap;
+    pointer: pointer;
+}
+
+#composer-send-control:hover {
+    color: $primary-lighten-1;
 }
 
 #composer-gap {

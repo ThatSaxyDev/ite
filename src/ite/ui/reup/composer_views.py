@@ -31,8 +31,6 @@ def composer_meta_text(
     flow_enabled: bool = False,
     flow_state: Literal["idle", "recording", "transcribing", "missing_key"] = "idle",
     flow_frame: int = 0,
-    turn_running: bool = False,
-    send_frame: int = 0,
 ) -> tuple[
     Text,
     tuple[int, int],
@@ -40,7 +38,6 @@ def composer_meta_text(
     tuple[int, int],
     tuple[int, int],
     tuple[int, int] | None,
-    tuple[int, int],
     tuple[int, int],
     tuple[int, int],
     tuple[int, int],
@@ -195,20 +192,6 @@ def composer_meta_text(
         text.append(flow_label, style=flow_style)
         cell_pos += cell_len(flow_label)
         flow_end = cell_pos
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
-    send_start = cell_pos
-    send_label, send_style = _send_control_label(
-        turn_running=turn_running,
-        send_frame=send_frame,
-        fg=fg,
-        primary=primary,
-        error=error,
-        success=success,
-    )
-    text.append(send_label, style=send_style)
-    cell_pos += cell_len(send_label)
-    send_end = cell_pos
     usage_hitbox = (usage_start, usage_end) if show_usage else None
     return (
         text,
@@ -219,29 +202,30 @@ def composer_meta_text(
         usage_hitbox,
         (context_start, context_end),
         (activity_start, activity_end),
-        (send_start, send_end),
         (flow_start, flow_end),
     )
 
 
-def _send_control_label(
+def send_control_text(
     *,
     turn_running: bool,
     send_frame: int,
-    fg: str,
-    primary: str,
-    error: str,
-    success: str,
-) -> tuple[str, str]:
+    styles: dict[str, str] | None = None,
+) -> Text:
+    theme = styles or {}
+    fg = theme.get("fg", "#d1d5db")
+    primary = theme.get("primary", "#5dcf84")
+    error = theme.get("error", "#e35d6a")
+    success = theme.get("success", primary)
     if not turn_running:
-        return "send ↵", f"bold {primary or success or fg}"
+        return Text("send ↵", style=f"bold {primary or success or fg}")
     frames = (
-        "stop ■  ▰▱▱",
-        "stop ■  ▱▰▱",
-        "stop ■  ▱▱▰",
-        "stop ■  ▱▰▱",
+        "■  ▰▱▱",
+        "■  ▱▰▱",
+        "■  ▱▱▰",
+        "■  ▱▰▱",
     )
-    return frames[send_frame % len(frames)], f"bold {error}"
+    return Text(frames[send_frame % len(frames)], style=f"bold {error}")
 
 
 def _flow_control_label(
@@ -257,10 +241,10 @@ def _flow_control_label(
 ) -> tuple[str, str]:
     if flow_state == "recording":
         frames = (
-            "stop ■  ▰▱▱",
-            "stop ■  ▱▰▱",
-            "stop ■  ▱▱▰",
-            "stop ■  ▱▰▱",
+            "■  ▰▱▱",
+            "■  ▱▰▱",
+            "■  ▱▱▰",
+            "■  ▱▰▱",
         )
         return frames[flow_frame % len(frames)], f"bold {error}"
     if flow_state == "transcribing":
