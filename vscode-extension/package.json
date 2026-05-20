@@ -1,0 +1,145 @@
+{
+  "name": "ite-vscode",
+  "displayName": "iTE",
+  "description": "Open iTE in a VS Code integrated terminal.",
+  "version": "0.0.1",
+  "publisher": "kiishi",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ite",
+    "ai",
+    "agent",
+    "terminal",
+    "coding-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kiishidavid/ite"
+  },
+  "bugs": {
+    "url": "https://github.com/kiishidavid/ite/issues"
+  },
+  "homepage": "https://ite.kiishi.space",
+  "galleryBanner": {
+    "color": "#111827",
+    "theme": "dark"
+  },
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:ite.checkInstallation",
+    "onCommand:ite.openTerminal",
+    "onCommand:ite.openNewTerminal",
+    "onTerminalProfile:ite.terminalProfile"
+  ],
+  "main": "./extension.js",
+  "scripts": {
+    "check": "node --check extension.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "ite.openTerminal",
+        "title": "iTE: Open iTE",
+        "category": "iTE"
+      },
+      {
+        "command": "ite.openNewTerminal",
+        "title": "iTE: Open New iTE Terminal",
+        "category": "iTE"
+      },
+      {
+        "command": "ite.checkInstallation",
+        "title": "iTE: Check Installation",
+        "category": "iTE"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "ite.openTerminal"
+        },
+        {
+          "command": "ite.openNewTerminal"
+        },
+        {
+          "command": "ite.checkInstallation"
+        }
+      ],
+      "terminal/title": [
+        {
+          "command": "ite.openTerminal",
+          "group": "navigation"
+        }
+      ]
+    },
+    "terminal": {
+      "profiles": [
+        {
+          "id": "ite.terminalProfile",
+          "title": "iTE",
+          "icon": "terminal"
+        }
+      ]
+    },
+    "walkthroughs": [
+      {
+        "id": "ite.getStarted",
+        "title": "Get Started with iTE",
+        "description": "Open iTE directly from VS Code.",
+        "steps": [
+          {
+            "id": "check-install",
+            "title": "Check the iTE CLI",
+            "description": "Verify that VS Code can find the `ite` command.\n[Check Installation](command:ite.checkInstallation)",
+            "media": {
+              "markdown": "media/check-install.md"
+            },
+            "completionEvents": [
+              "onCommand:ite.checkInstallation"
+            ]
+          },
+          {
+            "id": "open-ite",
+            "title": "Open iTE",
+            "description": "Start iTE in the integrated terminal.\n[Open iTE](command:ite.openTerminal)",
+            "media": {
+              "markdown": "media/open-ite.md"
+            },
+            "completionEvents": [
+              "onCommand:ite.openTerminal"
+            ]
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "iTE",
+      "properties": {
+        "ite.executable": {
+          "type": "string",
+          "default": "ite",
+          "description": "Executable used to launch iTE in the integrated terminal."
+        },
+        "ite.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments passed to the iTE executable."
+        }
+      }
+    }
+  }
+}
