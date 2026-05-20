@@ -1247,7 +1247,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
-        self.assertIn("⠋", text)
+        self.assertIn("▰▱▱", text)
 
     def test_build_streaming_command_renderable_hides_generic_spinner_once_lines_exist(self) -> None:
         app = self._app()
@@ -1260,7 +1260,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
-        self.assertEqual(text.count("⠋"), 1)
+        self.assertEqual(text.count("▰▱▱"), 1)
 
     def test_build_streaming_command_renderable_animates_prefix_on_first_line(self) -> None:
         app = self._app()
@@ -1280,8 +1280,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         first_text = "".join(getattr(part, "plain", str(part)) for part in first.renderables)
         second_text = "".join(getattr(part, "plain", str(part)) for part in second.renderables)
-        self.assertIn("⠋", first_text)
-        self.assertIn("⠙", second_text)
+        self.assertIn("▰▱▱", first_text)
+        self.assertIn("▱▰▱", second_text)
 
     def test_suppresses_empty_todos_add_failure_card(self) -> None:
         app = self._app()

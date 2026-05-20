@@ -1283,16 +1283,10 @@ class ReupApp(App):
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
         self._top_spinner_frames: tuple[str, ...] = (
-            "⠋",
-            "⠙",
-            "⠹",
-            "⠸",
-            "⠼",
-            "⠴",
-            "⠦",
-            "⠧",
-            "⠇",
-            "⠏",
+            "▰▱▱",
+            "▱▰▱",
+            "▱▱▰",
+            "▱▰▱",
         )
         self._activity_suffix_frames: tuple[str, ...] = ("", ".", "..", "...")
         self._activity_suffix_index: int = 0
