@@ -5,7 +5,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal
+from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -420,7 +420,10 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
 
 
 class CommitModal(ModalScreen[dict[str, Any] | None]):
-    BINDINGS = [("escape", "cancel", "Cancel")]
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("f8", "toggle_voice_input", "Voice"),
+    ]
     _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     _AI_LOADING_LINES = (
         "Reading diff",
@@ -748,6 +751,11 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+    def action_toggle_voice_input(self) -> None:
+        toggle = getattr(self.app, "action_toggle_voice_input", None)
+        if callable(toggle):
+            toggle()
 
     def _dismiss_with_action(self, action: str) -> None:
         message = self.query_one("#commit-message", Input).value.strip()

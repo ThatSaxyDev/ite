@@ -108,9 +108,27 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
         return Config(model={"name": "local-test"})
 
     def test_idle_status_text_exposes_ai_hint(self) -> None:
-        text = CommitModal._idle_status_text().plain
+        modal = CommitModal(
+            config=Config(),
+            branch="main",
+            file_count=1,
+            additions=1,
+            deletions=0,
+            changed_paths=["src/app.py"],
+            diff_context="updated app",
+        )
+        modal._get_theme_colors = lambda: {  # type: ignore[method-assign]
+            "muted": "#8c93a1",
+            "primary": "#4edea3",
+        }
+        text = modal._idle_status_text().plain
 
         self.assertIn("draft with AI", text)
+
+    def test_commit_modal_exposes_voice_binding(self) -> None:
+        bindings = {binding[0] for binding in CommitModal.BINDINGS}
+
+        self.assertIn("f8", bindings)
 
     def test_loading_copy_rotates_across_multiple_lines(self) -> None:
         modal = CommitModal(
