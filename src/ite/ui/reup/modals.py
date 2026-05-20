@@ -424,7 +424,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         ("escape", "cancel", "Cancel"),
         ("ctrl+s", "toggle_voice_input", "Flow"),
     ]
-    _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    _AI_SPINNER_FRAMES = ("▰▱▱", "▱▰▱", "▱▱▰", "▱▰▱")
     _AI_LOADING_LINES = (
         "Reading diff",
         "Finding scope",
