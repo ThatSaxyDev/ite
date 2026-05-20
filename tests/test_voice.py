@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from textual.app import App, ComposeResult
@@ -70,6 +71,57 @@ class VoiceCommandRouteTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
 
             self.assertNotEqual(type(app.screen).__name__, "VoiceSetupModal")
+
+
+class VoiceComposerMetaTests(unittest.TestCase):
+    def test_flow_control_is_hidden_until_flow_is_enabled(self) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+
+        rendered = app._composer_meta_text()
+
+        self.assertNotIn("flow", rendered.plain)
+        self.assertEqual(app._composer_flow_hitbox, (0, 0))
+
+    def test_flow_control_renders_after_activity_when_enabled(self) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+        app.config.voice.enabled = True
+        app.config.voice.groq_api_key = "gsk-test"
+
+        rendered = app._composer_meta_text()
+
+        self.assertIn("activity", rendered.plain)
+        self.assertIn("flow", rendered.plain)
+        self.assertGreater(rendered.plain.index("flow"), rendered.plain.index("activity"))
+        self.assertGreater(app._composer_flow_hitbox[1], app._composer_flow_hitbox[0])
+
+    def test_flow_control_click_uses_voice_toggle_action(self) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+        app._composer_attach_hitbox = (0, 0)
+        app._composer_model_hitbox = (0, 0)
+        app._composer_branch_hitbox = (0, 0)
+        app._composer_usage_hitbox = None
+        app._composer_context_hitbox = (0, 0)
+        app._composer_activity_hitbox = (0, 0)
+        app._composer_plan_hitbox = (0, 0)
+        app._composer_flow_hitbox = (10, 20)
+        event = SimpleNamespace(x=12, stopped=False)
+        event.stop = lambda: setattr(event, "stopped", True)
+
+        with patch.object(app, "action_toggle_voice_input") as toggle:
+            app.on_composer_meta_line_click(event)
+
+        toggle.assert_called_once_with()
+        self.assertTrue(event.stopped)
+
+    def test_recording_tick_advances_flow_frame_and_refreshes_meta(self) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+        app._voice_recorder = object()  # type: ignore[assignment]
+
+        with patch.object(app, "_update_composer_meta_line") as update_meta:
+            app._tick_top_indicator()
+
+        self.assertEqual(app._flow_meta_frame, 1)
+        update_meta.assert_called_once_with()
 
 
 class VoiceInsertionTests(unittest.IsolatedAsyncioTestCase):

@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, cast
+from typing import Any, Iterable, Literal, cast
 from urllib.parse import urlparse
 
 from rich.cells import cell_len
@@ -297,8 +297,11 @@ def redact_sensitive_command_text(text: str) -> str:
     stripped = str(text or "").strip()
     if not stripped:
         return ""
-    if stripped.lower().startswith("/flow setup "):
+    lowered = stripped.lower()
+    if lowered.startswith("/flow setup "):
         return "/flow setup [redacted]"
+    if lowered.startswith("/voice setup "):
+        return "/voice setup [redacted]"
     return stripped
 
 
@@ -1331,6 +1334,8 @@ class ReupApp(App):
         self._composer_usage_hitbox: tuple[int, int] | None = None
         self._composer_context_hitbox: tuple[int, int] = (0, 0)
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
+        self._composer_flow_hitbox: tuple[int, int] = (0, 0)
+        self._flow_meta_frame: int = 0
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
         self._runtime_update_check_in_flight: bool = False
@@ -2868,6 +2873,7 @@ class ReupApp(App):
             usage_hitbox,
             context_hitbox,
             activity_hitbox,
+            flow_hitbox,
         ) = composer_meta_text(
             cwd=Path(self.config.cwd),
             model_name=model_display_name,
@@ -2877,6 +2883,9 @@ class ReupApp(App):
             context_used_percent=context_used_percent,
             styles=self._render_styles(),
             show_usage=self._is_bundled_model(),
+            flow_enabled=bool(self.config.voice.enabled),
+            flow_state=self._flow_meta_state(),
+            flow_frame=self._flow_meta_frame,
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -2885,7 +2894,21 @@ class ReupApp(App):
         self._composer_usage_hitbox = usage_hitbox
         self._composer_context_hitbox = context_hitbox
         self._composer_activity_hitbox = activity_hitbox
+        self._composer_flow_hitbox = flow_hitbox
         return text
+
+    def _flow_meta_state(
+        self,
+    ) -> Literal["idle", "recording", "transcribing", "missing_key"]:
+        if self._voice_recorder is not None:
+            return "recording"
+        if self._voice_busy:
+            return "transcribing"
+        if self.config.voice.enabled and not str(
+            self.config.voice.groq_api_key or ""
+        ).strip():
+            return "missing_key"
+        return "idle"
 
     def _setup_required_for_model_selection(self) -> bool:
         if self._has_active_user_provider_credentials():
@@ -3598,6 +3621,7 @@ class ReupApp(App):
         usage_end = usage_hitbox[1] if usage_hitbox else -1
         context_start, context_end = self._composer_context_hitbox
         activity_start, activity_end = self._composer_activity_hitbox
+        flow_start, flow_end = self._composer_flow_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
             self.run_worker(self._open_attach_picker_from_meta(), exclusive=False)
@@ -3621,6 +3645,10 @@ class ReupApp(App):
             return
         if activity_start <= event.x < activity_end:
             self.run_worker(self._open_activity_modal_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if flow_start <= event.x < flow_end:
+            self.action_toggle_voice_input()
             event.stop()
             return
         if start <= event.x < end:
@@ -6491,6 +6519,7 @@ class ReupApp(App):
             pass
 
     def _tick_top_indicator(self) -> None:
+        flow_animating = self._voice_recorder is not None or self._voice_busy
         has_pending_command_spinner = any(
             pending_active
             for _card, _body_widget, _scroll_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
@@ -6500,9 +6529,13 @@ class ReupApp(App):
             and not self._aside_pending_widgets
             and not has_pending_command_spinner
             and not self._cloud_auth_busy
+            and not flow_animating
         ):
             return
         self._top_spinner_index += 1
+        if flow_animating:
+            self._flow_meta_frame += 1
+            self._update_composer_meta_line()
         if self._top_spinner_index % 3 == 0:
             self._activity_suffix_index += 1
         if self._activity_widget is not None and self._top_busy:
@@ -7123,6 +7156,8 @@ class ReupApp(App):
 
         self._voice_recorder = recorder
         self._voice_target = target
+        self._flow_meta_frame = 0
+        self._update_composer_meta_line()
         self.post_notice("Flow", "Listening. Press Ctrl+S when you are done.", timeout=10)
 
     async def _stop_voice_input(self) -> None:
@@ -7134,6 +7169,8 @@ class ReupApp(App):
         self._voice_recorder = None
         self._voice_target = None
         self._voice_busy = True
+        self._flow_meta_frame = 0
+        self._update_composer_meta_line()
         audio_path: Path | None = None
         try:
             self.post_notice("Flow", "Preparing your dictation...", timeout=10)
@@ -7166,6 +7203,8 @@ class ReupApp(App):
             self.post_notice("Flow", str(exc), timeout=8)
         finally:
             self._voice_busy = False
+            self._flow_meta_frame = 0
+            self._update_composer_meta_line()
             if audio_path is not None:
                 with contextlib.suppress(OSError):
                     audio_path.unlink(missing_ok=True)
@@ -7199,11 +7238,13 @@ class ReupApp(App):
             save_voice_settings(enabled=True, groq_api_key=key)
             self.config.voice.enabled = True
             self.config.voice.groq_api_key = key
+            self._update_composer_meta_line()
             self.post_notice("Flow", "Flow is ready. Press Ctrl+S in any text field.")
             return
         if action in {"on", "enable"}:
             save_voice_settings(enabled=True)
             self.config.voice.enabled = True
+            self._update_composer_meta_line()
             self.post_notice("Flow", "Flow is enabled. Press Ctrl+S in any text field.")
             return
         if action in {"off", "disable"}:
@@ -7213,6 +7254,9 @@ class ReupApp(App):
                 await self._voice_recorder.cancel()
                 self._voice_recorder = None
                 self._voice_target = None
+            self._voice_busy = False
+            self._flow_meta_frame = 0
+            self._update_composer_meta_line()
             self.post_notice("Flow", "Flow is disabled.")
             return
         self.post_notice(

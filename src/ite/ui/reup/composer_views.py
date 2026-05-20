@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from rich.align import Align
 from rich.console import Group
@@ -28,7 +28,20 @@ def composer_meta_text(
     context_used_percent: int | None = None,
     styles: dict[str, str] | None = None,
     show_usage: bool = True,
-) -> tuple[Text, tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int], tuple[int, int] | None, tuple[int, int], tuple[int, int]]:
+    flow_enabled: bool = False,
+    flow_state: Literal["idle", "recording", "transcribing", "missing_key"] = "idle",
+    flow_frame: int = 0,
+) -> tuple[
+    Text,
+    tuple[int, int],
+    tuple[int, int],
+    tuple[int, int],
+    tuple[int, int],
+    tuple[int, int] | None,
+    tuple[int, int],
+    tuple[int, int],
+    tuple[int, int],
+]:
     theme = styles or {}
     fg = theme.get("fg", "#d1d5db")
     secondary = theme.get("secondary", fg)
@@ -161,6 +174,24 @@ def composer_meta_text(
     text.append(activity_label, style=f"bold {secondary}")
     cell_pos += cell_len(activity_label)
     activity_end = cell_pos
+    flow_start = flow_end = 0
+    if flow_enabled or flow_state in {"recording", "transcribing"}:
+        text.append(spacer)
+        cell_pos += cell_len(spacer)
+        flow_start = cell_pos
+        flow_label, flow_style = _flow_control_label(
+            flow_state=flow_state,
+            flow_frame=flow_frame,
+            fg=fg,
+            muted=muted,
+            primary=primary,
+            success=success,
+            warning=warning,
+            error=error,
+        )
+        text.append(flow_label, style=flow_style)
+        cell_pos += cell_len(flow_label)
+        flow_end = cell_pos
     usage_hitbox = (usage_start, usage_end) if show_usage else None
     return (
         text,
@@ -171,7 +202,40 @@ def composer_meta_text(
         usage_hitbox,
         (context_start, context_end),
         (activity_start, activity_end),
+        (flow_start, flow_end),
     )
+
+
+def _flow_control_label(
+    *,
+    flow_state: Literal["idle", "recording", "transcribing", "missing_key"],
+    flow_frame: int,
+    fg: str,
+    muted: str,
+    primary: str,
+    success: str,
+    warning: str,
+    error: str,
+) -> tuple[str, str]:
+    if flow_state == "recording":
+        frames = (
+            "rec ● ▂▃▅▃▂",
+            "rec ● ▃▆█▆▃",
+            "rec ● ▅█▆█▅",
+            "rec ● ▃▅█▅▃",
+        )
+        return frames[flow_frame % len(frames)], f"bold {error}"
+    if flow_state == "transcribing":
+        frames = (
+            "flow ⠋ writing",
+            "flow ⠙ writing",
+            "flow ⠹ writing",
+            "flow ⠸ writing",
+        )
+        return frames[flow_frame % len(frames)], f"bold {primary}"
+    if flow_state == "missing_key":
+        return "flow 🎙 setup", f"bold {warning}"
+    return "flow 🎙", f"bold {success or fg or muted}"
 
 
 def build_command_palette_options(command_registry: Any) -> list[SlashCommandOption]:
