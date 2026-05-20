@@ -19,7 +19,7 @@ async def handle_voice(ctx: CommandContext, args: list[str]) -> bool:
         ctx.console.print(
             f"[bold]Voice typing:[/bold] {status}. [dim]{key_status}.[/dim]"
         )
-        ctx.console.print("[dim]Use F8 in Reup to start/stop voice typing.[/dim]")
+        ctx.console.print("[dim]Use Ctrl+S in Reup to start/stop voice typing.[/dim]")
         return True
 
     if action == "setup":
@@ -35,13 +35,13 @@ async def handle_voice(ctx: CommandContext, args: list[str]) -> bool:
         save_voice_settings(enabled=True, groq_api_key=key)
         ctx.config.voice.enabled = True
         ctx.config.voice.groq_api_key = key
-        ctx.console.print("[green]Voice typing is ready.[/green] Press F8 in Reup.")
+        ctx.console.print("[green]Voice typing is ready.[/green] Press Ctrl+S in Reup.")
         return True
 
     if action in {"on", "enable"}:
         save_voice_settings(enabled=True)
         ctx.config.voice.enabled = True
-        ctx.console.print("[green]Voice typing is enabled.[/green] Press F8 in Reup.")
+        ctx.console.print("[green]Voice typing is enabled.[/green] Press Ctrl+S in Reup.")
         return True
 
     if action in {"off", "disable"}:

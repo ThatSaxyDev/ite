@@ -163,7 +163,7 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
     def test_commit_modal_exposes_voice_binding(self) -> None:
         bindings = {binding[0] for binding in CommitModal.BINDINGS}
 
-        self.assertIn("f8", bindings)
+        self.assertIn("ctrl+s", bindings)
 
     def test_loading_copy_rotates_across_multiple_lines(self) -> None:
         modal = CommitModal(

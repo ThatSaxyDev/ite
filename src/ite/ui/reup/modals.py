@@ -422,7 +422,7 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
 class CommitModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
-        ("f8", "toggle_voice_input", "Voice"),
+        ("ctrl+s", "toggle_voice_input", "Voice"),
     ]
     _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     _AI_LOADING_LINES = (

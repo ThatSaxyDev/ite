@@ -1225,7 +1225,7 @@ class ReupApp(App):
         Binding("ctrl+enter", "send", "Send"),
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", priority=True),
         Binding("ctrl+l", "clear_input", "Clear Input"),
-        Binding("f8", "toggle_voice_input", "Voice"),
+        Binding("ctrl+s", "toggle_voice_input", "Voice"),
         Binding("f1", "show_help", "Help"),
     ]
     MIN_PROMPT_LINES = 2
@@ -7110,7 +7110,7 @@ class ReupApp(App):
         if not isinstance(target, Input | TextArea):
             self.post_notice(
                 "Voice typing",
-                "Place your cursor in a text field, then press F8.",
+                "Place your cursor in a text field, then press Ctrl+S.",
             )
             return
 
@@ -7123,7 +7123,7 @@ class ReupApp(App):
 
         self._voice_recorder = recorder
         self._voice_target = target
-        self.post_notice("Voice typing", "Listening. Press F8 when you are done.", timeout=10)
+        self.post_notice("Voice typing", "Listening. Press Ctrl+S when you are done.", timeout=10)
 
     async def _stop_voice_input(self) -> None:
         recorder = self._voice_recorder
@@ -7181,7 +7181,7 @@ class ReupApp(App):
             )
             self.post_notice(
                 "Voice typing",
-                f"{status}. {key_status}. Press F8 in any text field.",
+                f"{status}. {key_status}. Press Ctrl+S in any text field.",
                 timeout=5,
             )
             return
@@ -7199,12 +7199,12 @@ class ReupApp(App):
             save_voice_settings(enabled=True, groq_api_key=key)
             self.config.voice.enabled = True
             self.config.voice.groq_api_key = key
-            self.post_notice("Voice typing", "Voice typing is ready. Press F8 in any text field.")
+            self.post_notice("Voice typing", "Voice typing is ready. Press Ctrl+S in any text field.")
             return
         if action in {"on", "enable"}:
             save_voice_settings(enabled=True)
             self.config.voice.enabled = True
-            self.post_notice("Voice typing", "Voice typing is enabled. Press F8 in any text field.")
+            self.post_notice("Voice typing", "Voice typing is enabled. Press Ctrl+S in any text field.")
             return
         if action in {"off", "disable"}:
             save_voice_settings(enabled=False)
