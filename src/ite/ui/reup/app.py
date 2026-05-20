@@ -7997,6 +7997,9 @@ class ReupApp(App):
             return
 
         if command in {"/voice", "/flow"}:
+            if args and args[0].strip().lower() == "setup":
+                self.run_worker(self._run_voice_command_native(args), exclusive=False)
+                return
             await self._run_voice_command_native(args)
             return
 

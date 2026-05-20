@@ -1,12 +1,14 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from textual.app import App
 from textual.widgets import Button
 from textual.widgets import Input
 
 from ite.config.config import Config
+from ite.ui.reup.app import ReupApp
 from ite.ui.reup.modals import AttachPickerModal
 from ite.ui.reup.modals import CommitModal
 from ite.ui.reup.modals import ThemePickerModal
@@ -109,6 +111,29 @@ class VoiceSetupModalTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
 
             self.assertIsNone(pilot.app.dismissed_result)
+
+    async def test_flow_setup_command_keeps_modal_interactive(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            app = ReupApp(Config(cwd=Path(td), api_key="test-key"))
+            with patch.object(app, "_queue_session_tabs_refresh"):
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+
+                    prompt = app.query_one("#prompt")
+                    prompt.text = "/flow setup"
+                    await app.handle_send()
+                    await pilot.pause()
+
+                    self.assertIsInstance(app.screen, VoiceSetupModal)
+                    api_key = app.screen.query_one("#voice-groq-api-key", Input)
+                    await pilot.press("g", "s", "k", "_", "t", "e", "s", "t")
+
+                    self.assertEqual(api_key.value, "gsk_test")
+
+                    await pilot.press("escape")
+                    await pilot.pause()
+
+                    self.assertNotIsInstance(app.screen, VoiceSetupModal)
 
 
 class _FakeLLMClient:
