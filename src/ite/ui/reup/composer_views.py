@@ -257,10 +257,10 @@ def _flow_control_label(
 ) -> tuple[str, str]:
     if flow_state == "recording":
         frames = (
-            "rec ● ▂▃▅▃▂",
-            "rec ● ▃▆█▆▃",
-            "rec ● ▅█▆█▅",
-            "rec ● ▃▅█▅▃",
+            "stop ■  ▰▱▱",
+            "stop ■  ▱▰▱",
+            "stop ■  ▱▱▰",
+            "stop ■  ▱▰▱",
         )
         return frames[flow_frame % len(frames)], f"bold {error}"
     if flow_state == "transcribing":
