@@ -199,6 +199,7 @@ from .modals import (
     SetupModal,
     ThemePickerModal,
     UsageSummaryModal,
+    VoiceSetupModal,
 )
 from .tool_views import (
     compact_tool_preview_blocks,
@@ -290,6 +291,15 @@ def insert_voice_text_into_widget(widget: Widget, text: str) -> bool:
         widget.insert_text_at_cursor(text)
         return True
     return False
+
+
+def redact_sensitive_command_text(text: str) -> str:
+    stripped = str(text or "").strip()
+    if not stripped:
+        return ""
+    if stripped.lower().startswith("/voice setup "):
+        return "/voice setup [redacted]"
+    return stripped
 
 
 def _skills_action_title(action: str) -> str:
@@ -7073,7 +7083,7 @@ class ReupApp(App):
 
     async def _toggle_voice_input(self) -> None:
         if self._voice_busy:
-            self.post_notice("Voice", "Voice transcription is already running.")
+            self.post_notice("Voice typing", "Finishing your current dictation.")
             return
         if self._voice_recorder is not None:
             await self._stop_voice_input()
@@ -7083,30 +7093,37 @@ class ReupApp(App):
     async def _start_voice_input(self) -> None:
         if not self.config.voice.enabled:
             self.post_notice(
-                "Voice",
-                "Enable voice with [voice] enabled = true and groq_api_key in config.",
+                "Voice typing",
+                "Set up voice typing with `/voice setup` before recording.",
                 timeout=6,
             )
             return
         if not str(self.config.voice.groq_api_key or "").strip():
-            self.post_notice("Voice", "Add your Groq API key under [voice].", timeout=6)
+            self.post_notice(
+                "Voice typing",
+                "Add your Groq API key with `/voice setup` before recording.",
+                timeout=6,
+            )
             return
 
         target = self.focused
         if not isinstance(target, Input | TextArea):
-            self.post_notice("Voice", "Focus a text field before starting voice input.")
+            self.post_notice(
+                "Voice typing",
+                "Place your cursor in a text field, then press F8.",
+            )
             return
 
         recorder = VoiceRecorder()
         try:
             await recorder.start()
         except VoiceRecorderError as exc:
-            self.post_notice("Voice", str(exc), timeout=8)
+            self.post_notice("Voice typing", str(exc), timeout=8)
             return
 
         self._voice_recorder = recorder
         self._voice_target = target
-        self.post_notice("Voice", "Recording. Press F8 to stop.", timeout=10)
+        self.post_notice("Voice typing", "Listening. Press F8 when you are done.", timeout=10)
 
     async def _stop_voice_input(self) -> None:
         recorder = self._voice_recorder
@@ -7119,12 +7136,12 @@ class ReupApp(App):
         self._voice_busy = True
         audio_path: Path | None = None
         try:
-            self.post_notice("Voice", "Transcribing...", timeout=10)
+            self.post_notice("Voice typing", "Preparing your dictation...", timeout=10)
             audio_path = await recorder.stop()
             result = await transcribe_voice_file(self.config, audio_path)
             transcript = result.transcript.strip()
             if not transcript:
-                self.post_notice("Voice", "Nothing to insert.")
+                self.post_notice("Voice typing", "No speech detected.")
                 return
 
             insert_target = target
@@ -7135,15 +7152,18 @@ class ReupApp(App):
                 insert_target,
                 transcript,
             ):
-                self.post_notice("Voice", "Focus a text field before inserting.")
+                self.post_notice(
+                    "Voice typing",
+                    "Choose where the transcript should go, then try again.",
+                )
                 return
             insert_target.focus()
             if isinstance(insert_target, TextArea) and insert_target.id == "prompt":
                 self._sync_command_palette(insert_target.text)
                 self._resize_composer_for_prompt()
-            self.post_notice("Voice", "Inserted transcript.")
+            self.post_notice("Voice typing", "Transcript inserted.")
         except Exception as exc:
-            self.post_notice("Voice", str(exc), timeout=8)
+            self.post_notice("Voice typing", str(exc), timeout=8)
         finally:
             self._voice_busy = False
             if audio_path is not None:
@@ -7153,27 +7173,38 @@ class ReupApp(App):
     async def _run_voice_command_native(self, args: list[str]) -> None:
         action = (args[0] if args else "status").strip().lower()
         if action == "status":
-            enabled = "on" if self.config.voice.enabled else "off"
+            status = "Ready" if self.config.voice.enabled else "Not enabled"
+            key_status = (
+                "Groq key saved"
+                if str(self.config.voice.groq_api_key or "").strip()
+                else "Groq key missing"
+            )
             self.post_notice(
-                "Voice",
-                f"{enabled}; Groq key {self._mask_voice_key(self.config.voice.groq_api_key)}",
+                "Voice typing",
+                f"{status}. {key_status}. Press F8 in any text field.",
                 timeout=5,
             )
             return
         if action == "setup":
-            if len(args) < 2 or not args[1].strip():
-                self.post_notice("Voice", "Usage: /voice setup <groq-api-key>", timeout=6)
+            if len(args) > 1:
+                self.post_notice(
+                    "Voice typing",
+                    "For security, run `/voice setup` without pasting the key into the command.",
+                    timeout=8,
+                )
                 return
-            key = args[1].strip()
+            key = await self._open_modal(VoiceSetupModal())
+            if not key:
+                return
             save_voice_settings(enabled=True, groq_api_key=key)
             self.config.voice.enabled = True
             self.config.voice.groq_api_key = key
-            self.post_notice("Voice", "Voice typing enabled. Press F8.")
+            self.post_notice("Voice typing", "Voice typing is ready. Press F8 in any text field.")
             return
         if action in {"on", "enable"}:
             save_voice_settings(enabled=True)
             self.config.voice.enabled = True
-            self.post_notice("Voice", "Voice typing enabled. Press F8.")
+            self.post_notice("Voice typing", "Voice typing is enabled. Press F8 in any text field.")
             return
         if action in {"off", "disable"}:
             save_voice_settings(enabled=False)
@@ -7182,22 +7213,13 @@ class ReupApp(App):
                 await self._voice_recorder.cancel()
                 self._voice_recorder = None
                 self._voice_target = None
-            self.post_notice("Voice", "Voice typing disabled.")
+            self.post_notice("Voice typing", "Voice typing is disabled.")
             return
         self.post_notice(
-            "Voice",
-            "Use /voice status, /voice setup <groq-api-key>, /voice on, or /voice off.",
+            "Voice typing",
+            "Use `/voice setup`, `/voice status`, `/voice on`, or `/voice off`.",
             timeout=6,
         )
-
-    @staticmethod
-    def _mask_voice_key(value: str | None) -> str:
-        text = str(value or "").strip()
-        if not text:
-            return "not set"
-        if len(text) <= 4:
-            return "*" * len(text)
-        return "*" * max(4, len(text) - 4) + text[-4:]
 
     @on(TextArea.Changed, "#prompt")
     def on_prompt_changed(self, _event: TextArea.Changed) -> None:
@@ -7515,7 +7537,7 @@ class ReupApp(App):
 
     def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
         prompt = self.query_one("#prompt", TextArea)
-        self._record_composer_history(prompt.text.strip())
+        self._record_composer_history(redact_sensitive_command_text(prompt.text))
         self._composer_history_index = None
         self._composer_history_draft = ""
         prompt.text = ""

@@ -8,7 +8,8 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, TextArea
 
 from ite.config.config import Config
-from ite.ui.reup.app import insert_voice_text_into_widget
+from ite.ui.reup.app import ReupApp
+from ite.ui.reup.app import insert_voice_text_into_widget, redact_sensitive_command_text
 from ite.voice.transcription import _is_hallucination
 
 
@@ -33,9 +34,42 @@ class VoiceConfigTests(unittest.TestCase):
         self.assertEqual(config.voice.groq_api_key, "gsk-test")
 
 
+class VoiceCopySafetyTests(unittest.TestCase):
+    def test_redacts_voice_setup_key_from_history(self) -> None:
+        self.assertEqual(
+            redact_sensitive_command_text("/voice setup gsk_secret_value"),
+            "/voice setup [redacted]",
+        )
+
+    def test_leaves_other_voice_commands_readable(self) -> None:
+        self.assertEqual(redact_sensitive_command_text("/voice status"), "/voice status")
+
+
 class VoiceInputApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Input(value="commit: ", id="commit")
+
+
+class VoiceCommandRouteTests(unittest.IsolatedAsyncioTestCase):
+    async def test_voice_setup_command_opens_interactive_modal_and_escape_closes(
+        self,
+    ) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+        app._queue_session_tabs_refresh = lambda: None  # type: ignore[method-assign]
+
+        async with app.run_test() as pilot:
+            app.run_worker(app.run_command("/voice setup"), exclusive=False)
+            await pilot.pause()
+
+            widget = app.screen.query_one("#voice-groq-api-key", Input)
+            await pilot.press("g", "s", "k", "_", "r", "o", "u", "t", "e")
+
+            self.assertEqual(widget.value, "gsk_route")
+
+            await pilot.press("escape")
+            await pilot.pause()
+
+            self.assertNotEqual(type(app.screen).__name__, "VoiceSetupModal")
 
 
 class VoiceInsertionTests(unittest.IsolatedAsyncioTestCase):

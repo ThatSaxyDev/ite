@@ -861,6 +861,58 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self.action_cancel()
 
 
+class VoiceSetupModal(ModalScreen[str | None]):
+    BINDINGS = [
+        ("escape", "cancel", "Cancel"),
+        ("ctrl+c", "cancel", "Cancel"),
+        ("enter", "submit", "Save"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal voice-setup-modal"):
+            yield Label("Voice typing", classes="modal-title")
+            yield Static(
+                "Add your Groq API key to enable dictation in iTE. The key is saved in your local iTE config and is never shown in command history.",
+                classes="modal-body",
+            )
+            yield Static("Groq API key", classes="voice-setup-label")
+            yield Input(
+                placeholder="gsk_...",
+                password=True,
+                id="voice-groq-api-key",
+            )
+            with Horizontal(classes="modal-actions resume-actions voice-setup-actions"):
+                yield Button("Save", id="confirm", variant="primary")
+                yield Button("Cancel", id="cancel", variant="default")
+
+    async def on_mount(self) -> None:
+        api_key = self.query_one("#voice-groq-api-key", Input)
+        api_key.focus()
+        self.call_after_refresh(api_key.focus)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_submit(self) -> None:
+        key = self.query_one("#voice-groq-api-key", Input).value.strip()
+        if key:
+            self.dismiss(key)
+
+    @on(Input.Submitted, "#voice-groq-api-key")
+    def on_key_submitted(self, _event: Input.Submitted) -> None:
+        self.action_submit()
+
+    @on(Button.Pressed, "#confirm")
+    def on_save_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        self.action_submit()
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        self.action_cancel()
+
+
 class SessionResumeModal(ModalScreen[str | None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 

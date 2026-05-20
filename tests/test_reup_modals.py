@@ -2,10 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from textual.app import App
+from textual.widgets import Button
+from textual.widgets import Input
+
 from ite.config.config import Config
 from ite.ui.reup.modals import AttachPickerModal
 from ite.ui.reup.modals import CommitModal
 from ite.ui.reup.modals import ThemePickerModal
+from ite.ui.reup.modals import VoiceSetupModal
 from ite.ui.reup.modals import is_hidden_textual_theme
 
 
@@ -74,6 +79,36 @@ class ThemePickerModalTests(unittest.TestCase):
         self.assertNotIn("textual-ansi", modal._theme_names)
         self.assertNotIn("ansi_light", modal._theme_names)
         self.assertNotIn("ansi_dark", modal._theme_names)
+
+
+class VoiceSetupModalApp(App[None]):
+    def on_mount(self) -> None:
+        self.dismissed_result: str | None = "not-dismissed"
+        self.push_screen(
+            VoiceSetupModal(),
+            callback=lambda result: setattr(self, "dismissed_result", result),
+        )
+
+
+class VoiceSetupModalTests(unittest.IsolatedAsyncioTestCase):
+    async def test_buttons_use_shared_modal_ids_and_cancel_dismisses(self) -> None:
+        async with VoiceSetupModalApp().run_test() as pilot:
+            await pilot.pause()
+
+            screen = pilot.app.screen
+            confirm = screen.query_one("#confirm", Button)
+            cancel = screen.query_one("#cancel", Button)
+
+            self.assertEqual(str(confirm.label), "Save")
+            self.assertEqual(str(cancel.label), "Cancel")
+
+            api_key = screen.query_one("#voice-groq-api-key", Input)
+            await pilot.press("g", "s", "k", "_", "t", "e", "s", "t")
+            self.assertEqual(api_key.value, "gsk_test")
+
+            await pilot.press("escape")
+
+            self.assertIsNone(pilot.app.dismissed_result)
 
 
 class _FakeLLMClient:
