@@ -1334,6 +1334,8 @@ class ReupApp(App):
         self._composer_usage_hitbox: tuple[int, int] | None = None
         self._composer_context_hitbox: tuple[int, int] = (0, 0)
         self._composer_activity_hitbox: tuple[int, int] = (0, 0)
+        self._composer_send_hitbox: tuple[int, int] = (0, 0)
+        self._send_meta_frame: int = 0
         self._composer_flow_hitbox: tuple[int, int] = (0, 0)
         self._flow_meta_frame: int = 0
         self._usage_remaining_percent: int | None = None
@@ -2873,6 +2875,7 @@ class ReupApp(App):
             usage_hitbox,
             context_hitbox,
             activity_hitbox,
+            send_hitbox,
             flow_hitbox,
         ) = composer_meta_text(
             cwd=Path(self.config.cwd),
@@ -2886,6 +2889,8 @@ class ReupApp(App):
             flow_enabled=bool(self.config.voice.enabled),
             flow_state=self._flow_meta_state(),
             flow_frame=self._flow_meta_frame,
+            turn_running=self._is_turn_running,
+            send_frame=self._send_meta_frame,
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -2894,6 +2899,7 @@ class ReupApp(App):
         self._composer_usage_hitbox = usage_hitbox
         self._composer_context_hitbox = context_hitbox
         self._composer_activity_hitbox = activity_hitbox
+        self._composer_send_hitbox = send_hitbox
         self._composer_flow_hitbox = flow_hitbox
         return text
 
@@ -3621,6 +3627,7 @@ class ReupApp(App):
         usage_end = usage_hitbox[1] if usage_hitbox else -1
         context_start, context_end = self._composer_context_hitbox
         activity_start, activity_end = self._composer_activity_hitbox
+        send_start, send_end = self._composer_send_hitbox
         flow_start, flow_end = self._composer_flow_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
@@ -3645,6 +3652,10 @@ class ReupApp(App):
             return
         if activity_start <= event.x < activity_end:
             self.run_worker(self._open_activity_modal_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if send_start <= event.x < send_end:
+            self.run_worker(self._activate_send_stop_control(), exclusive=False)
             event.stop()
             return
         if flow_start <= event.x < flow_end:
@@ -6520,6 +6531,7 @@ class ReupApp(App):
 
     def _tick_top_indicator(self) -> None:
         flow_animating = self._voice_recorder is not None or self._voice_busy
+        send_animating = self._is_turn_running
         has_pending_command_spinner = any(
             pending_active
             for _card, _body_widget, _scroll_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
@@ -6530,9 +6542,13 @@ class ReupApp(App):
             and not has_pending_command_spinner
             and not self._cloud_auth_busy
             and not flow_animating
+            and not send_animating
         ):
             return
         self._top_spinner_index += 1
+        if send_animating:
+            self._send_meta_frame += 1
+            self._update_composer_meta_line()
         if flow_animating:
             self._flow_meta_frame += 1
             self._update_composer_meta_line()
@@ -7111,12 +7127,17 @@ class ReupApp(App):
     async def action_send(self) -> None:
         await self.handle_send()
 
+    async def _activate_send_stop_control(self) -> None:
+        if self._is_turn_running:
+            await self.cancel_active_turn()
+            return
+        await self.handle_send()
+
     def action_toggle_voice_input(self) -> None:
         self.run_worker(self._toggle_voice_input(), exclusive=False)
 
     async def _toggle_voice_input(self) -> None:
         if self._voice_busy:
-            self.post_notice("Flow", "Finishing your current dictation.")
             return
         if self._voice_recorder is not None:
             await self._stop_voice_input()
@@ -7158,7 +7179,6 @@ class ReupApp(App):
         self._voice_target = target
         self._flow_meta_frame = 0
         self._update_composer_meta_line()
-        self.post_notice("Flow", "Listening. Press Ctrl+S when you are done.", timeout=10)
 
     async def _stop_voice_input(self) -> None:
         recorder = self._voice_recorder
@@ -7173,7 +7193,6 @@ class ReupApp(App):
         self._update_composer_meta_line()
         audio_path: Path | None = None
         try:
-            self.post_notice("Flow", "Preparing your dictation...", timeout=10)
             audio_path = await recorder.stop()
             result = await transcribe_voice_file(self.config, audio_path)
             transcript = result.transcript.strip()
@@ -7198,7 +7217,6 @@ class ReupApp(App):
             if isinstance(insert_target, TextArea) and insert_target.id == "prompt":
                 self._sync_command_palette(insert_target.text)
                 self._resize_composer_for_prompt()
-            self.post_notice("Flow", "Transcript inserted.")
         except Exception as exc:
             self.post_notice("Flow", str(exc), timeout=8)
         finally:
@@ -7239,13 +7257,11 @@ class ReupApp(App):
             self.config.voice.enabled = True
             self.config.voice.groq_api_key = key
             self._update_composer_meta_line()
-            self.post_notice("Flow", "Flow is ready. Press Ctrl+S in any text field.")
             return
         if action in {"on", "enable"}:
             save_voice_settings(enabled=True)
             self.config.voice.enabled = True
             self._update_composer_meta_line()
-            self.post_notice("Flow", "Flow is enabled. Press Ctrl+S in any text field.")
             return
         if action in {"off", "disable"}:
             save_voice_settings(enabled=False)
@@ -7257,7 +7273,6 @@ class ReupApp(App):
             self._voice_busy = False
             self._flow_meta_frame = 0
             self._update_composer_meta_line()
-            self.post_notice("Flow", "Flow is disabled.")
             return
         self.post_notice(
             "Flow",
@@ -8832,6 +8847,8 @@ class ReupApp(App):
         )
         run_state.is_turn_running = True
         if self._active_session_id() == session_id:
+            self._send_meta_frame = 0
+        if self._active_session_id() == session_id:
             self._set_loading_state(self._progress_state_label(), busy=True)
             self.refresh_header()
         else:
@@ -8843,6 +8860,8 @@ class ReupApp(App):
             await run_state.active_turn_task
             run_state.active_turn_task = None
             run_state.is_turn_running = False
+            if self._active_session_id() == session_id:
+                self._send_meta_frame = 0
             run_state.context_meter_floor_pct = None
             if self._active_session_id() == session_id:
                 self.refresh_header()
@@ -8868,6 +8887,7 @@ class ReupApp(App):
                 self.post_notice("Interrupted", "Stopped current run.")
                 run_state.active_turn_task = None
                 run_state.is_turn_running = False
+                self._send_meta_frame = 0
                 run_state.context_meter_floor_pct = None
                 self.refresh_header()
                 self._set_loading_state("idle", busy=False)
@@ -8877,6 +8897,8 @@ class ReupApp(App):
         finally:
             run_state.active_turn_task = None
             run_state.is_turn_running = False
+            if self._active_session_id() == session_id:
+                self._send_meta_frame = 0
             if run_state.context_meter_floor_pct is not None and not completed_normally:
                 run_state.context_meter_floor_pct = None
             if self._active_session_id() == session_id:
@@ -12654,6 +12676,7 @@ class ReupApp(App):
                 pass
         self._active_turn_task = None
         self._is_turn_running = False
+        self._send_meta_frame = 0
         await self._clear_inflight_turn_ui()
         self._set_loading_state("idle", busy=False)
         await self._broadcast_remote_state()
