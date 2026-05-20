@@ -265,10 +265,10 @@ def _flow_control_label(
         return frames[flow_frame % len(frames)], f"bold {error}"
     if flow_state == "transcribing":
         frames = (
-            "flow ⠋ writing",
-            "flow ⠙ writing",
-            "flow ⠹ writing",
-            "flow ⠸ writing",
+            "flow ▰▱▱",
+            "flow ▱▰▱",
+            "flow ▱▱▰",
+            "flow ▱▰▱",
         )
         return frames[flow_frame % len(frames)], f"bold {primary}"
     if flow_state == "missing_key":
