@@ -659,6 +659,37 @@ def save_onboarding_settings(*, completed: bool) -> Path:
     return config_path
 
 
+def save_voice_settings(
+    *,
+    enabled: bool | None = None,
+    groq_api_key: str | None = None,
+) -> Path:
+    """Persist voice typing settings in the system-level config file."""
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
+
+    voice = dict(existing.get("voice", {}) or {})
+    if enabled is not None:
+        voice["enabled"] = enabled
+    if groq_api_key is not None:
+        voice["groq_api_key"] = groq_api_key
+    existing["voice"] = voice
+
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
+    logger.info("Saved voice settings to %s", config_path)
+    return config_path
+
+
 def _render_system_config(config: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     top_level_keys = [
@@ -711,6 +742,14 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
             lines.append(f"[{table_name}]")
             for key, value in table.items():
                 lines.append(f"{key} = {_toml_value(value)}")
+
+    voice = config.get("voice")
+    if isinstance(voice, dict):
+        if lines:
+            lines.append("")
+        lines.append("[voice]")
+        for key, value in voice.items():
+            lines.append(f"{key} = {_toml_value(value)}")
 
     mcp_servers = config.get("mcp_servers")
     if isinstance(mcp_servers, dict):

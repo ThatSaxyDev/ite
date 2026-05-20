@@ -222,6 +222,11 @@ class SandboxPolicy(BaseModel):
     allowed_paths: list[Path] = Field(default_factory=list)
 
 
+class VoiceConfig(BaseModel):
+    enabled: bool = False
+    groq_api_key: str | None = None
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
@@ -229,6 +234,7 @@ class Config(BaseModel):
         default_factory=ShellEnvironmentPolicy
     )
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
     hooks_enabled: bool = False
     hooks: list[HookConfig] = Field(default_factory=list)
     approval: ApprovalPolicy = ApprovalPolicy.AUTO
@@ -277,6 +283,17 @@ class Config(BaseModel):
             self.cloud_client_id = env_cloud_client
         if env_cloud_device := os.environ.get("ITE_CLOUD_DEVICE_NAME"):
             self.cloud_device_name = env_cloud_device
+        if voice_key := (
+            os.environ.get("ITE_VOICE_GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
+        ):
+            self.voice.groq_api_key = voice_key
+        if voice_enabled := os.environ.get("ITE_VOICE_ENABLED"):
+            self.voice.enabled = voice_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
         return self
 
     @property

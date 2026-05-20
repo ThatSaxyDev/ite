@@ -100,6 +100,7 @@ from ite.config.loader import (
     save_saved_custom_provider,
     save_system_config,
     save_theme,
+    save_voice_settings,
 )
 from ite.git.branches import (
     checkout_branch,
@@ -152,6 +153,7 @@ from ite.update_check import (
     mark_update_notice_seen,
     should_show_update_notice,
 )
+from ite.voice import VoiceRecorder, VoiceRecorderError, transcribe_voice_file
 
 from .adapters.registry import StreamingCommandOutput, build_command_context
 from .change_tree import ChangedFilesTree
@@ -276,6 +278,18 @@ class ReupPromptTextArea(TextArea):
                 event.prevent_default()
             self.action_submit()
             return
+
+
+def insert_voice_text_into_widget(widget: Widget, text: str) -> bool:
+    if not text:
+        return False
+    if isinstance(widget, TextArea):
+        widget.insert(text)
+        return True
+    if isinstance(widget, Input):
+        widget.insert_text_at_cursor(text)
+        return True
+    return False
 
 
 def _skills_action_title(action: str) -> str:
@@ -1201,6 +1215,7 @@ class ReupApp(App):
         Binding("ctrl+enter", "send", "Send"),
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", priority=True),
         Binding("ctrl+l", "clear_input", "Clear Input"),
+        Binding("f8", "toggle_voice_input", "Voice"),
         Binding("f1", "show_help", "Help"),
     ]
     MIN_PROMPT_LINES = 2
@@ -1248,6 +1263,9 @@ class ReupApp(App):
         self._composer_history_draft: str = ""
         self._applying_history_nav: bool = False
         self._suppress_history_reset_once: bool = False
+        self._voice_recorder: VoiceRecorder | None = None
+        self._voice_target: Widget | None = None
+        self._voice_busy: bool = False
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
         self._top_spinner_frames: tuple[str, ...] = (
@@ -1851,6 +1869,9 @@ class ReupApp(App):
             )
 
     async def on_unmount(self) -> None:
+        if self._voice_recorder is not None:
+            await self._voice_recorder.cancel()
+            self._voice_recorder = None
         await self._shutdown_remote_server()
         await self._shutdown_agents()
 
@@ -7047,6 +7068,137 @@ class ReupApp(App):
     async def action_send(self) -> None:
         await self.handle_send()
 
+    def action_toggle_voice_input(self) -> None:
+        self.run_worker(self._toggle_voice_input(), exclusive=False)
+
+    async def _toggle_voice_input(self) -> None:
+        if self._voice_busy:
+            self.post_notice("Voice", "Voice transcription is already running.")
+            return
+        if self._voice_recorder is not None:
+            await self._stop_voice_input()
+            return
+        await self._start_voice_input()
+
+    async def _start_voice_input(self) -> None:
+        if not self.config.voice.enabled:
+            self.post_notice(
+                "Voice",
+                "Enable voice with [voice] enabled = true and groq_api_key in config.",
+                timeout=6,
+            )
+            return
+        if not str(self.config.voice.groq_api_key or "").strip():
+            self.post_notice("Voice", "Add your Groq API key under [voice].", timeout=6)
+            return
+
+        target = self.focused
+        if not isinstance(target, Input | TextArea):
+            self.post_notice("Voice", "Focus a text field before starting voice input.")
+            return
+
+        recorder = VoiceRecorder()
+        try:
+            await recorder.start()
+        except VoiceRecorderError as exc:
+            self.post_notice("Voice", str(exc), timeout=8)
+            return
+
+        self._voice_recorder = recorder
+        self._voice_target = target
+        self.post_notice("Voice", "Recording. Press F8 to stop.", timeout=10)
+
+    async def _stop_voice_input(self) -> None:
+        recorder = self._voice_recorder
+        target = self._voice_target
+        if recorder is None:
+            return
+
+        self._voice_recorder = None
+        self._voice_target = None
+        self._voice_busy = True
+        audio_path: Path | None = None
+        try:
+            self.post_notice("Voice", "Transcribing...", timeout=10)
+            audio_path = await recorder.stop()
+            result = await transcribe_voice_file(self.config, audio_path)
+            transcript = result.transcript.strip()
+            if not transcript:
+                self.post_notice("Voice", "Nothing to insert.")
+                return
+
+            insert_target = target
+            if insert_target is None or not getattr(insert_target, "is_mounted", True):
+                focused = self.focused
+                insert_target = focused if isinstance(focused, Input | TextArea) else None
+            if insert_target is None or not insert_voice_text_into_widget(
+                insert_target,
+                transcript,
+            ):
+                self.post_notice("Voice", "Focus a text field before inserting.")
+                return
+            insert_target.focus()
+            if isinstance(insert_target, TextArea) and insert_target.id == "prompt":
+                self._sync_command_palette(insert_target.text)
+                self._resize_composer_for_prompt()
+            self.post_notice("Voice", "Inserted transcript.")
+        except Exception as exc:
+            self.post_notice("Voice", str(exc), timeout=8)
+        finally:
+            self._voice_busy = False
+            if audio_path is not None:
+                with contextlib.suppress(OSError):
+                    audio_path.unlink(missing_ok=True)
+
+    async def _run_voice_command_native(self, args: list[str]) -> None:
+        action = (args[0] if args else "status").strip().lower()
+        if action == "status":
+            enabled = "on" if self.config.voice.enabled else "off"
+            self.post_notice(
+                "Voice",
+                f"{enabled}; Groq key {self._mask_voice_key(self.config.voice.groq_api_key)}",
+                timeout=5,
+            )
+            return
+        if action == "setup":
+            if len(args) < 2 or not args[1].strip():
+                self.post_notice("Voice", "Usage: /voice setup <groq-api-key>", timeout=6)
+                return
+            key = args[1].strip()
+            save_voice_settings(enabled=True, groq_api_key=key)
+            self.config.voice.enabled = True
+            self.config.voice.groq_api_key = key
+            self.post_notice("Voice", "Voice typing enabled. Press F8.")
+            return
+        if action in {"on", "enable"}:
+            save_voice_settings(enabled=True)
+            self.config.voice.enabled = True
+            self.post_notice("Voice", "Voice typing enabled. Press F8.")
+            return
+        if action in {"off", "disable"}:
+            save_voice_settings(enabled=False)
+            self.config.voice.enabled = False
+            if self._voice_recorder is not None:
+                await self._voice_recorder.cancel()
+                self._voice_recorder = None
+                self._voice_target = None
+            self.post_notice("Voice", "Voice typing disabled.")
+            return
+        self.post_notice(
+            "Voice",
+            "Use /voice status, /voice setup <groq-api-key>, /voice on, or /voice off.",
+            timeout=6,
+        )
+
+    @staticmethod
+    def _mask_voice_key(value: str | None) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "not set"
+        if len(text) <= 4:
+            return "*" * len(text)
+        return "*" * max(4, len(text) - 4) + text[-4:]
+
     @on(TextArea.Changed, "#prompt")
     def on_prompt_changed(self, _event: TextArea.Changed) -> None:
         if self._suppress_history_reset_once:
@@ -7820,6 +7972,10 @@ class ReupApp(App):
 
         if command == "/remote":
             await self._run_remote_command_native(args)
+            return
+
+        if command == "/voice":
+            await self._run_voice_command_native(args)
             return
 
         if command == "/close":
