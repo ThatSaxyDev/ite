@@ -422,7 +422,7 @@ class PlanQuestionModal(ModalScreen[dict[str, Any]]):
 class CommitModal(ModalScreen[dict[str, Any] | None]):
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
-        ("ctrl+s", "toggle_voice_input", "Voice"),
+        ("ctrl+s", "toggle_voice_input", "Flow"),
     ]
     _AI_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     _AI_LOADING_LINES = (
@@ -870,7 +870,7 @@ class VoiceSetupModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal voice-setup-modal"):
-            yield Label("Voice typing", classes="modal-title")
+            yield Label("Flow", classes="modal-title")
             yield Static(
                 "Add your Groq API key to enable dictation in iTE. The key is saved in your local iTE config and is never shown in command history.",
                 classes="modal-body",

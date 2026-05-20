@@ -297,8 +297,8 @@ def redact_sensitive_command_text(text: str) -> str:
     stripped = str(text or "").strip()
     if not stripped:
         return ""
-    if stripped.lower().startswith("/voice setup "):
-        return "/voice setup [redacted]"
+    if stripped.lower().startswith("/flow setup "):
+        return "/flow setup [redacted]"
     return stripped
 
 
@@ -1225,7 +1225,7 @@ class ReupApp(App):
         Binding("ctrl+enter", "send", "Send"),
         Binding("ctrl+c", "interrupt_or_quit", "Interrupt", priority=True),
         Binding("ctrl+l", "clear_input", "Clear Input"),
-        Binding("ctrl+s", "toggle_voice_input", "Voice"),
+        Binding("ctrl+s", "toggle_voice_input", "Flow"),
         Binding("f1", "show_help", "Help"),
     ]
     MIN_PROMPT_LINES = 2
@@ -7083,7 +7083,7 @@ class ReupApp(App):
 
     async def _toggle_voice_input(self) -> None:
         if self._voice_busy:
-            self.post_notice("Voice typing", "Finishing your current dictation.")
+            self.post_notice("Flow", "Finishing your current dictation.")
             return
         if self._voice_recorder is not None:
             await self._stop_voice_input()
@@ -7093,15 +7093,15 @@ class ReupApp(App):
     async def _start_voice_input(self) -> None:
         if not self.config.voice.enabled:
             self.post_notice(
-                "Voice typing",
-                "Set up voice typing with `/voice setup` before recording.",
+                "Flow",
+                "Set up flow with `/flow setup` before recording.",
                 timeout=6,
             )
             return
         if not str(self.config.voice.groq_api_key or "").strip():
             self.post_notice(
-                "Voice typing",
-                "Add your Groq API key with `/voice setup` before recording.",
+                "Flow",
+                "Add your Groq API key with `/flow setup` before recording.",
                 timeout=6,
             )
             return
@@ -7109,7 +7109,7 @@ class ReupApp(App):
         target = self.focused
         if not isinstance(target, Input | TextArea):
             self.post_notice(
-                "Voice typing",
+                "Flow",
                 "Place your cursor in a text field, then press Ctrl+S.",
             )
             return
@@ -7118,12 +7118,12 @@ class ReupApp(App):
         try:
             await recorder.start()
         except VoiceRecorderError as exc:
-            self.post_notice("Voice typing", str(exc), timeout=8)
+            self.post_notice("Flow", str(exc), timeout=8)
             return
 
         self._voice_recorder = recorder
         self._voice_target = target
-        self.post_notice("Voice typing", "Listening. Press Ctrl+S when you are done.", timeout=10)
+        self.post_notice("Flow", "Listening. Press Ctrl+S when you are done.", timeout=10)
 
     async def _stop_voice_input(self) -> None:
         recorder = self._voice_recorder
@@ -7136,12 +7136,12 @@ class ReupApp(App):
         self._voice_busy = True
         audio_path: Path | None = None
         try:
-            self.post_notice("Voice typing", "Preparing your dictation...", timeout=10)
+            self.post_notice("Flow", "Preparing your dictation...", timeout=10)
             audio_path = await recorder.stop()
             result = await transcribe_voice_file(self.config, audio_path)
             transcript = result.transcript.strip()
             if not transcript:
-                self.post_notice("Voice typing", "No speech detected.")
+                self.post_notice("Flow", "No speech detected.")
                 return
 
             insert_target = target
@@ -7153,7 +7153,7 @@ class ReupApp(App):
                 transcript,
             ):
                 self.post_notice(
-                    "Voice typing",
+                    "Flow",
                     "Choose where the transcript should go, then try again.",
                 )
                 return
@@ -7161,9 +7161,9 @@ class ReupApp(App):
             if isinstance(insert_target, TextArea) and insert_target.id == "prompt":
                 self._sync_command_palette(insert_target.text)
                 self._resize_composer_for_prompt()
-            self.post_notice("Voice typing", "Transcript inserted.")
+            self.post_notice("Flow", "Transcript inserted.")
         except Exception as exc:
-            self.post_notice("Voice typing", str(exc), timeout=8)
+            self.post_notice("Flow", str(exc), timeout=8)
         finally:
             self._voice_busy = False
             if audio_path is not None:
@@ -7180,7 +7180,7 @@ class ReupApp(App):
                 else "Groq key missing"
             )
             self.post_notice(
-                "Voice typing",
+                "Flow",
                 f"{status}. {key_status}. Press Ctrl+S in any text field.",
                 timeout=5,
             )
@@ -7188,8 +7188,8 @@ class ReupApp(App):
         if action == "setup":
             if len(args) > 1:
                 self.post_notice(
-                    "Voice typing",
-                    "For security, run `/voice setup` without pasting the key into the command.",
+                    "Flow",
+                    "For security, run `/flow setup` without pasting the key into the command.",
                     timeout=8,
                 )
                 return
@@ -7199,12 +7199,12 @@ class ReupApp(App):
             save_voice_settings(enabled=True, groq_api_key=key)
             self.config.voice.enabled = True
             self.config.voice.groq_api_key = key
-            self.post_notice("Voice typing", "Voice typing is ready. Press Ctrl+S in any text field.")
+            self.post_notice("Flow", "Flow is ready. Press Ctrl+S in any text field.")
             return
         if action in {"on", "enable"}:
             save_voice_settings(enabled=True)
             self.config.voice.enabled = True
-            self.post_notice("Voice typing", "Voice typing is enabled. Press Ctrl+S in any text field.")
+            self.post_notice("Flow", "Flow is enabled. Press Ctrl+S in any text field.")
             return
         if action in {"off", "disable"}:
             save_voice_settings(enabled=False)
@@ -7213,11 +7213,11 @@ class ReupApp(App):
                 await self._voice_recorder.cancel()
                 self._voice_recorder = None
                 self._voice_target = None
-            self.post_notice("Voice typing", "Voice typing is disabled.")
+            self.post_notice("Flow", "Flow is disabled.")
             return
         self.post_notice(
-            "Voice typing",
-            "Use `/voice setup`, `/voice status`, `/voice on`, or `/voice off`.",
+            "Flow",
+            "Use `/flow setup`, `/flow status`, `/flow on`, or `/flow off`.",
             timeout=6,
         )
 
@@ -7996,7 +7996,7 @@ class ReupApp(App):
             await self._run_remote_command_native(args)
             return
 
-        if command == "/voice":
+        if command in {"/voice", "/flow"}:
             await self._run_voice_command_native(args)
             return
 
