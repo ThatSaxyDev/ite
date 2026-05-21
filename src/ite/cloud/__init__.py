@@ -10,6 +10,7 @@ from ite.cloud.auth import get_cloud_auth_status
 from ite.cloud.auth import get_cloud_entitlements
 from ite.cloud.auth import get_cloud_entitlements_result
 from ite.cloud.auth import get_cloud_session
+from ite.cloud.auth import get_bundled_access_status
 from ite.cloud.auth import get_remote_companion_access_status
 from ite.cloud.auth import get_activity
 from ite.cloud.auth import get_usage_summary
@@ -33,6 +34,7 @@ __all__ = [
     "get_cloud_entitlements",
     "get_cloud_entitlements_result",
     "get_cloud_session",
+    "get_bundled_access_status",
     "get_remote_companion_access_status",
     "get_activity",
     "get_usage_summary",

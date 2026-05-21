@@ -1303,6 +1303,7 @@ class ReupApp(App):
         self._cloud_bootstrap_busy: bool = False
         self._ensure_agent_lock = asyncio.Lock()
         self._bundled_models_cache: list[dict[str, Any]] = []
+        self._bundled_access_denied: bool = False
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = False
@@ -1337,6 +1338,7 @@ class ReupApp(App):
         self._runtime_update_check_in_flight: bool = False
         self._required_update_notice: Any | None = None
         self._bundled_access_announced: bool = False
+        self._last_bundled_access_notice_at: float | None = None
         self._remote_access_cache: tuple[Any, float] | None = None
         self._command_palette_options: list[SlashCommandOption] = []
         self._filtered_command_palette_options: list[SlashCommandOption] = []
@@ -2974,6 +2976,8 @@ class ReupApp(App):
         persisted_source_kind = (
             str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
         )
+        if self._bundled_access_denied:
+            return False
         if persisted_source_kind == "bundled":
             return True
         if persisted_source_kind in {"saved", "custom"}:
@@ -3002,6 +3006,11 @@ class ReupApp(App):
             if self._cloud_signed_out:
                 self._set_signed_out_state(False)
             return True
+        if state == CloudSessionState.NO_ENTITLEMENT:
+            self._bundled_access_denied = True
+            if interactive:
+                self._maybe_post_bundled_access_notice(message)
+            return False
         if state == CloudSessionState.NETWORK_ERROR:
             if interactive:
                 self.post_system(
@@ -3049,6 +3058,21 @@ class ReupApp(App):
             )
         return False
 
+    def _maybe_post_bundled_access_notice(self, message: str = "") -> None:
+        now = time.monotonic()
+        if (
+            self._last_bundled_access_notice_at is not None
+            and now - self._last_bundled_access_notice_at < 3600
+        ):
+            return
+        self._last_bundled_access_notice_at = now
+        self.post_notice(
+            "iTE Pro",
+            message
+            or "Bundled cloud models are available with iTE Pro.",
+            timeout=5,
+        )
+
     async def _refresh_bundled_models_cache(self) -> None:
         try:
             result = await asyncio.to_thread(get_bundled_models_result, self.config)
@@ -3059,10 +3083,21 @@ class ReupApp(App):
             context="Bundled models",
             interactive=False,
         ):
+            if (
+                str(getattr(result.auth, "state", "") or "")
+                == CloudSessionState.NO_ENTITLEMENT
+            ):
+                self._bundled_models_cache = []
+                self._usage_summary_cache = None
+                self._usage_remaining_percent = None
+                self.refresh_header()
             return
+        self._bundled_access_denied = False
         self._bundled_models_cache = result.models
         self._migrate_legacy_bundled_selection_if_needed()
         self.refresh_header()
+        if self._is_bundled_model():
+            self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
 
     async def _refresh_usage_summary_cache(self) -> None:
         try:
@@ -3728,22 +3763,34 @@ class ReupApp(App):
             return
         while True:
             current_model = self.config.model_name
-            bundled_items = self._bundled_models_cache
-            if not bundled_items:
-                result = await asyncio.to_thread(get_bundled_models_result, self.config)
-                if not self._apply_cloud_auth_status(
-                    result.auth,
-                    context="Bundled models",
-                    interactive=True,
-                ):
-                    if str(result.auth.state) in {
-                        CloudSessionState.SIGNED_OUT,
-                        CloudSessionState.INVALID,
-                    }:
-                        return
+            bundled_items = (
+                [] if self._bundled_access_denied else self._bundled_models_cache
+            )
+            result = await asyncio.to_thread(get_bundled_models_result, self.config)
+            if not self._apply_cloud_auth_status(
+                result.auth,
+                context="Bundled models",
+                interactive=True,
+            ):
+                if str(result.auth.state) in {
+                    CloudSessionState.SIGNED_OUT,
+                    CloudSessionState.INVALID,
+                }:
+                    return
+                if str(result.auth.state) == CloudSessionState.NO_ENTITLEMENT:
+                    self._bundled_models_cache = []
+                    bundled_items = []
+                else:
+                    bundled_items = self._bundled_models_cache
+            else:
+                self._bundled_access_denied = False
                 bundled_items = result.models
-                if not bundled_items and result.message:
-                    self.post_system("Bundled models", result.message, is_error=True)
+            if (
+                not bundled_items
+                and result.message
+                and str(result.auth.state) != CloudSessionState.NO_ENTITLEMENT
+            ):
+                self.post_system("Bundled models", result.message, is_error=True)
             self._bundled_models_cache = bundled_items
             saved_providers = load_saved_custom_provider()
             bundled_model_names = {
@@ -3863,6 +3910,13 @@ class ReupApp(App):
                 current_model
                 and current_model not in bundled_model_names
                 and current_model not in saved_providers
+                and not (
+                    self._bundled_access_denied
+                    and str(getattr(self.config.model, "source_kind", "") or "")
+                    .strip()
+                    .lower()
+                    == "bundled"
+                )
             ):
                 _append(
                     "custom",

@@ -618,7 +618,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_uses_cached_bundled_models_without_refetch(self) -> None:
+    def test_open_model_picker_revalidates_cached_bundled_models(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app._bundled_models_cache = [
@@ -633,13 +633,16 @@ class ReupCommandPaletteTests(unittest.TestCase):
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.load_saved_custom_provider", return_value={}
             ), patch(
-                "ite.ui.reup.app.get_bundled_models_result"
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=self._bundled_models_result(
+                    [{"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}]
+                ),
             ) as get_bundled_models, patch.object(
                 app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
             ):
                 await app._open_model_picker_from_meta()
 
-            get_bundled_models.assert_not_called()
+            get_bundled_models.assert_called_once()
 
         asyncio.run(run_test())
 
@@ -837,6 +840,60 @@ class ReupCommandPaletteTests(unittest.TestCase):
             set_signed_out.assert_called_once_with(True)
             post_system.assert_called_once()
             open_modal.assert_not_awaited()
+
+        asyncio.run(run_test())
+
+    def test_open_model_picker_ignores_bundled_cache_without_entitlement(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
+            app.config.api_key = ""
+            app.config.base_url = ""
+            app._bundled_models_cache = [
+                {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
+            ]
+            result = BundledModelsResult(
+                models=[],
+                auth=CloudAuthStatus(
+                    state=CloudSessionState.NO_ENTITLEMENT,
+                    message="Bundled models require iTE Pro for this account.",
+                ),
+                message="Bundled models require iTE Pro for this account.",
+            )
+            saved_provider = {
+                "model_name": "gemma4:e4b",
+                "base_url": "http://localhost:11434/v1",
+                "api_key": "ollama",
+            }
+
+            async def fake_open_modal(modal):
+                self.assertEqual(len(modal._models), 1)
+                self.assertEqual(modal._models[0]["model_name"], "gemma4:e4b")
+                self.assertEqual(modal._models[0]["source_kind"], "saved")
+                return None
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={"gemma4:e4b": saved_provider},
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=result,
+            ) as get_bundled_models, patch.object(
+                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+            ) as open_modal, patch.object(
+                app, "post_system"
+            ) as post_system, patch.object(
+                app, "post_notice"
+            ) as post_notice:
+                await app._open_model_picker_from_meta()
+
+            get_bundled_models.assert_called_once()
+            open_modal.assert_awaited_once()
+            post_system.assert_not_called()
+            post_notice.assert_called_once()
+            self.assertEqual(app._bundled_models_cache, [])
+            self.assertTrue(app._bundled_access_denied)
 
         asyncio.run(run_test())
 

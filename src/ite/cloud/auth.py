@@ -756,7 +756,7 @@ def _cloud_payload_message(payload: dict[str, Any]) -> str:
 
 
 def get_bundled_models_result(config: Config) -> BundledModelsResult:
-    auth = get_cloud_auth_status(config)
+    auth = get_bundled_access_status(config)
     if not auth.is_valid:
         return BundledModelsResult(models=[], auth=auth, message=auth.message)
 
@@ -886,6 +886,26 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
 
 def get_cloud_entitlements(config: Config) -> dict[str, Any]:
     return get_cloud_entitlements_result(config).entitlements
+
+
+def get_bundled_access_status(config: Config) -> CloudAuthStatus:
+    result = get_cloud_entitlements_result(config)
+    if not result.auth.is_valid:
+        return result.auth
+    if bool(result.entitlements.get("bundledInference")):
+        return CloudAuthStatus(
+            state=CloudSessionState.VALID,
+            session=result.auth.session,
+            message="Bundled model access is active.",
+        )
+    return CloudAuthStatus(
+        state=CloudSessionState.NO_ENTITLEMENT,
+        session=result.auth.session,
+        message=(
+            "Bundled models require iTE Pro for this account. "
+            "Use `/setup` to connect your own provider, or manage your plan."
+        ),
+    )
 
 
 def get_remote_companion_access_status(config: Config) -> CloudAuthStatus:

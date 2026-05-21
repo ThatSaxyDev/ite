@@ -16,6 +16,7 @@ from ite.cloud.auth import (
     _save_cloud_session,
     ensure_cloud_auth,
     get_activity,
+    get_bundled_access_status,
     get_bundled_models,
     get_cloud_auth_status,
     get_cloud_entitlements,
@@ -261,7 +262,11 @@ class CloudAuthTests(unittest.TestCase):
 
         with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
             "ite.cloud.auth._get_json",
-            side_effect=[(200, {"ok": True}), (200, payload)],
+            side_effect=[
+                (200, {"ok": True}),
+                (200, {"ok": True, "entitlements": {"bundledInference": True}}),
+                (200, payload),
+            ],
         ):
             models = get_bundled_models(self.config)
 
@@ -312,6 +317,47 @@ class CloudAuthTests(unittest.TestCase):
             ],
         ):
             self.assertTrue(has_remote_companion_access(self.config))
+
+    def test_bundled_access_status_requires_bundled_entitlement(self) -> None:
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
+            "ite.cloud.auth._get_json",
+            side_effect=[
+                (200, {"ok": True}),
+                (
+                    200,
+                    {
+                        "ok": True,
+                        "entitlements": {
+                            "bundledInference": False,
+                            "remoteCompanion": False,
+                        },
+                    },
+                ),
+            ],
+        ):
+            status = get_bundled_access_status(self.config)
+
+        self.assertEqual(status.state, CloudSessionState.NO_ENTITLEMENT)
+        self.assertIn("iTE Pro", status.message)
+
+    def test_bundled_models_require_bundled_entitlement_before_listing(self) -> None:
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
+            "ite.cloud.auth._get_json",
+            side_effect=[
+                (200, {"ok": True}),
+                (
+                    200,
+                    {
+                        "ok": True,
+                        "entitlements": {"bundledInference": False},
+                    },
+                ),
+            ],
+        ) as get_json:
+            models = get_bundled_models(self.config)
+
+        self.assertEqual(models, [])
+        self.assertEqual(get_json.call_count, 2)
 
     def test_remote_companion_access_falls_back_to_bundled_entitlement(self) -> None:
         with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(

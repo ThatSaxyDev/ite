@@ -507,6 +507,66 @@ class ReupStartupTests(unittest.TestCase):
         post_system.assert_called_once()
         self.assertIn("OS credential store", post_system.call_args.args[1])
 
+    def test_no_bundled_entitlement_marks_bundled_access_denied(self) -> None:
+        app = self._app()
+        status = CloudAuthStatus(
+            state=CloudSessionState.NO_ENTITLEMENT,
+            message="Bundled models require iTE Pro for this account.",
+        )
+
+        with patch.object(app, "post_system") as post_system, patch.object(
+            app, "post_notice"
+        ) as post_notice:
+            result = app._apply_cloud_auth_status(
+                status,
+                context="Bundled models",
+                interactive=True,
+            )
+
+        self.assertFalse(result)
+        self.assertTrue(app._bundled_access_denied)
+        post_system.assert_not_called()
+        post_notice.assert_called_once()
+        self.assertIn("iTE Pro", post_notice.call_args.args[0])
+
+    def test_bundled_entitlement_notice_is_throttled(self) -> None:
+        app = self._app()
+
+        with patch.object(app, "post_notice") as post_notice, patch(
+            "ite.ui.reup.app.time.monotonic", side_effect=[100.0, 200.0, 3801.0]
+        ):
+            app._maybe_post_bundled_access_notice()
+            app._maybe_post_bundled_access_notice()
+            app._maybe_post_bundled_access_notice()
+
+        self.assertEqual(post_notice.call_count, 2)
+
+    def test_bundled_model_refresh_clears_stale_cache_without_entitlement(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._bundled_models_cache = [{"model_name": "moonshotai/kimi-k2.5"}]
+            app._usage_summary_cache = {"ok": True}
+            app._usage_remaining_percent = 75
+            status = CloudAuthStatus(
+                state=CloudSessionState.NO_ENTITLEMENT,
+                message="Bundled models require iTE Pro for this account.",
+            )
+            result = SimpleNamespace(models=[], auth=status, message=status.message)
+
+            with (
+                patch("ite.ui.reup.app.get_bundled_models_result", return_value=result),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
+                await app._refresh_bundled_models_cache()
+
+            self.assertEqual(app._bundled_models_cache, [])
+            self.assertIsNone(app._usage_summary_cache)
+            self.assertIsNone(app._usage_remaining_percent)
+            self.assertTrue(app._bundled_access_denied)
+            refresh_header.assert_called_once()
+
+        asyncio.run(run_test())
+
     def test_perform_quit_does_not_hang_on_remote_shutdown(self) -> None:
         async def run_test() -> None:
             app = self._app()
