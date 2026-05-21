@@ -12,6 +12,7 @@ import shlex
 import sys
 import time
 import uuid
+import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1401,7 +1402,9 @@ class ReupApp(App):
             with Horizontal(id="topbar"):
                 yield Button("≡", id="threads-toggle", variant="default")
                 yield Static("New thread", id="title")
-                yield Static("", id="header-meta")
+                with Horizontal(id="header-meta-group"):
+                    yield Static("", id="plan-badge")
+                    yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
                 yield Button("/hooks", id="hooks-toggle", variant="default")
                 yield Button("/aside", id="aside-toggle", variant="default")
@@ -2608,28 +2611,29 @@ class ReupApp(App):
             self._agents_recommendation_current_visit = None
         self._agents_recommendation_last_workspace_key = current_workspace_key
         title = self.query_one("#title", Static)
+        plan_badge = self.query_one("#plan-badge", Static)
         meta = self.query_one("#header-meta", Static)
         if self._cloud_signed_out:
             title.update("Sign in")
+            plan_badge.display = False
             meta.update("iTE Cloud required")
         else:
             title.update(self._current_session_title())
-            meta.update(self._header_meta_renderable())
+            plan_badge.display = True
+            plan_badge.update(self._plan_badge_renderable())
+            meta.update(f"Workspace: {self.config.cwd}")
         self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         if refresh_session_tabs:
             self._queue_session_tabs_refresh()
 
-    def _header_meta_renderable(self) -> Text:
+    def _plan_badge_renderable(self) -> Text:
         styles = self._render_styles()
         label = "Pro" if self._account_plan_is_pro else "Free"
         badge_bg = styles["success"] if self._account_plan_is_pro else styles["warning"]
         badge_fg = styles["background"]
         badge_style = f"bold {badge_fg} on {badge_bg}"
-        meta = Text(justify="right", no_wrap=True, overflow="ellipsis")
-        meta.append(f" {label} ", style=badge_style)
-        meta.append(f"  Workspace: {self.config.cwd}", style=styles["muted"])
-        return meta
+        return Text(f" {label} ", style=badge_style, no_wrap=True)
 
     def _update_composer_meta_line(self) -> None:
         try:
@@ -3739,6 +3743,20 @@ class ReupApp(App):
         if start <= event.x < end:
             self.run_worker(self._toggle_plan_mode_from_meta(), exclusive=False)
             event.stop()
+
+    @on(events.Click, "#plan-badge")
+    def on_plan_badge_click(self, event: events.Click) -> None:
+        event.stop()
+        if self._account_plan_is_pro:
+            return
+        opened = webbrowser.open("https://ite.kiishi.space/pricing")
+        if opened:
+            self.post_notice("Pricing", "Opened iTE Pro pricing in your browser.")
+        else:
+            self.post_notice(
+                "Pricing",
+                "Open https://ite.kiishi.space/pricing to start iTE Pro.",
+            )
 
     @on(events.Click, "#composer-send-control")
     def on_composer_send_control_click(self, event: events.Click) -> None:

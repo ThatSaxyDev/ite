@@ -568,20 +568,41 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_header_meta_includes_plan_badge_before_workspace(self) -> None:
+    def test_plan_badge_uses_theme_aware_plan_color(self) -> None:
         app = self._app()
         app._account_plan_is_pro = False
 
-        free = app._header_meta_renderable().plain
+        free_badge = app._plan_badge_renderable()
+        free = free_badge.plain
         self.assertIn("Free", free)
-        self.assertLess(free.index("Free"), free.index("Workspace:"))
-        self.assertIn(f"on {app._render_styles()['warning']}", str(app._header_meta_renderable().spans[0].style))
+        self.assertIn(
+            f"on {app._render_styles()['warning']}",
+            str(free_badge.style),
+        )
 
         app._account_plan_is_pro = True
-        pro = app._header_meta_renderable().plain
+        pro_badge = app._plan_badge_renderable()
+        pro = pro_badge.plain
         self.assertIn("Pro", pro)
-        self.assertLess(pro.index("Pro"), pro.index("Workspace:"))
-        self.assertIn(f"on {app._render_styles()['success']}", str(app._header_meta_renderable().spans[0].style))
+        self.assertIn(
+            f"on {app._render_styles()['success']}",
+            str(pro_badge.style),
+        )
+
+    def test_free_plan_badge_opens_pricing(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = False
+        event = SimpleNamespace(stop=lambda: setattr(event, "stopped", True))
+
+        with (
+            patch("ite.ui.reup.app.webbrowser.open", return_value=True) as open_url,
+            patch.object(app, "post_notice") as post_notice,
+        ):
+            app.on_plan_badge_click(event)  # type: ignore[arg-type]
+
+        open_url.assert_called_once_with("https://ite.kiishi.space/pricing")
+        post_notice.assert_called_once()
+        self.assertTrue(event.stopped)
 
     def test_account_plan_badge_refreshes_from_entitlements(self) -> None:
         async def run_test() -> None:
@@ -900,6 +921,7 @@ class ReupStartupTests(unittest.TestCase):
             prompt = SimpleNamespace(focus=lambda: None)
             title = SimpleNamespace(update=lambda _value: None)
             meta = SimpleNamespace(update=lambda _value: None)
+            plan_badge = SimpleNamespace(display=True, update=lambda _value: None)
             composer_meta_line = SimpleNamespace(update=lambda _value: None)
             empty_state = SimpleNamespace(display=False, update=lambda _value: None)
 
@@ -914,6 +936,7 @@ class ReupStartupTests(unittest.TestCase):
                 return {
                     "#prompt": prompt,
                     "#title": title,
+                    "#plan-badge": plan_badge,
                     "#header-meta": meta,
                     "#composer-meta-line": composer_meta_line,
                     "#empty-state": empty_state,
