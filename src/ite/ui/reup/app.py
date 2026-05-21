@@ -2623,11 +2623,9 @@ class ReupApp(App):
     def _header_meta_renderable(self) -> Text:
         styles = self._render_styles()
         label = "Pro" if self._account_plan_is_pro else "Free"
-        badge_style = (
-            "bold #07140f on #4edea3"
-            if self._account_plan_is_pro
-            else "bold #2b2118 on #d8a15c"
-        )
+        badge_bg = styles["success"] if self._account_plan_is_pro else styles["warning"]
+        badge_fg = styles["background"]
+        badge_style = f"bold {badge_fg} on {badge_bg}"
         meta = Text(justify="right", no_wrap=True, overflow="ellipsis")
         meta.append(f" {label} ", style=badge_style)
         meta.append(f"  Workspace: {self.config.cwd}", style=styles["muted"])

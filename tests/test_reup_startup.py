@@ -575,11 +575,13 @@ class ReupStartupTests(unittest.TestCase):
         free = app._header_meta_renderable().plain
         self.assertIn("Free", free)
         self.assertLess(free.index("Free"), free.index("Workspace:"))
+        self.assertIn(f"on {app._render_styles()['warning']}", str(app._header_meta_renderable().spans[0].style))
 
         app._account_plan_is_pro = True
         pro = app._header_meta_renderable().plain
         self.assertIn("Pro", pro)
         self.assertLess(pro.index("Pro"), pro.index("Workspace:"))
+        self.assertIn(f"on {app._render_styles()['success']}", str(app._header_meta_renderable().spans[0].style))
 
     def test_account_plan_badge_refreshes_from_entitlements(self) -> None:
         async def run_test() -> None:
