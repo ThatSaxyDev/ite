@@ -1306,7 +1306,7 @@ class ReupApp(App):
         self._ensure_agent_lock = asyncio.Lock()
         self._bundled_models_cache: list[dict[str, Any]] = []
         self._bundled_access_denied: bool = False
-        self._account_plan_is_pro: bool = False
+        self._account_plan_is_pro: bool | None = None
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = False
@@ -2629,6 +2629,15 @@ class ReupApp(App):
 
     def _plan_badge_renderable(self) -> Text:
         styles = self._render_styles()
+        if self._account_plan_is_pro is None:
+            frame = self._top_spinner_frames[
+                self._top_spinner_index % len(self._top_spinner_frames)
+            ]
+            return Text(
+                f" {frame} ",
+                style=f"bold {styles['secondary']} on {styles['surface']}",
+                no_wrap=True,
+            )
         label = "Pro" if self._account_plan_is_pro else "Free"
         badge_bg = styles["success"] if self._account_plan_is_pro else styles["warning"]
         badge_fg = styles["background"]
@@ -2642,6 +2651,16 @@ class ReupApp(App):
             return
         composer_meta_line.update(self._composer_meta_text())
         self._update_composer_send_control()
+
+    def _refresh_plan_badge_renderable(self) -> None:
+        if self._cloud_signed_out:
+            return
+        try:
+            self.query_one("#plan-badge", Static).update(
+                self._plan_badge_renderable()
+            )
+        except Exception:
+            return
 
     def _update_composer_send_control(self) -> None:
         try:
@@ -3152,7 +3171,7 @@ class ReupApp(App):
             return
         state = str(getattr(result.auth, "state", "") or "")
         if state == CloudSessionState.NO_ENTITLEMENT:
-            if self._account_plan_is_pro:
+            if self._account_plan_is_pro is not False:
                 self._account_plan_is_pro = False
                 self.refresh_header()
             return
@@ -3747,6 +3766,8 @@ class ReupApp(App):
     @on(events.Click, "#plan-badge")
     def on_plan_badge_click(self, event: events.Click) -> None:
         event.stop()
+        if self._account_plan_is_pro is None:
+            return
         if self._account_plan_is_pro:
             return
         opened = webbrowser.open("https://ite.kiishi.space/pricing")
@@ -6650,6 +6671,9 @@ class ReupApp(App):
     def _tick_top_indicator(self) -> None:
         flow_animating = self._voice_recorder is not None or self._voice_busy
         send_animating = self._is_turn_running
+        plan_animating = (
+            self._account_plan_is_pro is None and not self._cloud_signed_out
+        )
         has_pending_command_spinner = any(
             pending_active
             for _card, _body_widget, _scroll_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
@@ -6661,9 +6685,12 @@ class ReupApp(App):
             and not self._cloud_auth_busy
             and not flow_animating
             and not send_animating
+            and not plan_animating
         ):
             return
         self._top_spinner_index += 1
+        if plan_animating:
+            self._refresh_plan_badge_renderable()
         if send_animating:
             self._send_meta_frame += 1
             self._update_composer_send_control()

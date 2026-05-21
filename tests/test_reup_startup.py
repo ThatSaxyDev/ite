@@ -570,6 +570,15 @@ class ReupStartupTests(unittest.TestCase):
 
     def test_plan_badge_uses_theme_aware_plan_color(self) -> None:
         app = self._app()
+        app._account_plan_is_pro = None
+
+        loading_badge = app._plan_badge_renderable()
+        self.assertIn("▰▱▱", loading_badge.plain)
+        self.assertIn(
+            f"on {app._render_styles()['surface']}",
+            str(loading_badge.style),
+        )
+
         app._account_plan_is_pro = False
 
         free_badge = app._plan_badge_renderable()
@@ -602,6 +611,21 @@ class ReupStartupTests(unittest.TestCase):
 
         open_url.assert_called_once_with("https://ite.kiishi.space/pricing")
         post_notice.assert_called_once()
+        self.assertTrue(event.stopped)
+
+    def test_loading_plan_badge_does_not_open_pricing(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = None
+        event = SimpleNamespace(stop=lambda: setattr(event, "stopped", True))
+
+        with (
+            patch("ite.ui.reup.app.webbrowser.open", return_value=True) as open_url,
+            patch.object(app, "post_notice") as post_notice,
+        ):
+            app.on_plan_badge_click(event)  # type: ignore[arg-type]
+
+        open_url.assert_not_called()
+        post_notice.assert_not_called()
         self.assertTrue(event.stopped)
 
     def test_account_plan_badge_refreshes_from_entitlements(self) -> None:
