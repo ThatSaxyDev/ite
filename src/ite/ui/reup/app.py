@@ -81,6 +81,7 @@ from ite.cloud import (
     get_activity,
     get_bundled_models_result,
     get_cloud_auth_status,
+    get_cloud_entitlements_result,
     get_remote_companion_access_status,
     get_usage_summary,
     has_stored_cloud_auth,
@@ -1304,6 +1305,7 @@ class ReupApp(App):
         self._ensure_agent_lock = asyncio.Lock()
         self._bundled_models_cache: list[dict[str, Any]] = []
         self._bundled_access_denied: bool = False
+        self._account_plan_is_pro: bool = False
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = False
@@ -2612,11 +2614,24 @@ class ReupApp(App):
             meta.update("iTE Cloud required")
         else:
             title.update(self._current_session_title())
-            meta.update(f"Workspace: {self.config.cwd}")
+            meta.update(self._header_meta_renderable())
         self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         if refresh_session_tabs:
             self._queue_session_tabs_refresh()
+
+    def _header_meta_renderable(self) -> Text:
+        styles = self._render_styles()
+        label = "Pro" if self._account_plan_is_pro else "Free"
+        badge_style = (
+            "bold #07140f on #4edea3"
+            if self._account_plan_is_pro
+            else "bold #2b2118 on #d8a15c"
+        )
+        meta = Text(justify="right", no_wrap=True, overflow="ellipsis")
+        meta.append(f" {label} ", style=badge_style)
+        meta.append(f"  Workspace: {self.config.cwd}", style=styles["muted"])
+        return meta
 
     def _update_composer_meta_line(self) -> None:
         try:
@@ -3090,6 +3105,7 @@ class ReupApp(App):
                 self._bundled_models_cache = []
                 self._usage_summary_cache = None
                 self._usage_remaining_percent = None
+                self._account_plan_is_pro = False
                 self.refresh_header()
             return
         self._bundled_access_denied = False
@@ -3127,7 +3143,31 @@ class ReupApp(App):
             return
         self._activity_cache = payload
 
+    async def _refresh_account_plan_badge(self) -> None:
+        try:
+            result = await asyncio.to_thread(get_cloud_entitlements_result, self.config)
+        except Exception:
+            return
+        state = str(getattr(result.auth, "state", "") or "")
+        if state == CloudSessionState.NO_ENTITLEMENT:
+            if self._account_plan_is_pro:
+                self._account_plan_is_pro = False
+                self.refresh_header()
+            return
+        if not result.auth.is_valid:
+            return
+        entitlements = result.entitlements
+        pro = bool(
+            entitlements.get("proAccess")
+            or entitlements.get("remoteCompanion")
+            or entitlements.get("bundledInference")
+        )
+        if pro != self._account_plan_is_pro:
+            self._account_plan_is_pro = pro
+            self.refresh_header()
+
     def _prefetch_cloud_caches(self) -> None:
+        self.run_worker(self._refresh_account_plan_badge(), exclusive=False)
         self.run_worker(self._refresh_bundled_models_cache(), exclusive=False)
         self.run_worker(self._refresh_activity_cache(), exclusive=False)
         if self._is_bundled_model():
@@ -4623,6 +4663,7 @@ class ReupApp(App):
         self._cloud_signed_out = enabled
         if enabled:
             self._onboarding_active = False
+            self._account_plan_is_pro = False
         self._apply_shell_surface()
 
     def _set_startup_state(self, enabled: bool) -> None:
@@ -4949,6 +4990,7 @@ class ReupApp(App):
         self._thread_nav_order.clear()
         self._session_run_states.clear()
         self._bundled_models_cache = []
+        self._account_plan_is_pro = False
         self._usage_summary_cache = None
         self._activity_cache = None
         self._usage_remaining_percent = None

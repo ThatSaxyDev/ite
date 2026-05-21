@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from ite.cloud.auth import CloudAuthError
 from ite.cloud.auth import CloudAuthStatus
+from ite.cloud.auth import CloudEntitlementsResult
 from ite.cloud.auth import CloudSessionState
 from ite.cloud.auth import has_valid_cloud_auth
 from ite.client.response import TokenUsage
@@ -563,6 +564,44 @@ class ReupStartupTests(unittest.TestCase):
             self.assertIsNone(app._usage_summary_cache)
             self.assertIsNone(app._usage_remaining_percent)
             self.assertTrue(app._bundled_access_denied)
+            refresh_header.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_header_meta_includes_plan_badge_before_workspace(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = False
+
+        free = app._header_meta_renderable().plain
+        self.assertIn("Free", free)
+        self.assertLess(free.index("Free"), free.index("Workspace:"))
+
+        app._account_plan_is_pro = True
+        pro = app._header_meta_renderable().plain
+        self.assertIn("Pro", pro)
+        self.assertLess(pro.index("Pro"), pro.index("Workspace:"))
+
+    def test_account_plan_badge_refreshes_from_entitlements(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            result = CloudEntitlementsResult(
+                entitlements={"proAccess": True},
+                auth=CloudAuthStatus(
+                    state=CloudSessionState.VALID,
+                    session=object(),  # type: ignore[arg-type]
+                ),
+            )
+
+            with (
+                patch(
+                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    return_value=result,
+                ),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
+                await app._refresh_account_plan_badge()
+
+            self.assertTrue(app._account_plan_is_pro)
             refresh_header.assert_called_once()
 
         asyncio.run(run_test())
