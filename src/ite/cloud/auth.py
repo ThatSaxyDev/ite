@@ -179,6 +179,12 @@ def _load_cloud_refresh_token(api_url: str, client_id: str) -> str:
 
 def _save_cloud_refresh_token(api_url: str, client_id: str, refresh_token: str) -> None:
     try:
+        existing = _load_cloud_refresh_token(api_url, client_id)
+        if existing == refresh_token:
+            return
+    except CloudCredentialStoreError:
+        pass
+    try:
         keyring.set_password(
             _CLOUD_KEYRING_SERVICE,
             _cloud_keyring_username(api_url, client_id),
