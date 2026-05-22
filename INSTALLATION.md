@@ -4,7 +4,7 @@ This guide installs `ite-agent` globally so the `ite` command works from any fol
 
 ## macOS
 
-### 1. Install Python 3.11++++
+### 1. Install Python 3.11+
 If neededd:
 
 ```bash
