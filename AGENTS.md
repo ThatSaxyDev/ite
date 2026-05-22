@@ -11,7 +11,7 @@ Based on my investigation of the project, here is the complete AGENTS.md content
 An AI coding agent for your terminal. Connect your model service and start coding.
 
 - **Package:** `ite-agent`
-- **Version:** 0.0.69
+- **Version:** 0.0.73
 - **Install:** `pipx install ite-agent` or `uv tool install ite-agent`
 
 ## Architecture
@@ -170,7 +170,7 @@ class ToolResult(BaseModel):
 ```toml
 [project]
 name = "ite-agent"
-version = "0.0.69"
+version = "0.0.73"
 dependencies = [
     "click",
     "pydantic",
