@@ -16,8 +16,10 @@ set -euo pipefail
 # ── Configuration ────────────────────────────────────────────
 ITE_MANIFEST_URL="${ITE_INSTALL_MANIFEST_URL:-https://ite.kiishi.space/releases/manifest.json}"
 ITE_MANAGED_ROOT="${ITE_INSTALL_DIR:-$HOME/.ite}"
+ITE_APP_DIR="${ITE_MANAGED_ROOT}/app"
 ITE_BIN_DIR="${ITE_MANAGED_ROOT}/bin"
 ITE_EXECUTABLE="${ITE_BIN_DIR}/ite"
+ITE_APP_EXECUTABLE="${ITE_APP_DIR}/ite/ite"
 
 # ── Terminal helpers ─────────────────────────────────────────
 BOLD=""; DIM=""; GREEN=""; YELLOW=""; RED=""; CYAN=""; BLUE=""; MAGENTA=""; RESET=""
@@ -125,9 +127,9 @@ check_existing() {
     local sha256="$3"
     local stamp_file="${ITE_MANAGED_ROOT}/.sha256"
 
-    if [ -f "$ITE_EXECUTABLE" ]; then
+    if [ -f "$ITE_APP_EXECUTABLE" ]; then
         local installed_version
-        installed_version=$("$ITE_EXECUTABLE" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) || true
+        installed_version=$("$ITE_APP_EXECUTABLE" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) || true
         if [ "$installed_version" = "$version" ]; then
             local installed_sha256=""
             if [ -f "$stamp_file" ]; then
@@ -238,12 +240,19 @@ install_artifact() {
         exit 1
     fi
 
-    rm -rf "${ITE_BIN_DIR:?}/"*
-    cp -R "$extracted_dir"/* "$ITE_BIN_DIR"/
-    chmod +x "$ITE_EXECUTABLE" 2>/dev/null || true
+    rm -rf "${ITE_APP_DIR:?}"
+    mkdir -p "$ITE_APP_DIR"
+    mkdir -p "$ITE_BIN_DIR"
+
+    # Copy extracted directory contents into ITE_APP_DIR
+    cp -R "$extracted_dir"/* "$ITE_APP_DIR"/
+
+    # Create symlink for PATH: ~/.ite/bin/ite -> ../app/ite/ite
+    ln -sf ../app/ite/ite "$ITE_EXECUTABLE"
+    chmod +x "$ITE_APP_EXECUTABLE" 2>/dev/null || true
 
     local installed_version
-    installed_version=$("$ITE_EXECUTABLE" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) || true
+    installed_version=$("$ITE_APP_EXECUTABLE" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) || true
     success "Installed iTE v${installed_version:-unknown}"
     info "Location: ${ITE_EXECUTABLE}"
 

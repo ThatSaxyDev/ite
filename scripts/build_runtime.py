@@ -253,22 +253,29 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="{executable}",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="{executable}",
 )
 
 '''
@@ -325,21 +332,24 @@ def build_target(
         print(f"PyInstaller build failed for {target}: {e}")
         return None
 
-    # PyInstaller outputs a single-file EXE at DIST_DIR/target/<executable>
-    binary = DIST_DIR / target / executable
-    if not binary.exists():
+    # PyInstaller outputs a COLLECT directory at DIST_DIR/target/<executable>/
+    binary_dir = DIST_DIR / target / executable
+    binary = binary_dir / executable
+    if not binary_dir.exists() or not binary.exists():
         print(f"Binary missing: {binary}")
         return None
 
-    # Package into archive (wrap binary with internal dir for clean extraction)
+    # Package into archive (wrap the entire COLLECT dir for clean extraction)
     archive_name = f"ite-{version}-{target}"
     archive_type = info["archive"]
 
     stage_dir = DIST_DIR / target / archive_name
     stage_dir.mkdir(parents=True, exist_ok=True)
-    binary_dest = stage_dir / executable
-    shutil.copy2(binary, binary_dest)
-    binary_dest.chmod(0o755)
+    # Copy entire COLLECT directory into the staging archive dir
+    shutil.copytree(binary_dir, stage_dir / executable, dirs_exist_ok=True)
+    # Make the entry point executable
+    entry_point = stage_dir / executable / executable
+    entry_point.chmod(0o755)
 
     if archive_type == "tar.gz":
         archive_path = DIST_DIR / target / f"{archive_name}.tar.gz"
