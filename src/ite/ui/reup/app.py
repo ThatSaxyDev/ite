@@ -2885,9 +2885,6 @@ class ReupApp(App):
         frame = self._top_spinner_frames[
             self._top_spinner_index % len(self._top_spinner_frames)
         ]
-        suffix = self._activity_suffix_frames[
-            self._activity_suffix_index % len(self._activity_suffix_frames)
-        ]
         content = Text()
         content.append(frame, style=f"bold {styles['success']}")
         content.append(" ")
@@ -2895,7 +2892,6 @@ class ReupApp(App):
             (label or "Thinking").strip().title() or "Thinking",
             style=f"bold {styles['fg']}",
         )
-        content.append(suffix, style=f"bold {styles['secondary']}")
         return content
 
     def _composer_meta_text(self) -> Text:
