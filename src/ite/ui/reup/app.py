@@ -2905,7 +2905,13 @@ class ReupApp(App):
         try:
             cwd = Path(self.config.cwd).resolve()
             now = time.monotonic()
-            if self._cached_git_cwd == cwd and now - self._cached_git_ts < 30.0:
+            # Prefer the freshly-polled branch from git_outbound_state
+            # (updated every 1-3s by _refresh_change_review_source)
+            if self._git_outbound_state is not None and getattr(
+                self._git_outbound_state, "branch", None
+            ):
+                branch_label = self._git_outbound_state.branch
+            elif self._cached_git_cwd == cwd and now - self._cached_git_ts < 30.0:
                 if self._cached_is_git_repo:
                     branch_label = self._cached_branch_label
             else:
@@ -5760,6 +5766,27 @@ class ReupApp(App):
                 status_hash = hashlib.sha256(
                     status_payload + bytes(mtime_buf)
                 ).hexdigest()
+                # Also hash HEAD so branch switches and new commits
+                # invalidate the short-circuit even when the working
+                # tree is clean.
+                try:
+                    head_result = await asyncio.to_thread(
+                        subprocess.run,
+                        ["git", "-C", str(cwd), "rev-parse", "HEAD"],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        check=False,
+                        start_new_session=True,
+                    )
+                    head_ref = (head_result.stdout or "").strip()
+                    if head_ref:
+                        status_hash = hashlib.sha256(
+                            status_hash.encode() + head_ref.encode()
+                        ).hexdigest()
+                except Exception:
+                    pass
             except Exception:
                 status_hash = ""
             if (
@@ -5802,6 +5829,7 @@ class ReupApp(App):
             self._change_review_visible = False
             self._change_review_snapshot_key = None
         self._apply_change_review_panel_state()
+        self._update_composer_meta_line()
 
     def _change_review_signature(
         self, change_set: Any | None
