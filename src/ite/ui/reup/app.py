@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import difflib
+import hashlib
 import inspect
 import io
 import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 import uuid
@@ -1369,6 +1371,13 @@ class ReupApp(App):
         self._change_review_bulk_action: str = "stage"
         self._change_review_preview_version: int = 0
         self._git_outbound_state: Any = None
+        self._last_change_review_git_poll: float = 0.0
+        self._last_status_hash: str = ""
+        self._last_status_cwd: Path | None = None
+        self._cached_git_cwd: Path | None = None
+        self._cached_is_git_repo: bool = False
+        self._cached_branch_label: str = "no-git"
+        self._cached_git_ts: float = 0.0
         self._suppress_pending_restore_once: bool = False
         self._open_sessions: dict[str, Session] = {}
         self._open_session_order: list[str] = []
@@ -1573,7 +1582,7 @@ class ReupApp(App):
         self.set_interval(0.1, self._tick_top_indicator)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
-        self.set_interval(1.0, self._poll_change_review_panel)
+        self._change_review_poll_timer = self.set_interval(3.0, self._poll_change_review_panel)
         if self.config.cloud_auth_enabled:
             self._cloud_bootstrap_busy = True
         self.run_worker(self._initialize_command_palette(), exclusive=False)
@@ -2895,8 +2904,20 @@ class ReupApp(App):
         branch_label = "no-git"
         try:
             cwd = Path(self.config.cwd).resolve()
-            if is_git_repo(cwd):
-                branch_label = current_branch(cwd)
+            now = time.monotonic()
+            if self._cached_git_cwd == cwd and now - self._cached_git_ts < 30.0:
+                if self._cached_is_git_repo:
+                    branch_label = self._cached_branch_label
+            else:
+                in_repo = is_git_repo(cwd)
+                self._cached_git_cwd = cwd
+                self._cached_is_git_repo = in_repo
+                self._cached_git_ts = now
+                if in_repo:
+                    self._cached_branch_label = current_branch(cwd)
+                    branch_label = self._cached_branch_label
+                else:
+                    self._cached_branch_label = "no-git"
         except Exception:
             pass
         if self.agent and self.agent.session and self.agent.session.context_manager:
@@ -4327,11 +4348,13 @@ class ReupApp(App):
 
     async def _show_change_review_panel(self) -> None:
         await self._hide_hooks_panel()
-        await self._refresh_change_review_source()
+        await self._refresh_change_review_source(force=True)
         if not self._change_review_change_set or not getattr(
             self._change_review_change_set, "changes", None
         ):
             return
+        self._change_review_visible = True
+        self._set_change_review_poll_interval(1.0)
         panel = ChangeReviewSidePanel(id="change-review-panel")
         self._change_review_panel = panel
         await self.screen.mount(panel)
@@ -4340,12 +4363,15 @@ class ReupApp(App):
     async def _hide_change_review_panel(self) -> None:
         panel = self._change_review_panel
         self._change_review_panel = None
+        self._change_review_visible = False
+        self._set_change_review_poll_interval(3.0)
         if panel is None:
             return
         try:
             await panel.remove()
         except Exception:
             pass
+        self._apply_change_review_panel_state()
 
     def get_system_commands(self, screen) -> Iterable[SystemCommand]:
         theme_command: SystemCommand | None = None
@@ -5696,14 +5722,57 @@ class ReupApp(App):
         )
 
     async def _refresh_change_review_source(
-        self, *, prefer_git_only: bool = False
+        self, *, prefer_git_only: bool = False, force: bool = False
     ) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_change_review_git_poll < 1.0:
+            return
+        self._last_change_review_git_poll = now
         cwd = Path(self.config.cwd).resolve()
-        change_set = None
-        source = "git"
-        title = "Working tree"
-        mode = "changed"
         if await asyncio.to_thread(is_git_repo, cwd):
+            # Hash git status output + file mtimes to detect content changes
+            # (git status --porcelain alone doesn't change when a tracked
+            #  file is modified but not staged, so we include mtimes.)
+            try:
+                status_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["git", "-C", str(cwd), "status", "--porcelain", "-z"],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    check=False,
+                    start_new_session=True,
+                )
+                status_payload = (status_result.stdout or "").encode()
+                # Append mtimes so that content edits to tracked files
+                # produce a different hash even when status codes are unchanged.
+                mtime_buf = bytearray()
+                for entry in (status_result.stdout or "").split("\0"):
+                    if len(entry) >= 4:
+                        # entry format is "XY path" — 2 status chars + space + path
+                        file_path = entry[3:]
+                        try:
+                            mtime = os.path.getmtime(os.path.join(cwd, file_path))
+                            mtime_buf += f"{file_path}:{mtime}\0".encode()
+                        except OSError:
+                            pass
+                status_hash = hashlib.sha256(
+                    status_payload + bytes(mtime_buf)
+                ).hexdigest()
+            except Exception:
+                status_hash = ""
+            if (
+                not force
+                and status_hash
+                and status_hash == self._last_status_hash
+                and self._last_status_cwd == cwd
+                and self._git_outbound_state is not None
+            ):
+                self._apply_change_review_panel_state()
+                return
+            self._last_status_hash = status_hash
+            self._last_status_cwd = cwd
             self._git_outbound_state = await asyncio.to_thread(git_outbound_state, cwd)
             change_set = await asyncio.to_thread(working_tree_change_set, cwd)
             if change_set is not None:
@@ -5713,8 +5782,18 @@ class ReupApp(App):
                     f"  {change_set.unstaged_count} unstaged"
                 )
                 mode = "changed"
+            else:
+                source = "git"
+                title = "Working tree"
+                mode = "changed"
         else:
             self._git_outbound_state = None
+            change_set = None
+            source = "git"
+            title = "Working tree"
+            mode = "changed"
+            self._last_status_hash = ""
+            self._last_status_cwd = None
         self._change_review_source = source
         self._change_review_change_set = change_set
         self._change_review_title = title
@@ -6004,10 +6083,19 @@ class ReupApp(App):
                 selected_rel_path=self._change_review_selected_rel_path,
             )
 
+        previous_selection = self._change_review_selected_rel_path
         self._change_review_selected_rel_path = first_rel
         initial_diff = (
             self._change_review_diff_lookup.get(first_rel) if first_rel else first_diff
         )
+        # Preserve previously selected file across auto-updates
+        if previous_selection and previous_selection in self._change_review_diff_lookup:
+            initial_diff = self._change_review_diff_lookup[previous_selection]
+            self._change_review_selected_rel_path = previous_selection
+        elif first_rel:
+            self._change_review_selected_rel_path = first_rel
+        else:
+            self._change_review_selected_rel_path = None
         self._change_review_snapshot_key = self._change_review_signature(change_set)
         self._update_change_review_action_state()
         self._change_review_preview_version += 1
@@ -6024,17 +6112,19 @@ class ReupApp(App):
         mode: str,
     ) -> None:
         if self._change_review_visible and self._change_review_source == "git":
-            await self._refresh_change_review_source()
+            await self._refresh_change_review_source(force=True)
             if self._change_review_change_set and getattr(
                 self._change_review_change_set, "changes", None
             ):
                 self._change_review_visible = True
+                self._set_change_review_poll_interval(1.0)
                 await self._populate_change_review_panel()
             return
         self._change_review_change_set = change_set
         self._change_review_title = title
         self._change_review_mode = mode
         self._change_review_visible = True
+        self._set_change_review_poll_interval(1.0)
         await self._populate_change_review_panel()
 
     async def _toggle_change_review_panel(self) -> None:
@@ -6049,6 +6139,14 @@ class ReupApp(App):
             exclusive=True,
             group="change-review-sync",
         )
+
+    def _set_change_review_poll_interval(self, seconds: float) -> None:
+        if self._change_review_poll_timer is not None:
+            try:
+                self._change_review_poll_timer.stop()
+            except Exception:
+                pass
+        self._change_review_poll_timer = self.set_interval(seconds, self._poll_change_review_panel)
 
     async def _sync_change_review_panel_state(self) -> None:
         previous_signature = self._change_review_snapshot_key
@@ -6250,7 +6348,7 @@ class ReupApp(App):
             remote_name,
             remote_url,
         )
-        await self._refresh_change_review_source(prefer_git_only=True)
+        await self._refresh_change_review_source(prefer_git_only=True, force=True)
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
             return False
@@ -6283,7 +6381,7 @@ class ReupApp(App):
 
         outbound = self._git_outbound_state
         if not outbound or not outbound.needs_attention:
-            await self._refresh_change_review_source(prefer_git_only=True)
+            await self._refresh_change_review_source(prefer_git_only=True, force=True)
             outbound = self._git_outbound_state
         if not outbound or not outbound.needs_attention:
             self.post_notice("Git", "Nothing to publish.")
@@ -6312,7 +6410,7 @@ class ReupApp(App):
         result = await asyncio.to_thread(
             push_current_branch, Path(self.config.cwd).resolve()
         )
-        await self._refresh_change_review_source(prefer_git_only=True)
+        await self._refresh_change_review_source(prefer_git_only=True, force=True)
         if not result.ok:
             self.post_system("Git", result.message, is_error=True)
             return
@@ -6355,7 +6453,7 @@ class ReupApp(App):
 
     async def _refresh_change_review_after_git_action(self) -> None:
         await self._refresh_change_review_source(
-            prefer_git_only=self._change_review_source == "git"
+            prefer_git_only=self._change_review_source == "git", force=True
         )
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
@@ -6561,7 +6659,7 @@ class ReupApp(App):
             return
         self.post_notice("Git", commit_result.message)
         await self._refresh_change_review_source(
-            prefer_git_only=self._change_review_source == "git"
+            prefer_git_only=self._change_review_source == "git", force=True
         )
 
     @on(events.Click, "#change-review-commit")
@@ -8474,7 +8572,7 @@ class ReupApp(App):
         )
 
     async def _run_changes_command_native(self) -> None:
-        await self._refresh_change_review_source()
+        await self._refresh_change_review_source(force=True)
         change_set = self._change_review_change_set
         if not change_set or not getattr(change_set, "changes", None):
             self.post_system(

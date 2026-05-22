@@ -25,6 +25,7 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         check=False,
+        start_new_session=True,
     )
 
 

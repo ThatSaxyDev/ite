@@ -110,6 +110,7 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
             encoding="utf-8",
             errors="replace",
             check=False,
+            start_new_session=True,
         )
     except FileNotFoundError:
         result = subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="git not found")
@@ -122,6 +123,7 @@ def _run_git_bytes(cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
             ["git", "-C", str(cwd), *args],
             capture_output=True,
             check=False,
+            start_new_session=True,
         )
     except FileNotFoundError:
         result = subprocess.CompletedProcess(args, returncode=1, stdout=b"", stderr=b"git not found")
