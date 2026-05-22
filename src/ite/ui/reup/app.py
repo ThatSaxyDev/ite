@@ -1378,6 +1378,7 @@ class ReupApp(App):
         self._cached_is_git_repo: bool = False
         self._cached_branch_label: str = "no-git"
         self._cached_git_ts: float = 0.0
+        self._head_mtime: float = 0.0
         self._suppress_pending_restore_once: bool = False
         self._open_sessions: dict[str, Session] = {}
         self._open_session_order: list[str] = []
@@ -1583,6 +1584,7 @@ class ReupApp(App):
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
         self._change_review_poll_timer = self.set_interval(3.0, self._poll_change_review_panel)
+        self.set_interval(0.3, self._poll_head_change)
         if self.config.cloud_auth_enabled:
             self._cloud_bootstrap_busy = True
         self.run_worker(self._initialize_command_palette(), exclusive=False)
@@ -6160,6 +6162,28 @@ class ReupApp(App):
             await self._hide_change_review_panel()
             return
         await self._show_change_review_panel()
+
+    async def _poll_head_change(self) -> None:
+        """Watch .git/HEAD mtime for instant branch-switch detection."""
+        try:
+            cwd = Path(self.config.cwd).resolve()
+            head_path = cwd / ".git" / "HEAD"
+            mtime = os.path.getmtime(head_path)
+            if mtime != self._head_mtime:
+                self._head_mtime = mtime
+                if await asyncio.to_thread(is_git_repo, cwd):
+                    self._git_outbound_state = await asyncio.to_thread(
+                        git_outbound_state, cwd
+                    )
+                    self._update_composer_meta_line()
+                    # Also trigger a full refresh for the change review panel
+                    self.run_worker(
+                        self._refresh_change_review_source(force=True),
+                        exclusive=True,
+                        group="change-review-sync",
+                    )
+        except Exception:
+            pass
 
     def _poll_change_review_panel(self) -> None:
         self.run_worker(
