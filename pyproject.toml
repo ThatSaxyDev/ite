@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ite-agent"
-version = "0.0.69"
+version = "0.0.70"
 description = "Your AI coding agent for your terminal"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,6 +15,9 @@ dependencies = ["click", "rich", "openai", "pydantic", "tiktoken", "html2text", 
 
 [project.scripts]
 ite = "ite.main:main"
+
+[project.optional-dependencies]
+dev = ["pyinstaller>=6.0", "ruff", "mypy", "pytest"]
 
 [[project.authors]]
 name = "Kiishi David"
