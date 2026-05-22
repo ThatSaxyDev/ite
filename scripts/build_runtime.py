@@ -114,8 +114,7 @@ HIDDEN_IMPORTS: list[str] = [
 
 # Data files to include
 DATAS: list[tuple[str, str]] = [
-    # certifi CA bundle (needed for HTTPS)
-    # PyInstaller usually picks this up, but be explicit
+    (str(PROJECT_ROOT / "src" / "ite" / "ui" / "reup" / "reup.tcss"), "ite/ui/reup"),
 ]
 
 
