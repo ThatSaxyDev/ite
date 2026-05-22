@@ -1480,6 +1480,7 @@ class Agent:
             usage: TokenUsage | None = None
             stream_error: str | None = None
             finish_reason: str | None = None
+            reasoning_content: str | None = None
 
             outbound_messages = session.context_manager.get_prompt_messages(
                 latest_user_text
@@ -1540,6 +1541,7 @@ class Agent:
                 elif event.type == StreamEventType.MESSAGE_COMPLETE:
                     usage = event.usage
                     finish_reason = event.finish_reason
+                    reasoning_content = event.reasoning_content
 
             visible_tail, raw_tool_markup_buffer, inside_raw_tool_markup = (
                 self._consume_raw_tool_call_markup(
@@ -1710,6 +1712,7 @@ class Agent:
                 ]
                 if tool_calls
                 else None,
+                reasoning_content=reasoning_content,
             )
 
             if not tool_calls:

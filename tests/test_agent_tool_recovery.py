@@ -384,6 +384,44 @@ class _StuckDiscoveryClient:
         yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
 
 
+class _ReasoningToolReplayClient:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.second_call_messages = []
+
+    async def close(self) -> None:
+        return None
+
+    async def chat_completion(self, messages, tools=None, stream=True):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta(content="I will check."),
+            )
+            yield StreamEvent(
+                type=StreamEventType.TOOL_CALL_COMPLETE,
+                tool_call=ToolCall(
+                    call_id="call_reasoning_1",
+                    name="fake_tool",
+                    arguments={"value": "x"},
+                ),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                finish_reason="tool_calls",
+                reasoning_content="I need a tool result before answering.",
+            )
+            return
+
+        self.second_call_messages = list(messages)
+        yield StreamEvent(
+            type=StreamEventType.TEXT_DELTA,
+            text_delta=TextDelta(content="Finished the task."),
+        )
+        yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE, finish_reason="stop")
+
+
 class AgentToolRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -590,6 +628,25 @@ class AgentEmptyReplyRecoveryTests(unittest.IsolatedAsyncioTestCase):
                 and event.data.get("content") == "Finished the task."
                 for event in events
             )
+        )
+
+    async def test_replays_reasoning_content_after_tool_call_turn(self) -> None:
+        fake_client = _ReasoningToolReplayClient()
+        self.agent.session.client = fake_client
+        self.agent.session.tool_registry.register(_FakeTool(self.config))
+
+        events = [event async for event in self.agent.run("do the task")]
+
+        self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
+        assistant_messages = [
+            message
+            for message in fake_client.second_call_messages
+            if message.get("role") == "assistant"
+        ]
+        self.assertTrue(assistant_messages)
+        self.assertEqual(
+            assistant_messages[-1].get("reasoning_content"),
+            "I need a tool result before answering.",
         )
 
     async def test_forces_summary_after_repeated_tool_only_turns(self) -> None:

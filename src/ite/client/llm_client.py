@@ -618,11 +618,15 @@ class LLMClient:
             total_tokens=int(usage_payload.get("totalTokens") or 0),
             cached_tokens=0,
         )
+        reasoning_content = payload.get("reasoningContent")
+        if reasoning_content is None:
+            reasoning_content = payload.get("reasoning_content")
 
         yield StreamEvent(
             type=StreamEventType.MESSAGE_COMPLETE,
             finish_reason="stop",
             usage=usage,
+            reasoning_content=str(reasoning_content) if reasoning_content else None,
         )
 
     async def _cloud_complete_text(self, messages: list[dict[str, Any]]) -> str:
@@ -661,6 +665,7 @@ class LLMClient:
     def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Normalize outbound messages so providers never receive null content."""
         sanitized: list[dict[str, Any]] = []
+        preserve_reasoning_content = self._should_preserve_reasoning_content()
         for raw in messages or []:
             role = str(raw.get("role") or "").strip()
             if not role:
@@ -708,8 +713,23 @@ class LLMClient:
                 if cleaned_calls:
                     msg["tool_calls"] = cleaned_calls
 
+            if (
+                preserve_reasoning_content
+                and role == "assistant"
+                and raw.get("reasoning_content") is not None
+            ):
+                msg["reasoning_content"] = str(raw.get("reasoning_content") or "")
+
             sanitized.append(msg)
         return sanitized
+
+    def _should_preserve_reasoning_content(self) -> bool:
+        """DeepSeek V4 thinking-mode tool turns must replay reasoning_content."""
+        model_name = str(self.config.model_name or "").strip().lower()
+        base_url = str(self.config.base_url or "").strip().lower()
+        if "deepseek-reasoner" in model_name:
+            return False
+        return "deepseek-v4" in model_name or "api.deepseek.com" in base_url
 
     async def _stream_response(
         self,
@@ -721,6 +741,7 @@ class LLMClient:
         finish_reason: str | None = None
         usage: TokenUsage | None = None
         tool_calls: dict[int, dict[str, Any]] = {}
+        reasoning_parts: list[str] = []
 
         async for chunk in response:
             if hasattr(chunk, "usage") and chunk.usage:
@@ -747,6 +768,10 @@ class LLMClient:
                     type=StreamEventType.TEXT_DELTA,
                     text_delta=TextDelta(content=delta.content),
                 )
+
+            reasoning_delta = getattr(delta, "reasoning_content", None)
+            if reasoning_delta:
+                reasoning_parts.append(str(reasoning_delta))
 
             if delta.tool_calls:
                 for tool_call_delta in delta.tool_calls:
@@ -806,6 +831,7 @@ class LLMClient:
             type=StreamEventType.MESSAGE_COMPLETE,
             finish_reason=finish_reason,
             usage=usage,
+            reasoning_content="".join(reasoning_parts) or None,
         )
 
     async def _non_stream_response(
@@ -821,6 +847,7 @@ class LLMClient:
 
         if message.content:
             text_delta = TextDelta(content=message.content)
+        reasoning_content = getattr(message, "reasoning_content", None)
 
         tool_calls: list[ToolCall] = []
 
@@ -848,6 +875,7 @@ class LLMClient:
         return StreamEvent(
             type=StreamEventType.MESSAGE_COMPLETE,
             text_delta=text_delta,
+            reasoning_content=str(reasoning_content) if reasoning_content else None,
             finish_reason=choice.finish_reason,
             usage=usage,
         )

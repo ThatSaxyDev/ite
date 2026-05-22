@@ -22,6 +22,7 @@ def _json_safe(value: Any) -> Any:
 class MessageItem:
     role: str
     content: str
+    reasoning_content: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     tool_ui: dict[str, Any] | None = None
@@ -48,6 +49,9 @@ class MessageItem:
             result["content"] = self.content or ""
         elif self.content or self.tool_calls:
             result["content"] = self.content or ""
+
+        if self.role == "assistant" and self.reasoning_content:
+            result["reasoning_content"] = self.reasoning_content
 
         if include_tool_ui and self.tool_ui and self.role == "tool":
             result["tool_ui"] = _json_safe(self.tool_ui)

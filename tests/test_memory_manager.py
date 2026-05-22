@@ -357,6 +357,40 @@ class MemoryManagerTests(unittest.TestCase):
         self.assertEqual(transcript_events[0]["kind"], "assistant_message")
         self.assertEqual(transcript_events[1]["kind"], "tool_result")
 
+    def test_context_manager_round_trips_assistant_reasoning_content(self) -> None:
+        workspace = self.base_path / "ws-reasoning-content"
+        workspace.mkdir()
+        config = Config(cwd=workspace)
+        context_manager = ContextManager(
+            config=config,
+            tools=[],
+            memory_provider=lambda _text: None,
+        )
+
+        context_manager.add_assistant_message(
+            "I will check.",
+            tool_calls=[
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "shell", "arguments": "{}"},
+                }
+            ],
+            reasoning_content="I need to run a terminal command.",
+        )
+
+        model_messages = context_manager.get_messages()
+        snapshot_messages = context_manager.get_snapshot_messages()
+
+        self.assertEqual(
+            model_messages[-1]["reasoning_content"],
+            "I need to run a terminal command.",
+        )
+        self.assertEqual(
+            snapshot_messages[-1]["reasoning_content"],
+            "I need to run a terminal command.",
+        )
+
     def test_compact_boundary_round_trips_in_snapshot_messages(self) -> None:
         workspace = self.base_path / "ws-compact-boundary"
         workspace.mkdir()

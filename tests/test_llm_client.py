@@ -42,6 +42,39 @@ class _FakeAsyncClient:
         return _FakeResponse()
 
 
+class _Obj:
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+
+class _FakeChatCompletions:
+    def __init__(self, response):
+        self._response = response
+
+    async def create(self, **_kwargs):
+        return self._response
+
+
+class _FakeOpenAIClient:
+    def __init__(self, response):
+        self.chat = _Obj(completions=_FakeChatCompletions(response))
+
+
+class _AsyncChunks:
+    def __init__(self, chunks):
+        self._chunks = chunks
+
+    def __aiter__(self):
+        self._iter = iter(self._chunks)
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._iter)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
 class LLMClientTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _config() -> Config:
@@ -453,6 +486,99 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(captured_kwargs["model"], "kimi-k2.5:cloud")
         self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+
+    async def test_stream_response_captures_reasoning_content_for_replay(self) -> None:
+        chunks = _AsyncChunks(
+            [
+                _Obj(
+                    usage=None,
+                    choices=[
+                        _Obj(
+                            finish_reason=None,
+                            delta=_Obj(
+                                content=None,
+                                reasoning_content="look up the date",
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                ),
+                _Obj(
+                    usage=None,
+                    choices=[
+                        _Obj(
+                            finish_reason="tool_calls",
+                            delta=_Obj(
+                                content="I will check.",
+                                reasoning_content=None,
+                                tool_calls=None,
+                            ),
+                        )
+                    ],
+                ),
+            ]
+        )
+        client = LLMClient(self._config())
+
+        events = [
+            event
+            async for event in client._stream_response(
+                _FakeOpenAIClient(chunks),
+                {"model": "deepseek-v4-pro", "messages": [], "stream": True},
+            )
+        ]
+
+        self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+        self.assertEqual(events[-1].reasoning_content, "look up the date")
+
+    def test_sanitize_messages_preserves_deepseek_v4_reasoning_content(self) -> None:
+        client = LLMClient(
+            Config(
+                model={"name": "deepseek-v4-pro"},
+                api_key="sk-test",
+                base_url="https://api.deepseek.com",
+            )
+        )
+
+        sanitized = client._sanitize_messages(
+            [
+                {
+                    "role": "assistant",
+                    "content": "I will check.",
+                    "reasoning_content": "I need a tool result.",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "shell", "arguments": "{}"},
+                        }
+                    ],
+                }
+            ]
+        )
+
+        self.assertEqual(sanitized[0]["reasoning_content"], "I need a tool result.")
+
+    def test_sanitize_messages_omits_reasoning_content_for_other_providers(self) -> None:
+        client = LLMClient(
+            Config(
+                model={"name": "gpt-5.4"},
+                api_key="sk-test",
+                base_url="https://api.openai.com/v1",
+            )
+        )
+
+        sanitized = client._sanitize_messages(
+            [
+                {
+                    "role": "assistant",
+                    "content": "I will check.",
+                    "reasoning_content": "provider-private reasoning",
+                }
+            ]
+        )
+
+        self.assertNotIn("reasoning_content", sanitized[0])
 
 
 if __name__ == "__main__":

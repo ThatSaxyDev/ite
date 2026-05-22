@@ -136,6 +136,10 @@ class ContextManager:
                 MessageItem(
                     role=msg["role"],
                     content=msg.get("content", ""),
+                    reasoning_content=self._message_reasoning_content(
+                        msg,
+                        str(msg.get("role") or ""),
+                    ),
                     tool_call_id=msg.get("tool_call_id"),
                     tool_calls=msg.get("tool_calls", []),
                     tool_ui=msg.get("tool_ui")
@@ -237,11 +241,16 @@ class ContextManager:
         return dropped
 
     def add_assistant_message(
-        self, content: str, tool_calls: list[dict[str, Any]] | None = None
+        self,
+        content: str,
+        tool_calls: list[dict[str, Any]] | None = None,
+        *,
+        reasoning_content: str | None = None,
     ) -> None:
         item = MessageItem(
             role="assistant",
             content=content or "",
+            reasoning_content=reasoning_content or None,
             token_count=count_tokens(
                 content or "",
                 self._model_name,
@@ -577,6 +586,7 @@ class ContextManager:
                 MessageItem(
                     role=role,
                     content=str(msg.get("content", "") or ""),
+                    reasoning_content=self._message_reasoning_content(msg, role),
                     tool_call_id=msg.get("tool_call_id"),
                     tool_calls=list(msg.get("tool_calls") or []),
                     tool_ui=msg.get("tool_ui")
@@ -725,6 +735,7 @@ class ContextManager:
                 MessageItem(
                     role=role,
                     content=str(message.get("content", "") or ""),
+                    reasoning_content=self._message_reasoning_content(message, role),
                     tool_call_id=message.get("tool_call_id"),
                     tool_calls=list(message.get("tool_calls") or []),
                     tool_ui=message.get("tool_ui")
@@ -749,6 +760,15 @@ class ContextManager:
 
     def _message_items(self) -> list[MessageItem]:
         return self._conversation_log.iter_messages()
+
+    @staticmethod
+    def _message_reasoning_content(
+        message: dict[str, Any],
+        role: str,
+    ) -> str | None:
+        if role != "assistant" or message.get("reasoning_content") is None:
+            return None
+        return str(message.get("reasoning_content") or "")
 
     @staticmethod
     def _build_compact_artifact_content(summary: str) -> str:
