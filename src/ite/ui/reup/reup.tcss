@@ -1046,6 +1046,13 @@ Widget {
     content-align: right middle;
 }
 
+.chat-loading-indicator {
+    width: 100%;
+    color: $foreground-muted;
+    text-align: center;
+    padding: 1;
+}
+
 .block.assistant {
     border: none;
     background: transparent;

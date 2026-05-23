@@ -1301,6 +1301,7 @@ class ReupApp(App):
         self._live_compaction_active: bool = False
         self._activity_resume_timer = None
         self._activity_version: int = 0
+        self._hydrating_from_snapshot: bool = False  # Skip activity indicator updates during bulk hydration
         self._empty_state_cached_thread_count: int = 0
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
@@ -2727,6 +2728,9 @@ class ReupApp(App):
         await self._pin_activity_indicator_to_end()
 
     async def _pin_activity_indicator_to_end(self) -> None:
+        # Skip during bulk hydration - we'll scroll once at the end
+        if self._hydrating_from_snapshot:
+            return
         conversation = self.query_one("#conversation", VerticalScroll)
         if self._activity_widget is None:
             conversation.scroll_end(animate=False)
@@ -8190,6 +8194,17 @@ class ReupApp(App):
         await conversation.remove_children()
         self._message_count = 0
         self._reset_session_local_ui_state()
+
+        # Show loading indicator during hydration
+        loading_widget = Static(
+            "Loading conversation...",
+            classes="chat-loading-indicator",
+        )
+        await conversation.mount(loading_widget)
+
+        # Skip activity indicator updates during bulk hydration
+        self._hydrating_from_snapshot = True
+
         tool_call_names: dict[str, str] = {}
 
         for message in messages:
@@ -8276,6 +8291,16 @@ class ReupApp(App):
                     else None,
                 )
         self._refresh_empty_state()
+
+        # Clean up hydration state
+        self._hydrating_from_snapshot = False
+
+        # Remove loading indicator and scroll to end once
+        try:
+            await loading_widget.remove()
+        except Exception:
+            pass
+        conversation.scroll_end(animate=False)
 
     @on(Button.Pressed)
     async def on_session_tab_pressed(self, event: Button.Pressed) -> None:
