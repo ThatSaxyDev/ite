@@ -6312,13 +6312,20 @@ class ReupApp(App):
         session_id = event.session_id.strip()
         if not session_id:
             return
+
+        # Show immediate loading state in header
+        self._set_loading_state("Loading session...", busy=True)
+
         if session_id in self._open_sessions:
             await self._activate_open_session(session_id)
             return
+
+        # Load snapshot on thread pool to avoid blocking UI
         snapshot = await asyncio.to_thread(
             lambda: SessionManager().load_session(session_id)
         )
         if snapshot is None:
+            self._set_loading_state("idle", busy=False)
             self.post_system(
                 "Sessions", f"Session not found: {session_id}", is_error=True
             )
@@ -7098,7 +7105,8 @@ class ReupApp(App):
             and self.agent.session.turn_count > 0
             and not self._run_state(current_id).is_turn_running
         ):
-            await self.auto_save()
+            # Save in background — don't block session switch
+            self.run_worker(self.auto_save(), exclusive=False)
 
         workspace = self._workspace_for_session_id(session_id)
         self.config.cwd = workspace
@@ -7106,7 +7114,8 @@ class ReupApp(App):
         self._remember_open_session(target, workspace=workspace, agent=target_agent)
         self.refresh_header()
         await self._hydrate_chat_from_snapshot(
-            target.context_manager.get_messages() if target.context_manager else []
+            target.context_manager.get_messages() if target.context_manager else [],
+            show_loading=False,  # In-memory switch — no loading delay
         )
         if self._is_turn_running:
             self._set_loading_state(self._progress_state_label(), busy=True)
@@ -8181,6 +8190,7 @@ class ReupApp(App):
         self.agent = resumed_agent
         self.refresh_header()
         await self._hydrate_chat_from_snapshot(restored_messages)
+        self._set_loading_state("idle", busy=False)
         await self._broadcast_remote_state()
         await self._remove_cards_by_title({"Session Loaded"})
         if dropped_agent is not None:
@@ -8295,11 +8305,12 @@ class ReupApp(App):
         # Clean up hydration state
         self._hydrating_from_snapshot = False
 
-        # Remove loading indicator and scroll to end once
-        try:
-            await loading_widget.remove()
-        except Exception:
-            pass
+        # Remove loading indicator if it exists and scroll to end once
+        if loading_widget is not None:
+            try:
+                await loading_widget.remove()
+            except Exception:
+                pass
         conversation.scroll_end(animate=False)
 
     @on(Button.Pressed)
