@@ -3868,189 +3868,9 @@ class ReupApp(App):
             bundled_items = (
                 [] if self._bundled_access_denied else self._bundled_models_cache
             )
-            result = await asyncio.to_thread(get_bundled_models_result, self.config)
-            if not self._apply_cloud_auth_status(
-                result.auth,
-                context="Bundled models",
-                interactive=True,
-            ):
-                if str(result.auth.state) in {
-                    CloudSessionState.SIGNED_OUT,
-                    CloudSessionState.INVALID,
-                }:
-                    return
-                if str(result.auth.state) == CloudSessionState.NO_ENTITLEMENT:
-                    self._bundled_models_cache = []
-                    bundled_items = []
-                else:
-                    bundled_items = self._bundled_models_cache
-            else:
-                self._bundled_access_denied = False
-                bundled_items = result.models
-            if (
-                not bundled_items
-                and result.message
-                and str(result.auth.state) != CloudSessionState.NO_ENTITLEMENT
-            ):
-                self.post_system("Bundled models", result.message, is_error=True)
-            self._bundled_models_cache = bundled_items
-            saved_providers = load_saved_custom_provider()
-            bundled_model_names = {
-                str(item.get("model_name") or "").strip() for item in bundled_items
-            }
-
-            model_options: list[dict[str, Any]] = []
-            seen: set[tuple[str, str]] = set()
-
-            def _current_entry_id() -> str:
-                normalized_current = str(current_model or "").strip()
-                if not normalized_current:
-                    return ""
-                persisted_source_kind = (
-                    str(getattr(self.config.model, "source_kind", "") or "")
-                    .strip()
-                    .lower()
-                )
-                if persisted_source_kind in {"bundled", "saved", "custom"}:
-                    return f"{persisted_source_kind}:{normalized_current}"
-                if self._has_active_user_provider_credentials():
-                    if normalized_current in saved_providers:
-                        return f"saved:{normalized_current}"
-                    return f"custom:{normalized_current}"
-                if normalized_current in bundled_model_names:
-                    return f"bundled:{normalized_current}"
-                if normalized_current in saved_providers:
-                    return f"saved:{normalized_current}"
-                return f"custom:{normalized_current}"
-
-            def _saved_provider_label(profile: dict[str, Any]) -> str:
-                base_url = str(profile.get("base_url") or "").strip().lower()
-                api_key = str(profile.get("api_key") or "").strip().lower()
-                if (
-                    not base_url
-                    or "localhost:11434" in base_url
-                    or "127.0.0.1:11434" in base_url
-                    or api_key == "ollama"
-                ):
-                    return "Ollama"
-                if "openrouter.ai" in base_url:
-                    return "OpenRouter"
-                parsed = urlparse(base_url)
-                host = (parsed.netloc or parsed.path or "").strip().lower()
-                if not host:
-                    return "Custom provider"
-                host = host.split("@")[-1].split(":")[0].strip(".")
-                if host.startswith("www."):
-                    host = host[4:]
-                if not host:
-                    return "Custom provider"
-                return host
-
-            def _append(
-                source_kind: str,
-                model_name: str,
-                label: str,
-                provider: str,
-                *,
-                context_window: int | None = None,
-                context_window_source: str | None = None,
-                available: bool = True,
-                unavailable_reason: str = "",
-                saved_profile: bool = False,
-            ) -> None:
-                normalized = str(model_name or "").strip()
-                entry_id = f"{source_kind}:{normalized}"
-                dedupe_key = (source_kind, normalized)
-                if not normalized or dedupe_key in seen:
-                    return
-                seen.add(dedupe_key)
-                option = {
-                    "entry_id": entry_id,
-                    "source_kind": source_kind,
-                    "model_name": normalized,
-                    "label": label,
-                    "provider": provider,
-                    "context_window": context_window,
-                    "context_window_source": context_window_source,
-                    "available": available,
-                    "unavailable_reason": unavailable_reason,
-                    "saved_profile": saved_profile,
-                }
-                if source_kind == "bundled":
-                    insert_at = next(
-                        (
-                            index
-                            for index, existing in enumerate(model_options)
-                            if str(existing.get("model_name") or "").strip()
-                            == normalized
-                        ),
-                        len(model_options),
-                    )
-                    model_options.insert(insert_at, option)
-                    return
-                model_options.append(option)
-
-            for profile in saved_providers.values():
-                _append(
-                    "saved",
-                    profile["model_name"],
-                    profile["model_name"],
-                    _saved_provider_label(profile),
-                    context_window=(
-                        int(profile.get("context_window"))
-                        if isinstance(profile.get("context_window"), int)
-                        else None
-                    ),
-                    context_window_source=str(
-                        profile.get("context_window_source") or ""
-                    ).strip()
-                    or None,
-                    saved_profile=True,
-                )
-
-            if (
-                current_model
-                and current_model not in bundled_model_names
-                and current_model not in saved_providers
-                and not (
-                    self._bundled_access_denied
-                    and str(getattr(self.config.model, "source_kind", "") or "")
-                    .strip()
-                    .lower()
-                    == "bundled"
-                )
-            ):
-                _append(
-                    "custom",
-                    current_model,
-                    current_model,
-                    "Custom",
-                    context_window=int(self.config.model.context_window or 0) or None,
-                    context_window_source=str(
-                        getattr(self.config.model, "context_window_source", "") or ""
-                    ).strip()
-                    or None,
-                )
-
-            for item in bundled_items:
-                _append(
-                    "bundled",
-                    str(item.get("model_name") or ""),
-                    str(item.get("label") or item.get("model_name") or ""),
-                    "Bundled",
-                    context_window=(
-                        int(item.get("context_window"))
-                        if isinstance(item.get("context_window"), int)
-                        else None
-                    ),
-                    context_window_source=str(
-                        item.get("context_window_source") or ""
-                    ).strip()
-                    or None,
-                    available=bool(item.get("available", True)),
-                    unavailable_reason=str(item.get("unavailable_reason") or ""),
-                )
-
+            model_options, current_entry_id, bundled_model_names, saved_providers = (
+                self._build_model_options(bundled_items, current_model)
+            )
             if not model_options:
                 self.post_system(
                     "Model",
@@ -4059,34 +3879,21 @@ class ReupApp(App):
                 )
                 return
 
-            available_options = [
-                item for item in model_options if bool(item.get("available", True))
-            ]
-            if (
-                not available_options
-                and current_model
-                and any(
-                    item.get("model_name") == current_model for item in model_options
-                )
-            ):
-                reason = ""
-                for item in model_options:
-                    if item.get("model_name") == current_model:
-                        reason = str(item.get("unavailable_reason") or "").strip()
-                        break
-                message = "Bundled models are unavailable right now."
-                if reason:
-                    message = f"{message} {reason}"
-                self.post_system("Model", message, is_error=True)
-
-            current_entry_id = _current_entry_id()
-            result = await self._open_modal(
-                ModelPickerModal(
-                    current_model,
-                    model_options,
-                    current_entry_id=current_entry_id,
-                )
+            modal = ModelPickerModal(
+                current_model,
+                model_options,
+                current_entry_id=current_entry_id,
             )
+            refresh_task = asyncio.create_task(
+                self._refresh_model_picker_data(modal, current_model)
+            )
+            result = await self._open_modal(modal)
+            refresh_task.cancel()
+            try:
+                await refresh_task
+            except asyncio.CancelledError:
+                pass
+
             if not result:
                 return
 
@@ -4232,6 +4039,198 @@ class ReupApp(App):
         self.config.model.source_kind = next_source_kind or None
         await self._reset_active_provider_client()
         self.refresh_header()
+
+    def _build_model_options(
+        self, bundled_items: list[dict[str, Any]], current_model: str
+    ) -> tuple[list[dict[str, Any]], str, set[str], dict[str, Any]]:
+        saved_providers = load_saved_custom_provider()
+        bundled_model_names = {
+            str(item.get("model_name") or "").strip() for item in bundled_items
+        }
+        model_options: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+
+        def _current_entry_id() -> str:
+            normalized_current = str(current_model or "").strip()
+            if not normalized_current:
+                return ""
+            persisted_source_kind = (
+                str(getattr(self.config.model, "source_kind", "") or "")
+                .strip()
+                .lower()
+            )
+            if persisted_source_kind in {"bundled", "saved", "custom"}:
+                return f"{persisted_source_kind}:{normalized_current}"
+            if self._has_active_user_provider_credentials():
+                if normalized_current in saved_providers:
+                    return f"saved:{normalized_current}"
+                return f"custom:{normalized_current}"
+            if normalized_current in bundled_model_names:
+                return f"bundled:{normalized_current}"
+            if normalized_current in saved_providers:
+                return f"saved:{normalized_current}"
+            return f"custom:{normalized_current}"
+
+        def _saved_provider_label(profile: dict[str, Any]) -> str:
+            base_url = str(profile.get("base_url") or "").strip().lower()
+            api_key = str(profile.get("api_key") or "").strip().lower()
+            if (
+                not base_url
+                or "localhost:11434" in base_url
+                or "127.0.0.1:11434" in base_url
+                or api_key == "ollama"
+            ):
+                return "Ollama"
+            if "openrouter.ai" in base_url:
+                return "OpenRouter"
+            parsed = urlparse(base_url)
+            host = (parsed.netloc or parsed.path or "").strip().lower()
+            if not host:
+                return "Custom provider"
+            host = host.split("@")[-1].split(":")[0].strip(".")
+            if host.startswith("www."):
+                host = host[4:]
+            if not host:
+                return "Custom provider"
+            return host
+
+        def _append(
+            source_kind: str,
+            model_name: str,
+            label: str,
+            provider: str,
+            *,
+            context_window: int | None = None,
+            context_window_source: str | None = None,
+            available: bool = True,
+            unavailable_reason: str = "",
+            saved_profile: bool = False,
+        ) -> None:
+            normalized = str(model_name or "").strip()
+            entry_id = f"{source_kind}:{normalized}"
+            dedupe_key = (source_kind, normalized)
+            if not normalized or dedupe_key in seen:
+                return
+            seen.add(dedupe_key)
+            option = {
+                "entry_id": entry_id,
+                "source_kind": source_kind,
+                "model_name": normalized,
+                "label": label,
+                "provider": provider,
+                "context_window": context_window,
+                "context_window_source": context_window_source,
+                "available": available,
+                "unavailable_reason": unavailable_reason,
+                "saved_profile": saved_profile,
+            }
+            if source_kind == "bundled":
+                insert_at = next(
+                    (
+                        index
+                        for index, existing in enumerate(model_options)
+                        if str(existing.get("model_name") or "").strip()
+                        == normalized
+                    ),
+                    len(model_options),
+                )
+                model_options.insert(insert_at, option)
+                return
+            model_options.append(option)
+
+        for profile in saved_providers.values():
+            _append(
+                "saved",
+                profile["model_name"],
+                profile["model_name"],
+                _saved_provider_label(profile),
+                context_window=(
+                    int(profile.get("context_window"))
+                    if isinstance(profile.get("context_window"), int)
+                    else None
+                ),
+                context_window_source=str(
+                    profile.get("context_window_source") or ""
+                ).strip()
+                or None,
+                saved_profile=True,
+            )
+
+        if (
+            current_model
+            and current_model not in bundled_model_names
+            and current_model not in saved_providers
+            and not (
+                self._bundled_access_denied
+                and str(getattr(self.config.model, "source_kind", "") or "")
+                .strip()
+                .lower()
+                == "bundled"
+            )
+        ):
+            _append(
+                "custom",
+                current_model,
+                current_model,
+                "Custom",
+                context_window=int(self.config.model.context_window or 0) or None,
+                context_window_source=str(
+                    getattr(self.config.model, "context_window_source", "") or ""
+                ).strip()
+                or None,
+            )
+
+        for item in bundled_items:
+            _append(
+                "bundled",
+                str(item.get("model_name") or ""),
+                str(item.get("label") or item.get("model_name") or ""),
+                "Bundled",
+                context_window=(
+                    int(item.get("context_window"))
+                    if isinstance(item.get("context_window"), int)
+                    else None
+                ),
+                context_window_source=str(
+                    item.get("context_window_source") or ""
+                ).strip()
+                or None,
+                available=bool(item.get("available", True)),
+                unavailable_reason=str(item.get("unavailable_reason") or ""),
+            )
+
+        current_entry_id = _current_entry_id()
+        return model_options, current_entry_id, bundled_model_names, saved_providers
+
+    async def _refresh_model_picker_data(
+        self, modal: Any, current_model: str
+    ) -> None:
+        try:
+            result = await asyncio.to_thread(get_bundled_models_result, self.config)
+        except Exception:
+            return
+        bundled_items = result.models
+        if not self._apply_cloud_auth_status(
+            result.auth,
+            context="Bundled models",
+            interactive=False,
+        ):
+            if str(result.auth.state) in {
+                CloudSessionState.SIGNED_OUT,
+                CloudSessionState.INVALID,
+                CloudSessionState.NO_ENTITLEMENT,
+            }:
+                if str(result.auth.state) == CloudSessionState.NO_ENTITLEMENT:
+                    self._bundled_models_cache = []
+                return
+        else:
+            self._bundled_access_denied = False
+        self._bundled_models_cache = bundled_items
+        model_options, current_entry_id, _, _ = self._build_model_options(
+            bundled_items, current_model
+        )
+        if model_options:
+            modal.update_models(model_options, current_entry_id=current_entry_id)
 
     async def _open_theme_picker_from_meta(self) -> None:
         old_theme = str(self.theme or "textual-dark")

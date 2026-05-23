@@ -1098,6 +1098,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             )
             with Container(classes="modal-list resume-list"):
                 yield DataTable(id="models", classes="resume-table", cursor_type="row")
+            yield Label("", classes="modal-body", id="model-picker-refresh")
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button(
                     "Remove saved", id="delete", variant="default", disabled=True
@@ -1108,6 +1109,13 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
     async def on_mount(self) -> None:
         table = self.query_one("#models", DataTable)
         table.add_columns("Model", "Source", "Context", "Status", "Current")
+        if not self._models:
+            refresh_label = self.query_one("#model-picker-refresh", Label)
+            refresh_label.update("Loading models...")
+        self._populate_table(table)
+
+    def _populate_table(self, table: DataTable) -> None:
+        table.clear()
         self._model_entry_ids = []
         self._model_names = []
         self._model_available = []
@@ -1158,6 +1166,20 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
                 initial_row = self._model_names.index(self._current)
             table.move_cursor(row=initial_row, column=0)
             self._refresh_selection_state(initial_row)
+
+    def update_models(
+        self, models: list[dict[str, Any]], *, current_entry_id: str = ""
+    ) -> None:
+        """Refresh the model list in-place while the modal is open."""
+        self._models = models
+        if current_entry_id:
+            self._current_entry_id = current_entry_id
+        table = self.query_one("#models", DataTable)
+        self._populate_table(table)
+        refresh_label = self.query_one("#model-picker-refresh", Label)
+        refresh_label.update(
+            f"{len(self._model_names)} models" if self._model_names else "No models found"
+        )
 
     def _refresh_selection_state(self, row: int) -> None:
         select_button = self.query_one("#select", Button)

@@ -45,6 +45,7 @@ _CLOUD_REFRESH_TOKEN_KEY = "refresh_token"
 _CLOUD_SESSION_FORMAT_VERSION = 2
 _CLOUD_ENTITLEMENTS_CACHE_VERSION = 1
 _REMOTE_ENTITLEMENT_GRACE_SECONDS = 72 * 60 * 60
+_ENTITLEMENT_GRACE_SECONDS = 3600  # 1 hour — fallback when /auth/me flakes after session validation
 _CLOUD_ACCESS_TOKEN_CACHE: dict[tuple[str, str], tuple[str, float]] = {}
 _CLOUD_SESSION_REFRESH_LOCK = threading.Lock()
 
@@ -840,44 +841,30 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
 
     session = auth.session
     assert session is not None
+
+    cached_entitlements = _load_cached_cloud_entitlements(
+        config, max_age_seconds=_ENTITLEMENT_GRACE_SECONDS
+    )
+
     try:
         status, payload = _get_json(
             f"{session.api_url.rstrip('/')}/auth/me",
             access_token=session.access_token,
         )
-    except CloudConnectionError as exc:
-        return CloudEntitlementsResult(
-            entitlements={},
-            auth=CloudAuthStatus(
-                state=CloudSessionState.NETWORK_ERROR,
-                session=session,
-                message=str(exc),
-            ),
-        )
-    except CloudAuthError as exc:
-        return CloudEntitlementsResult(
-            entitlements={},
-            auth=CloudAuthStatus(
-                state=CloudSessionState.INVALID,
-                session=session,
-                message=str(exc) or "Stored iTE Cloud session is expired or revoked.",
-            ),
-        )
+    except CloudConnectionError:
+        if cached_entitlements:
+            return CloudEntitlementsResult(entitlements=cached_entitlements, auth=auth)
+        return CloudEntitlementsResult(entitlements={}, auth=auth)
+    except CloudAuthError:
+        if cached_entitlements:
+            return CloudEntitlementsResult(entitlements=cached_entitlements, auth=auth)
+        return CloudEntitlementsResult(entitlements={}, auth=auth)
+
     if status != 200 or not payload.get("ok"):
-        message = _cloud_payload_message(payload) or f"iTE Cloud returned {status}."
-        state = (
-            CloudSessionState.INVALID
-            if status == 401
-            else CloudSessionState.NO_ENTITLEMENT
-            if status == 403
-            else CloudSessionState.NETWORK_ERROR
-            if status >= 500
-            else CloudSessionState.INVALID
-        )
-        return CloudEntitlementsResult(
-            entitlements={},
-            auth=CloudAuthStatus(state=state, session=session, message=message),
-        )
+        if cached_entitlements:
+            return CloudEntitlementsResult(entitlements=cached_entitlements, auth=auth)
+        return CloudEntitlementsResult(entitlements={}, auth=auth)
+
     entitlements = payload.get("entitlements")
     normalized_entitlements = entitlements if isinstance(entitlements, dict) else {}
     try:
