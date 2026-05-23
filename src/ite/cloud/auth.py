@@ -518,16 +518,18 @@ def check_cloud_session(session: CloudSession) -> str:
                 return CloudSessionState.VALID
             if status == 403:
                 return CloudSessionState.VALID
-            # Server errors (5xx) when server is down/spinning up - keep session
-            if status >= 500:
-                return CloudSessionState.NETWORK_ERROR
             if status == 401:
                 refreshed = _refresh_cloud_session(session)
                 if refreshed is not None:
                     return CloudSessionState.VALID
                 return CloudSessionState.INVALID
-            # Remaining auth errors mean the session is invalid.
-            return CloudSessionState.INVALID
+            # Server errors (5xx) when server is down/spinning up - keep session
+            if status >= 500:
+                return CloudSessionState.NETWORK_ERROR
+            # Client errors (4xx except 401/403) - server rejected the request
+            # but credentials may still be valid. Treat as network error.
+            if status >= 400:
+                return CloudSessionState.NETWORK_ERROR
         except CloudConnectionError:
             return CloudSessionState.NETWORK_ERROR
         except CloudAuthError:
