@@ -442,6 +442,29 @@ Widget {
     text-align: center;
 }
 
+#session-switch-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#session-switch-stack {
+    width: auto;
+    height: auto;
+    align: center middle;
+    padding: 0;
+}
+
+#session-switch-spinner {
+    width: auto;
+    text-style: bold;
+    color: $text-primary;
+    content-align: center middle;
+}
+
 #startup-copy {
     width: 100%;
     margin-top: 1;

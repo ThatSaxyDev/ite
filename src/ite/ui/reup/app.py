@@ -1306,6 +1306,7 @@ class ReupApp(App):
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
+        self._session_switching: bool = False  # Show centered spinner during session switch
         self._ensure_agent_lock = asyncio.Lock()
         self._bundled_models_cache: list[dict[str, Any]] = []
         self._bundled_access_denied: bool = False
@@ -1434,6 +1435,9 @@ class ReupApp(App):
                                     id="startup-copy",
                                 )
                                 yield Static("", id="startup-status")
+                        with Container(id="session-switch-state"):
+                            with Vertical(id="session-switch-stack"):
+                                yield Static("", id="session-switch-spinner")
                         with Container(id="signed-out-state"):
                             with Vertical(id="signed-out-stack"):
                                 yield Static("", id="signed-out-copy")
@@ -4775,6 +4779,7 @@ class ReupApp(App):
         signed_out = self.query_one("#signed-out-state", Container)
         update_required = self.query_one("#update-required-state", Container)
         onboarding = self.query_one("#onboarding-state", Container)
+        session_switch = self.query_one("#session-switch-state", Container)
         composer = self.query_one("#composer", Horizontal)
         topbar = self.query_one("#topbar", Horizontal)
         chat_body = self.query_one("#chat-body", Horizontal)
@@ -4795,25 +4800,34 @@ class ReupApp(App):
         in_onboarding = (
             (not in_required_update) and (not in_signed_out) and self._onboarding_active
         )
+        in_session_switch = (
+            (not in_startup)
+            and (not in_required_update)
+            and (not in_signed_out)
+            and (not in_onboarding)
+            and self._session_switching
+        )
         in_chat = (
             (not in_startup)
             and (not in_required_update)
             and (not in_signed_out)
             and (not in_onboarding)
             and (not in_bootstrap)
+            and (not in_session_switch)
         )
 
         startup.display = in_startup
         update_required.display = in_required_update
         signed_out.display = in_signed_out
         onboarding.display = in_onboarding
+        session_switch.display = in_session_switch
         conversation.display = in_chat
         empty.display = False if not in_chat else empty.display
-        composer.display = in_chat
-        topbar.display = in_chat
+        composer.display = in_chat or in_session_switch
+        topbar.display = in_chat or in_session_switch
         session_tabs.display = False
         footer.display = in_chat
-        header.display = in_chat
+        header.display = in_chat or in_session_switch
         chat_body.styles.padding = (
             (0, 0, 0, 0)
             if (
@@ -4822,13 +4836,15 @@ class ReupApp(App):
                 or in_signed_out
                 or in_onboarding
                 or in_bootstrap
+                or in_session_switch
             )
             else (0, 2, 0, 2)
         )
-        prompt.disabled = not in_chat
+        prompt.disabled = not in_chat and not in_session_switch
         sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
         self.query_one("#startup-status", Static).update(self._startup_status_text())
+        self._update_session_switch_spinner()
         self.query_one("#signed-out-copy", Static).update(
             build_signed_out_state_renderable(styles=self._render_styles())
         )
@@ -4908,6 +4924,14 @@ class ReupApp(App):
             style=f"bold {self._render_styles()['fg']}",
         )
         return status
+
+    def _update_session_switch_spinner(self) -> None:
+        """Update the centered spinner during session switch (no text)."""
+        spinner = self.query_one("#session-switch-spinner", Static)
+        frame = self._top_spinner_frames[
+            self._top_spinner_index % len(self._top_spinner_frames)
+        ]
+        spinner.update(Text(frame, justify="center"))
 
     def _onboarding_status_text(self) -> Text:
         status = Text(justify="center")
@@ -6313,11 +6337,14 @@ class ReupApp(App):
         if not session_id:
             return
 
-        # Show immediate loading state in header
-        self._set_loading_state("Loading session...", busy=True)
+        # Show centered spinner state (clears conversation, shows centered loader)
+        self._session_switching = True
+        self._apply_shell_surface()
 
         if session_id in self._open_sessions:
             await self._activate_open_session(session_id)
+            self._session_switching = False
+            self._apply_shell_surface()
             return
 
         # Load snapshot on thread pool to avoid blocking UI
@@ -6325,12 +6352,16 @@ class ReupApp(App):
             lambda: SessionManager().load_session(session_id)
         )
         if snapshot is None:
-            self._set_loading_state("idle", busy=False)
+            self._session_switching = False
+            self._apply_shell_surface()
             self.post_system(
                 "Sessions", f"Session not found: {session_id}", is_error=True
             )
             return
         await self._resume_snapshot(snapshot)
+        # Clear centering spinner
+        self._session_switching = False
+        self._apply_shell_surface()
 
     @on(Button.Pressed, "#cloud-sign-in")
     def on_cloud_sign_in_pressed(self, _event: Button.Pressed) -> None:
@@ -6842,6 +6873,7 @@ class ReupApp(App):
             and not flow_animating
             and not send_animating
             and not plan_animating
+            and not self._session_switching
         ):
             return
         self._top_spinner_index += 1
