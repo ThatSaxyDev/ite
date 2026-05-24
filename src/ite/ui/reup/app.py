@@ -8199,18 +8199,22 @@ class ReupApp(App):
             except Exception:
                 pass
 
-    async def _hydrate_chat_from_snapshot(self, messages: list[dict[str, Any]]) -> None:
+    async def _hydrate_chat_from_snapshot(
+        self, messages: list[dict[str, Any]], show_loading: bool = True
+    ) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         await conversation.remove_children()
         self._message_count = 0
         self._reset_session_local_ui_state()
 
         # Show loading indicator during hydration
-        loading_widget = Static(
-            "Loading conversation...",
-            classes="chat-loading-indicator",
-        )
-        await conversation.mount(loading_widget)
+        loading_widget: Static | None = None
+        if show_loading:
+            loading_widget = Static(
+                "Loading conversation...",
+                classes="chat-loading-indicator",
+            )
+            await conversation.mount(loading_widget)
 
         # Skip activity indicator updates during bulk hydration
         self._hydrating_from_snapshot = True
