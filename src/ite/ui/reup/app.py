@@ -1287,10 +1287,14 @@ class ReupApp(App):
         self._top_busy: bool = False
         self._top_spinner_index: int = 0
         self._top_spinner_frames: tuple[str, ...] = (
-            "▰▱▱",
-            "▱▰▱",
-            "▱▱▰",
-            "▱▰▱",
+            "▰▱▱▱▱",
+            "▱▰▱▱▱",
+            "▱▱▰▱▱",
+            "▱▱▱▰▱",
+            "▱▱▱▱▰",
+            "▱▱▱▰▱",
+            "▱▱▰▱▱",
+            "▱▰▱▱▱",
         )
         self._activity_suffix_frames: tuple[str, ...] = ("", ".", "..", "...")
         self._activity_suffix_index: int = 0
@@ -1585,7 +1589,7 @@ class ReupApp(App):
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self._apply_hooks_panel_state()
-        self.set_interval(0.1, self._tick_top_indicator)
+        self.set_interval(0.15, self._tick_top_indicator)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
         self._change_review_poll_timer = self.set_interval(3.0, self._poll_change_review_panel)
@@ -6887,6 +6891,9 @@ class ReupApp(App):
             self._update_composer_meta_line()
         if self._top_spinner_index % 3 == 0:
             self._activity_suffix_index += 1
+        # Update session switch spinner (centered loader)
+        if self._session_switching:
+            self._update_session_switch_spinner()
         if self._activity_widget is not None and self._top_busy:
             self._activity_widget.update(
                 self._render_activity_indicator_text(self._top_state_text)
