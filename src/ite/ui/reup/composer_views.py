@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from rich.align import Align
-from rich.console import Group
 from rich.cells import cell_len
+from rich.console import Group
 from rich.text import Text
 
 
@@ -17,6 +17,7 @@ class SlashCommandOption:
     description: str
     insert_text: str | None = None
     attachment_path: str | None = None
+
 
 def composer_meta_text(
     *,
@@ -75,8 +76,8 @@ def composer_meta_text(
     text.append(spacer)
     cell_pos += cell_len(spacer)
     plan_start = cell_pos
-    text.append("Plan", style=f"bold {fg}")
-    cell_pos += cell_len("Plan")
+    text.append("plan", style=f"bold {fg}")
+    cell_pos += cell_len("plan")
     text.append(" ")
     cell_pos += 1
     text.append(status_text, style=status_style)
@@ -117,7 +118,9 @@ def composer_meta_text(
             filled = 0
         else:
             remaining_percent = max(0, min(100, usage_remaining_percent))
-            filled = max(0, min(meter_width, round((remaining_percent / 100) * meter_width)))
+            filled = max(
+                0, min(meter_width, round((remaining_percent / 100) * meter_width))
+            )
         empty = meter_width - filled
         if usage_remaining_percent is None:
             usage_meter_style = disabled
@@ -141,9 +144,7 @@ def composer_meta_text(
     text.append(context_label, style=f"bold {muted}")
     cell_pos += cell_len(context_label)
     context_text = (
-        f"{context_used_percent}%"
-        if context_used_percent is not None
-        else "--"
+        f"{context_used_percent}%" if context_used_percent is not None else "--"
     )
     text.append(context_text, style=f"bold {fg}")
     cell_pos += cell_len(context_text)
@@ -155,7 +156,10 @@ def composer_meta_text(
     else:
         context_filled = max(
             0,
-            min(context_meter_width, round((context_used_percent / 100) * context_meter_width)),
+            min(
+                context_meter_width,
+                round((context_used_percent / 100) * context_meter_width),
+            ),
         )
     context_empty = context_meter_width - context_filled
     # Use border color for empty bar for visibility in both themes
@@ -249,10 +253,10 @@ def _flow_control_label(
         return frames[flow_frame % len(frames)], f"bold {error}"
     if flow_state == "transcribing":
         frames = (
-            "flow ▰▱▱",
-            "flow ▱▰▱",
-            "flow ▱▱▰",
-            "flow ▱▰▱",
+            "🎙  ▰▱▱",
+            "🎙  ▱▰▱",
+            "🎙  ▱▱▰",
+            "🎙  ▱▰▱",
         )
         return frames[flow_frame % len(frames)], f"bold {primary}"
     if flow_state == "missing_key":
@@ -352,10 +356,16 @@ def build_turn_action_options(*, replacing_queue: bool) -> list[SlashCommandOpti
         else "Send when the current turn finishes."
     )
     return [
-        SlashCommandOption(name="1. Shift", description="Stop now and send this draft."),
+        SlashCommandOption(
+            name="1. Shift", description="Stop now and send this draft."
+        ),
         SlashCommandOption(name="2. Queue", description=queue_copy),
-        SlashCommandOption(name="3. /aside", description="Ask in the side panel without stopping."),
-        SlashCommandOption(name="4. Cancel", description="Keep this draft in the composer."),
+        SlashCommandOption(
+            name="3. /aside", description="Ask in the side panel without stopping."
+        ),
+        SlashCommandOption(
+            name="4. Cancel", description="Keep this draft in the composer."
+        ),
     ]
 
 
@@ -385,7 +395,9 @@ def render_turn_action_palette(
     return text
 
 
-def build_empty_state_title(*, cwd: Path, thread_count: int, now: datetime | None = None) -> str:
+def build_empty_state_title(
+    *, cwd: Path, thread_count: int, now: datetime | None = None
+) -> str:
     current = now or datetime.now()
     hour = current.hour
     is_weekend = current.weekday() >= 5

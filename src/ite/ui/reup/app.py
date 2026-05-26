@@ -92,7 +92,7 @@ from ite.cloud import (
 )
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
-from ite.config.config import ApprovalPolicy, Config, DEFAULT_CONTEXT_WINDOW
+from ite.config.config import DEFAULT_CONTEXT_WINDOW, ApprovalPolicy, Config
 from ite.config.loader import (
     get_workspace_agents_recommendation,
     load_saved_custom_provider,
@@ -674,7 +674,11 @@ class CompactToolCard(Static):
             return []
         child_header = self.stack_child_header().plain.strip()
         blocks = list(self._full_blocks)
-        if blocks and isinstance(blocks[0], Text) and blocks[0].plain.strip() == child_header:
+        if (
+            blocks
+            and isinstance(blocks[0], Text)
+            and blocks[0].plain.strip() == child_header
+        ):
             return blocks[1:]
         return blocks
 
@@ -1306,12 +1310,16 @@ class ReupApp(App):
         self._live_compaction_active: bool = False
         self._activity_resume_timer = None
         self._activity_version: int = 0
-        self._hydrating_from_snapshot: bool = False  # Skip activity indicator updates during bulk hydration
+        self._hydrating_from_snapshot: bool = (
+            False  # Skip activity indicator updates during bulk hydration
+        )
         self._empty_state_cached_thread_count: int = 0
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
-        self._session_switching: bool = False  # Show centered spinner during session switch
+        self._session_switching: bool = (
+            False  # Show centered spinner during session switch
+        )
         self._ensure_agent_lock = asyncio.Lock()
         self._bundled_models_cache: list[dict[str, Any]] = []
         self._bundled_access_denied: bool = False
@@ -1593,7 +1601,9 @@ class ReupApp(App):
         self.set_interval(0.15, self._tick_top_indicator)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
-        self._change_review_poll_timer = self.set_interval(3.0, self._poll_change_review_panel)
+        self._change_review_poll_timer = self.set_interval(
+            3.0, self._poll_change_review_panel
+        )
         self.set_interval(0.3, self._poll_head_change)
         if self.config.cloud_auth_enabled:
             self._cloud_bootstrap_busy = True
@@ -1796,7 +1806,9 @@ class ReupApp(App):
                     body_widget = child.query_one(".card-body", Static)
                     new_body = build_sandbox_command_renderable(
                         enabled=self.config.sandbox.enabled,
-                        allowed_paths=[str(p) for p in self.config.sandbox.allowed_paths],
+                        allowed_paths=[
+                            str(p) for p in self.config.sandbox.allowed_paths
+                        ],
                         cwd=str(self.config.cwd),
                         styles=styles,
                     )
@@ -1980,9 +1992,12 @@ class ReupApp(App):
         message = str(getattr(status, "message", "") or "").strip()
         if state == CloudSessionState.CREDENTIAL_ERROR:
             return (
-                message
-                or "Could not read iTE Cloud credentials from the OS credential store."
-            ) + " Unlock Keychain Access if needed, then try `/remote on` again. If that keeps failing, run `/cloud login` to refresh the stored credential."
+                (
+                    message
+                    or "Could not read iTE Cloud credentials from the OS credential store."
+                )
+                + " Unlock Keychain Access if needed, then try `/remote on` again. If that keeps failing, run `/cloud login` to refresh the stored credential."
+            )
         if state == CloudSessionState.NETWORK_ERROR:
             return (
                 message
@@ -2643,7 +2658,7 @@ class ReupApp(App):
             plan_badge.display = True
             plan_badge.update(self._plan_badge_renderable())
             cwd_name = os.path.basename(self.config.cwd) or self.config.cwd
-            meta.update(f"Workspace: {cwd_name}")
+            meta.update(f"WORKSPACE: {cwd_name}")
         self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         if refresh_session_tabs:
@@ -2678,9 +2693,7 @@ class ReupApp(App):
         if self._cloud_signed_out:
             return
         try:
-            self.query_one("#plan-badge", Static).update(
-                self._plan_badge_renderable()
-            )
+            self.query_one("#plan-badge", Static).update(self._plan_badge_renderable())
         except Exception:
             return
 
@@ -2797,7 +2810,10 @@ class ReupApp(App):
             for child in list(conversation.children)
             if child.has_class("activity-indicator")
         ]
-        if self._activity_widget is not None and self._activity_widget not in indicators:
+        if (
+            self._activity_widget is not None
+            and self._activity_widget not in indicators
+        ):
             indicators.append(self._activity_widget)
         removed = 0
         for indicator in indicators:
@@ -2993,9 +3009,10 @@ class ReupApp(App):
             return "recording"
         if self._voice_busy:
             return "transcribing"
-        if self.config.voice.enabled and not str(
-            self.config.voice.groq_api_key or ""
-        ).strip():
+        if (
+            self.config.voice.enabled
+            and not str(self.config.voice.groq_api_key or "").strip()
+        ):
             return "missing_key"
         return "idle"
 
@@ -3143,8 +3160,7 @@ class ReupApp(App):
         self._last_bundled_access_notice_at = now
         self.post_notice(
             "iTE Pro",
-            message
-            or "Bundled cloud models are available with iTE Pro.",
+            message or "Bundled cloud models are available with iTE Pro.",
             timeout=5,
         )
 
@@ -4069,9 +4085,7 @@ class ReupApp(App):
             if not normalized_current:
                 return ""
             persisted_source_kind = (
-                str(getattr(self.config.model, "source_kind", "") or "")
-                .strip()
-                .lower()
+                str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
             )
             if persisted_source_kind in {"bundled", "saved", "custom"}:
                 return f"{persisted_source_kind}:{normalized_current}"
@@ -4143,8 +4157,7 @@ class ReupApp(App):
                     (
                         index
                         for index, existing in enumerate(model_options)
-                        if str(existing.get("model_name") or "").strip()
-                        == normalized
+                        if str(existing.get("model_name") or "").strip() == normalized
                     ),
                     len(model_options),
                 )
@@ -4216,9 +4229,7 @@ class ReupApp(App):
         current_entry_id = _current_entry_id()
         return model_options, current_entry_id, bundled_model_names, saved_providers
 
-    async def _refresh_model_picker_data(
-        self, modal: Any, current_model: str
-    ) -> None:
+    async def _refresh_model_picker_data(self, modal: Any, current_model: str) -> None:
         try:
             result = await asyncio.to_thread(get_bundled_models_result, self.config)
         except Exception:
@@ -4515,10 +4526,10 @@ class ReupApp(App):
             quota = quotas.get(key) or {}
             used = int(quota.get("usedUsdCents") or 0)
             cap = max(1, int(quota.get("capUsdCents") or 1))
-            remaining_values.append(
-                max(0, min(100, round(((cap - used) / cap) * 100)))
-            )
-        self._usage_remaining_percent = min(remaining_values) if remaining_values else 100
+            remaining_values.append(max(0, min(100, round(((cap - used) / cap) * 100))))
+        self._usage_remaining_percent = (
+            min(remaining_values) if remaining_values else 100
+        )
         self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
 
@@ -6227,7 +6238,9 @@ class ReupApp(App):
                 self._change_review_poll_timer.stop()
             except Exception:
                 pass
-        self._change_review_poll_timer = self.set_interval(seconds, self._poll_change_review_panel)
+        self._change_review_poll_timer = self.set_interval(
+            seconds, self._poll_change_review_panel
+        )
 
     async def _sync_change_review_panel_state(self) -> None:
         previous_signature = self._change_review_snapshot_key
@@ -7547,7 +7560,9 @@ class ReupApp(App):
             insert_target = target
             if insert_target is None or not getattr(insert_target, "is_mounted", True):
                 focused = self.focused
-                insert_target = focused if isinstance(focused, Input | TextArea) else None
+                insert_target = (
+                    focused if isinstance(focused, Input | TextArea) else None
+                )
             if insert_target is None or not insert_voice_text_into_widget(
                 insert_target,
                 transcript,
@@ -11310,7 +11325,11 @@ class ReupApp(App):
         if body is None:
             return False
 
-        extra_cls = "stats" if command == "/stats" else ("sandbox" if command == "/sandbox" else "")
+        extra_cls = (
+            "stats"
+            if command == "/stats"
+            else ("sandbox" if command == "/sandbox" else "")
+        )
         self.run_worker(
             self.add_assistant_card(
                 self._build_command_title_widget(command),
