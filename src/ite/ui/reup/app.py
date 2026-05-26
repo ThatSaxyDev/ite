@@ -384,7 +384,8 @@ class ReupTUIAdapter:
         version: str = "",
     ) -> None:
         version = version or current_runtime_version()
-        msg = f"iTE ready\nModel: {model or 'not set'}\nWorkspace: {cwd}\nVersion: {version}"
+        cwd_name = os.path.basename(cwd) or cwd
+        msg = f"iTE ready\nModel: {model or 'not set'}\nWorkspace: {cwd_name}\nVersion: {version}"
         if commands:
             msg += "\nCommands: " + ", ".join(commands)
         self._app.post_system("Welcome", msg)
@@ -2641,7 +2642,8 @@ class ReupApp(App):
             title.update(self._current_session_title())
             plan_badge.display = True
             plan_badge.update(self._plan_badge_renderable())
-            meta.update(f"Workspace: {self.config.cwd}")
+            cwd_name = os.path.basename(self.config.cwd) or self.config.cwd
+            meta.update(f"Workspace: {cwd_name}")
         self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         if refresh_session_tabs:
