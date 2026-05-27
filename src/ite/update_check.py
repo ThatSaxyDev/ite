@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-from ite import __version__
 from ite.cloud.auth import CloudConnectionError, _get_json
 from ite.config.config import Config
 from ite.config.loader import get_data_dir
@@ -179,7 +178,9 @@ def check_runtime_update(config: Config) -> RuntimeUpdateNotice | None:
     query = urlencode({"currentVersion": local_version})
     try:
         status, payload = _get_json(f"{base_url}/runtime/version-check?{query}")
-    except CloudConnectionError:
+    except (CloudConnectionError, ValueError):
+        return None
+    if not isinstance(payload, dict):
         return None
     if status != 200 or not payload.get("ok"):
         return None

@@ -134,8 +134,6 @@ class ReupStartupTests(unittest.TestCase):
         app = self._app()
         notice = SimpleNamespace(
             latest_version="0.0.46",
-            minimum_supported_version="0.0.45",
-            severity="recommended",
             title="Update available",
             message="",
             upgrade_command="pipx upgrade ite-agent",
@@ -144,7 +142,7 @@ class ReupStartupTests(unittest.TestCase):
 
         title, message = app._runtime_update_notice_copy(notice)
 
-        self.assertEqual(title, "A new update is available")
+        self.assertEqual(title, "Update available")
         self.assertIn("Version 0.0.46 is available", message)
         self.assertIn("Exit iTE, run: pipx upgrade ite-agent, then reopen it", message)
 
@@ -152,8 +150,6 @@ class ReupStartupTests(unittest.TestCase):
         app = self._app()
         notice = SimpleNamespace(
             latest_version="0.0.46",
-            minimum_supported_version="0.0.45",
-            severity="info",
             title="Update available",
             message="",
             upgrade_command="pipx upgrade ite-agent",
@@ -172,8 +168,6 @@ class ReupStartupTests(unittest.TestCase):
         app = self._app()
         notice = SimpleNamespace(
             latest_version="0.0.46",
-            minimum_supported_version="0.0.45",
-            severity="info",
             title="Update available",
             message="A small update is available.",
             upgrade_command="pipx upgrade ite-agent",
@@ -191,8 +185,6 @@ class ReupStartupTests(unittest.TestCase):
         app = self._app()
         notice = SimpleNamespace(
             latest_version="0.0.46",
-            minimum_supported_version="0.0.45",
-            severity="recommended",
             title="Update available",
             message="",
             upgrade_command="pipx upgrade ite-agent",
@@ -201,8 +193,8 @@ class ReupStartupTests(unittest.TestCase):
 
         title, body = app._runtime_update_notice_feed_card(notice)
 
-        self.assertEqual(title, "A new update is available")
-        self.assertIn("Version 0.0.46 is ready", body)
+        self.assertEqual(title, "Update available")
+        self.assertIn("Version 0.0.46 is available", body)
         self.assertIn("Exit iTE, run the command below, then reopen it", body)
         self.assertIn("```bash\npipx upgrade ite-agent\n```", body)
 
@@ -211,8 +203,7 @@ class ReupStartupTests(unittest.TestCase):
             app = self._app()
             notice = RuntimeUpdateNotice(
                 latest_version="0.0.46",
-                minimum_supported_version="0.0.45",
-                severity="recommended",
+                required=False,
                 title="Update available",
                 message="",
                 upgrade_command="pipx upgrade ite-agent",
@@ -223,6 +214,7 @@ class ReupStartupTests(unittest.TestCase):
             with (
                 patch("ite.ui.reup.app.check_runtime_update", return_value=notice),
                 patch("ite.ui.reup.app.should_show_update_notice", return_value=True),
+                patch("ite.ui.reup.app.get_notification_type", return_value="feed"),
                 patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
                 patch.object(app, "post_notice") as post_notice,
                 patch("ite.ui.reup.app.mark_update_notice_seen") as mark_seen,
@@ -231,7 +223,7 @@ class ReupStartupTests(unittest.TestCase):
 
             add_card.assert_awaited_once()
             post_notice.assert_not_called()
-            mark_seen.assert_not_called()
+            mark_seen.assert_called_once_with(notice)
 
         asyncio.run(run_test())
 
@@ -240,8 +232,7 @@ class ReupStartupTests(unittest.TestCase):
             app = self._app()
             notice = RuntimeUpdateNotice(
                 latest_version="0.0.46",
-                minimum_supported_version="0.0.45",
-                severity="info",
+                required=False,
                 title="Update available",
                 message="",
                 upgrade_command="pipx upgrade ite-agent",
@@ -252,6 +243,7 @@ class ReupStartupTests(unittest.TestCase):
             with (
                 patch("ite.ui.reup.app.check_runtime_update", return_value=notice),
                 patch("ite.ui.reup.app.should_show_update_notice", return_value=True),
+                patch("ite.ui.reup.app.get_notification_type", return_value="toast"),
                 patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
                 patch.object(app, "post_notice") as post_notice,
                 patch("ite.ui.reup.app.mark_update_notice_seen") as mark_seen,
@@ -579,6 +571,15 @@ class ReupStartupTests(unittest.TestCase):
             str(loading_badge.style),
         )
 
+        app._account_plan_unavailable = True
+        unavailable_badge = app._plan_badge_renderable()
+        self.assertIn("Offline", unavailable_badge.plain)
+        self.assertIn(
+            f"on {app._render_styles()['surface']}",
+            str(unavailable_badge.style),
+        )
+        app._account_plan_unavailable = False
+
         app._account_plan_is_pro = False
 
         free_badge = app._plan_badge_renderable()
@@ -628,6 +629,23 @@ class ReupStartupTests(unittest.TestCase):
         post_notice.assert_not_called()
         self.assertTrue(event.stopped)
 
+    def test_unavailable_plan_badge_posts_try_again_notice(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = None
+        app._account_plan_unavailable = True
+        event = SimpleNamespace(stop=lambda: setattr(event, "stopped", True))
+
+        with (
+            patch("ite.ui.reup.app.webbrowser.open", return_value=True) as open_url,
+            patch.object(app, "post_notice") as post_notice,
+        ):
+            app.on_plan_badge_click(event)  # type: ignore[arg-type]
+
+        open_url.assert_not_called()
+        post_notice.assert_called_once()
+        self.assertIn("Try again later", post_notice.call_args.args[1])
+        self.assertTrue(event.stopped)
+
     def test_account_plan_badge_refreshes_from_entitlements(self) -> None:
         async def run_test() -> None:
             app = self._app()
@@ -649,6 +667,52 @@ class ReupStartupTests(unittest.TestCase):
                 await app._refresh_account_plan_badge()
 
             self.assertTrue(app._account_plan_is_pro)
+            refresh_header.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_account_plan_badge_concludes_when_entitlements_fail(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            with (
+                patch(
+                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    side_effect=RuntimeError("cloud down"),
+                ),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
+                await app._refresh_account_plan_badge()
+
+            self.assertIsNone(app._account_plan_is_pro)
+            self.assertTrue(app._account_plan_unavailable)
+            refresh_header.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_account_plan_badge_concludes_on_network_error(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            result = CloudEntitlementsResult(
+                entitlements={},
+                auth=CloudAuthStatus(
+                    state=CloudSessionState.NETWORK_ERROR,
+                    session=None,
+                    message="cloud down",
+                ),
+            )
+
+            with (
+                patch(
+                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    return_value=result,
+                ),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
+                await app._refresh_account_plan_badge()
+
+            self.assertIsNone(app._account_plan_is_pro)
+            self.assertTrue(app._account_plan_unavailable)
             refresh_header.assert_called_once()
 
         asyncio.run(run_test())

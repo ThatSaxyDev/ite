@@ -1324,6 +1324,7 @@ class ReupApp(App):
         self._bundled_models_cache: list[dict[str, Any]] = []
         self._bundled_access_denied: bool = False
         self._account_plan_is_pro: bool | None = None
+        self._account_plan_unavailable: bool = False
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = False
@@ -2666,6 +2667,12 @@ class ReupApp(App):
 
     def _plan_badge_renderable(self) -> Text:
         styles = self._render_styles()
+        if self._account_plan_unavailable:
+            return Text(
+                " Offline ",
+                style=f"bold {styles['muted']} on {styles['surface']}",
+                no_wrap=True,
+            )
         if self._account_plan_is_pro is None:
             frame = self._top_spinner_frames[
                 self._top_spinner_index % len(self._top_spinner_frames)
@@ -2680,6 +2687,18 @@ class ReupApp(App):
         badge_fg = styles["background"]
         badge_style = f"bold {badge_fg} on {badge_bg}"
         return Text(f" {label} ", style=badge_style, no_wrap=True)
+
+    def _set_account_plan_badge_state(
+        self, is_pro: bool | None, *, unavailable: bool = False
+    ) -> None:
+        if (
+            self._account_plan_is_pro == is_pro
+            and self._account_plan_unavailable == unavailable
+        ):
+            return
+        self._account_plan_is_pro = is_pro
+        self._account_plan_unavailable = unavailable
+        self.refresh_header()
 
     def _update_composer_meta_line(self) -> None:
         try:
@@ -3182,6 +3201,7 @@ class ReupApp(App):
                 self._usage_summary_cache = None
                 self._usage_remaining_percent = None
                 self._account_plan_is_pro = False
+                self._account_plan_unavailable = False
                 self.refresh_header()
             return
         self._bundled_access_denied = False
@@ -3223,14 +3243,14 @@ class ReupApp(App):
         try:
             result = await asyncio.to_thread(get_cloud_entitlements_result, self.config)
         except Exception:
+            self._set_account_plan_badge_state(None, unavailable=True)
             return
         state = str(getattr(result.auth, "state", "") or "")
         if state == CloudSessionState.NO_ENTITLEMENT:
-            if self._account_plan_is_pro is not False:
-                self._account_plan_is_pro = False
-                self.refresh_header()
+            self._set_account_plan_badge_state(False)
             return
         if not result.auth.is_valid:
+            self._set_account_plan_badge_state(None, unavailable=True)
             return
         entitlements = result.entitlements
         pro = bool(
@@ -3238,9 +3258,7 @@ class ReupApp(App):
             or entitlements.get("remoteCompanion")
             or entitlements.get("bundledInference")
         )
-        if pro != self._account_plan_is_pro:
-            self._account_plan_is_pro = pro
-            self.refresh_header()
+        self._set_account_plan_badge_state(pro)
 
     def _prefetch_cloud_caches(self) -> None:
         self.run_worker(self._refresh_account_plan_badge(), exclusive=False)
@@ -3294,10 +3312,16 @@ class ReupApp(App):
         message = str(getattr(notice, "message", "") or "").strip()
         if not message:
             target = latest or "a newer version"
-            message = (
-                f"Version {target} is available. Exit iTE, run: {command}, "
-                "then reopen it."
-            )
+            if include_command:
+                message = (
+                    f"Version {target} is available. Exit iTE, run: {command}, "
+                    "then reopen it."
+                )
+            else:
+                message = (
+                    f"Version {target} is available. Exit iTE, run the command below, "
+                    "then reopen it."
+                )
         message = message.replace("Run below", "Run the command below")
         message = message.replace(
             "Run the command below, then reopen iTE",
@@ -3821,6 +3845,13 @@ class ReupApp(App):
     @on(events.Click, "#plan-badge")
     def on_plan_badge_click(self, event: events.Click) -> None:
         event.stop()
+        if self._account_plan_unavailable:
+            self.post_notice(
+                "iTE Cloud",
+                "Plan status is unavailable right now. Try again later.",
+                timeout=5,
+            )
+            return
         if self._account_plan_is_pro is None:
             return
         if self._account_plan_is_pro:
@@ -4755,6 +4786,7 @@ class ReupApp(App):
         if enabled:
             self._onboarding_active = False
             self._account_plan_is_pro = False
+            self._account_plan_unavailable = False
         self._apply_shell_surface()
 
     def _set_startup_state(self, enabled: bool) -> None:
@@ -5102,6 +5134,7 @@ class ReupApp(App):
         self._session_run_states.clear()
         self._bundled_models_cache = []
         self._account_plan_is_pro = False
+        self._account_plan_unavailable = False
         self._usage_summary_cache = None
         self._activity_cache = None
         self._usage_remaining_percent = None
@@ -6879,6 +6912,7 @@ class ReupApp(App):
         send_animating = self._is_turn_running
         plan_animating = (
             self._account_plan_is_pro is None and not self._cloud_signed_out
+            and not self._account_plan_unavailable
         )
         has_pending_command_spinner = any(
             pending_active

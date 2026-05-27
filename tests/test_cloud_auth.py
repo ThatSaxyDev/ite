@@ -3,7 +3,9 @@ import os
 import stat
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 from ite.cloud.auth import (
@@ -11,7 +13,9 @@ from ite.cloud.auth import (
     CloudSession,
     CloudCredentialStoreError,
     _CLOUD_ACCESS_TOKEN_CACHE,
+    _get_json,
     _load_cloud_session,
+    _post_json,
     _refresh_cloud_session,
     _save_cloud_session,
     ensure_cloud_auth,
@@ -526,3 +530,36 @@ class CloudAuthTests(unittest.TestCase):
 
         self.assertIs(refreshed, current)
         post_json.assert_not_called()
+
+    def test_post_json_handles_non_json_http_error_body(self) -> None:
+        error = HTTPError(
+            "https://example.test/auth/refresh",
+            403,
+            "Forbidden",
+            {},
+            BytesIO(b"<html>Just a moment...</html>"),
+        )
+
+        with patch("ite.cloud.auth.urlopen", side_effect=error):
+            status, payload = _post_json(
+                "https://example.test/auth/refresh",
+                {"refreshToken": "refresh"},
+            )
+
+        self.assertEqual(status, 403)
+        self.assertEqual(payload, {})
+
+    def test_get_json_handles_non_json_http_error_body(self) -> None:
+        error = HTTPError(
+            "https://example.test/me",
+            503,
+            "Service Unavailable",
+            {},
+            BytesIO(b"<!DOCTYPE html><title>Service Suspended</title>"),
+        )
+
+        with patch("ite.cloud.auth.urlopen", side_effect=error):
+            status, payload = _get_json("https://example.test/me")
+
+        self.assertEqual(status, 503)
+        self.assertEqual(payload, {})

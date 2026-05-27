@@ -351,10 +351,10 @@ def _post_json(
             context=_SSL_CONTEXT,
         ) as response:
             body = response.read().decode("utf-8")
-            return int(response.status), json.loads(body) if body else {}
+            return int(response.status), _decode_json_body(body)
     except HTTPError as exc:
         body = exc.read().decode("utf-8")
-        payload = json.loads(body) if body else {}
+        payload = _decode_json_body(body)
         return int(exc.code), payload
     except (TimeoutError, socket.timeout) as exc:
         raise CloudConnectionError(
@@ -376,10 +376,10 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
             context=_SSL_CONTEXT,
         ) as response:
             body = response.read().decode("utf-8")
-            return int(response.status), json.loads(body) if body else {}
+            return int(response.status), _decode_json_body(body)
     except HTTPError as exc:
         body = exc.read().decode("utf-8")
-        payload = json.loads(body) if body else {}
+        payload = _decode_json_body(body)
         return int(exc.code), payload
     except (TimeoutError, socket.timeout) as exc:
         raise CloudConnectionError(
@@ -387,6 +387,16 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
         ) from exc
     except URLError as exc:
         raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
+
+
+def _decode_json_body(body: str) -> dict[str, Any]:
+    if not body:
+        return {}
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _refresh_cloud_session(session: CloudSession) -> CloudSession | None:
