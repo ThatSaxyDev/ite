@@ -184,6 +184,7 @@ from .composer_views import (
     build_turn_payload,
     composer_meta_text,
     filtered_command_palette,
+    flow_control_text,
     render_command_palette,
     render_turn_action_palette,
     send_control_text,
@@ -1539,6 +1540,7 @@ class ReupApp(App):
                 with Container(id="prompt-container"):
                     with Horizontal(id="prompt-row"):
                         yield ReupPromptTextArea(id="prompt", language="markdown")
+                        yield Static("", id="composer-flow-control")
                         yield Static("", id="composer-send-control")
                     yield Static("", id="command-palette")
                     yield Static("", id="composer-gap")
@@ -2706,6 +2708,7 @@ class ReupApp(App):
         except Exception:
             return
         composer_meta_line.update(self._composer_meta_text())
+        self._update_composer_flow_control()
         self._update_composer_send_control()
 
     def _refresh_plan_badge_renderable(self) -> None:
@@ -2728,6 +2731,20 @@ class ReupApp(App):
                 styles=self._render_styles(),
             )
         )
+
+    def _update_composer_flow_control(self) -> None:
+        try:
+            flow_control = self.query_one("#composer-flow-control", Static)
+        except Exception:
+            return
+        text = flow_control_text(
+            flow_enabled=bool(self.config.voice.enabled),
+            flow_state=self._flow_meta_state(),
+            flow_frame=self._flow_meta_frame,
+            styles=self._render_styles(),
+        )
+        flow_control.display = bool(text.plain)
+        flow_control.update(text)
 
     def _tick_live_context_meter(self) -> None:
         if not self.is_mounted or not self._is_turn_running:
@@ -2988,6 +3005,14 @@ class ReupApp(App):
         if context_used_percent is not None and floor_pct is not None:
             context_used_percent = max(context_used_percent, floor_pct)
         model_display_name = self._model_display_name()
+        available_width: int | None = None
+        try:
+            meta_line = self.query_one("#composer-meta-line", Static)
+            width = int(getattr(meta_line.size, "width", 0) or 0)
+            if width > 0:
+                available_width = width
+        except Exception:
+            pass
         (
             text,
             attach_hitbox,
@@ -3007,9 +3032,7 @@ class ReupApp(App):
             context_used_percent=context_used_percent,
             styles=self._render_styles(),
             show_usage=self._is_bundled_model(),
-            flow_enabled=bool(self.config.voice.enabled),
-            flow_state=self._flow_meta_state(),
-            flow_frame=self._flow_meta_frame,
+            available_width=available_width,
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
@@ -3807,8 +3830,6 @@ class ReupApp(App):
         usage_start = usage_hitbox[0] if usage_hitbox else -1
         usage_end = usage_hitbox[1] if usage_hitbox else -1
         context_start, context_end = self._composer_context_hitbox
-        activity_start, activity_end = self._composer_activity_hitbox
-        flow_start, flow_end = self._composer_flow_hitbox
         start, end = self._composer_plan_hitbox
         if attach_start <= event.x < attach_end:
             self.run_worker(self._open_attach_picker_from_meta(), exclusive=False)
@@ -3830,17 +3851,14 @@ class ReupApp(App):
             self.run_worker(self._open_context_modal_from_meta(), exclusive=False)
             event.stop()
             return
-        if activity_start <= event.x < activity_end:
-            self.run_worker(self._open_activity_modal_from_meta(), exclusive=False)
-            event.stop()
-            return
-        if flow_start <= event.x < flow_end:
-            self.action_toggle_voice_input()
-            event.stop()
-            return
         if start <= event.x < end:
             self.run_worker(self._toggle_plan_mode_from_meta(), exclusive=False)
             event.stop()
+
+    @on(events.Click, "#composer-flow-control")
+    def on_composer_flow_control_click(self, event: events.Click) -> None:
+        self.action_toggle_voice_input()
+        event.stop()
 
     @on(events.Click, "#plan-badge")
     def on_plan_badge_click(self, event: events.Click) -> None:
@@ -6937,7 +6955,7 @@ class ReupApp(App):
             self._update_composer_send_control()
         if flow_animating:
             self._flow_meta_frame += 1
-            self._update_composer_meta_line()
+            self._update_composer_flow_control()
         if self._top_spinner_index % 3 == 0:
             self._activity_suffix_index += 1
         # Update session switch spinner (centered loader)

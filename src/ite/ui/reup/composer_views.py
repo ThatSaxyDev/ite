@@ -29,9 +29,7 @@ def composer_meta_text(
     context_used_percent: int | None = None,
     styles: dict[str, str] | None = None,
     show_usage: bool = True,
-    flow_enabled: bool = False,
-    flow_state: Literal["idle", "recording", "transcribing", "missing_key"] = "idle",
-    flow_frame: int = 0,
+    available_width: int | None = None,
 ) -> tuple[
     Text,
     tuple[int, int],
@@ -45,8 +43,7 @@ def composer_meta_text(
 ]:
     theme = styles or {}
     fg = theme.get("fg", "#d1d5db")
-    secondary = theme.get("secondary", fg)
-    muted = theme.get("muted", secondary)
+    muted = theme.get("muted", fg)
     disabled = theme.get("disabled", muted)
     success = theme.get("success", "#5dcf84")
     error = theme.get("error", "#e35d6a")
@@ -57,156 +54,288 @@ def composer_meta_text(
     status_style = f"bold {success}" if plan_enabled else f"bold {error}"
     branch_style = f"bold {fg}" if branch_label != "no-git" else f"bold {muted}"
 
-    cell_pos = 0
-    text = Text(style=fg)
-    attach_start = cell_pos
-    text.append("📎", style=f"bold {fg}")
-    cell_pos += cell_len("📎")
-    attach_end = cell_pos
-    spacer = "     "
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
-    model_start = cell_pos
-    text.append(model_name, style=f"bold {fg}")
-    cell_pos += cell_len(model_name)
-    model_suffix = " ▾"
-    text.append(model_suffix, style=f"bold {muted}")
-    cell_pos += cell_len(model_suffix)
-    model_end = cell_pos
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
-    plan_start = cell_pos
-    text.append("plan", style=f"bold {fg}")
-    cell_pos += cell_len("plan")
-    text.append(" ")
-    cell_pos += 1
-    text.append(status_text, style=status_style)
-    cell_pos += cell_len(status_text)
-    plan_end = cell_pos
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
-    branch_start = cell_pos
-    git_prefix = "git "
-    text.append(git_prefix, style=f"bold {muted}")
-    cell_pos += cell_len(git_prefix)
-    text.append(branch_label, style=branch_style)
-    cell_pos += cell_len(branch_label)
-    branch_suffix = " ▾"
-    text.append(branch_suffix, style=f"bold {muted}")
-    cell_pos += cell_len(branch_suffix)
-    branch_end = cell_pos
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
-    usage_start = -1
-    usage_end = -1
-    if show_usage:
-        usage_start = cell_pos
-        usage_label = "usage "
-        text.append(usage_label, style=f"bold {muted}")
-        cell_pos += cell_len(usage_label)
-        usage_text = (
-            f"{usage_remaining_percent}%"
-            if usage_remaining_percent is not None
-            else "--"
-        )
-        text.append(usage_text, style=f"bold {fg}")
-        cell_pos += cell_len(usage_text)
-        text.append(" ")
-        cell_pos += 1
-        meter_width = 6
-        if usage_remaining_percent is None:
-            filled = 0
-        else:
-            remaining_percent = max(0, min(100, usage_remaining_percent))
-            filled = max(
-                0, min(meter_width, round((remaining_percent / 100) * meter_width))
-            )
-        empty = meter_width - filled
-        if usage_remaining_percent is None:
-            usage_meter_style = disabled
-        elif usage_remaining_percent >= 60:
-            usage_meter_style = success
-        elif usage_remaining_percent >= 30:
-            usage_meter_style = warning
-        else:
-            usage_meter_style = error
+    def _meter(
+        *,
+        percent: int | None,
+        width: int,
+        filled_style: str,
+        empty_style: str,
+        none_style: str,
+        thresholds: bool = False,
+    ) -> list[tuple[str, str]]:
+        if percent is None:
+            return [("━" * width, none_style)]
+        clamped = max(0, min(100, percent))
+        filled = max(0, min(width, round((clamped / 100) * width)))
+        empty = width - filled
+        style = filled_style
+        if thresholds:
+            if clamped >= 60:
+                style = success
+            elif clamped >= 30:
+                style = warning
+            else:
+                style = error
+        parts: list[tuple[str, str]] = []
         if filled:
-            text.append("━" * filled, style=f"bold {usage_meter_style}")
-            cell_pos += filled
+            parts.append(("━" * filled, f"bold {style}"))
         if empty:
-            text.append("━" * empty, style=disabled)
-            cell_pos += empty
-        usage_end = cell_pos
-        text.append(spacer)
-        cell_pos += cell_len(spacer)
-    context_start = cell_pos
-    context_label = "context "
-    text.append(context_label, style=f"bold {muted}")
-    cell_pos += cell_len(context_label)
-    context_text = (
-        f"{context_used_percent}%" if context_used_percent is not None else "--"
+            parts.append(("━" * empty, empty_style))
+        return parts
+
+    def _shorten(value: str, max_cells: int) -> str:
+        if max_cells <= 0:
+            return ""
+        if cell_len(value) <= max_cells:
+            return value
+        if max_cells == 1:
+            return "…"
+        result = ""
+        used = 0
+        for char in value:
+            width = cell_len(char)
+            if used + width > max_cells - 1:
+                break
+            result += char
+            used += width
+        return f"{result}…"
+
+    def _build(
+        *,
+        spacer: str,
+        include_usage: bool,
+        include_context: bool,
+        meter_width: int,
+        compact_labels: bool,
+        include_model: bool = True,
+        include_branch: bool = True,
+        model_cells: int | None = None,
+        branch_cells: int | None = None,
+    ) -> tuple[
+        Text,
+        tuple[int, int],
+        tuple[int, int],
+        tuple[int, int],
+        tuple[int, int],
+        tuple[int, int] | None,
+        tuple[int, int],
+        tuple[int, int],
+        tuple[int, int],
+    ]:
+        segments: list[tuple[str, list[tuple[str, str]], str | None]] = []
+        display_model = _shorten(model_name, model_cells) if model_cells else model_name
+        display_branch = (
+            _shorten(branch_label, branch_cells) if branch_cells else branch_label
+        )
+        segments.append(("attach", [("📎", f"bold {fg}")], "attach"))
+        if include_model:
+            segments.append(
+                (
+                    "model",
+                    [(display_model, f"bold {fg}"), (" ▾", f"bold {muted}")],
+                    "model",
+                )
+            )
+        segments.append(
+            (
+                "plan",
+                [
+                    ("plan", f"bold {fg}"),
+                    (" ", fg),
+                    (status_text, status_style),
+                ],
+                "plan",
+            )
+        )
+        if include_branch:
+            segments.append(
+                (
+                    "branch",
+                    [
+                        ("git " if not compact_labels else "g ", f"bold {muted}"),
+                        (display_branch, branch_style),
+                        (" ▾", f"bold {muted}"),
+                    ],
+                    "branch",
+                )
+            )
+        if include_usage and show_usage:
+            usage_text = (
+                f"{usage_remaining_percent}%"
+                if usage_remaining_percent is not None
+                else "--"
+            )
+            segments.append(
+                (
+                    "usage",
+                    [
+                        ("usage " if not compact_labels else "use ", f"bold {muted}"),
+                        (usage_text, f"bold {fg}"),
+                        (" ", fg),
+                        *_meter(
+                            percent=usage_remaining_percent,
+                            width=meter_width,
+                            filled_style=success,
+                            empty_style=disabled,
+                            none_style=disabled,
+                            thresholds=True,
+                        ),
+                    ],
+                    "usage",
+                )
+            )
+        if include_context:
+            context_text = (
+                f"{context_used_percent}%" if context_used_percent is not None else "--"
+            )
+            border = theme.get("border", "#7d8591")
+            segments.append(
+                (
+                    "context",
+                    [
+                        (
+                            "context " if not compact_labels else "ctx ",
+                            f"bold {muted}",
+                        ),
+                        (context_text, f"bold {fg}"),
+                        (" ", fg),
+                        *_meter(
+                            percent=context_used_percent,
+                            width=meter_width,
+                            filled_style=primary,
+                            empty_style=border,
+                            none_style=border,
+                        ),
+                    ],
+                    "context",
+                )
+            )
+
+        text = Text(style=fg)
+        cell_pos = 0
+        hitboxes: dict[str, tuple[int, int]] = {
+            "attach": (0, 0),
+            "model": (0, 0),
+            "branch": (0, 0),
+            "plan": (0, 0),
+            "context": (0, 0),
+            "activity": (0, 0),
+            "flow": (0, 0),
+        }
+        usage_hitbox: tuple[int, int] | None = None
+        for index, (name, parts, hitbox_name) in enumerate(segments):
+            if index:
+                text.append(spacer)
+                cell_pos += cell_len(spacer)
+            start = cell_pos
+            for value, style in parts:
+                text.append(value, style=style)
+                cell_pos += cell_len(value)
+            end = cell_pos
+            if hitbox_name == "usage":
+                usage_hitbox = (start, end)
+            elif hitbox_name:
+                hitboxes[hitbox_name] = (start, end)
+
+        return (
+            text,
+            hitboxes["attach"],
+            hitboxes["model"],
+            hitboxes["branch"],
+            hitboxes["plan"],
+            usage_hitbox if show_usage and include_usage else None,
+            hitboxes["context"],
+            hitboxes["activity"],
+            hitboxes["flow"],
+        )
+
+    width = available_width if available_width and available_width > 0 else None
+    candidates = [
+        dict(
+            spacer="     ",
+            include_usage=show_usage,
+            include_context=True,
+            meter_width=6,
+            compact_labels=False,
+        ),
+        dict(
+            spacer="  ",
+            include_usage=show_usage,
+            include_context=True,
+            meter_width=4,
+            compact_labels=True,
+        ),
+        dict(
+            spacer="  ",
+            include_usage=False,
+            include_context=True,
+            meter_width=4,
+            compact_labels=True,
+        ),
+        dict(
+            spacer="  ",
+            include_usage=False,
+            include_context=False,
+            meter_width=4,
+            compact_labels=True,
+        ),
+    ]
+    if width is None:
+        return _build(**candidates[0])
+
+    for candidate in candidates:
+        built = _build(**candidate)
+        if cell_len(built[0].plain) <= width:
+            return built
+
+    reserved_width = cell_len("📎  ") + cell_len("  plan off") + cell_len("  g  ▾")
+    flow_width = 0
+    available_for_names = max(4, width - reserved_width - flow_width)
+    model_cells = max(4, min(cell_len(model_name), available_for_names // 2))
+    branch_cells = max(2, available_for_names - model_cells)
+    compact = _build(
+        spacer="  ",
+        include_usage=False,
+        include_context=False,
+        meter_width=4,
+        compact_labels=True,
+        model_cells=model_cells,
+        branch_cells=branch_cells,
     )
-    text.append(context_text, style=f"bold {fg}")
-    cell_pos += cell_len(context_text)
-    text.append(" ")
-    cell_pos += 1
-    context_meter_width = 6
-    if context_used_percent is None:
-        context_filled = 0
-    else:
-        context_filled = max(
-            0,
-            min(
-                context_meter_width,
-                round((context_used_percent / 100) * context_meter_width),
-            ),
+    if cell_len(compact[0].plain) <= width:
+        return compact
+
+    for model_cells in range(cell_len(model_name), 0, -1):
+        compact = _build(
+            spacer="  ",
+            include_usage=False,
+            include_context=False,
+            meter_width=4,
+            compact_labels=True,
+            include_branch=False,
+            model_cells=model_cells,
         )
-    context_empty = context_meter_width - context_filled
-    # Use border color for empty bar for visibility in both themes
-    border = theme.get("border", "#7d8591")
-    if context_filled:
-        text.append("━" * context_filled, style=f"bold {primary}")
-        cell_pos += context_filled
-    if context_empty:
-        text.append("━" * context_empty, style=border)
-        cell_pos += context_empty
-    context_end = cell_pos
-    text.append(spacer)
-    cell_pos += cell_len(spacer)
-    activity_start = cell_pos
-    activity_label = "activity"
-    text.append(activity_label, style=f"bold {secondary}")
-    cell_pos += cell_len(activity_label)
-    activity_end = cell_pos
-    flow_start = flow_end = 0
-    if flow_enabled or flow_state in {"recording", "transcribing"}:
-        text.append(spacer)
-        cell_pos += cell_len(spacer)
-        flow_start = cell_pos
-        flow_label, flow_style = _flow_control_label(
-            flow_state=flow_state,
-            flow_frame=flow_frame,
-            fg=fg,
-            muted=muted,
-            primary=primary,
-            success=success,
-            warning=warning,
-            error=error,
-        )
-        text.append(flow_label, style=flow_style)
-        cell_pos += cell_len(flow_label)
-        flow_end = cell_pos
-    usage_hitbox = (usage_start, usage_end) if show_usage else None
-    return (
-        text,
-        (attach_start, attach_end),
-        (model_start, model_end),
-        (branch_start, branch_end),
-        (plan_start, plan_end),
-        usage_hitbox,
-        (context_start, context_end),
-        (activity_start, activity_end),
-        (flow_start, flow_end),
+        if cell_len(compact[0].plain) <= width:
+            return compact
+    compact = _build(
+        spacer="  ",
+        include_usage=False,
+        include_context=False,
+        meter_width=4,
+        compact_labels=True,
+        include_model=False,
+        include_branch=False,
+    )
+    if cell_len(compact[0].plain) <= width:
+        return compact
+    return _build(
+        spacer="  ",
+        include_usage=False,
+        include_context=False,
+        meter_width=4,
+        compact_labels=True,
+        include_model=False,
+        include_branch=False,
     )
 
 
@@ -230,6 +359,35 @@ def send_control_text(
         "■  ▱▰▱",
     )
     return Text(frames[send_frame % len(frames)], style=f"bold {error}")
+
+
+def flow_control_text(
+    *,
+    flow_enabled: bool = False,
+    flow_state: Literal["idle", "recording", "transcribing", "missing_key"] = "idle",
+    flow_frame: int = 0,
+    styles: dict[str, str] | None = None,
+) -> Text:
+    if not (flow_enabled or flow_state in {"recording", "transcribing"}):
+        return Text("")
+    theme = styles or {}
+    fg = theme.get("fg", "#d1d5db")
+    muted = theme.get("muted", fg)
+    success = theme.get("success", "#5dcf84")
+    error = theme.get("error", "#e35d6a")
+    warning = theme.get("warning", "#d18a35")
+    primary = theme.get("primary", success)
+    label, style = _flow_control_label(
+        flow_state=flow_state,
+        flow_frame=flow_frame,
+        fg=fg,
+        muted=muted,
+        primary=primary,
+        success=success,
+        warning=warning,
+        error=error,
+    )
+    return Text(label, style=style)
 
 
 def _flow_control_label(

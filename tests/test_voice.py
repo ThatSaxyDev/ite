@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from rich.cells import cell_len
 from textual.app import App, ComposeResult
 from textual.widgets import Input, TextArea
 
 from ite.config.config import Config
 from ite.ui.reup.app import ReupApp
 from ite.ui.reup.app import insert_voice_text_into_widget, redact_sensitive_command_text
+from ite.ui.reup.composer_views import composer_meta_text, flow_control_text
 from ite.voice.transcription import _is_hallucination
 
 
@@ -77,38 +80,51 @@ class VoiceComposerMetaTests(unittest.TestCase):
     def test_flow_control_is_hidden_until_flow_is_enabled(self) -> None:
         app = ReupApp(Config(api_key="key", base_url="http://example.test"))
 
-        rendered = app._composer_meta_text()
+        rendered = flow_control_text(
+            flow_enabled=bool(app.config.voice.enabled),
+            flow_state=app._flow_meta_state(),
+        )
 
-        self.assertNotIn("flow", rendered.plain)
-        self.assertEqual(app._composer_flow_hitbox, (0, 0))
+        self.assertEqual(rendered.plain, "")
 
-    def test_flow_control_renders_after_activity_when_enabled(self) -> None:
+    def test_flow_control_renders_as_dedicated_prompt_row_control(self) -> None:
         app = ReupApp(Config(api_key="key", base_url="http://example.test"))
         app.config.voice.enabled = True
         app.config.voice.groq_api_key = "gsk-test"
 
-        rendered = app._composer_meta_text()
+        meta = app._composer_meta_text()
+        rendered = flow_control_text(
+            flow_enabled=bool(app.config.voice.enabled),
+            flow_state=app._flow_meta_state(),
+        )
 
-        self.assertIn("activity", rendered.plain)
+        self.assertNotIn("activity", meta.plain)
+        self.assertNotIn("flow", meta.plain)
         self.assertIn("flow", rendered.plain)
-        self.assertGreater(rendered.plain.index("flow"), rendered.plain.index("activity"))
-        self.assertGreater(app._composer_flow_hitbox[1], app._composer_flow_hitbox[0])
+
+    def test_composer_meta_width_no_longer_needs_to_fit_flow_control(self) -> None:
+        rendered, *_hitboxes, flow_hitbox = composer_meta_text(
+            cwd=Path("."),
+            model_name="minimax-m2.5",
+            plan_enabled=False,
+            branch_label="main",
+            usage_remaining_percent=None,
+            context_used_percent=5,
+            show_usage=True,
+            available_width=30,
+        )
+
+        self.assertLessEqual(cell_len(rendered.plain), 30)
+        self.assertNotIn("flow", rendered.plain)
+        self.assertEqual(flow_hitbox, (0, 0))
 
     def test_flow_control_click_uses_voice_toggle_action(self) -> None:
         app = ReupApp(Config(api_key="key", base_url="http://example.test"))
-        app._composer_attach_hitbox = (0, 0)
-        app._composer_model_hitbox = (0, 0)
-        app._composer_branch_hitbox = (0, 0)
-        app._composer_usage_hitbox = None
-        app._composer_context_hitbox = (0, 0)
-        app._composer_activity_hitbox = (0, 0)
-        app._composer_plan_hitbox = (0, 0)
-        app._composer_flow_hitbox = (10, 20)
-        event = SimpleNamespace(x=12, stopped=False)
+        event = SimpleNamespace(stopped=False)
         event.stop = lambda: setattr(event, "stopped", True)
 
         with patch.object(app, "action_toggle_voice_input") as toggle:
-            app.on_composer_meta_line_click(event)
+            app.on_composer_flow_control_click(event)
 
         toggle.assert_called_once_with()
         self.assertTrue(event.stopped)
@@ -127,15 +143,15 @@ class VoiceComposerMetaTests(unittest.TestCase):
         activate.assert_called_once_with()
         self.assertTrue(event.stopped)
 
-    def test_recording_tick_advances_flow_frame_and_refreshes_meta(self) -> None:
+    def test_recording_tick_advances_flow_frame_and_refreshes_flow_control(self) -> None:
         app = ReupApp(Config(api_key="key", base_url="http://example.test"))
         app._voice_recorder = object()  # type: ignore[assignment]
 
-        with patch.object(app, "_update_composer_meta_line") as update_meta:
+        with patch.object(app, "_update_composer_flow_control") as update_flow:
             app._tick_top_indicator()
 
         self.assertEqual(app._flow_meta_frame, 1)
-        update_meta.assert_called_once_with()
+        update_flow.assert_called_once_with()
 
     def test_running_turn_tick_advances_send_frame_and_refreshes_meta(self) -> None:
         app = ReupApp(Config(api_key="key", base_url="http://example.test"))

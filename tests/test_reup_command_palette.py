@@ -729,6 +729,34 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertIn("context 62%", rendered.plain)
 
+    def test_theme_change_rerenders_composer_meta_line(self) -> None:
+        app = self._app()
+
+        with patch.object(app, "refresh_header"), patch.object(
+            app, "_refresh_empty_state"
+        ), patch.object(app, "_update_composer_meta_line") as update_meta, patch.object(
+            app, "call_after_refresh"
+        ):
+            app.watch_theme("textual-dark", "textual-light")
+
+        update_meta.assert_called_once()
+
+    def test_composer_meta_refresh_updates_primary_prompt_controls(self) -> None:
+        app = self._app()
+        meta_line = SimpleNamespace(update=lambda _value: None)
+
+        with patch.object(app, "query_one", return_value=meta_line), patch.object(
+            app, "_composer_meta_text", return_value="meta"
+        ), patch.object(
+            app, "_update_composer_flow_control"
+        ) as update_flow, patch.object(
+            app, "_update_composer_send_control"
+        ) as update_send:
+            app._update_composer_meta_line()
+
+        update_flow.assert_called_once_with()
+        update_send.assert_called_once_with()
+
     def test_composer_meta_click_opens_context_modal(self) -> None:
         app = self._app()
         app._composer_attach_hitbox = (0, 0)
