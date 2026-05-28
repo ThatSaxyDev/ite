@@ -5,10 +5,12 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import PropertyMock
 from unittest.mock import patch
 
 from ite.config.config import Config
 from ite.git.working_tree import GitActionResult
+from ite.ui.reup.app import ChangeReviewSidePanel
 from ite.ui.reup.app import ReupApp
 
 
@@ -59,6 +61,52 @@ class ChangeReviewCommitTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertEqual(events, ["hide", "commit"])
                 self.assertEqual(push_values, [action == "commit_push"])
+
+
+class ChangeReviewResponsiveLayoutTests(unittest.TestCase):
+    def test_panel_switches_to_narrow_mode_and_shortens_labels(self) -> None:
+        def stateful_label() -> SimpleNamespace:
+            widget = SimpleNamespace(value=None)
+            widget.update = lambda value: setattr(widget, "value", value)
+            return widget
+
+        panel = ChangeReviewSidePanel(id="change-review-panel")
+        widgets = {
+            "#change-review-close": SimpleNamespace(label="Close"),
+            "#change-review-stage-all": stateful_label(),
+            "#change-review-discard-all": stateful_label(),
+            "#change-review-commit": stateful_label(),
+            "#change-review-stage-file": stateful_label(),
+            "#change-review-unstage-file": stateful_label(),
+            "#change-review-discard-file": stateful_label(),
+        }
+
+        with patch.object(
+            ChangeReviewSidePanel,
+            "size",
+            new_callable=PropertyMock,
+            return_value=SimpleNamespace(width=42),
+        ), patch.object(
+            panel, "query_one", side_effect=lambda selector, *_args: widgets[selector]
+        ):
+            panel._refresh_layout_mode()
+
+        self.assertTrue(panel.has_class("narrow"))
+        self.assertFalse(panel.has_class("compact"))
+        self.assertEqual(widgets["#change-review-close"].label, "X")
+        self.assertEqual(widgets["#change-review-discard-all"].value, "Discard")
+        self.assertEqual(widgets["#change-review-discard-file"].value, "Discard")
+
+    def test_bulk_action_label_tracks_panel_width_mode(self) -> None:
+        panel = ChangeReviewSidePanel(id="change-review-panel")
+        panel.add_class("wide")
+        self.assertEqual(panel.bulk_action_label("stage"), "Stage All")
+        self.assertEqual(panel.bulk_action_label("unstage"), "Unstage All")
+
+        panel.remove_class("wide")
+        panel.add_class("compact")
+        self.assertEqual(panel.bulk_action_label("stage"), "Stage")
+        self.assertEqual(panel.bulk_action_label("unstage"), "Unstage")
 
 
 if __name__ == "__main__":

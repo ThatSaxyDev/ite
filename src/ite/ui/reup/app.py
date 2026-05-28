@@ -1162,6 +1162,8 @@ class ThreadSwitcherSidePanel(Widget):
 
 class ChangeReviewSidePanel(Widget):
     ALLOW_MAXIMIZE = False
+    COMPACT_WIDTH = 72
+    NARROW_WIDTH = 56
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="change-review-header"):
@@ -1202,6 +1204,94 @@ class ChangeReviewSidePanel(Widget):
                         classes="change-review-action",
                     )
                 yield ScrollableContainer(id="change-review-preview")
+
+    def on_mount(self) -> None:
+        self._refresh_layout_mode()
+
+    def on_resize(self, _event: events.Resize) -> None:
+        self._refresh_layout_mode()
+
+    def _refresh_layout_mode(self) -> None:
+        width = int(getattr(self.size, "width", 0) or 0)
+        mode = (
+            "narrow"
+            if width and width < self.NARROW_WIDTH
+            else "compact"
+            if width and width < self.COMPACT_WIDTH
+            else "wide"
+        )
+        self.set_class(mode == "compact", "compact")
+        self.set_class(mode == "narrow", "narrow")
+        self.set_class(mode == "wide", "wide")
+        labels = {
+            "wide": (
+                "Close",
+                "Stage All",
+                "Discard All",
+                "Commit",
+                "Stage",
+                "Unstage",
+                "Discard",
+            ),
+            "compact": (
+                "X",
+                "Stage",
+                "Discard",
+                "Commit",
+                "Stage",
+                "Unstage",
+                "Discard",
+            ),
+            "narrow": (
+                "X",
+                "Stage",
+                "Discard",
+                "Commit",
+                "Stage",
+                "Unstage",
+                "Discard",
+            ),
+        }[mode]
+        (
+            close_label,
+            stage_all_label,
+            discard_all_label,
+            commit_label,
+            stage_file_label,
+            unstage_file_label,
+            discard_file_label,
+        ) = labels
+        try:
+            self.query_one("#change-review-close", Button).label = close_label
+            self.query_one("#change-review-stage-all", Static).update(stage_all_label)
+            self.query_one("#change-review-discard-all", Static).update(
+                discard_all_label
+            )
+            self.query_one("#change-review-commit", Static).update(commit_label)
+            self.query_one("#change-review-stage-file", Static).update(
+                stage_file_label
+            )
+            self.query_one("#change-review-unstage-file", Static).update(
+                unstage_file_label
+            )
+            self.query_one("#change-review-discard-file", Static).update(
+                discard_file_label
+            )
+        except Exception:
+            return
+        try:
+            update_action_state = getattr(
+                self.app, "_update_change_review_action_state", None
+            )
+        except Exception:
+            update_action_state = None
+        if callable(update_action_state):
+            update_action_state()
+
+    def bulk_action_label(self, action: str) -> str:
+        if action == "unstage":
+            return "Unstage All" if self.has_class("wide") else "Unstage"
+        return "Stage All" if self.has_class("wide") else "Stage"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id != "change-review-close":
@@ -5801,16 +5891,16 @@ class ReupApp(App):
             )
         )
         if has_any_unstaged:
-            stage_all_button.update("Stage All")
             self._change_review_bulk_action = "stage"
+            stage_all_button.update(panel.bulk_action_label("stage"))
             stage_all_button.disabled = False
         elif has_any_staged:
-            stage_all_button.update("Unstage All")
             self._change_review_bulk_action = "unstage"
+            stage_all_button.update(panel.bulk_action_label("unstage"))
             stage_all_button.disabled = False
         else:
-            stage_all_button.update("Stage All")
             self._change_review_bulk_action = "stage"
+            stage_all_button.update(panel.bulk_action_label("stage"))
             stage_all_button.disabled = True
         discard_all_button.disabled = not bool(
             self._change_review_source == "git" and has_content
