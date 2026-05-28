@@ -1162,28 +1162,30 @@ class ThreadSwitcherSidePanel(Widget):
 
 class ChangeReviewSidePanel(Widget):
     ALLOW_MAXIMIZE = False
-    COMPACT_WIDTH = 72
-    NARROW_WIDTH = 56
+    COMPACT_WIDTH = 64
+    NARROW_WIDTH = 48
+    _layout_mode: str | None = None
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="change-review-header"):
+        with Vertical(id="change-review-header"):
             yield Static("Changes", id="change-review-title")
-            yield Static(
-                "Stage All",
-                id="change-review-stage-all",
-                classes="change-review-action",
-            )
-            yield Static(
-                "Discard All",
-                id="change-review-discard-all",
-                classes="change-review-action",
-            )
-            yield Static(
-                "Commit",
-                id="change-review-commit",
-                classes="change-review-action",
-            )
-            yield Button("Close", id="change-review-close", variant="default")
+            with Horizontal(id="change-review-header-actions"):
+                yield Static(
+                    "Stage All",
+                    id="change-review-stage-all",
+                    classes="change-review-action",
+                )
+                yield Static(
+                    "Discard All",
+                    id="change-review-discard-all",
+                    classes="change-review-action",
+                )
+                yield Static(
+                    "Commit",
+                    id="change-review-commit",
+                    classes="change-review-action",
+                )
+                yield Button("Close", id="change-review-close", variant="default")
         with Horizontal(id="change-review-body"):
             yield ChangedFilesTree(id="change-review-tree")
             with Vertical(id="change-review-preview-column"):
@@ -1220,6 +1222,9 @@ class ChangeReviewSidePanel(Widget):
             if width and width < self.COMPACT_WIDTH
             else "wide"
         )
+        if mode == self._layout_mode:
+            return
+        self._layout_mode = mode
         self.set_class(mode == "compact", "compact")
         self.set_class(mode == "narrow", "narrow")
         self.set_class(mode == "wide", "wide")
@@ -1234,7 +1239,7 @@ class ChangeReviewSidePanel(Widget):
                 "Discard",
             ),
             "compact": (
-                "X",
+                "Close",
                 "Stage",
                 "Discard",
                 "Commit",
@@ -1243,7 +1248,7 @@ class ChangeReviewSidePanel(Widget):
                 "Discard",
             ),
             "narrow": (
-                "X",
+                "Close",
                 "Stage",
                 "Discard",
                 "Commit",
@@ -1279,14 +1284,6 @@ class ChangeReviewSidePanel(Widget):
             )
         except Exception:
             return
-        try:
-            update_action_state = getattr(
-                self.app, "_update_change_review_action_state", None
-            )
-        except Exception:
-            update_action_state = None
-        if callable(update_action_state):
-            update_action_state()
 
     def bulk_action_label(self, action: str) -> str:
         if action == "unstage":

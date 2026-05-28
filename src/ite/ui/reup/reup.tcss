@@ -265,7 +265,13 @@ Widget {
 
 #change-review-header {
     height: auto;
-    margin-bottom: 1;
+    margin-bottom: 2;
+    layout: vertical;
+}
+
+#change-review-header-actions {
+    height: 3;
+    margin-top: 1;
     align-vertical: middle;
 }
 
@@ -390,11 +396,16 @@ Widget {
 }
 
 #change-review-panel.compact #change-review-header {
-    margin-bottom: 0;
+    margin-bottom: 2;
 }
 
 #change-review-panel.compact #change-review-title {
-    display: none;
+    width: 1fr;
+    display: block;
+}
+
+#change-review-panel.compact #change-review-header-actions {
+    margin-top: 1;
 }
 
 #change-review-panel.compact .change-review-action {
@@ -404,9 +415,9 @@ Widget {
 }
 
 #change-review-panel.compact #change-review-close {
-    min-width: 3;
-    width: 3;
-    padding: 0;
+    min-width: 7;
+    width: auto;
+    padding: 0 1;
 }
 
 #change-review-panel.compact #change-review-tree {
@@ -427,11 +438,16 @@ Widget {
 }
 
 #change-review-panel.narrow #change-review-header {
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 #change-review-panel.narrow #change-review-title {
-    display: none;
+    width: 1fr;
+    display: block;
+}
+
+#change-review-panel.narrow #change-review-header-actions {
+    margin-top: 1;
 }
 
 #change-review-panel.narrow .change-review-action {
@@ -441,22 +457,23 @@ Widget {
 }
 
 #change-review-panel.narrow #change-review-close {
-    min-width: 3;
-    width: 3;
-    padding: 0;
+    min-width: 7;
+    width: auto;
+    padding: 0 1;
 }
 
 #change-review-panel.narrow #change-review-body {
     layout: vertical;
+    margin-top: 1;
 }
 
 #change-review-panel.narrow #change-review-tree {
     width: 1fr;
     min-width: 0;
-    height: 12;
-    min-height: 6;
+    height: 10;
+    min-height: 5;
     padding-bottom: 0;
-    margin-bottom: 1;
+    margin-bottom: 2;
 }
 
 #change-review-panel.narrow #change-review-preview-column {
@@ -467,7 +484,7 @@ Widget {
 
 #change-review-panel.narrow #change-review-preview-actions {
     height: 3;
-    margin-bottom: 0;
+    margin-bottom: 1;
 }
 
 #change-review-panel.narrow #change-review-preview-actions .change-review-action {

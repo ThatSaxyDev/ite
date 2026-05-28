@@ -93,7 +93,7 @@ class ChangeReviewResponsiveLayoutTests(unittest.TestCase):
 
         self.assertTrue(panel.has_class("narrow"))
         self.assertFalse(panel.has_class("compact"))
-        self.assertEqual(widgets["#change-review-close"].label, "X")
+        self.assertEqual(widgets["#change-review-close"].label, "Close")
         self.assertEqual(widgets["#change-review-discard-all"].value, "Discard")
         self.assertEqual(widgets["#change-review-discard-file"].value, "Discard")
 
@@ -107,6 +107,55 @@ class ChangeReviewResponsiveLayoutTests(unittest.TestCase):
         panel.add_class("compact")
         self.assertEqual(panel.bulk_action_label("stage"), "Stage")
         self.assertEqual(panel.bulk_action_label("unstage"), "Unstage")
+
+    def test_commit_click_routes_to_commit_worker(self) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+        event = SimpleNamespace(stopped=False)
+        event.stop = lambda: setattr(event, "stopped", True)
+
+        with patch.object(app, "run_worker") as run_worker, patch.object(
+            app, "_run_change_review_commit", return_value=None
+        ) as commit:
+            app.on_change_review_commit(event)
+
+        commit.assert_called_once_with()
+        run_worker.assert_called_once()
+        self.assertTrue(event.stopped)
+
+    def test_repeated_layout_refresh_does_not_rewrite_widgets(self) -> None:
+        def stateful_label() -> SimpleNamespace:
+            widget = SimpleNamespace(value=None, updates=0)
+
+            def update(value: str) -> None:
+                widget.value = value
+                widget.updates += 1
+
+            widget.update = update
+            return widget
+
+        panel = ChangeReviewSidePanel(id="change-review-panel")
+        widgets = {
+            "#change-review-close": SimpleNamespace(label="Close"),
+            "#change-review-stage-all": stateful_label(),
+            "#change-review-discard-all": stateful_label(),
+            "#change-review-commit": stateful_label(),
+            "#change-review-stage-file": stateful_label(),
+            "#change-review-unstage-file": stateful_label(),
+            "#change-review-discard-file": stateful_label(),
+        }
+
+        with patch.object(
+            ChangeReviewSidePanel,
+            "size",
+            new_callable=PropertyMock,
+            return_value=SimpleNamespace(width=42),
+        ), patch.object(
+            panel, "query_one", side_effect=lambda selector, *_args: widgets[selector]
+        ):
+            panel._refresh_layout_mode()
+            panel._refresh_layout_mode()
+
+        self.assertEqual(widgets["#change-review-stage-all"].updates, 1)
 
 
 if __name__ == "__main__":
