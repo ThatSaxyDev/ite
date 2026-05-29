@@ -171,15 +171,6 @@ def composer_meta_text(
                     [
                         ("usage " if not compact_labels else "use ", f"bold {muted}"),
                         (usage_text, f"bold {fg}"),
-                        (" ", fg),
-                        *_meter(
-                            percent=usage_remaining_percent,
-                            width=meter_width,
-                            filled_style=success,
-                            empty_style=disabled,
-                            none_style=disabled,
-                            thresholds=True,
-                        ),
                     ],
                     "usage",
                 )
@@ -188,7 +179,6 @@ def composer_meta_text(
             context_text = (
                 f"{context_used_percent}%" if context_used_percent is not None else "--"
             )
-            border = theme.get("border", "#7d8591")
             segments.append(
                 (
                     "context",
@@ -198,14 +188,6 @@ def composer_meta_text(
                             f"bold {muted}",
                         ),
                         (context_text, f"bold {fg}"),
-                        (" ", fg),
-                        *_meter(
-                            percent=context_used_percent,
-                            width=meter_width,
-                            filled_style=primary,
-                            empty_style=border,
-                            none_style=border,
-                        ),
                     ],
                     "context",
                 )
