@@ -16,6 +16,7 @@ from ite.cloud.auth import BundledModelsResult, CloudAuthStatus, CloudSessionSta
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp, pluralize_tool_title
+from ite.ui.reup.composer_views import composer_meta_text
 from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
@@ -728,6 +729,23 @@ class ReupCommandPaletteTests(unittest.TestCase):
         rendered = app._composer_meta_text()
 
         self.assertIn("context 62%", rendered.plain)
+
+    def test_composer_meta_text_keeps_git_and_context_labels_when_compact(self) -> None:
+        rendered, *_ = composer_meta_text(
+            cwd=self.cwd,
+            model_name="minimax-m2.5",
+            plan_enabled=False,
+            branch_label="main",
+            usage_remaining_percent=90,
+            context_used_percent=42,
+            show_usage=True,
+            available_width=70,
+        )
+
+        self.assertIn("git main", rendered.plain)
+        self.assertIn("context 42%", rendered.plain)
+        self.assertNotIn(" g main", rendered.plain)
+        self.assertNotIn("ctx 42%", rendered.plain)
 
     def test_theme_change_rerenders_composer_meta_line(self) -> None:
         app = self._app()

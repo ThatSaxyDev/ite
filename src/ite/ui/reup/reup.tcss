@@ -270,7 +270,8 @@ Widget {
 }
 
 #change-review-header-actions {
-    height: 3;
+    height: 1;
+    min-height: 1;
     margin-top: 1;
     align-vertical: middle;
 }
@@ -285,12 +286,12 @@ Widget {
 }
 
 #change-review-close {
-    width: auto;
-    min-width: 3;
-    height: 3;
-    min-height: 3;
+    width: 12;
+    min-width: 12;
+    height: 1;
+    min-height: 1;
     padding: 0 1;
-    background: $panel;
+    background: transparent;
     color: $foreground;
     border: none;
 }
@@ -298,8 +299,8 @@ Widget {
 .change-review-action {
     width: auto;
     min-width: 5;
-    height: 3;
-    min-height: 3;
+    height: 1;
+    min-height: 1;
     margin-right: 1;
     padding: 0 1;
     content-align: center middle;
@@ -313,7 +314,19 @@ Widget {
     background: $success-muted;
 }
 
+#change-review-stage-all {
+    width: 11;
+    min-width: 11;
+}
+
+#change-review-stage-file {
+    width: 7;
+    min-width: 7;
+}
+
 #change-review-unstage-file {
+    width: 9;
+    min-width: 9;
     color: $foreground;
     background: $panel;
 }
@@ -322,6 +335,23 @@ Widget {
 #change-review-discard-file {
     color: $foreground;
     background: $warning-muted;
+}
+
+#change-review-discard-all {
+    width: 13;
+    min-width: 13;
+}
+
+#change-review-discard-file {
+    width: 9;
+    min-width: 9;
+}
+
+#change-review-commit {
+    width: 8;
+    min-width: 8;
+    color: $foreground;
+    background: $panel;
 }
 
 .change-review-action.-disabled {
@@ -363,7 +393,7 @@ Widget {
 
 #change-review-preview-actions {
     height: auto;
-    min-height: 3;
+    min-height: 1;
     margin-bottom: 1;
     align-vertical: middle;
 }
@@ -414,9 +444,19 @@ Widget {
     margin-right: 1;
 }
 
-#change-review-panel.compact #change-review-close {
+#change-review-panel.compact #change-review-stage-all {
+    width: 7;
     min-width: 7;
-    width: auto;
+}
+
+#change-review-panel.compact #change-review-discard-all {
+    width: 9;
+    min-width: 9;
+}
+
+#change-review-panel.compact #change-review-close {
+    width: 12;
+    min-width: 12;
     padding: 0 1;
 }
 
@@ -456,9 +496,19 @@ Widget {
     margin-right: 1;
 }
 
-#change-review-panel.narrow #change-review-close {
+#change-review-panel.narrow #change-review-stage-all {
+    width: 7;
     min-width: 7;
-    width: auto;
+}
+
+#change-review-panel.narrow #change-review-discard-all {
+    width: 9;
+    min-width: 9;
+}
+
+#change-review-panel.narrow #change-review-close {
+    width: 12;
+    min-width: 12;
     padding: 0 1;
 }
 
@@ -483,7 +533,8 @@ Widget {
 }
 
 #change-review-panel.narrow #change-review-preview-actions {
-    height: 3;
+    height: 1;
+    min-height: 1;
     margin-bottom: 1;
 }
 

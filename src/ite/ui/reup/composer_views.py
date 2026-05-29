@@ -152,7 +152,7 @@ def composer_meta_text(
                 (
                     "branch",
                     [
-                        ("git " if not compact_labels else "g ", f"bold {muted}"),
+                        ("git ", f"bold {muted}"),
                         (display_branch, branch_style),
                         (" ▾", f"bold {muted}"),
                     ],
@@ -183,10 +183,7 @@ def composer_meta_text(
                 (
                     "context",
                     [
-                        (
-                            "context " if not compact_labels else "ctx ",
-                            f"bold {muted}",
-                        ),
+                        ("context ", f"bold {muted}"),
                         (context_text, f"bold {fg}"),
                     ],
                     "context",
@@ -270,7 +267,7 @@ def composer_meta_text(
         if cell_len(built[0].plain) <= width:
             return built
 
-    reserved_width = cell_len("📎  ") + cell_len("  plan off") + cell_len("  g  ▾")
+    reserved_width = cell_len("📎  ") + cell_len("  plan off") + cell_len("  git  ▾")
     flow_width = 0
     available_for_names = max(4, width - reserved_width - flow_width)
     model_cells = max(4, min(cell_len(model_name), available_for_names // 2))
