@@ -262,6 +262,7 @@ class Config(BaseModel):
     cloud_client_id: str = DEFAULT_CLOUD_CLIENT_ID
     cloud_device_name: str = Field(default_factory=default_cloud_device_name)
     onboarding_completed: bool = False
+    resume_last_session: bool = False
 
     @model_validator(mode="after")
     def resolve_credentials(self) -> "Config":

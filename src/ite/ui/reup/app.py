@@ -1752,7 +1752,9 @@ class ReupApp(App):
                 return
 
             self._set_startup_phase("Starting runtime")
-            await self.ensure_agent()
+            resumed = await self._resume_last_workspace_session_on_startup()
+            if not resumed:
+                await self.ensure_agent()
             self._set_startup_state(False)
             self._schedule_usage_meta_refresh()
             await self._refresh_change_review_source()
@@ -1767,6 +1769,41 @@ class ReupApp(App):
 
     def _should_show_onboarding(self) -> bool:
         return not bool(self.config.onboarding_completed)
+
+    def _latest_workspace_session_snapshot(self) -> SessionSnapshot | None:
+        if not bool(getattr(self.config, "resume_last_session", False)):
+            return None
+
+        manager = SessionManager()
+        sessions = manager.list_sessions(
+            workspace_path=self.config.cwd,
+            include_legacy_unscoped=False,
+        )
+        for session in sessions:
+            if int(session.get("turn_count", 0) or 0) <= 0:
+                continue
+            session_id = str(session.get("session_id", "") or "").strip()
+            if not session_id:
+                continue
+            try:
+                snapshot = manager.load_session(session_id)
+            except Exception:
+                continue
+            if snapshot is not None and snapshot.turn_count > 0:
+                return snapshot
+        return None
+
+    async def _resume_last_workspace_session_on_startup(self) -> bool:
+        snapshot = self._latest_workspace_session_snapshot()
+        if snapshot is None:
+            return False
+
+        try:
+            self._set_startup_phase("Restoring last thread")
+            await self._resume_snapshot(snapshot)
+            return True
+        except Exception:
+            return False
 
     # REMOVED: _verify_cloud_auth_after_startup()
     # Background timer-based auth checks removed.

@@ -14,6 +14,7 @@ from ite.cloud.auth import CloudEntitlementsResult
 from ite.cloud.auth import CloudSessionState
 from ite.cloud.auth import has_valid_cloud_auth
 from ite.client.response import TokenUsage
+from ite.agent.session_manager import SessionSnapshot
 from ite.config.config import Config
 from ite.update_check import RuntimeUpdateNotice
 from textual.widgets import Select
@@ -410,6 +411,126 @@ class ReupStartupTests(unittest.TestCase):
             open_setup_modal.assert_not_called()
             ensure_agent.assert_awaited_once()
             conversation.remove_children.assert_awaited_once()
+
+        asyncio.run(run_test())
+
+    def test_latest_workspace_session_snapshot_picks_newest_non_empty_session(self) -> None:
+        app = self._app()
+        app.config.resume_last_session = True
+        snapshot = SessionSnapshot(
+            session_id="latest",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            turn_count=3,
+            messages=[{"role": "user", "content": "continue"}],
+            total_usage=TokenUsage(),
+            workspace_path=str(self.cwd.resolve()),
+        )
+        fake_manager = SimpleNamespace(
+            list_sessions=unittest.mock.Mock(
+                return_value=[
+                    {
+                        "session_id": "empty",
+                        "turn_count": 0,
+                        "updated_at": "2026-05-29T08:00:00",
+                    },
+                    {
+                        "session_id": "latest",
+                        "turn_count": 3,
+                        "updated_at": "2026-05-29T09:00:00",
+                    },
+                ]
+            ),
+            load_session=unittest.mock.Mock(return_value=snapshot),
+        )
+
+        with patch("ite.ui.reup.app.SessionManager", return_value=fake_manager):
+            selected = app._latest_workspace_session_snapshot()
+
+        self.assertIs(selected, snapshot)
+        fake_manager.list_sessions.assert_called_once_with(
+            workspace_path=app.config.cwd,
+            include_legacy_unscoped=False,
+        )
+        fake_manager.load_session.assert_called_once_with("latest")
+
+    def test_latest_workspace_session_snapshot_falls_back_when_disabled_or_missing(self) -> None:
+        app = self._app()
+
+        with patch("ite.ui.reup.app.SessionManager") as session_manager:
+            self.assertIsNone(app._latest_workspace_session_snapshot())
+
+        session_manager.assert_not_called()
+
+        app.config.resume_last_session = True
+        fake_manager = SimpleNamespace(
+            list_sessions=unittest.mock.Mock(return_value=[]),
+            load_session=unittest.mock.Mock(),
+        )
+        with patch("ite.ui.reup.app.SessionManager", return_value=fake_manager):
+            self.assertIsNone(app._latest_workspace_session_snapshot())
+
+        fake_manager.load_session.assert_not_called()
+
+    def test_bootstrap_resumes_last_workspace_session_when_enabled(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            app.config.resume_last_session = True
+            prompt = SimpleNamespace(focus=lambda: None)
+
+            with (
+                patch.object(
+                    app,
+                    "_resume_last_workspace_session_on_startup",
+                    AsyncMock(return_value=True),
+                ) as resume_last,
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch.object(app, "_set_startup_phase"),
+                patch.object(app, "_set_startup_state"),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_sync_command_palette"),
+                patch.object(app, "_schedule_runtime_update_check"),
+                patch.object(app, "query_one", return_value=prompt),
+            ):
+                await app._bootstrap_after_mount()
+
+            resume_last.assert_awaited_once()
+            ensure_agent.assert_not_awaited()
+
+        asyncio.run(run_test())
+
+    def test_bootstrap_uses_empty_chat_when_no_resume_session_exists(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+            app.config.resume_last_session = True
+            prompt = SimpleNamespace(focus=lambda: None)
+
+            with (
+                patch.object(
+                    app,
+                    "_resume_last_workspace_session_on_startup",
+                    AsyncMock(return_value=False),
+                ) as resume_last,
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch.object(app, "_set_startup_phase"),
+                patch.object(app, "_set_startup_state"),
+                patch.object(app, "_schedule_usage_meta_refresh"),
+                patch.object(app, "_refresh_change_review_source", AsyncMock()),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_sync_command_palette"),
+                patch.object(app, "_schedule_runtime_update_check"),
+                patch.object(app, "query_one", return_value=prompt),
+            ):
+                await app._bootstrap_after_mount()
+
+            resume_last.assert_awaited_once()
+            ensure_agent.assert_awaited_once()
 
         asyncio.run(run_test())
 

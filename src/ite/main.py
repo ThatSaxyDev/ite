@@ -1282,6 +1282,7 @@ def _run_main_app(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
+    resume_last: bool,
 ) -> None:
     config = _load_runtime_config(
         workspace_dir=workspace_dir,
@@ -1289,6 +1290,8 @@ def _run_main_app(
         api_key=api_key,
         base_url=base_url,
     )
+    if resume_last:
+        config.resume_last_session = True
 
     errors = config.validate()
     if errors:
@@ -1315,6 +1318,11 @@ def _run_main_app(
 @click.option("--model", "-m", help="Model name to use")
 @click.option("--api-key", "-k", help="API key for the LLM provider")
 @click.option("--base-url", "-u", help="Base URL for the OpenAI-compatible API")
+@click.option(
+    "--resume-last",
+    is_flag=True,
+    help="Resume the most recent saved session for this workspace on startup.",
+)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -1322,6 +1330,7 @@ def main(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
+    resume_last: bool,
 ):
     workspace_dir = cwd or Path.cwd()
     ctx.ensure_object(dict)
@@ -1335,6 +1344,7 @@ def main(
             model=model,
             api_key=api_key,
             base_url=base_url,
+            resume_last=resume_last,
         )
 
 

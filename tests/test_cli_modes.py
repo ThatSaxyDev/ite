@@ -67,6 +67,19 @@ class CLIModeRoutingTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0, msg=result.output)
         mock_run_reup.assert_called_once()
 
+    def test_resume_last_flag_enables_workspace_resume(self) -> None:
+        config = self._config()
+        with (
+            patch("ite.main.ensure_workspace_layout", return_value=None),
+            patch("ite.main.load_config", return_value=config),
+            patch("ite.ui.reup.run_reup", return_value=None) as mock_run_reup,
+        ):
+            result = self.runner.invoke(main, ["--resume-last"])
+
+        self.assertEqual(result.exit_code, 0, msg=result.output)
+        self.assertTrue(config.resume_last_session)
+        mock_run_reup.assert_called_once_with(config)
+
     def test_default_routes_to_reup_when_byok_config_missing(self) -> None:
         config = Config(cwd=self.cwd)
 
