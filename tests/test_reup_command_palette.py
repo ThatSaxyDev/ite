@@ -1285,6 +1285,60 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_model_picker_refresh_skips_backend_when_cloud_auth_disabled(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+
+            with patch(
+                "ite.ui.reup.app.get_bundled_models_result"
+            ) as get_bundled_models_result:
+                await app._refresh_model_picker_data(
+                    SimpleNamespace(update_models=lambda *_args, **_kwargs: None),
+                    "minimax-m2.5:cloud",
+                )
+
+            get_bundled_models_result.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_open_model_picker_uses_saved_models_without_backend_in_local_mode(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.model.name = "minimax-m2.5:cloud"
+            app.config.model.source_kind = "saved"
+            app.config.api_key = "ollama"
+            app.config.base_url = "http://localhost:11434/v1"
+
+            async def fake_open_modal(modal):
+                self.assertEqual(len(modal._models), 1)
+                self.assertEqual(modal._models[0]["entry_id"], "saved:minimax-m2.5:cloud")
+                self.assertEqual(modal._models[0]["provider"], "Ollama")
+                return None
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.load_saved_custom_provider",
+                return_value={
+                    "minimax-m2.5:cloud": {
+                        "api_key": "ollama",
+                        "base_url": "http://localhost:11434/v1",
+                        "model_name": "minimax-m2.5:cloud",
+                        "context_window": 200000,
+                    }
+                },
+            ), patch(
+                "ite.ui.reup.app.get_bundled_models_result"
+            ) as get_bundled_models_result, patch.object(
+                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+            ) as open_modal:
+                await app._open_model_picker_from_meta()
+
+            open_modal.assert_awaited_once()
+            get_bundled_models_result.assert_not_called()
+
+        asyncio.run(run_test())
+
     def test_open_model_picker_clears_custom_provider_credentials_for_bundled_cloud_model(self) -> None:
         async def run_test() -> None:
             app = self._app()

@@ -681,6 +681,7 @@ Widget {
 }
 
 #cloud-sign-in,
+#cloud-skip-sign-in,
 #cloud-exit {
     width: 18;
     min-width: 18;
@@ -708,11 +709,14 @@ Widget {
     color: $foreground-disabled;
 }
 
+#cloud-skip-sign-in,
 #cloud-exit {
     background: $panel;
     color: $foreground;
 }
 
+#cloud-skip-sign-in:hover,
+#cloud-skip-sign-in:focus,
 #cloud-exit:hover,
 #cloud-exit:focus {
     background: $panel-lighten-1;

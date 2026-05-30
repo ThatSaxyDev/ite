@@ -5,12 +5,14 @@ from unittest.mock import patch
 
 from textual.app import App
 from textual.widgets import Button
+from textual.widgets import DataTable
 from textual.widgets import Input
 
 from ite.config.config import Config
 from ite.ui.reup.app import ReupApp
 from ite.ui.reup.modals import AttachPickerModal
 from ite.ui.reup.modals import CommitModal
+from ite.ui.reup.modals import ModelPickerModal
 from ite.ui.reup.modals import ThemePickerModal
 from ite.ui.reup.modals import VoiceSetupModal
 from ite.ui.reup.modals import is_hidden_textual_theme
@@ -134,6 +136,41 @@ class VoiceSetupModalTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.pause()
 
                     self.assertNotIsInstance(app.screen, VoiceSetupModal)
+
+
+class ModelPickerModalApp(App[None]):
+    def on_mount(self) -> None:
+        self.push_screen(
+            ModelPickerModal(
+                "minimax-m2.5:cloud",
+                [
+                    {
+                        "entry_id": "saved:minimax-m2.5:cloud",
+                        "source_kind": "saved",
+                        "model_name": "minimax-m2.5:cloud",
+                        "label": "minimax-m2.5:cloud",
+                        "provider": "Ollama",
+                        "context_window": 200000,
+                        "context_window_source": "provider_fixed_default",
+                        "available": True,
+                        "unavailable_reason": "",
+                        "saved_profile": True,
+                    }
+                ],
+                current_entry_id="saved:minimax-m2.5:cloud",
+            )
+        )
+
+
+class ModelPickerModalTests(unittest.IsolatedAsyncioTestCase):
+    async def test_saved_local_profile_populates_all_columns(self) -> None:
+        async with ModelPickerModalApp().run_test() as pilot:
+            await pilot.pause()
+
+            table = pilot.app.screen.query_one("#models", DataTable)
+
+            self.assertEqual(len(table.ordered_columns), 5)
+            self.assertEqual(table.row_count, 1)
 
 
 class _FakeLLMClient:

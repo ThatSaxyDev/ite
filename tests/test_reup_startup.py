@@ -414,6 +414,101 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_skip_sign_in_before_onboarding_disables_cloud_and_shows_onboarding(
+        self,
+    ) -> None:
+        async def run_test() -> None:
+            async def _to_thread(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            app.config.onboarding_completed = False
+            name_input = SimpleNamespace(focus=unittest.mock.Mock())
+
+            with (
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+                patch.object(app, "_set_onboarding_state") as set_onboarding_state,
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch("ite.ui.reup.app.save_cloud_settings") as save_cloud_settings,
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", side_effect=_to_thread
+                ),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#onboarding-name": name_input,
+                    }[selector],
+                ),
+            ):
+                await app._continue_without_cloud_sign_in()
+
+            save_cloud_settings.assert_called_once_with(enabled=False)
+            self.assertFalse(app.config.cloud_auth_enabled)
+            self.assertFalse(app._account_plan_is_pro)
+            self.assertFalse(app._account_plan_unavailable)
+            self.assertEqual(
+                [call.args[0] for call in set_signed_out_state.call_args_list],
+                [True, False],
+            )
+            set_onboarding_state.assert_called_once_with(True)
+            name_input.focus.assert_called_once()
+            ensure_agent.assert_not_awaited()
+
+        asyncio.run(run_test())
+
+    def test_skip_sign_in_after_onboarding_starts_runtime_with_saved_credentials(
+        self,
+    ) -> None:
+        async def run_test() -> None:
+            async def _to_thread(func, *args, **kwargs):
+                return func(*args, **kwargs)
+
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            app.config.onboarding_completed = True
+            app.config.api_key = "test-key"
+            app.config.base_url = "https://api.example.test/v1"
+            app.config.model.name = "test-model"
+            prompt = SimpleNamespace(focus=unittest.mock.Mock())
+
+            with (
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+                patch.object(app, "_set_onboarding_state") as set_onboarding_state,
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch.object(app, "_refresh_empty_state") as refresh_empty_state,
+                patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
+                patch("ite.ui.reup.app.save_cloud_settings") as save_cloud_settings,
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread", side_effect=_to_thread
+                ),
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#prompt": prompt,
+                    }[selector],
+                ),
+            ):
+                await app._continue_without_cloud_sign_in()
+
+            save_cloud_settings.assert_called_once_with(enabled=False)
+            self.assertFalse(app.config.cloud_auth_enabled)
+            self.assertFalse(app._account_plan_is_pro)
+            self.assertFalse(app._account_plan_unavailable)
+            self.assertEqual(
+                [call.args[0] for call in set_signed_out_state.call_args_list],
+                [True, False],
+            )
+            set_onboarding_state.assert_not_called()
+            open_setup_modal.assert_not_awaited()
+            ensure_agent.assert_awaited_once()
+            refresh_empty_state.assert_called_once()
+            prompt.focus.assert_called_once()
+
+        asyncio.run(run_test())
+
     def test_latest_workspace_session_snapshot_picks_newest_non_empty_session(self) -> None:
         app = self._app()
         app.config.resume_last_session = True
@@ -788,6 +883,28 @@ class ReupStartupTests(unittest.TestCase):
                 await app._refresh_account_plan_badge()
 
             self.assertTrue(app._account_plan_is_pro)
+            refresh_header.assert_called_once()
+
+        asyncio.run(run_test())
+
+    def test_account_plan_badge_resolves_free_when_cloud_auth_disabled(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app._account_plan_is_pro = None
+            app._account_plan_unavailable = True
+
+            with (
+                patch(
+                    "ite.ui.reup.app.get_cloud_entitlements_result"
+                ) as get_entitlements,
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
+                await app._refresh_account_plan_badge()
+
+            get_entitlements.assert_not_called()
+            self.assertFalse(app._account_plan_is_pro)
+            self.assertFalse(app._account_plan_unavailable)
             refresh_header.assert_called_once()
 
         asyncio.run(run_test())
@@ -1467,6 +1584,90 @@ class ReupStartupTests(unittest.TestCase):
             self.assertTrue(app.config.onboarding_completed)
 
         asyncio.run(run_test())
+
+    def test_ensure_agent_survives_agent_field_cleared_during_enter(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            session = SimpleNamespace(session_id="session-race")
+
+            class FakeAgent:
+                def __init__(self) -> None:
+                    self.session = session
+
+                async def __aenter__(self):
+                    app.agent = None
+                    return self
+
+            fake_agent = FakeAgent()
+
+            with (
+                patch.object(app, "_build_session_agent", return_value=fake_agent),
+                patch.object(app, "_remember_open_session") as remember_open_session,
+                patch.object(app, "_broadcast_remote_state", AsyncMock()),
+            ):
+                await app.ensure_agent()
+
+            self.assertIs(app.agent, fake_agent)
+            remember_open_session.assert_called_once_with(session, agent=fake_agent)
+
+        asyncio.run(run_test())
+
+    def test_tick_top_indicator_animates_onboarding_save_status(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = False
+        app._onboarding_busy = True
+        app._onboarding_skip_busy = False
+        status = SimpleNamespace(value=None, update=lambda value: setattr(status, "value", value))
+
+        with patch.object(
+            app,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#onboarding-status": status,
+            }[selector],
+        ):
+            app._tick_top_indicator()
+
+        self.assertIn(app._top_spinner_frames[1], status.value.plain)
+        self.assertIn("Saving your first-run setup", status.value.plain)
+
+    def test_tick_top_indicator_animates_onboarding_skip_status(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = False
+        app._onboarding_busy = True
+        app._onboarding_skip_busy = True
+        status = SimpleNamespace(value=None, update=lambda value: setattr(status, "value", value))
+
+        with patch.object(
+            app,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#onboarding-status": status,
+            }[selector],
+        ):
+            app._tick_top_indicator()
+
+        self.assertIn(app._top_spinner_frames[1], status.value.plain)
+        self.assertIn("Skipping first-run setup", status.value.plain)
+
+    def test_tick_top_indicator_animates_signed_out_status(self) -> None:
+        app = self._app()
+        app._account_plan_is_pro = False
+        app._cloud_signed_out = True
+        app._cloud_auth_busy = True
+        status = SimpleNamespace(value=None, update=lambda value: setattr(status, "value", value))
+
+        with patch.object(
+            app,
+            "query_one",
+            side_effect=lambda selector, *_args: {
+                "#signed-out-status": status,
+            }[selector],
+        ):
+            app._tick_top_indicator()
+
+        self.assertIn(app._top_spinner_frames[1], status.value.plain)
+        self.assertIn("Opening your browser", status.value.plain)
 
 
 if __name__ == "__main__":

@@ -1420,6 +1420,7 @@ class ReupApp(App):
         self._startup_error_text: str | None = None
         self._onboarding_active: bool = False
         self._onboarding_busy: bool = False
+        self._onboarding_skip_busy: bool = False
         self._plan_ready_future: asyncio.Future[bool] | None = None
         self._plan_ready_action_card: Widget | None = None
         self._plan_question_future: asyncio.Future[dict[str, Any]] | None = None
@@ -1546,6 +1547,11 @@ class ReupApp(App):
                                 with Horizontal(id="signed-out-actions"):
                                     yield Button(
                                         "Sign in", id="cloud-sign-in", variant="primary"
+                                    )
+                                    yield Button(
+                                        "Skip sign-in",
+                                        id="cloud-skip-sign-in",
+                                        variant="default",
                                     )
                                     yield Button(
                                         "Exit", id="cloud-exit", variant="default"
@@ -1681,6 +1687,8 @@ class ReupApp(App):
             self.query_one("#threads-toggle", Button).display = False
         except Exception:
             pass
+        if not self.config.cloud_auth_enabled:
+            self._set_local_account_plan_state(refresh=False)
         self.refresh_header()
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
@@ -2826,6 +2834,15 @@ class ReupApp(App):
         self._account_plan_unavailable = unavailable
         self.refresh_header()
 
+    def _set_local_account_plan_state(self, *, refresh: bool = True) -> None:
+        self._bundled_models_cache = []
+        self._usage_summary_cache = None
+        self._usage_remaining_percent = None
+        self._account_plan_is_pro = False
+        self._account_plan_unavailable = False
+        if refresh:
+            self.refresh_header()
+
     def _update_composer_meta_line(self) -> None:
         try:
             composer_meta_line = self.query_one("#composer-meta-line", Static)
@@ -3387,6 +3404,9 @@ class ReupApp(App):
         self._activity_cache = payload
 
     async def _refresh_account_plan_badge(self) -> None:
+        if not self.config.cloud_auth_enabled:
+            self._set_local_account_plan_state()
+            return
         try:
             result = await asyncio.to_thread(get_cloud_entitlements_result, self.config)
         except Exception:
@@ -4087,15 +4107,20 @@ class ReupApp(App):
                 model_options,
                 current_entry_id=current_entry_id,
             )
-            refresh_task = asyncio.create_task(
-                self._refresh_model_picker_data(modal, current_model)
+            refresh_task = (
+                asyncio.create_task(
+                    self._refresh_model_picker_data(modal, current_model)
+                )
+                if self.config.cloud_auth_enabled
+                else None
             )
             result = await self._open_modal(modal)
-            refresh_task.cancel()
-            try:
-                await refresh_task
-            except asyncio.CancelledError:
-                pass
+            if refresh_task is not None:
+                refresh_task.cancel()
+                try:
+                    await refresh_task
+                except asyncio.CancelledError:
+                    pass
 
             if not result:
                 return
@@ -4129,6 +4154,16 @@ class ReupApp(App):
                     selected_entry_id = f"custom:{selected}"
             if not selected:
                 return
+            if not any(
+                str(item.get("entry_id") or "").strip() == selected_entry_id
+                for item in model_options
+            ):
+                model_options, current_entry_id, bundled_model_names, saved_providers = (
+                    self._build_model_options(
+                        [] if self._bundled_access_denied else self._bundled_models_cache,
+                        self.config.model_name,
+                    )
+                )
 
             if action == "delete":
                 if selected_entry_id == current_entry_id:
@@ -4165,29 +4200,25 @@ class ReupApp(App):
             ),
             None,
         )
+        selected_item_source_kind = (
+            str(selected_item.get("source_kind") or "").strip().lower()
+            if selected_item
+            else ""
+        )
+        selecting_bundled_model = selected_source_kind == "bundled" or (
+            bool(selected_item)
+            and not bool(selected_item.get("saved_profile"))
+            and selected_item_source_kind == "bundled"
+        )
         next_api_key = (
             str(restored_profile.get("api_key") or "")
             if restored_profile
-            else (
-                ""
-                if bool(selected_item)
-                and not bool(selected_item.get("saved_profile"))
-                and str(selected_item.get("source_kind") or "").strip().lower()
-                == "bundled"
-                else (self.config.api_key or "")
-            )
+            else ("" if selecting_bundled_model else (self.config.api_key or ""))
         )
         next_base_url = (
             str(restored_profile.get("base_url") or "")
             if restored_profile
-            else (
-                ""
-                if bool(selected_item)
-                and not bool(selected_item.get("saved_profile"))
-                and str(selected_item.get("source_kind") or "").strip().lower()
-                == "bundled"
-                else (self.config.base_url or "")
-            )
+            else ("" if selecting_bundled_model else (self.config.base_url or ""))
         )
         next_context_window = (
             int(restored_profile.get("context_window"))
@@ -4212,9 +4243,7 @@ class ReupApp(App):
             )
         ) or "fallback_default"
         next_source_kind = (
-            str(selected_item.get("source_kind") or "").strip().lower()
-            if selected_item
-            else ""
+            selected_item_source_kind or selected_source_kind
         )
 
         try:
@@ -4403,6 +4432,8 @@ class ReupApp(App):
         return model_options, current_entry_id, bundled_model_names, saved_providers
 
     async def _refresh_model_picker_data(self, modal: Any, current_model: str) -> None:
+        if not self.config.cloud_auth_enabled:
+            return
         try:
             result = await asyncio.to_thread(get_bundled_models_result, self.config)
         except Exception:
@@ -4977,6 +5008,7 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         session_tabs = self.query_one("#session-tabs-scroll", HorizontalScroll)
         sign_in = self.query_one("#cloud-sign-in", Button)
+        skip_sign_in = self.query_one("#cloud-skip-sign-in", Button)
         footer = self.query_one(Footer)
         header = self.query_one(Header)
 
@@ -5033,6 +5065,7 @@ class ReupApp(App):
         )
         prompt.disabled = not in_chat and not in_session_switch
         sign_in.disabled = self._cloud_auth_busy
+        skip_sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
         self.query_one("#startup-status", Static).update(self._startup_status_text())
         self._update_session_switch_spinner()
@@ -5130,8 +5163,13 @@ class ReupApp(App):
             frame = self._top_spinner_frames[
                 self._top_spinner_index % len(self._top_spinner_frames)
             ]
+            message = (
+                "Skipping first-run setup"
+                if self._onboarding_skip_busy
+                else "Saving your first-run setup"
+            )
             status.append(
-                f"{frame} Saving your first-run setup",
+                f"{frame} {message}",
                 style=f"bold {self._render_styles()['fg']}",
             )
         else:
@@ -5244,6 +5282,45 @@ class ReupApp(App):
         self._refresh_empty_state()
         self.query_one("#prompt", TextArea).focus()
 
+    async def _continue_without_cloud_sign_in(self) -> None:
+        if self._cloud_auth_busy:
+            return
+        self._cloud_auth_busy = True
+        self._cloud_bootstrap_busy = False
+        self._set_signed_out_state(True)
+        try:
+            await asyncio.to_thread(save_cloud_settings, enabled=False)
+            self.config.cloud_auth_enabled = False
+            self._set_local_account_plan_state(refresh=False)
+        except Exception as exc:
+            self._cloud_auth_busy = False
+            self._apply_shell_surface()
+            self.query_one("#signed-out-status", Static).update(
+                Text(
+                    f"Could not skip sign-in: {exc}",
+                    style="bold #ffcf92",
+                    justify="center",
+                )
+            )
+            return
+
+        self._cloud_auth_busy = False
+        self._set_signed_out_state(False)
+        if self._should_show_onboarding():
+            self._set_onboarding_state(True)
+            self.query_one("#onboarding-name", Input).focus()
+            return
+        if self.config.needs_setup:
+            await self._open_setup_modal(exit_on_cancel=False)
+            await self._reset_active_provider_client()
+            if self.config.needs_setup:
+                self._apply_shell_surface()
+                return
+            self.agent = None
+        await self.ensure_agent()
+        self._refresh_empty_state()
+        self.query_one("#prompt", TextArea).focus()
+
     async def _reset_runtime_after_cloud_logout(self) -> None:
         if self._is_turn_running:
             await self.cancel_active_turn()
@@ -5321,6 +5398,7 @@ class ReupApp(App):
                 )
                 return
         self._onboarding_busy = True
+        self._onboarding_skip_busy = skip
         self._apply_shell_surface()
 
         try:
@@ -5376,6 +5454,7 @@ class ReupApp(App):
             return
         finally:
             self._onboarding_busy = False
+            self._onboarding_skip_busy = False
             if self._onboarding_active:
                 self._apply_shell_surface()
 
@@ -6561,6 +6640,10 @@ class ReupApp(App):
     def on_cloud_sign_in_pressed(self, _event: Button.Pressed) -> None:
         self.run_worker(self._run_cloud_login_flow(), exclusive=False)
 
+    @on(Button.Pressed, "#cloud-skip-sign-in")
+    def on_cloud_skip_sign_in_pressed(self, _event: Button.Pressed) -> None:
+        self.run_worker(self._continue_without_cloud_sign_in(), exclusive=False)
+
     @on(Button.Pressed, "#cloud-exit")
     def on_cloud_exit_pressed(self, _event: Button.Pressed) -> None:
         self.run_worker(self._exit_app(), exclusive=False)
@@ -7056,6 +7139,8 @@ class ReupApp(App):
             self._account_plan_is_pro is None and not self._cloud_signed_out
             and not self._account_plan_unavailable
         )
+        onboarding_animating = self._onboarding_busy
+        signed_out_animating = self._cloud_auth_busy or self._cloud_bootstrap_busy
         has_pending_command_spinner = any(
             pending_active
             for _card, _body_widget, _scroll_widget, _lines, pending_active, _pending_text in self._streaming_command_cards.values()
@@ -7065,6 +7150,8 @@ class ReupApp(App):
             and not self._aside_pending_widgets
             and not has_pending_command_spinner
             and not self._cloud_auth_busy
+            and not self._cloud_bootstrap_busy
+            and not onboarding_animating
             and not flow_animating
             and not send_animating
             and not plan_animating
@@ -7085,6 +7172,13 @@ class ReupApp(App):
         # Update session switch spinner (centered loader)
         if self._session_switching:
             self._update_session_switch_spinner()
+        if onboarding_animating:
+            try:
+                self.query_one("#onboarding-status", Static).update(
+                    self._onboarding_status_text()
+                )
+            except NoMatches:
+                pass
         if self._activity_widget is not None and self._top_busy:
             self._activity_widget.update(
                 self._render_activity_indicator_text(self._top_state_text)
@@ -7096,7 +7190,7 @@ class ReupApp(App):
                     active=True,
                 )
             )
-        if self._cloud_signed_out:
+        if self._cloud_signed_out or signed_out_animating:
             try:
                 self.query_one("#signed-out-status", Static).update(
                     self._signed_out_status_text()
@@ -7235,10 +7329,11 @@ class ReupApp(App):
                     await self._broadcast_remote_state()
                 return
             fresh = Session(config=self._session_config_for_workspace())
-            self.agent = self._build_session_agent(fresh)
-            await self.agent.__aenter__()
-            if self.agent.session is not None:
-                self._remember_open_session(self.agent.session, agent=self.agent)
+            agent = self._build_session_agent(fresh)
+            await agent.__aenter__()
+            self.agent = agent
+            if agent.session is not None:
+                self._remember_open_session(agent.session, agent=agent)
             await self._broadcast_remote_state()
 
     def _build_session_agent(self, session: Session) -> Agent:

@@ -1108,7 +1108,8 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
 
     async def on_mount(self) -> None:
         table = self.query_one("#models", DataTable)
-        table.add_columns("Model", "Source", "Context", "Status", "Current")
+        for column in ("Model", "Source", "Context", "Status", "Current"):
+            table.add_column(column)
         if not self._models:
             refresh_label = self.query_one("#model-picker-refresh", Label)
             refresh_label.update("Loading models...")
