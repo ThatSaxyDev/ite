@@ -15,7 +15,7 @@ from ite.config.config import Config
 from ite.cloud.auth import BundledModelsResult, CloudAuthStatus, CloudSessionState
 from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
-from ite.ui.reup.app import ReupApp, pluralize_tool_title
+from ite.ui.reup.app import ReupApp, UserMessageRow, pluralize_tool_title
 from ite.ui.reup.composer_views import composer_meta_text
 from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.reup.modals import ConfirmModal
@@ -42,6 +42,43 @@ class ReupCommandPaletteTests(unittest.TestCase):
             models=models,
             auth=CloudAuthStatus(state=CloudSessionState.VALID),
         )
+
+    def test_user_message_width_clamps_to_available_row_width(self) -> None:
+        self.assertEqual(UserMessageRow.clamped_bubble_width(92, 120), 92)
+        self.assertEqual(UserMessageRow.clamped_bubble_width(92, 70), 60)
+        self.assertEqual(UserMessageRow.clamped_bubble_width(5, 120), 12)
+        self.assertEqual(UserMessageRow.clamped_bubble_width(92, 8), 1)
+
+    def test_add_user_message_uses_responsive_user_row(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+
+            class DummyConversation:
+                size = SimpleNamespace(width=70)
+
+                def __init__(self) -> None:
+                    self.mounted: list[object] = []
+
+                async def mount(self, widget) -> None:
+                    self.mounted.append(widget)
+
+            conversation = DummyConversation()
+            message = (
+                "How did you find out all this information without even checking "
+                "through the code? I'm curious."
+            )
+            with patch.object(app, "query_one", return_value=conversation), patch.object(
+                app, "_pin_activity_indicator_to_end", AsyncMock()
+            ), patch.object(app, "_refresh_empty_state"):
+                await app.add_user_message(message)
+
+            self.assertEqual(len(conversation.mounted), 1)
+            row = conversation.mounted[0]
+            self.assertIsInstance(row, UserMessageRow)
+            bubble = getattr(row, "_bubble")
+            self.assertEqual(int(bubble.styles.width.value), 60)
+
+        asyncio.run(run_test())
 
     def test_extract_slash_query_only_when_editing_first_token(self) -> None:
         self.assertEqual(ReupApp._extract_slash_query("/ap"), "/ap")
