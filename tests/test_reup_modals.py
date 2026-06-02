@@ -7,6 +7,8 @@ from textual.app import App
 from textual.widgets import Button
 from textual.widgets import DataTable
 from textual.widgets import Input
+from textual.widgets import Label
+from textual.widgets import Static
 
 from ite.config.config import Config
 from ite.ui.reup.app import ReupApp
@@ -139,38 +141,80 @@ class VoiceSetupModalTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ModelPickerModalApp(App[None]):
+    def __init__(
+        self,
+        models: list[dict[str, object]] | None = None,
+        *,
+        current: str = "minimax-m2.5:cloud",
+        current_entry_id: str = "saved:minimax-m2.5:cloud",
+    ) -> None:
+        super().__init__()
+        self._current = current
+        self._current_entry_id = current_entry_id
+        self._models = models
+        if self._models is None:
+            self._models = [
+                {
+                    "entry_id": "saved:minimax-m2.5:cloud",
+                    "source_kind": "saved",
+                    "model_name": "minimax-m2.5:cloud",
+                    "label": "minimax-m2.5:cloud",
+                    "provider": "Ollama",
+                    "context_window": 200000,
+                    "context_window_source": "provider_fixed_default",
+                    "available": True,
+                    "unavailable_reason": "",
+                    "saved_profile": True,
+                }
+            ]
+
     def on_mount(self) -> None:
         self.push_screen(
             ModelPickerModal(
-                "minimax-m2.5:cloud",
-                [
-                    {
-                        "entry_id": "saved:minimax-m2.5:cloud",
-                        "source_kind": "saved",
-                        "model_name": "minimax-m2.5:cloud",
-                        "label": "minimax-m2.5:cloud",
-                        "provider": "Ollama",
-                        "context_window": 200000,
-                        "context_window_source": "provider_fixed_default",
-                        "available": True,
-                        "unavailable_reason": "",
-                        "saved_profile": True,
-                    }
-                ],
-                current_entry_id="saved:minimax-m2.5:cloud",
+                self._current,
+                self._models,
+                current_entry_id=self._current_entry_id,
             )
         )
 
 
 class ModelPickerModalTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _widget_text(widget: Static | Label) -> str:
+        content = getattr(widget, "content", "")
+        if content:
+            return str(content)
+        renderable = getattr(widget, "renderable", "")
+        return getattr(renderable, "plain", str(renderable))
+
     async def test_saved_local_profile_populates_all_columns(self) -> None:
         async with ModelPickerModalApp().run_test() as pilot:
             await pilot.pause()
 
             table = pilot.app.screen.query_one("#models", DataTable)
+            refresh = pilot.app.screen.query_one("#model-picker-refresh", Label)
 
             self.assertEqual(len(table.ordered_columns), 5)
             self.assertEqual(table.row_count, 1)
+            self.assertEqual(self._widget_text(refresh), "1 model")
+
+    async def test_empty_state_mentions_setup_and_pricing_once(self) -> None:
+        async with ModelPickerModalApp(models=[], current="", current_entry_id="").run_test() as pilot:
+            await pilot.pause()
+
+            help_text = pilot.app.screen.query_one("#model-picker-help", Static)
+            refresh = pilot.app.screen.query_one("#model-picker-refresh", Label)
+
+            self.assertIn("https://ite.kiishi.space/pricing", self._widget_text(help_text))
+            self.assertIn("/setup", self._widget_text(help_text))
+            self.assertEqual(self._widget_text(refresh), "0 models")
+            self.assertNotIn("https://ite.kiishi.space/pricing", self._widget_text(refresh))
+            self.assertNotIn("/setup", self._widget_text(refresh))
+
+    def test_model_count_label_pluralizes_model(self) -> None:
+        self.assertEqual(ModelPickerModal._model_count_label(0), "0 models")
+        self.assertEqual(ModelPickerModal._model_count_label(1), "1 model")
+        self.assertEqual(ModelPickerModal._model_count_label(2), "2 models")
 
 
 class _FakeLLMClient:

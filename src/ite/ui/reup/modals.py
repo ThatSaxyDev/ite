@@ -1091,7 +1091,15 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
 
     @staticmethod
     def _empty_models_message() -> str:
-        return "No models yet. Run /setup to add local Ollama, OpenRouter, or OpenAI-compatible models."
+        return (
+            "No models available. Visit https://ite.kiishi.space/pricing to start "
+            "iTE Pro for bundled cloud models, or run /setup to connect Ollama, "
+            "OpenRouter, or another OpenAI-compatible provider."
+        )
+
+    @staticmethod
+    def _model_count_label(count: int) -> str:
+        return f"{count} model" if count == 1 else f"{count} models"
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
@@ -1119,10 +1127,9 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
         table = self.query_one("#models", DataTable)
         for column in ("Model", "Source", "Context", "Status", "Current"):
             table.add_column(column)
-        if not self._models:
-            refresh_label = self.query_one("#model-picker-refresh", Label)
-            refresh_label.update(self._empty_models_message())
         self._populate_table(table)
+        refresh_label = self.query_one("#model-picker-refresh", Label)
+        refresh_label.update(self._model_count_label(len(self._model_names)))
 
     def _populate_table(self, table: DataTable) -> None:
         table.clear()
@@ -1187,11 +1194,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
         table = self.query_one("#models", DataTable)
         self._populate_table(table)
         refresh_label = self.query_one("#model-picker-refresh", Label)
-        refresh_label.update(
-            f"{len(self._model_names)} models"
-            if self._model_names
-            else self._empty_models_message()
-        )
+        refresh_label.update(self._model_count_label(len(self._model_names)))
         if not self._model_names:
             self.query_one("#model-picker-help", Static).update(
                 self._empty_models_message()
