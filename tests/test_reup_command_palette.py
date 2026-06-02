@@ -599,6 +599,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
     def test_composer_meta_text_includes_context_meter(self) -> None:
         app = self._app()
+        app.config.model_name = "local-test"
+        app.config.model.source_kind = "custom"
         session = SimpleNamespace(
             plan_mode_enabled=False,
             context_manager=SimpleNamespace(),
@@ -627,6 +629,144 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertIn("kimi-k2.6", rendered.plain)
         get_bundled_models.assert_not_called()
+
+    def test_composer_meta_text_shows_select_model_when_no_model_selected(self) -> None:
+        app = ReupApp(Config(cwd=self.cwd, api_key="", base_url="", model={"name": ""}))
+        session = SimpleNamespace(
+            plan_mode_enabled=False,
+            context_manager=SimpleNamespace(),
+            get_stats=lambda: {"context_used_pct": 0},
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        rendered = app._composer_meta_text()
+
+        self.assertIn("select model", rendered.plain)
+        self.assertNotIn("context", rendered.plain)
+        self.assertEqual(app._composer_context_hitbox, (0, 0))
+
+    def test_composer_meta_text_hides_unbacked_legacy_cloud_default(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={"name": "kimi-k2.5:cloud", "source_kind": None},
+            )
+        )
+        session = SimpleNamespace(
+            plan_mode_enabled=False,
+            context_manager=SimpleNamespace(),
+            get_stats=lambda: {"context_used_pct": 0},
+        )
+        app.agent = SimpleNamespace(session=session)
+
+        with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            rendered = app._composer_meta_text()
+
+        self.assertIn("select model", rendered.plain)
+        self.assertNotIn("kimi-k2.5", rendered.plain)
+        self.assertNotIn("context", rendered.plain)
+
+    def test_model_options_do_not_add_unbacked_legacy_cloud_alias_as_custom(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={"name": "kimi-k2.5:cloud", "source_kind": None},
+            )
+        )
+
+        with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            options, current_entry_id, _bundled_names, _saved = app._build_model_options(
+                [
+                    {
+                        "model_name": "deepseek-v4-pro",
+                        "label": "DeepSeek V4 Pro",
+                    }
+                ],
+                "kimi-k2.5:cloud",
+            )
+
+        self.assertEqual([item["source_kind"] for item in options], ["bundled"])
+        self.assertEqual(options[0]["model_name"], "deepseek-v4-pro")
+        self.assertEqual(current_entry_id, "")
+
+    def test_open_model_picker_opens_empty_state_without_agent_when_no_model_selected(self) -> None:
+        async def run_test() -> None:
+            app = ReupApp(
+                Config(
+                    cwd=self.cwd,
+                    api_key="",
+                    base_url="",
+                    model={"name": ""},
+                    cloud_auth_enabled=False,
+                )
+            )
+
+            async def fake_open_modal(modal):
+                self.assertEqual(modal._models, [])
+                return None
+
+            with patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent, patch(
+                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
+            ), patch.object(
+                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+            ) as open_modal:
+                await app._open_model_picker_from_meta()
+
+            ensure_agent.assert_not_awaited()
+            open_modal.assert_awaited_once()
+
+        asyncio.run(run_test())
+
+    def test_dispatch_payload_requires_selected_model_before_agent_send(self) -> None:
+        async def run_test() -> None:
+            app = ReupApp(
+                Config(
+                    cwd=self.cwd,
+                    api_key="",
+                    base_url="",
+                    model={"name": ""},
+                )
+            )
+            prompt = SimpleNamespace(text="", update=lambda _value: None)
+            markdown_calls: list[str] = []
+
+            class FakeMarkdown:
+                def __init__(self, markdown: str) -> None:
+                    markdown_calls.append(markdown)
+
+            with (
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#prompt": prompt,
+                    }[selector],
+                ),
+                patch.object(app, "_resize_composer_for_prompt"),
+                patch("ite.ui.reup.app.CopyableMarkdown", FakeMarkdown),
+                patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+                patch.object(app, "run_worker") as run_worker,
+            ):
+                await app._dispatch_payload(
+                    {
+                        "message": "hello",
+                        "display_message": "hello",
+                        "attachments": [],
+                    }
+                )
+
+            self.assertEqual(prompt.text, "hello")
+            add_card.assert_awaited_once()
+            self.assertEqual(add_card.call_args.args[0], "Select a model")
+            self.assertIn("https://ite.kiishi.space/pricing", markdown_calls[0])
+            self.assertIn("/setup", markdown_calls[0])
+            run_worker.assert_not_called()
+
+        asyncio.run(run_test())
 
     def test_refresh_bundled_models_cache_migrates_legacy_bundled_selection(self) -> None:
         async def run_test() -> None:

@@ -1088,11 +1088,19 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
         self._model_saved_profile: list[bool] = []
         self._model_context_windows: list[int | None] = []
 
+    @staticmethod
+    def _empty_models_message() -> str:
+        return "No models yet. Run /setup to add local Ollama, OpenRouter, or OpenAI-compatible models."
+
     def compose(self) -> ComposeResult:
         with Container(classes="modal resume-modal"):
             yield Label("Select model", classes="modal-title resume-title")
             yield Static(
-                "Pick an available model, or remove a saved provider profile you no longer want to keep.",
+                (
+                    "Pick an available model, or remove a saved provider profile you no longer want to keep."
+                    if self._models
+                    else self._empty_models_message()
+                ),
                 classes="modal-body resume-body",
                 id="model-picker-help",
             )
@@ -1112,7 +1120,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             table.add_column(column)
         if not self._models:
             refresh_label = self.query_one("#model-picker-refresh", Label)
-            refresh_label.update("Loading models...")
+            refresh_label.update(self._empty_models_message())
         self._populate_table(table)
 
     def _populate_table(self, table: DataTable) -> None:
@@ -1179,8 +1187,14 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
         self._populate_table(table)
         refresh_label = self.query_one("#model-picker-refresh", Label)
         refresh_label.update(
-            f"{len(self._model_names)} models" if self._model_names else "No models found"
+            f"{len(self._model_names)} models"
+            if self._model_names
+            else self._empty_models_message()
         )
+        if not self._model_names:
+            self.query_one("#model-picker-help", Static).update(
+                self._empty_models_message()
+            )
 
     def _refresh_selection_state(self, row: int) -> None:
         select_button = self.query_one("#select", Button)
@@ -1190,7 +1204,9 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             select_button.disabled = True
             delete_button.disabled = True
             help_text.update(
-                "Pick an available model, or remove a saved provider profile."
+                self._empty_models_message()
+                if not self._model_names
+                else "Pick an available model, or remove a saved provider profile."
             )
             return
 

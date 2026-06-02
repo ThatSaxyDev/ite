@@ -3164,7 +3164,13 @@ class ReupApp(App):
                     self._cached_branch_label = "no-git"
         except Exception:
             pass
-        if self.agent and self.agent.session and self.agent.session.context_manager:
+        model_display_name = self._model_display_name()
+        if (
+            model_display_name != "select model"
+            and self.agent
+            and self.agent.session
+            and self.agent.session.context_manager
+        ):
             try:
                 context_used_percent = int(
                     round(
@@ -3178,7 +3184,6 @@ class ReupApp(App):
         floor_pct = self._run_state().context_meter_floor_pct
         if context_used_percent is not None and floor_pct is not None:
             context_used_percent = max(context_used_percent, floor_pct)
-        model_display_name = self._model_display_name()
         available_width: int | None = None
         try:
             meta_line = self.query_one("#composer-meta-line", Static)
@@ -3206,6 +3211,7 @@ class ReupApp(App):
             context_used_percent=context_used_percent,
             styles=self._render_styles(),
             show_usage=self._is_bundled_model(),
+            show_context=model_display_name != "select model",
             available_width=available_width,
         )
         self._composer_attach_hitbox = attach_hitbox
@@ -3232,6 +3238,11 @@ class ReupApp(App):
             return "missing_key"
         return "idle"
 
+    def _has_selected_model(self) -> bool:
+        return bool(str(self.config.model_name or "").strip()) and (
+            self._model_display_name() != "select model"
+        )
+
     def _setup_required_for_model_selection(self) -> bool:
         if self._has_active_user_provider_credentials():
             return False
@@ -3239,7 +3250,7 @@ class ReupApp(App):
             return False
         if (
             str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
-            == "bundled"
+            in {"bundled", "saved", "custom"}
         ):
             return False
         if self._bundled_models_cache:
@@ -3255,15 +3266,25 @@ class ReupApp(App):
         )
 
     def _model_display_name(self) -> str:
-        if self._setup_required_for_model_selection():
-            return "/setup"
         current_model = str(self.config.model_name or "").strip()
         if not current_model:
-            return ""
+            return "select model"
+        persisted_source_kind = (
+            str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
+        )
+        saved_providers = load_saved_custom_provider()
         for item in self._bundled_models_cache:
             model_name = str(item.get("model_name") or "").strip()
             if model_name == current_model:
                 return str(item.get("label") or model_name).strip()
+        if (
+            persisted_source_kind not in {"bundled", "saved", "custom"}
+            and current_model not in saved_providers
+            and not self._has_active_user_provider_credentials()
+        ):
+            return "select model"
+        if self._setup_required_for_model_selection():
+            return "/setup"
         return current_model.removesuffix(":cloud")
 
     def _schedule_usage_meta_refresh(self) -> None:
@@ -4110,10 +4131,6 @@ class ReupApp(App):
         self.refresh_header()
 
     async def _open_model_picker_from_meta(self) -> None:
-        await self.ensure_agent()
-        if self._setup_required_for_model_selection():
-            await self._open_setup_modal()
-            return
         while True:
             current_model = self.config.model_name
             bundled_items = (
@@ -4122,13 +4139,6 @@ class ReupApp(App):
             model_options, current_entry_id, bundled_model_names, saved_providers = (
                 self._build_model_options(bundled_items, current_model)
             )
-            if not model_options:
-                self.post_system(
-                    "Model",
-                    "No saved models are available right now.",
-                    is_error=True,
-                )
-                return
 
             modal = ModelPickerModal(
                 current_model,
@@ -4327,7 +4337,7 @@ class ReupApp(App):
                 return f"bundled:{normalized_current}"
             if normalized_current in saved_providers:
                 return f"saved:{normalized_current}"
-            return f"custom:{normalized_current}"
+            return ""
 
         def _saved_provider_label(profile: dict[str, Any]) -> str:
             base_url = str(profile.get("base_url") or "").strip().lower()
@@ -4417,6 +4427,13 @@ class ReupApp(App):
             current_model
             and current_model not in bundled_model_names
             and current_model not in saved_providers
+            and (
+                self._has_active_user_provider_credentials()
+                or str(getattr(self.config.model, "source_kind", "") or "")
+                .strip()
+                .lower()
+                == "custom"
+            )
             and not (
                 self._bundled_access_denied
                 and str(getattr(self.config.model, "source_kind", "") or "")
@@ -8181,6 +8198,17 @@ class ReupApp(App):
             "suppress_user_echo": True,
         }
 
+    async def _post_no_model_selected_guidance(self) -> None:
+        body = (
+            "- Subscribe to [iTE Pro](https://ite.kiishi.space/pricing) to use bundled cloud models when your plan includes them.\n"
+            "- Run `/setup` to add local Ollama, OpenRouter, or another OpenAI-compatible provider."
+        )
+        await self.add_assistant_card(
+            "Select a model",
+            CopyableMarkdown(body),
+            css_class="system",
+        )
+
     async def _retry_last_turn(self) -> None:
         session_id = self._active_session_id()
         if not session_id:
@@ -8294,6 +8322,11 @@ class ReupApp(App):
         if message.startswith("/"):
             await self.run_command(message)
             return  # Command handlers may open modals; prevent fallthrough to agent send
+
+        if not self._has_selected_model():
+            self._restore_payload_to_composer(payload)
+            await self._post_no_model_selected_guidance()
+            return
 
         self.run_worker(
             self._handle_agent_send_with_intent(

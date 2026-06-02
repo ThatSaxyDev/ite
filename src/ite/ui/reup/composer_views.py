@@ -29,6 +29,7 @@ def composer_meta_text(
     context_used_percent: int | None = None,
     styles: dict[str, str] | None = None,
     show_usage: bool = True,
+    show_context: bool = True,
     available_width: int | None = None,
 ) -> tuple[
     Text,
@@ -233,21 +234,21 @@ def composer_meta_text(
         dict(
             spacer="     ",
             include_usage=show_usage,
-            include_context=True,
+            include_context=show_context,
             meter_width=6,
             compact_labels=False,
         ),
         dict(
             spacer="  ",
             include_usage=show_usage,
-            include_context=True,
+            include_context=show_context,
             meter_width=4,
             compact_labels=True,
         ),
         dict(
             spacer="  ",
             include_usage=False,
-            include_context=True,
+            include_context=show_context,
             meter_width=4,
             compact_labels=True,
         ),
