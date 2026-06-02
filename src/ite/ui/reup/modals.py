@@ -1409,6 +1409,11 @@ class UsageSummaryModal(ModalScreen[None]):
         super().__init__()
         self._summary = summary
 
+    @staticmethod
+    def _remaining_percent(used: int, cap: int) -> int:
+        cap = max(1, cap)
+        return max(0, min(100, round(((cap - used) / cap) * 100)))
+
     def _window_fallback_reset(self, label: str) -> datetime:
         now = datetime.now().astimezone()
         if label == "5h":
@@ -1484,7 +1489,7 @@ class UsageSummaryModal(ModalScreen[None]):
             quota = quotas.get(key) or {}
             used = int(quota.get("usedUsdCents") or 0)
             cap = max(1, int(quota.get("capUsdCents") or 1))
-            remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+            remaining = self._remaining_percent(used, cap)
             reset_time = self._format_reset_time(str(quota.get("nextResetAt") or ""), label)
 
             row = Table.grid(expand=True)
@@ -1498,6 +1503,7 @@ class UsageSummaryModal(ModalScreen[None]):
             sections.append(self._build_bar(remaining))
             if index < len(quota_rows) - 1:
                 sections.append(Text(""))
+
         return Group(*sections)
 
     def compose(self) -> ComposeResult:

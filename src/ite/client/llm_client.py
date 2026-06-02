@@ -206,20 +206,26 @@ class LLMClient:
             )
 
         if code == "model_rate_limited":
+            reset_label = _format_reset(reset_at, "five_hour")
             return (
                 "This bundled model is rate-limited right now for your account. "
-                "Try a cheaper model, wait a moment, or use your own key."
+                + (
+                    f"Try again after {reset_label}, switch models, or use your own key."
+                    if reset_label
+                    else "Try a cheaper model, wait a moment, or use your own key."
+                )
             )
 
         if code == "model_budget_exhausted":
-            policy = str(details.get("policyExceeded") or "")
-            window_label = {
-                "five_hour_budget": "5-hour model budget",
-                "seven_day_budget": "weekly model budget",
-            }.get(policy, "model budget")
+            reset_label = _format_reset(reset_at, "five_hour")
+            reset_copy = (
+                f" The current window resets {reset_label}."
+                if reset_label
+                else ""
+            )
             return (
-                f"This bundled model has reached its {window_label} for your account right now. "
-                "Switch to a cheaper bundled model, wait for the window to reset, or use your own key."
+                "Bundled usage is unavailable right now. "
+                f"Switch to a cheaper bundled model, wait for the shared usage window to reset, or use your own key.{reset_copy}"
             )
 
         if code == "model_output_limited":
