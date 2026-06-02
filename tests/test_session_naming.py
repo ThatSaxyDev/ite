@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 
 from ite.agent.session import Session
+from ite.agent.session_naming import local_session_title, sanitize_model_session_title
 from ite.config.config import Config
 
 
@@ -51,3 +52,18 @@ class SessionNamingTests(unittest.TestCase):
             "Audit the context runtime architecture."[:200],
         )
         self.assertIn("Now map the gaps against csrc.", context["latest_user"])
+
+    def test_local_session_title_removes_filler_without_inference(self) -> None:
+        title = local_session_title(
+            {
+                "first_user": "Hey, can you fix the composer usage display in the runtime?",
+                "latest_user": "",
+                "focus_hint": "",
+            }
+        )
+
+        self.assertEqual(title, "Fix Composer Usage Display Runtime")
+
+    def test_model_session_title_sanitizer_rejects_generic_titles(self) -> None:
+        self.assertEqual(sanitize_model_session_title('"Improve Session Naming."'), "Improve Session Naming")
+        self.assertEqual(sanitize_model_session_title("New chat"), "")

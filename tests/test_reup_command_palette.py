@@ -3808,16 +3808,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(second.config.cwd, second_workspace.resolve())
         self.assertEqual(app.config.cwd, self.cwd / "active")
 
-    def test_generate_session_name_uses_non_streaming_completion(self) -> None:
+    def test_generate_session_name_uses_cloud_title_generation(self) -> None:
         app = self._app()
 
-        async def fake_chat_completion(messages, tools=None, stream=True):
-            self.assertFalse(stream)
-            self.assertIsNone(tools)
-            yield SimpleNamespace(text_delta=SimpleNamespace(content="Portfolio JSON Overview"))
+        async def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("session title generation should not call the active chat client")
+            yield
 
         session = SimpleNamespace(
-            client=SimpleNamespace(chat_completion=fake_chat_completion),
+            client=SimpleNamespace(chat_completion=fail_if_called),
             name_generation_context=lambda: {
                 "first_user": "Explain this portfolio project",
                 "first_assistant": "",
@@ -3826,7 +3825,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
             },
         )
 
-        title = asyncio.run(app.generate_session_name(session))
+        with patch("ite.ui.reup.app.generate_cloud_session_title", AsyncMock(return_value="Portfolio JSON Overview")):
+            title = asyncio.run(app.generate_session_name(session))
 
         self.assertEqual(title, "Portfolio JSON Overview")
 
@@ -3849,9 +3849,111 @@ class ReupCommandPaletteTests(unittest.TestCase):
             },
         )
 
-        title = asyncio.run(app.generate_session_name(session))
+        with patch("ite.ui.reup.app.generate_cloud_session_title", AsyncMock(return_value=None)):
+            title = asyncio.run(app.generate_session_name(session))
 
-        self.assertEqual(title, "Explain this codebase")
+        self.assertEqual(title, "Explain Codebase")
+
+    def test_auto_save_does_not_queue_cloud_title_on_first_named_save(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(
+            turn_count=1,
+            name=None,
+            name_source=None,
+            name_locked=False,
+            name_last_generated_turn=0,
+            session_id="s-title-first",
+            name_generation_context=lambda: {
+                "first_user": "Can you fix the composer usage display?",
+                "latest_user": "Can you fix the composer usage display?",
+                "focus_hint": "",
+            },
+            set_auto_name=lambda value: (
+                setattr(session, "name", value),
+                setattr(session, "name_source", "auto"),
+                setattr(session, "name_last_generated_turn", session.turn_count),
+            ),
+            should_refresh_auto_name=lambda: False,
+            snapshot_kwargs=lambda workspace_path: {
+                "session_id": session.session_id,
+                "name": session.name,
+                "name_source": session.name_source,
+                "name_locked": session.name_locked,
+                "name_last_generated_turn": session.name_last_generated_turn,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "turn_count": session.turn_count,
+                "workspace_path": workspace_path,
+                "messages": [],
+                "total_usage": TokenUsage(),
+            },
+        )
+
+        with (
+            patch.object(app, "_queue_session_name_refinement") as queue_refinement,
+            patch("ite.ui.reup.app.SessionManager"),
+        ):
+            asyncio.run(
+                app._auto_save_session(
+                    session,
+                    workspace=self.cwd,
+                    refresh_ui=False,
+                    allow_name_generation=True,
+                )
+            )
+
+        queue_refinement.assert_not_called()
+        self.assertEqual(session.name, "Fix Composer Usage Display")
+
+    def test_refine_session_name_retries_once_after_failed_cloud_attempt(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(
+            turn_count=3,
+            name="Fix Composer Usage Display",
+            name_source="auto",
+            name_locked=False,
+            name_last_generated_turn=1,
+            session_id="s-title-fail",
+            set_auto_name=lambda value: setattr(session, "name", value),
+            snapshot_kwargs=lambda workspace_path: {
+                "session_id": session.session_id,
+                "name": session.name,
+                "name_source": session.name_source,
+                "name_locked": session.name_locked,
+                "name_last_generated_turn": session.name_last_generated_turn,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "turn_count": session.turn_count,
+                "workspace_path": workspace_path,
+                "messages": [],
+                "total_usage": TokenUsage(),
+            },
+        )
+
+        with (
+            patch.object(app, "_generate_cloud_session_name", AsyncMock(return_value=None)),
+            patch("ite.ui.reup.app.SessionManager") as session_manager,
+        ):
+            asyncio.run(
+                app._refine_session_name(
+                    session,
+                    workspace=self.cwd,
+                    refresh_ui=False,
+                )
+            )
+            first_save_count = session_manager.return_value.save_session.call_count
+            asyncio.run(
+                app._refine_session_name(
+                    session,
+                    workspace=self.cwd,
+                    refresh_ui=False,
+                )
+            )
+
+        self.assertEqual(session.name, "Fix Composer Usage Display")
+        self.assertEqual(first_save_count, 0)
+        self.assertEqual(session.name_last_generated_turn, 3)
+        session_manager.return_value.save_session.assert_called_once()
 
     def test_remember_open_session_tracks_order_and_workspace(self) -> None:
         app = self._app()

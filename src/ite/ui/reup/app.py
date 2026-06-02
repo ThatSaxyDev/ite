@@ -61,6 +61,7 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
+from ite.agent.session_naming import local_session_title
 from ite.attachment_refs import (
     discover_attachable_files,
     extract_at_query,
@@ -90,6 +91,7 @@ from ite.cloud import (
     has_stored_cloud_auth,
     mark_cloud_signed_out,
 )
+from ite.cloud.services import generate_cloud_session_title
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import DEFAULT_CONTEXT_WINDOW, ApprovalPolicy, Config
@@ -1385,6 +1387,8 @@ class ReupApp(App):
         self.agent: Agent | None = None
         self._session_agents: dict[str, Agent] = {}
         self._session_run_states: dict[str, SessionRunState] = {}
+        self._session_name_refinements: set[str] = set()
+        self._session_name_refinement_failures: dict[str, int] = {}
         self._fallback_run_state = SessionRunState()
         self._command_registry = None
         self._command_registry_ready: bool = False
@@ -3233,12 +3237,14 @@ class ReupApp(App):
             return "recording"
         if self._voice_busy:
             return "transcribing"
-        if (
-            self.config.voice.enabled
-            and not str(self.config.voice.groq_api_key or "").strip()
-        ):
+        if self.config.voice.enabled and not self._voice_has_provider():
             return "missing_key"
         return "idle"
+
+    def _voice_has_provider(self) -> bool:
+        if str(self.config.voice.groq_api_key or "").strip():
+            return True
+        return has_stored_cloud_auth(self.config)
 
     def _has_selected_model(self) -> bool:
         return bool(str(self.config.model_name or "").strip()) and (
@@ -7888,10 +7894,10 @@ class ReupApp(App):
                 timeout=6,
             )
             return
-        if not str(self.config.voice.groq_api_key or "").strip():
+        if not self._voice_has_provider():
             self.post_notice(
                 "Flow",
-                "Add a Groq API key with `/flow setup` before recording.",
+                "Sign in to iTE Cloud or add a Groq API key with `/flow setup` before recording.",
                 timeout=6,
             )
             return
@@ -7969,11 +7975,12 @@ class ReupApp(App):
         action = (args[0] if args else "status").strip().lower()
         if action == "status":
             status = "Ready" if self.config.voice.enabled else "Not enabled"
-            key_status = (
-                "Groq key ready"
-                if str(self.config.voice.groq_api_key or "").strip()
-                else "Groq key missing"
-            )
+            if str(self.config.voice.groq_api_key or "").strip():
+                key_status = "local Groq key ready"
+            elif has_stored_cloud_auth(self.config):
+                key_status = "cloud voice ready"
+            else:
+                key_status = "voice provider missing"
             self.post_notice(
                 "Flow",
                 f"{status}. {key_status}. Press Ctrl+S in any text field.",
@@ -13672,87 +13679,106 @@ class ReupApp(App):
             return
 
         if session.name is None:
-            if allow_name_generation:
-                session.set_auto_name(await self.generate_session_name(session))
-            else:
-                session.set_auto_name(self._fallback_session_name(session))
+            session.set_auto_name(self._fallback_session_name(session))
             if refresh_ui:
                 self.refresh_header()
         elif allow_name_generation and session.should_refresh_auto_name():
-            refreshed = await self.generate_session_name(session)
-            if refreshed and refreshed.strip() and refreshed.strip() != session.name:
-                session.set_auto_name(refreshed)
-                if refresh_ui:
-                    self.refresh_header()
+            self._queue_session_name_refinement(
+                session,
+                workspace=workspace,
+                refresh_ui=refresh_ui,
+            )
 
         snapshot = SessionSnapshot(
             **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
         )
         SessionManager().save_session(snapshot)
 
+    def _queue_session_name_refinement(
+        self,
+        session: Session,
+        *,
+        workspace: Path,
+        refresh_ui: bool,
+    ) -> None:
+        session_id = self._session_id(session)
+        if not session_id or session_id in self._session_name_refinements:
+            return
+        self._session_name_refinements.add(session_id)
+        self.run_worker(
+            self._refine_session_name(
+                session,
+                workspace=workspace,
+                refresh_ui=refresh_ui,
+            ),
+            exclusive=False,
+        )
+
+    async def _refine_session_name(
+        self,
+        session: Session,
+        *,
+        workspace: Path,
+        refresh_ui: bool,
+    ) -> None:
+        session_id = self._session_id(session)
+        try:
+            if getattr(session, "name_locked", False):
+                return
+            current = str(session.name or "").strip()
+            refreshed = (await self._generate_cloud_session_name(session) or "").strip()
+            if refreshed and refreshed != current:
+                session.set_auto_name(refreshed)
+                if session_id:
+                    self._session_name_refinement_failures.pop(session_id, None)
+            elif getattr(session, "name_source", None) == "auto" and session_id:
+                failures = self._session_name_refinement_failures.get(session_id, 0) + 1
+                self._session_name_refinement_failures[session_id] = failures
+                if failures < 2:
+                    return
+                session.name_last_generated_turn = max(
+                    int(getattr(session, "name_last_generated_turn", 0) or 0),
+                    int(getattr(session, "turn_count", 0) or 0),
+                )
+                self._session_name_refinement_failures.pop(session_id, None)
+            snapshot = SessionSnapshot(
+                **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
+            )
+            SessionManager().save_session(snapshot)
+            if refresh_ui and refreshed and refreshed != current:
+                self.refresh_header()
+        finally:
+            if session_id:
+                self._session_name_refinements.discard(session_id)
+
     def _fallback_session_name(self, session: Session) -> str:
         try:
-            first_user = str(session.name_generation_context().get("first_user", ""))
+            context = session.name_generation_context()
         except Exception:
-            first_user = ""
-        fallback = first_user.split(".")[0].split("?")[0].split("!")[0][:60]
-        return fallback.strip() or "New thread"
+            context = {}
+        return local_session_title(context)
 
     async def generate_session_name(self, session: Session) -> str:
-        first_user = ""
+        cloud_title = await self._generate_cloud_session_name(session)
+        if cloud_title:
+            return cloud_title
+        return self._fallback_session_name(session)
+
+    async def _generate_cloud_session_name(self, session: Session) -> str | None:
         try:
             context = session.name_generation_context()
-            first_user = context.get("first_user", "")
-            first_assistant = context.get("first_assistant", "")
-            latest_user = context.get("latest_user", "")
-            focus_hint = context.get("focus_hint", "")
+            first_user = str(context.get("first_user", "") or "")
 
             if not first_user:
-                return "New thread"
-            if (
-                str(getattr(self.config.model, "source_kind", "") or "")
-                .strip()
-                .lower()
-                == "bundled"
-            ):
-                return self._fallback_session_name(session)
-
-            naming_messages = [
-                {
-                    "role": "user",
-                    "content": (
-                        "Generate a concise 3-6 word title for this conversation. "
-                        "Prefer the current active work focus over the initial exploratory question if they differ. "
-                        "Reply with ONLY the title text, nothing else. No quotes, no punctuation at the end.\n\n"
-                        f"Initial user: {first_user}\n"
-                        + (
-                            f"Initial assistant: {first_assistant}\n"
-                            if first_assistant
-                            else ""
-                        )
-                        + (f"Latest user: {latest_user}\n" if latest_user else "")
-                        + (f"Active focus: {focus_hint}" if focus_hint else "")
-                    ),
-                }
-            ]
-
-            title = ""
-            async for event in session.client.chat_completion(
-                naming_messages,
-                tools=None,
-                stream=False,
-            ):
-                if event.text_delta and event.text_delta.content:
-                    title += event.text_delta.content
-
-            title = title.strip()[:60]
-            if title:
-                return title
+                return None
+            cloud_title = await generate_cloud_session_title(self.config, context)
+            if cloud_title:
+                return cloud_title
 
         except Exception:
             pass
 
-        return self._fallback_session_name(session)
+        return None
 
 
 def run_reup(config: Config) -> None:

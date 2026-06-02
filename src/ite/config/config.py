@@ -15,10 +15,7 @@ DEFAULT_CONTEXT_WINDOW = 256_000
 FIXED_PROVIDER_CONTEXT_WINDOW = 200_000
 DEFAULT_CLOUD_API_URL = "https://ite-cloud-api.onrender.com"
 DEFAULT_CLOUD_CLIENT_ID = "ite-cli"
-DEFAULT_VOICE_GROQ_API_KEY = (
-    "gsk_"
-    "OetzGE4CB6QncKycK488WGdyb3FYy4jKK87lYpzVng5J2NNKhO3X"
-)
+DEFAULT_VOICE_GROQ_API_KEY = ""
 
 
 def default_cloud_device_name() -> str:

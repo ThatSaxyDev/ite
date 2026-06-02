@@ -19,7 +19,7 @@ from ite.voice.transcription import _is_hallucination
 
 
 class VoiceConfigTests(unittest.TestCase):
-    def test_voice_is_enabled_by_default_with_builtin_key(self) -> None:
+    def test_voice_is_enabled_by_default_without_builtin_key(self) -> None:
         config = Config(api_key="key", base_url="http://example.test")
 
         self.assertTrue(config.voice.enabled)
@@ -38,7 +38,7 @@ class VoiceConfigTests(unittest.TestCase):
         self.assertTrue(config.voice.enabled)
         self.assertEqual(config.voice.groq_api_key, "gsk-test")
 
-    def test_voice_env_can_disable_builtin_voice(self) -> None:
+    def test_voice_env_can_disable_voice(self) -> None:
         with patch.dict(os.environ, {"ITE_VOICE_ENABLED": "false"}):
             config = Config(api_key="key", base_url="http://example.test")
 

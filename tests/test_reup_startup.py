@@ -1043,7 +1043,7 @@ class ReupStartupTests(unittest.TestCase):
                 await app._perform_quit()
 
             generate_name.assert_not_awaited()
-            self.assertEqual(session.name, "Investigate exit bug")
+            self.assertEqual(session.name, "Investigate Exit Bug")
             session_manager.return_value.save_session.assert_called_once()
 
         asyncio.run(run_test())
