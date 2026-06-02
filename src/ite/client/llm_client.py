@@ -556,6 +556,12 @@ class LLMClient:
                                 usage_payload = event.get("usage") or {}
                                 if not isinstance(usage_payload, dict):
                                     usage_payload = {}
+                                quotas_payload = event.get("quotas")
+                                usage_summary = (
+                                    {"quotas": quotas_payload}
+                                    if isinstance(quotas_payload, dict)
+                                    else None
+                                )
                                 usage = TokenUsage(
                                     prompt_tokens=int(usage_payload.get("promptTokens") or 0),
                                     completion_tokens=int(usage_payload.get("completionTokens") or 0),
@@ -568,6 +574,7 @@ class LLMClient:
                                     type=StreamEventType.MESSAGE_COMPLETE,
                                     finish_reason=str(event.get("finishReason") or "stop"),
                                     usage=usage,
+                                    usage_summary=usage_summary,
                                     reasoning_content=str(reasoning_content) if reasoning_content else None,
                                 )
                                 continue

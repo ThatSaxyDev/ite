@@ -1409,13 +1409,15 @@ class ThemePickerModal(ModalScreen[str | None]):
 class UsageSummaryModal(ModalScreen[None]):
     BINDINGS = [("escape", "dismiss", "Dismiss")]
 
-    def __init__(self, summary: dict[str, Any]) -> None:
+    def __init__(self, summary: dict[str, Any] | None, *, loading: bool = False) -> None:
         super().__init__()
         self._summary = summary
+        self._loading = loading and summary is None
+        self._unavailable = False
 
     @staticmethod
-    def _remaining_percent(used: int, cap: int) -> int:
-        cap = max(1, cap)
+    def _remaining_percent(used: float, cap: float) -> int:
+        cap = max(1.0, cap)
         return max(0, min(100, round(((cap - used) / cap) * 100)))
 
     def _window_fallback_reset(self, label: str) -> datetime:
@@ -1472,7 +1474,6 @@ class UsageSummaryModal(ModalScreen[None]):
         return bar
 
     def _build_renderable(self) -> Group:
-        quotas = self._summary.get("quotas") or {}
         sections: list[object] = []
         # Get theme-aware colors
         from ite.ui.reup.app import ReupApp
@@ -1484,6 +1485,19 @@ class UsageSummaryModal(ModalScreen[None]):
         else:
             fg = "#f3f4f6"
             muted = "#8f949d"
+
+        if self._unavailable:
+            return Group(
+                Text("Usage is not available right now.", style=f"bold {fg}"),
+                Text("Try again in a moment.", style=muted),
+            )
+        if self._loading or not self._summary:
+            return Group(
+                Text("Loading usage...", style=f"bold {fg}"),
+                Text("Fetching the latest bundled usage windows.", style=muted),
+            )
+
+        quotas = self._summary.get("quotas") or {}
         quota_rows = (
             ("5h", "fiveHour"),
             ("Weekly", "sevenDay"),
@@ -1491,8 +1505,8 @@ class UsageSummaryModal(ModalScreen[None]):
         )
         for index, (label, key) in enumerate(quota_rows):
             quota = quotas.get(key) or {}
-            used = int(quota.get("usedUsdCents") or 0)
-            cap = max(1, int(quota.get("capUsdCents") or 1))
+            used = float(quota.get("usedUsdCents") or 0)
+            cap = max(1.0, float(quota.get("capUsdCents") or 1))
             remaining = self._remaining_percent(used, cap)
             reset_time = self._format_reset_time(str(quota.get("nextResetAt") or ""), label)
 
@@ -1510,11 +1524,35 @@ class UsageSummaryModal(ModalScreen[None]):
 
         return Group(*sections)
 
+    def _refresh_body(self) -> None:
+        try:
+            self.query_one("#usage-summary-body", Static).update(self._build_renderable())
+        except Exception:
+            return
+
+    def update_summary(self, summary: dict[str, Any]) -> None:
+        self._summary = summary
+        self._loading = False
+        self._unavailable = False
+        self._refresh_body()
+
+    def mark_unavailable(self) -> None:
+        self._loading = False
+        if self._summary:
+            self._refresh_body()
+            return
+        self._unavailable = True
+        self._refresh_body()
+
     def compose(self) -> ComposeResult:
         with Container(classes="modal usage-modal"):
             yield Label("Usage", classes="modal-title")
             with Container(classes="usage-summary-panel"):
-                yield Static(self._build_renderable(), classes="usage-summary-body")
+                yield Static(
+                    self._build_renderable(),
+                    id="usage-summary-body",
+                    classes="usage-summary-body",
+                )
             with Horizontal(classes="modal-actions"):
                 yield Button("Close", id="cancel", variant="default")
 

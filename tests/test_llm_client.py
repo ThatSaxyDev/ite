@@ -15,9 +15,16 @@ from ite.config.config import Config
 class _FakeResponse:
     status_code = 200
 
-    def __init__(self, *, status_code: int = 200, payload: dict | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        status_code: int = 200,
+        payload: dict | None = None,
+        stream_events: list[dict] | None = None,
+    ) -> None:
         self.status_code = status_code
         self._payload = payload or {"ok": True, "output": "hi", "usage": {}}
+        self._stream_events = stream_events
 
     def json(self):
         return self._payload
@@ -28,6 +35,10 @@ class _FakeResponse:
     async def aiter_lines(self):
         if self.status_code != 200:
             yield json.dumps(self._payload)
+            return
+        if self._stream_events is not None:
+            for event in self._stream_events:
+                yield json.dumps(event)
             return
         yield json.dumps(
             {
@@ -510,6 +521,50 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(captured), 2)
         self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+
+    async def test_cloud_chat_completion_preserves_usage_summary_quotas(self) -> None:
+        captured: list[dict] = []
+        config = self._bundled_config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        quotas = {"fiveHour": {"usedUsdCents": 0.5, "capUsdCents": 100}}
+        responses: list[object] = [
+            _FakeResponse(
+                stream_events=[
+                    {
+                        "type": "message_complete",
+                        "finishReason": "stop",
+                        "usage": {
+                            "promptTokens": 10,
+                            "completionTokens": 2,
+                            "totalTokens": 12,
+                        },
+                        "quotas": quotas,
+                    }
+                ]
+            )
+        ]
+
+        def _fake_async_client(*args, **kwargs):
+            return _FakeAsyncClient(capture=captured, responses=responses)
+
+        with (
+            patch("ite.client.llm_client.get_cloud_session", return_value=session),
+            patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client),
+        ):
+            events = []
+            async for event in client._cloud_chat_completion(
+                [{"role": "user", "content": "hello"}],
+                tools=None,
+            ):
+                events.append(event)
+
+        self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+        self.assertEqual(events[-1].usage_summary, {"quotas": quotas})
 
     async def test_cloud_complete_text_retries_transient_connection_error(self) -> None:
         captured: list[dict] = []

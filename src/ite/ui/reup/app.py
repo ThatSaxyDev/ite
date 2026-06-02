@@ -3496,9 +3496,16 @@ class ReupApp(App):
     def _five_hour_usage_remaining_percent(summary: dict[str, Any]) -> int:
         quotas = summary.get("quotas") or {}
         five_hour = quotas.get("fiveHour") or {}
-        used = int(five_hour.get("usedUsdCents") or 0)
-        cap = max(1, int(five_hour.get("capUsdCents") or 1))
+        used = float(five_hour.get("usedUsdCents") or 0)
+        cap = max(1.0, float(five_hour.get("capUsdCents") or 1))
         return max(0, min(100, round(((cap - used) / cap) * 100)))
+
+    async def _refresh_usage_modal(self, modal: UsageSummaryModal) -> None:
+        summary = await self._refresh_usage_summary_cache()
+        if summary:
+            modal.update_summary(summary)
+        else:
+            modal.mark_unavailable()
 
     async def _refresh_activity_cache(self) -> None:
         try:
@@ -4824,17 +4831,9 @@ class ReupApp(App):
                 is_error=True,
             )
             return
-        self._usage_summary_cache = None
-        if self._usage_remaining_percent is not None:
-            self._usage_remaining_percent = None
-            self.refresh_header()
-        summary = await self._refresh_usage_summary_cache()
-        if not summary:
-            self.post_system(
-                "Usage", "Usage is not available right now.", is_error=True
-            )
-            return
-        await self._open_modal(UsageSummaryModal(summary))
+        modal = UsageSummaryModal(self._usage_summary_cache, loading=True)
+        self.run_worker(self._refresh_usage_modal(modal), exclusive=False)
+        await self._open_modal(modal)
 
     async def _open_context_modal_from_meta(self) -> None:
         await self.ensure_agent()
@@ -9776,6 +9775,12 @@ class ReupApp(App):
             await self._post_turn_change_summary()
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
+            return
+
+        if event.type == AgentEventType.USAGE_UPDATE:
+            summary = event.data.get("summary")
+            if isinstance(summary, dict):
+                self._set_usage_summary_cache(summary)
             return
 
         if event.type == AgentEventType.TEXT_DELTA:

@@ -18,7 +18,7 @@ from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp, UserMessageRow, pluralize_tool_title
 from ite.ui.reup.composer_views import composer_meta_text
 from ite.ui.reup.markdown_widget import CopyableMarkdown
-from ite.ui.reup.modals import ActivityModal, ConfirmModal
+from ite.ui.reup.modals import ActivityModal, ConfirmModal, UsageSummaryModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
@@ -976,7 +976,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_usage_modal_refreshes_stale_cached_summary(self) -> None:
+    def test_open_usage_modal_opens_before_refreshing_stale_cached_summary(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.7"
@@ -991,22 +991,29 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "quotas": {"fiveHour": {"usedUsdCents": 2, "capUsdCents": 20}}
             }
 
+            async def fake_open_modal(modal):
+                self.assertIsInstance(modal, UsageSummaryModal)
+                self.assertEqual(modal._summary, app._usage_summary_cache)
+                return None
+
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
                 "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
             ) as get_usage_summary, patch.object(
-                app, "_open_modal", AsyncMock(return_value=None)
+                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
             ), patch.object(
-                app, "refresh_header"
+                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
             ):
                 await app._open_usage_modal_from_meta()
 
-            get_usage_summary.assert_called_once()
-            self.assertEqual(app._usage_summary_cache, fresh_summary)
-            self.assertEqual(app._usage_remaining_percent, 90)
+            get_usage_summary.assert_not_called()
+            self.assertEqual(
+                app._usage_summary_cache,
+                {"quotas": {"fiveHour": {"usedUsdCents": 20, "capUsdCents": 20}}},
+            )
 
         asyncio.run(run_test())
 
-    def test_open_usage_modal_keeps_composer_usage_on_five_hour_window(self) -> None:
+    def test_refresh_usage_modal_updates_cache_and_modal_summary(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.7"
@@ -1021,17 +1028,46 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     "thirtyDay": {"usedUsdCents": 80, "capUsdCents": 100},
                 }
             }
+            modal = UsageSummaryModal(None, loading=True)
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+            with patch(
                 "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
-            ), patch.object(
-                app, "_open_modal", AsyncMock(return_value=None)
-            ), patch.object(
+            ) as get_usage_summary, patch.object(
                 app, "refresh_header"
             ):
-                await app._open_usage_modal_from_meta()
+                await app._refresh_usage_modal(modal)
 
+            get_usage_summary.assert_called_once()
+            self.assertEqual(app._usage_summary_cache, fresh_summary)
+            self.assertEqual(modal._summary, fresh_summary)
             self.assertEqual(app._usage_remaining_percent, 90)
+
+        asyncio.run(run_test())
+
+    def test_usage_update_event_updates_composer_usage_cache_immediately(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            summary = {
+                "quotas": {
+                    "fiveHour": {"usedUsdCents": 0.5, "capUsdCents": 100}
+                }
+            }
+
+            with patch.object(
+                app, "_broadcast_remote_agent_event", AsyncMock()
+            ), patch.object(app, "refresh_header") as refresh_header:
+                await app.handle_agent_event(
+                    AgentEvent.usage_update(summary),
+                    "s1",
+                    1,
+                )
+
+            self.assertEqual(app._usage_summary_cache, summary)
+            self.assertEqual(app._usage_remaining_percent, 100)
+            refresh_header.assert_called_once()
 
         asyncio.run(run_test())
 

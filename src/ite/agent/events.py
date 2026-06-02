@@ -27,6 +27,7 @@ class AgentEventType(str, Enum):
     CONTEXT_COMPACTING = "context_compacting"
     CONTEXT_COMPACTED = "context_compacted"
     PLAN_READY = "plan_ready"
+    USAGE_UPDATE = "usage_update"
 
 
 @dataclass
@@ -71,6 +72,13 @@ class AgentEvent:
         return cls(
             type=AgentEventType.TEXT_DELTA,
             data={"content": content},
+        )
+
+    @classmethod
+    def usage_update(cls, summary: dict[str, Any]) -> AgentEvent:
+        return cls(
+            type=AgentEventType.USAGE_UPDATE,
+            data={"summary": summary},
         )
 
     @classmethod

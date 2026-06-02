@@ -1548,6 +1548,8 @@ class Agent:
                     usage = event.usage
                     finish_reason = event.finish_reason
                     reasoning_content = event.reasoning_content
+                    if event.usage_summary:
+                        yield AgentEvent.usage_update(event.usage_summary)
 
             visible_tail, raw_tool_markup_buffer, inside_raw_tool_markup = (
                 self._consume_raw_tool_call_markup(

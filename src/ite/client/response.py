@@ -64,6 +64,7 @@ class StreamEvent:
     tool_call_delta: ToolCallDelta | None = None
     tool_call: ToolCall | None = None
     usage: TokenUsage | None = None
+    usage_summary: dict[str, Any] | None = None
 
 
 @dataclass
