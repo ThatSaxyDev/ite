@@ -1117,6 +1117,7 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "_set_onboarding_state") as set_onboarding_state,
                 patch.object(app, "_set_loading_state"),
+                patch.object(app, "_schedule_runtime_update_check"),
                 patch.object(app, "run_worker"),
                 patch(
                     "ite.ui.reup.app.asyncio.to_thread",
@@ -1129,6 +1130,91 @@ class ReupStartupTests(unittest.TestCase):
             set_onboarding_state.assert_not_called()
 
         asyncio.run(run_test())
+
+    def test_mount_suppresses_workspace_hint_during_cloud_bootstrap(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            refresh_states: list[bool] = []
+            toggle = SimpleNamespace(display=True)
+
+            def consume_work(work, **_kwargs):
+                if asyncio.iscoroutine(work):
+                    work.close()
+                return None
+
+            with (
+                patch.object(app, "watch_theme"),
+                patch.object(app, "query_one", return_value=toggle),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(
+                    app,
+                    "_refresh_empty_state",
+                    side_effect=lambda: refresh_states.append(
+                        app._cloud_bootstrap_busy
+                    ),
+                ),
+                patch.object(app, "_resize_composer_for_prompt"),
+                patch.object(app, "_apply_aside_panel_state"),
+                patch.object(app, "_apply_change_review_panel_state"),
+                patch.object(app, "_apply_hooks_panel_state"),
+                patch.object(app, "set_interval"),
+                patch.object(app, "run_worker", side_effect=consume_work),
+            ):
+                await app.on_mount()
+
+            self.assertEqual(refresh_states, [True])
+
+        asyncio.run(run_test())
+
+    def test_signed_out_surface_clears_workspace_hint_toasts(self) -> None:
+        app = self._app()
+        app._cloud_signed_out = True
+
+        def widget() -> SimpleNamespace:
+            return SimpleNamespace(
+                display=True,
+                disabled=False,
+                label="",
+                styles=SimpleNamespace(padding=None),
+                update=lambda _value: None,
+            )
+
+        widgets = {
+            "#conversation": widget(),
+            "#empty-state": widget(),
+            "#startup-state": widget(),
+            "#signed-out-state": widget(),
+            "#update-required-state": widget(),
+            "#onboarding-state": widget(),
+            "#session-switch-state": widget(),
+            "#composer": widget(),
+            "#topbar": widget(),
+            "#chat-body": widget(),
+            "#prompt": widget(),
+            "#session-tabs-scroll": widget(),
+            "#cloud-sign-in": widget(),
+            "#startup-status": widget(),
+            "#signed-out-copy": widget(),
+            "#signed-out-status": widget(),
+        }
+
+        with (
+            patch.object(
+                app,
+                "query_one",
+                side_effect=lambda selector, *_args: widgets.get(selector, widget()),
+            ),
+            patch.object(app, "clear_notifications") as clear_notifications,
+            patch.object(app, "_apply_aside_panel_state"),
+            patch.object(app, "_apply_change_review_panel_state"),
+            patch.object(app, "_apply_thread_switcher_button_state"),
+            patch.object(app, "refresh_header"),
+        ):
+            app._apply_shell_surface()
+
+        clear_notifications.assert_called_once()
 
     def test_bootstrap_clears_startup_surface_after_agent_ready(self) -> None:
         async def run_test() -> None:

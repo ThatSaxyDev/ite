@@ -1720,6 +1720,8 @@ class ReupApp(App):
             self.query_one("#threads-toggle", Button).display = False
         except Exception:
             pass
+        if self.config.cloud_auth_enabled:
+            self._cloud_bootstrap_busy = True
         if not self.config.cloud_auth_enabled:
             self._set_local_account_plan_state(refresh=False)
         self.refresh_header()
@@ -1736,8 +1738,6 @@ class ReupApp(App):
             3.0, self._poll_change_review_panel
         )
         self.set_interval(0.3, self._poll_head_change)
-        if self.config.cloud_auth_enabled:
-            self._cloud_bootstrap_busy = True
         self.run_worker(self._initialize_command_palette(), exclusive=False)
         self.run_worker(self._bootstrap_after_mount(), exclusive=False)
 
@@ -4902,12 +4902,7 @@ class ReupApp(App):
         )
 
     def _maybe_post_workspace_agents_recommendation(self) -> None:
-        if (
-            self._startup_active
-            or self._cloud_signed_out
-            or self._onboarding_active
-            or self._cloud_bootstrap_busy
-        ):
+        if not self._workspace_agents_recommendation_surface_ready():
             return
         workspace = Path(self.config.cwd).resolve()
         workspace_key = str(workspace)
@@ -4922,6 +4917,16 @@ class ReupApp(App):
             recommendation.notice_title(),
             recommendation.notice_message(),
             timeout=8,
+        )
+
+    def _workspace_agents_recommendation_surface_ready(self) -> bool:
+        return not (
+            self._startup_active
+            or self._cloud_signed_out
+            or self._onboarding_active
+            or self._cloud_bootstrap_busy
+            or self._session_switching
+            or self._required_update_notice is not None
         )
 
     def _run_worker_safely(
@@ -5056,6 +5061,8 @@ class ReupApp(App):
             and (not in_bootstrap)
             and (not in_session_switch)
         )
+        if in_signed_out or in_bootstrap:
+            self.clear_notifications()
 
         startup.display = in_startup
         update_required.display = in_required_update
