@@ -29,6 +29,10 @@ LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
     "glm-5.1:cloud": "z-ai/glm-5.1",
 }
 
+CLOUD_AGENT_MAX_TOKENS_DEFAULT = 4_096
+CLOUD_AGENT_MAX_TOKENS_DEEPSEEK = 8_192
+CLOUD_TEXT_MAX_TOKENS = 1_200
+
 
 class LLMClient:
     def __init__(self, config: Config) -> None:
@@ -137,6 +141,12 @@ class LLMClient:
             return LEGACY_BUNDLED_MODEL_ALIASES.get(model_name, model_name)
         return model_name
 
+    def _cloud_agent_max_tokens(self, model_name: str) -> int:
+        normalized = model_name.strip().lower()
+        if "deepseek-v4" in normalized:
+            return CLOUD_AGENT_MAX_TOKENS_DEEPSEEK
+        return CLOUD_AGENT_MAX_TOKENS_DEFAULT
+
     def _format_cloud_error(self, payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}
         details = error.get("details") or {}
@@ -202,9 +212,28 @@ class LLMClient:
             )
 
         if code == "model_budget_exhausted":
+            policy = str(details.get("policyExceeded") or "")
+            window_label = {
+                "five_hour_budget": "5-hour model budget",
+                "seven_day_budget": "weekly model budget",
+            }.get(policy, "model budget")
             return (
-                "This bundled model has reached its bundled budget limit for your account right now. "
+                f"This bundled model has reached its {window_label} for your account right now. "
                 "Switch to a cheaper bundled model, wait for the window to reset, or use your own key."
+            )
+
+        if code == "model_output_limited":
+            max_tokens = details.get("maxOutputTokens")
+            requested = details.get("requestedMaxTokens")
+            if max_tokens:
+                return (
+                    f"This bundled model is capped at {max_tokens} output tokens per request. "
+                    f"Requested {requested or 'more than the policy allows'}. "
+                    "Lower the output limit or use your own key."
+                )
+            return (
+                "This bundled model has a lower output-token cap. "
+                "Lower the output limit or use your own key."
             )
 
         if code == "provider_request_failed":
@@ -552,7 +581,7 @@ class LLMClient:
         request_payload: dict[str, Any] = {
             "model": model_name,
             "messages": safe_messages,
-            "maxTokens": 1200,
+            "maxTokens": self._cloud_agent_max_tokens(model_name),
             "temperature": self.config.temperature,
         }
         if self.config.model_name == "gemma4:31b-cloud":
@@ -641,7 +670,7 @@ class LLMClient:
         request_payload: dict[str, Any] = {
             "model": model_name,
             "messages": safe_messages,
-            "maxTokens": 1200,
+            "maxTokens": CLOUD_TEXT_MAX_TOKENS,
             "temperature": self.config.temperature,
         }
 

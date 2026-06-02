@@ -1587,11 +1587,6 @@ class ReupApp(App):
                                         "Sign in", id="cloud-sign-in", variant="primary"
                                     )
                                     yield Button(
-                                        "Skip sign-in",
-                                        id="cloud-skip-sign-in",
-                                        variant="default",
-                                    )
-                                    yield Button(
                                         "Exit", id="cloud-exit", variant="default"
                                     )
                                 yield Static("", id="signed-out-status")
@@ -3420,19 +3415,18 @@ class ReupApp(App):
             return
         self._usage_summary_cache = summary
         if summary:
-            quotas = summary.get("quotas") or {}
-            remaining_values: list[int] = []
-            for key in ("fiveHour", "sevenDay", "thirtyDay"):
-                quota = quotas.get(key) or {}
-                used = int(quota.get("usedUsdCents") or 0)
-                cap = max(1, int(quota.get("capUsdCents") or 1))
-                remaining_values.append(
-                    max(0, min(100, round(((cap - used) / cap) * 100)))
-                )
-            remaining = min(remaining_values) if remaining_values else 100
+            remaining = self._five_hour_usage_remaining_percent(summary)
             if remaining != self._usage_remaining_percent:
                 self._usage_remaining_percent = remaining
                 self.refresh_header()
+
+    @staticmethod
+    def _five_hour_usage_remaining_percent(summary: dict[str, Any]) -> int:
+        quotas = summary.get("quotas") or {}
+        five_hour = quotas.get("fiveHour") or {}
+        used = int(five_hour.get("usedUsdCents") or 0)
+        cap = max(1, int(five_hour.get("capUsdCents") or 1))
+        return max(0, min(100, round(((cap - used) / cap) * 100)))
 
     async def _refresh_activity_cache(self) -> None:
         try:
@@ -3623,11 +3617,7 @@ class ReupApp(App):
             summary = await asyncio.to_thread(get_usage_summary, self.config)
             remaining: int | None = None
             if summary:
-                quotas = summary.get("quotas") or {}
-                five_hour = quotas.get("fiveHour") or {}
-                used = int(five_hour.get("usedUsdCents") or 0)
-                cap = max(1, int(five_hour.get("capUsdCents") or 1))
-                remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+                remaining = self._five_hour_usage_remaining_percent(summary)
             if remaining != self._usage_remaining_percent:
                 self._usage_remaining_percent = remaining
                 self.refresh_header()
@@ -4762,16 +4752,7 @@ class ReupApp(App):
             )
             return
         self._usage_summary_cache = summary
-        quotas = summary.get("quotas") or {}
-        remaining_values: list[int] = []
-        for key in ("fiveHour", "sevenDay", "thirtyDay"):
-            quota = quotas.get(key) or {}
-            used = int(quota.get("usedUsdCents") or 0)
-            cap = max(1, int(quota.get("capUsdCents") or 1))
-            remaining_values.append(max(0, min(100, round(((cap - used) / cap) * 100))))
-        self._usage_remaining_percent = (
-            min(remaining_values) if remaining_values else 100
-        )
+        self._usage_remaining_percent = self._five_hour_usage_remaining_percent(summary)
         self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
 
@@ -5046,7 +5027,6 @@ class ReupApp(App):
         prompt = self.query_one("#prompt", TextArea)
         session_tabs = self.query_one("#session-tabs-scroll", HorizontalScroll)
         sign_in = self.query_one("#cloud-sign-in", Button)
-        skip_sign_in = self.query_one("#cloud-skip-sign-in", Button)
         footer = self.query_one(Footer)
         header = self.query_one(Header)
 
@@ -5103,7 +5083,6 @@ class ReupApp(App):
         )
         prompt.disabled = not in_chat and not in_session_switch
         sign_in.disabled = self._cloud_auth_busy
-        skip_sign_in.disabled = self._cloud_auth_busy
         sign_in.label = "Sign in"
         self.query_one("#startup-status", Static).update(self._startup_status_text())
         self._update_session_switch_spinner()

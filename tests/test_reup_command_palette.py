@@ -711,6 +711,35 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_open_usage_modal_keeps_composer_usage_on_five_hour_window(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.model.name = "minimax/minimax-m2.7"
+            app.config.model.source_kind = "bundled"
+            app._bundled_models_cache = [
+                {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
+            ]
+            app._usage_summary_cache = {
+                "quotas": {
+                    "fiveHour": {"usedUsdCents": 10, "capUsdCents": 100},
+                    "sevenDay": {"usedUsdCents": 30, "capUsdCents": 100},
+                    "thirtyDay": {"usedUsdCents": 80, "capUsdCents": 100},
+                }
+            }
+
+            with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
+                app, "_open_modal", AsyncMock(return_value=None)
+            ), patch.object(
+                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+            ), patch.object(
+                app, "refresh_header"
+            ):
+                await app._open_usage_modal_from_meta()
+
+            self.assertEqual(app._usage_remaining_percent, 90)
+
+        asyncio.run(run_test())
+
     def test_open_activity_modal_uses_cached_payload_without_refetch(self) -> None:
         async def run_test() -> None:
             app = self._app()

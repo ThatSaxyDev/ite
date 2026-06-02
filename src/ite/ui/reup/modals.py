@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
@@ -1393,17 +1393,36 @@ class UsageSummaryModal(ModalScreen[None]):
         super().__init__()
         self._summary = summary
 
-    def _format_reset(self, value: str, label: str) -> str:
+    def _window_fallback_reset(self, label: str) -> datetime:
+        now = datetime.now().astimezone()
+        if label == "5h":
+            return now + timedelta(hours=5)
+        if label == "Weekly":
+            return now + timedelta(days=7)
+        return now + timedelta(days=30)
+
+    def _format_reset_time(self, value: str, label: str) -> str:
         try:
-            dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+            dt = (
+                datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+                if value
+                else self._window_fallback_reset(label)
+            )
         except ValueError:
-            return "Resets soon"
+            dt = self._window_fallback_reset(label)
         if label == "5h":
             time_str = dt.strftime('%I:%M%p').lstrip('0').lower()
-            return f"Resets {time_str}"
+            return time_str
         day_str = str(dt.day)
         time_str = dt.strftime('%I:%M%p').lstrip('0').lower()
-        return f"Resets {dt.strftime('%B')} {day_str} at {time_str}"
+        return f"{dt.strftime('%B')} {day_str} at {time_str}"
+
+    def _build_window_label(self, label: str, reset_time: str, fg: str, muted: str) -> Text:
+        text = Text()
+        text.append(label, style=f"bold {fg}")
+        text.append(" | ", style=muted)
+        text.append(reset_time, style=muted)
+        return text
 
     def _build_bar(self, remaining_percent: int, width: int = 92) -> Text:
         used_percent = max(0, min(100, 100 - remaining_percent))
@@ -1450,21 +1469,16 @@ class UsageSummaryModal(ModalScreen[None]):
             used = int(quota.get("usedUsdCents") or 0)
             cap = max(1, int(quota.get("capUsdCents") or 1))
             remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+            reset_time = self._format_reset_time(str(quota.get("nextResetAt") or ""), label)
 
             row = Table.grid(expand=True)
             row.add_column(ratio=1)
             row.add_column(justify="right", width=18)
             row.add_row(
-                Text(label, style=f"bold {fg}"),
+                self._build_window_label(label, reset_time, fg, muted),
                 Text(f"{remaining}% remaining", style=f"bold {fg}"),
             )
             sections.append(row)
-            sections.append(
-                Text(
-                    self._format_reset(str(quota.get("nextResetAt") or ""), label),
-                    style=muted,
-                )
-            )
             sections.append(self._build_bar(remaining))
             if index < len(quota_rows) - 1:
                 sections.append(Text(""))
