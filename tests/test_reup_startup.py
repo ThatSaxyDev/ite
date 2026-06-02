@@ -1651,7 +1651,8 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_apply_shell_surface"),
                 patch.object(app, "_set_onboarding_state"),
                 patch.object(app, "_refresh_empty_state"),
-                patch.object(app, "_open_setup_modal", AsyncMock()),
+                patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
+                patch.object(app, "post_notice") as post_notice,
                 patch.object(app, "ensure_agent", AsyncMock()),
                 patch(
                     "ite.ui.reup.app.asyncio.to_thread", AsyncMock(return_value=None)
@@ -1668,6 +1669,9 @@ class ReupStartupTests(unittest.TestCase):
                 await app._finish_onboarding_flow(skip=True)
 
             self.assertTrue(app.config.onboarding_completed)
+            open_setup_modal.assert_not_awaited()
+            post_notice.assert_called_once()
+            self.assertIn("/setup", post_notice.call_args.args[1])
 
         asyncio.run(run_test())
 

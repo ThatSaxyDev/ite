@@ -1611,7 +1611,7 @@ class ReupApp(App):
                                     id="onboarding-title",
                                 )
                                 yield Static(
-                                    "A quick setup before you start. Tell iTE a little about you, then choose how you want iTE to reach your model: Ollama on this computer, OpenRouter, or another compatible API.",
+                                    "A quick setup before you start. Tell iTE a little about you so it can tailor the workspace.",
                                     id="onboarding-copy",
                                 )
                                 yield Input(
@@ -5484,12 +5484,12 @@ class ReupApp(App):
 
         self._set_onboarding_state(False)
         if self.config.needs_setup:
-            await self._open_setup_modal(exit_on_cancel=False)
-            # After setup saves new credentials, the agent created during onboarding
-            # has empty credentials. Reset client to force re-creation with new creds.
-            await self._reset_active_provider_client()
-            self.agent = None  # Force fresh agent with valid credentials
-        # Ensure agent is created after onboarding + optional setup completes.
+            self.post_notice(
+                "Model setup",
+                "Run /setup to use local Ollama models, OpenRouter, or your own OpenAI-compatible provider.",
+                timeout=8,
+            )
+        # Ensure agent is created after onboarding completes.
         # This was previously skipped because onboarding blocked the initial ensure_agent() call.
         await self.ensure_agent()
         # Sync the dismissed count to prevent unintended thread nav auto-open.
