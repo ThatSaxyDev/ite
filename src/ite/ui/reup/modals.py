@@ -44,6 +44,7 @@ from ite.model_metadata import (
     format_context_window_label,
     parse_openrouter_model_metadata,
 )
+from ite.ui.reup.model_labels import bundled_model_display_label
 
 SETUP_PROVIDER_OLLAMA = "ollama"
 SETUP_PROVIDER_OPENROUTER = "openrouter"
@@ -1681,9 +1682,9 @@ class ActivityModal(ModalScreen[None]):
         status = metadata.get("status")
         source = str(event.get("source") or "").replace(".", " ")
         if isinstance(model, str) and isinstance(window, str):
-            return f"{model} · {window}"
+            return f"{bundled_model_display_label(model)} · {window}"
         if isinstance(model, str):
-            return model
+            return bundled_model_display_label(model)
         if isinstance(plan_key, str) and isinstance(status, str):
             return f"{plan_key} · {status}"
         if isinstance(plan_key, str):
@@ -1827,7 +1828,7 @@ class ActivityModal(ModalScreen[None]):
             "glm-5": "GLM-5",
             "glm-5.1": "GLM-5.1",
         }
-        return mapping.get(model_key, model_key)
+        return bundled_model_display_label(model_key, mapping.get(model_key, model_key))
 
     def _build_table(self) -> DataTable:
         table = DataTable(cursor_type="row")

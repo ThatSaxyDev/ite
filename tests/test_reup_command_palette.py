@@ -18,7 +18,7 @@ from ite.agent.session_manager import SessionSnapshot
 from ite.ui.reup.app import ReupApp, UserMessageRow, pluralize_tool_title
 from ite.ui.reup.composer_views import composer_meta_text
 from ite.ui.reup.markdown_widget import CopyableMarkdown
-from ite.ui.reup.modals import ConfirmModal
+from ite.ui.reup.modals import ActivityModal, ConfirmModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
@@ -739,6 +739,62 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual([item["source_kind"] for item in options], ["bundled"])
         self.assertEqual(options[0]["model_name"], "deepseek-v4-pro")
         self.assertEqual(current_entry_id, "")
+
+    def test_bundled_deepseek_v4_model_displays_as_cortex(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={"name": "deepseek-v4-pro", "source_kind": "bundled"},
+            )
+        )
+        app._bundled_models_cache = [
+            {
+                "model_name": "deepseek-v4-pro",
+                "label": "DeepSeek V4 Pro",
+                "available": True,
+            }
+        ]
+
+        with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            self.assertEqual(app._model_display_name(), "Cortex")
+
+        self.assertEqual(app.config.model.name, "deepseek-v4-pro")
+
+    def test_model_options_mask_bundled_deepseek_v4_label_only(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={"name": "deepseek-v4-pro", "source_kind": "bundled"},
+            )
+        )
+
+        with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            options, current_entry_id, _bundled_names, _saved = app._build_model_options(
+                [
+                    {
+                        "model_name": "deepseek-v4-pro",
+                        "label": "DeepSeek V4 Pro",
+                    }
+                ],
+                "deepseek-v4-pro",
+            )
+
+        self.assertEqual(options[0]["model_name"], "deepseek-v4-pro")
+        self.assertEqual(options[0]["label"], "Cortex")
+        self.assertEqual(current_entry_id, "bundled:deepseek-v4-pro")
+
+    def test_usage_summary_masks_deepseek_v4_model_label(self) -> None:
+        self.assertEqual(ActivityModal._model_label("deepseek-v4-pro"), "Cortex")
+        self.assertEqual(
+            ActivityModal._detail_for(
+                {"metadata": {"model": "deepseek-v4-pro", "window": "five_hour"}}
+            ),
+            "Cortex · five_hour",
+        )
 
     def test_open_model_picker_opens_empty_state_without_agent_when_no_model_selected(self) -> None:
         async def run_test() -> None:

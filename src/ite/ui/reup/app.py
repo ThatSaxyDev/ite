@@ -189,6 +189,7 @@ from .composer_views import (
     render_turn_action_palette,
     send_control_text,
 )
+from .model_labels import bundled_model_display_label
 from .modals import (
     ActivityModal,
     ApprovalPickerModal,
@@ -3280,12 +3281,18 @@ class ReupApp(App):
             for item in self._bundled_models_cache:
                 model_name = str(item.get("model_name") or "").strip()
                 if model_name == current_model and bool(item.get("available", True)):
-                    return str(item.get("label") or model_name).strip()
+                    return bundled_model_display_label(
+                        model_name,
+                        str(item.get("label") or model_name).strip(),
+                    )
             return "select model"
         for item in self._bundled_models_cache:
             model_name = str(item.get("model_name") or "").strip()
             if model_name == current_model:
-                return str(item.get("label") or model_name).strip()
+                return bundled_model_display_label(
+                    model_name,
+                    str(item.get("label") or model_name).strip(),
+                )
         if (
             persisted_source_kind not in {"bundled", "saved", "custom"}
             and current_model not in saved_providers
@@ -4510,10 +4517,14 @@ class ReupApp(App):
             )
 
         for item in bundled_items:
+            model_name = str(item.get("model_name") or "")
             _append(
                 "bundled",
-                str(item.get("model_name") or ""),
-                str(item.get("label") or item.get("model_name") or ""),
+                model_name,
+                bundled_model_display_label(
+                    model_name,
+                    str(item.get("label") or item.get("model_name") or ""),
+                ),
                 "Bundled",
                 context_window=(
                     int(item.get("context_window"))
