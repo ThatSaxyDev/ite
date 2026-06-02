@@ -815,6 +815,55 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_dispatch_payload_blocks_stale_bundled_model_without_entitlement(self) -> None:
+        async def run_test() -> None:
+            app = ReupApp(
+                Config(
+                    cwd=self.cwd,
+                    api_key="",
+                    base_url="",
+                    model={"name": "deepseek-v4-pro", "source_kind": "bundled"},
+                )
+            )
+            app._bundled_models_cache = []
+            app._bundled_access_denied = True
+            prompt = SimpleNamespace(text="", update=lambda _value: None)
+            markdown_calls: list[str] = []
+
+            class FakeMarkdown:
+                def __init__(self, markdown: str) -> None:
+                    markdown_calls.append(markdown)
+
+            with (
+                patch.object(
+                    app,
+                    "query_one",
+                    side_effect=lambda selector, *_args: {
+                        "#prompt": prompt,
+                    }[selector],
+                ),
+                patch.object(app, "_resize_composer_for_prompt"),
+                patch("ite.ui.reup.app.CopyableMarkdown", FakeMarkdown),
+                patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+                patch.object(app, "run_worker") as run_worker,
+            ):
+                self.assertEqual(app._model_display_name(), "select model")
+                await app._dispatch_payload(
+                    {
+                        "message": "hello",
+                        "display_message": "hello",
+                        "attachments": [],
+                    }
+                )
+
+            self.assertEqual(prompt.text, "hello")
+            add_card.assert_awaited_once()
+            self.assertIn("https://ite.kiishi.space/pricing", markdown_calls[0])
+            self.assertIn("/setup", markdown_calls[0])
+            run_worker.assert_not_called()
+
+        asyncio.run(run_test())
+
     def test_refresh_bundled_models_cache_migrates_legacy_bundled_selection(self) -> None:
         async def run_test() -> None:
             app = self._app()

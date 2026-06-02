@@ -3274,6 +3274,14 @@ class ReupApp(App):
             str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
         )
         saved_providers = load_saved_custom_provider()
+        if persisted_source_kind == "bundled":
+            if self._bundled_access_denied:
+                return "select model"
+            for item in self._bundled_models_cache:
+                model_name = str(item.get("model_name") or "").strip()
+                if model_name == current_model and bool(item.get("available", True)):
+                    return str(item.get("label") or model_name).strip()
+            return "select model"
         for item in self._bundled_models_cache:
             model_name = str(item.get("model_name") or "").strip()
             if model_name == current_model:
@@ -3309,7 +3317,11 @@ class ReupApp(App):
         if self._bundled_access_denied:
             return False
         if persisted_source_kind == "bundled":
-            return True
+            return any(
+                str(item.get("model_name") or "").strip() == model
+                and bool(item.get("available", True))
+                for item in self._bundled_models_cache
+            )
         if persisted_source_kind in {"saved", "custom"}:
             return False
         if not model or self._has_active_user_provider_credentials():
@@ -5000,6 +5012,10 @@ class ReupApp(App):
         self._cloud_signed_out = enabled
         if enabled:
             self._onboarding_active = False
+            self._bundled_models_cache = []
+            self._bundled_access_denied = True
+            self._usage_summary_cache = None
+            self._usage_remaining_percent = None
             self._account_plan_is_pro = False
             self._account_plan_unavailable = False
         self._apply_shell_surface()
