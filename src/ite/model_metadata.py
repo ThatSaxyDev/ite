@@ -47,7 +47,19 @@ def parse_ollama_model_metadata(
 def format_context_window_label(value: int | None) -> str:
     if not value or value <= 0:
         return "Unknown"
+    if value >= 1_000_000:
+        millions = value / 1_000_000
+        if millions >= 10:
+            return f"{round(millions)}M"
+        if millions == int(millions):
+            return f"{int(millions)}M"
+        result = f"{millions:.1f}M"
+        if result.endswith(".0M"):
+            return f"{round(millions)}M"
+        return result
     rounded = round(value / 1000) * 1000
+    if rounded >= 1_000_000:
+        return f"{rounded // 1_000_000}M" if rounded % 1_000_000 == 0 else f"{rounded / 1_000_000:.1f}M"
     return f"{rounded // 1000}K"
 
 

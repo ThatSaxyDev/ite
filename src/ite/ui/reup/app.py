@@ -3438,9 +3438,34 @@ class ReupApp(App):
         self._bundled_access_denied = False
         self._bundled_models_cache = result.models
         self._migrate_legacy_bundled_selection_if_needed()
+        self._sync_bundled_context_window()
         self.refresh_header()
         if self._is_bundled_model():
             self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
+
+    def _sync_bundled_context_window(self) -> None:
+        """Update config context_window from the bundled API cache for the current model."""
+        if not self._bundled_models_cache or not self._is_bundled_model():
+            return
+        current_model = str(self.config.model_name or "").strip()
+        for item in self._bundled_models_cache:
+            if str(item.get("model_name") or "").strip() == current_model:
+                api_window = item.get("context_window")
+                if isinstance(api_window, int) and api_window > 0:
+                    if self.config.model.context_window != api_window:
+                        self.config.model.context_window = api_window
+                        self.config.model.context_window_source = (
+                            str(item.get("context_window_source") or "")
+                            or "bundled_provider_api"
+                        )
+                        if self.agent and self.agent.session:
+                            session_config = getattr(self.agent.session, "config", None)
+                            if session_config is not None:
+                                session_config.model.context_window = api_window
+                                session_config.model.context_window_source = (
+                                    self.config.model.context_window_source
+                                )
+                break
 
     def _set_usage_summary_cache(self, summary: dict[str, Any] | None) -> None:
         self._usage_summary_cache = summary
@@ -3620,17 +3645,28 @@ class ReupApp(App):
         if current_model in saved_providers or canonical_model in saved_providers:
             return
         try:
+            api_window = None
+            for item in self._bundled_models_cache:
+                if str(item.get("model_name") or "").strip() == canonical_model:
+                    window = item.get("context_window")
+                    if isinstance(window, int) and window > 0:
+                        api_window = window
+                    break
             save_system_config(
                 api_key=self.config.api_key or "",
                 base_url=self.config.base_url or "",
                 model_name=canonical_model,
-                context_window=int(
+                context_window=api_window or int(
                     self.config.model.context_window or DEFAULT_CONTEXT_WINDOW
                 ),
-                context_window_source=str(
-                    getattr(self.config.model, "context_window_source", "") or ""
-                ).strip()
-                or "fallback_default",
+                context_window_source=(
+                    "bundled_provider_api"
+                    if api_window
+                    else str(
+                        getattr(self.config.model, "context_window_source", "") or ""
+                    ).strip()
+                    or "fallback_default"
+                ),
                 source_kind="bundled",
                 cloud_auth_enabled=self.config.cloud_auth_enabled,
                 cloud_api_url=self.config.cloud_api_url,
@@ -3640,6 +3676,9 @@ class ReupApp(App):
             return
         self.config.model.name = canonical_model
         self.config.model.source_kind = "bundled"
+        if api_window is not None:
+            self.config.model.context_window = api_window
+            self.config.model.context_window_source = "bundled_provider_api"
 
     def _schedule_usage_meta_refresh_for_cloud_model(self) -> None:
         if not self._is_bundled_model():
@@ -4797,6 +4836,7 @@ class ReupApp(App):
                 "Context", "Context state is not available right now.", is_error=True
             )
             return
+        self._sync_bundled_context_window()
         session = self.agent.session
         stats = session.get_stats()
         compaction = session.context_manager.get_compaction_status()

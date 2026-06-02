@@ -1583,7 +1583,7 @@ class ContextSummaryModal(ModalScreen[None]):
         summary.add_column(justify="right", width=22)
         summary.add_row(
             Text("Current context", style=f"bold {fg}"),
-            Text(f"{latest_tokens}/{context_window} tokens", style=f"bold {fg}"),
+            Text(f"{latest_tokens:,}/{context_window:,} tokens", style=f"bold {fg}"),
         )
         summary.add_row(
             Text(
