@@ -335,7 +335,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             plan_question_future = asyncio.get_running_loop().create_future()
             app._plan_question_future = plan_question_future
 
-            with patch.object(app, "_clear_inflight_turn_ui", AsyncMock()), patch.object(
+            with patch.object(
+                app, "_clear_inflight_turn_ui", AsyncMock()
+            ) as clear_inflight, patch.object(
                 app, "_set_loading_state"
             ), patch.object(app, "_broadcast_remote_state", AsyncMock()):
                 await app.cancel_active_turn()
@@ -347,6 +349,51 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertIsNone(app._plan_question_future)
             self.assertIsNone(app._active_turn_task)
             self.assertFalse(app._is_turn_running)
+            clear_inflight.assert_awaited_once_with(preserve_streaming_message=True)
+
+        asyncio.run(run_test())
+
+    def test_clear_inflight_turn_ui_preserves_interrupted_streaming_message(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._streaming_widget = Static()
+            app._streaming_buffer = "Partial assistant response"
+            app._message_count = 1
+
+            class FakeContextManager:
+                def __init__(self) -> None:
+                    self.messages: list[dict[str, str]] = []
+
+                def get_messages(self) -> list[dict[str, str]]:
+                    return list(self.messages)
+
+                def add_assistant_message(self, content: str) -> None:
+                    self.messages.append({"role": "assistant", "content": content})
+
+            context_manager = FakeContextManager()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(context_manager=context_manager)
+            )
+
+            async def finalize_streaming_message() -> None:
+                app._streaming_widget = None
+                app._streaming_buffer = ""
+
+            with patch.object(
+                app,
+                "finalize_streaming_message",
+                AsyncMock(side_effect=finalize_streaming_message),
+            ) as finalize:
+                await app._clear_inflight_turn_ui(preserve_streaming_message=True)
+
+            finalize.assert_awaited_once()
+            self.assertEqual(app._streaming_buffer, "")
+            self.assertIsNone(app._streaming_widget)
+            self.assertEqual(app._message_count, 1)
+            self.assertEqual(
+                context_manager.messages,
+                [{"role": "assistant", "content": "Partial assistant response"}],
+            )
 
         asyncio.run(run_test())
 
@@ -1995,7 +2042,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         post_notice.assert_called_once_with("Retry", "Retrying last turn.")
         self.assertIsNone(run_state.retryable_turn_payload)
 
-    def test_agent_error_marks_retryable_bundled_failure_and_posts_notice(self) -> None:
+    def test_agent_error_marks_retryable_bundled_failure_and_queues_silent_retry(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.agent = SimpleNamespace(
@@ -2038,14 +2085,20 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     "attachments": [],
                 },
             )
-            self.assertIsNone(run_state.failure_recovery_payload)
+            self.assertEqual(run_state.failure_recovery_attempts, 1)
+            self.assertEqual(
+                run_state.failure_recovery_payload,
+                {
+                    "message": "Explain repository architecture.",
+                    "display_message": "",
+                    "attachments": [],
+                    "suppress_user_echo": True,
+                },
+            )
+            self.assertTrue(run_state.silent_recovery_active)
             post_system.assert_not_called()
             post_notice.assert_not_called()
-            post_recovery.assert_called_once_with(
-                error_message="Bundled inference provider failed (minimax) with status 500. Ref: abc-123.",
-                recovering=False,
-                retry_available=True,
-            )
+            post_recovery.assert_not_called()
 
         asyncio.run(run_test())
 
@@ -2101,11 +2154,55 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
             post_system.assert_not_called()
             post_notice.assert_not_called()
-            post_recovery.assert_called_once_with(
-                error_message="Bundled inference provider failed (ollama-dev) with status 500. Ref: abc-123.",
-                recovering=True,
-                retry_available=False,
+            post_recovery.assert_not_called()
+            self.assertTrue(run_state.silent_recovery_active)
+
+        asyncio.run(run_test())
+
+    def test_agent_error_treats_incomplete_bundled_stream_as_silent_recovery(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                )
             )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            run_state.last_turn_payload = {
+                "message": "Audit the repo.",
+                "display_message": "Audit the repo.",
+                "attachments": [],
+            }
+            run_state.turn_made_progress = True
+
+            with patch.object(app, "post_system") as post_system, patch.object(
+                app, "post_notice"
+            ) as post_notice, patch.object(
+                app, "post_recovery_status"
+            ) as post_recovery, patch.object(app, "refresh_header"), patch.object(
+                app, "_schedule_usage_meta_refresh_for_cloud_model"
+            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
+                app, "_hide_activity_indicator", AsyncMock()
+            ):
+                await app.handle_agent_event(
+                    AgentEvent.agent_error(
+                        "Could not reach iTE bundled inference: peer closed connection without sending complete message body (incomplete chunked read)"
+                    ),
+                    "s1",
+                    1,
+                )
+
+            self.assertEqual(run_state.failure_recovery_attempts, 1)
+            self.assertIsNotNone(run_state.failure_recovery_payload)
+            self.assertTrue(run_state.failure_recovery_payload["suppress_user_echo"])
+            self.assertEqual(run_state.failure_recovery_payload["display_message"], "")
+            self.assertTrue(run_state.silent_recovery_active)
+            post_system.assert_not_called()
+            post_notice.assert_not_called()
+            post_recovery.assert_not_called()
 
         asyncio.run(run_test())
 

@@ -566,6 +566,7 @@ class SessionRunState:
     auto_resume_payload: dict[str, Any] | None = None
     failure_recovery_payload: dict[str, Any] | None = None
     failure_recovery_attempts: int = 0
+    silent_recovery_active: bool = False
     queued_turn_payload: dict[str, Any] | None = None
     last_turn_payload: dict[str, Any] | None = None
     retryable_turn_payload: dict[str, Any] | None = None
@@ -8168,6 +8169,9 @@ class ReupApp(App):
             "bundled inference provider failed" in text
             or "bundled usage is temporarily unavailable right now" in text
             or "bundled inference request failed" in text
+            or "could not reach ite bundled inference" in text
+            or "incomplete chunked read" in text
+            or "peer closed connection" in text
         )
 
     def _mark_retryable_turn_failure(self, session_id: str, error_message: str) -> None:
@@ -8180,6 +8184,16 @@ class ReupApp(App):
             run_state.retryable_turn_payload = dict(run_state.last_turn_payload)
         else:
             run_state.retryable_turn_payload = None
+
+    def _build_silent_retry_payload(self, session_id: str) -> dict[str, Any] | None:
+        run_state = self._run_state(session_id)
+        payload = run_state.retryable_turn_payload or run_state.last_turn_payload
+        if payload is None:
+            return None
+        retry_payload = dict(payload)
+        retry_payload["suppress_user_echo"] = True
+        retry_payload["display_message"] = ""
+        return retry_payload
 
     def _build_followup_recovery_payload(
         self, session_id: str
@@ -8390,8 +8404,10 @@ class ReupApp(App):
             await self._dispatch_payload(payload)
             return
         if run_state.failure_recovery_payload is not None:
-            payload = run_state.failure_recovery_payload
+            payload = dict(run_state.failure_recovery_payload)
             run_state.failure_recovery_payload = None
+            payload["suppress_user_echo"] = True
+            payload["display_message"] = ""
             self._set_loading_state("continuing after transient failure", busy=True)
             await self._dispatch_payload(payload)
             return
@@ -9518,6 +9534,7 @@ class ReupApp(App):
         run_state.retryable_turn_payload = None
         if not suppress_user_echo:
             run_state.failure_recovery_attempts = 0
+        run_state.silent_recovery_active = suppress_user_echo
         run_state.failure_recovery_payload = None
         run_state.auto_resume_payload = None
         attachments = list(
@@ -9600,7 +9617,6 @@ class ReupApp(App):
             completed_normally = not run_state.turn_had_error
         except asyncio.CancelledError:
             if self._active_session_id() == session_id:
-                self.post_notice("Interrupted", "Stopped current run.")
                 run_state.active_turn_task = None
                 run_state.is_turn_running = False
                 self._send_meta_frame = 0
@@ -9643,7 +9659,9 @@ class ReupApp(App):
             self._active_session_id() == session_id
             and run_state.failure_recovery_payload is not None
         ):
-            await self._clear_inflight_turn_ui()
+            await self._clear_inflight_turn_ui(
+                preserve_streaming_message=run_state.silent_recovery_active
+            )
             await self._dispatch_queued_payload_if_ready()
         elif self._active_session_id() == session_id:
             await self._clear_inflight_turn_ui()
@@ -9760,22 +9778,33 @@ class ReupApp(App):
                 if recovery_payload is not None:
                     run_state.failure_recovery_payload = recovery_payload
                     run_state.failure_recovery_attempts += 1
-                    self.post_recovery_status(
-                        error_message=error_message,
-                        recovering=True,
-                        retry_available=False,
-                    )
+                    run_state.silent_recovery_active = True
+                    self._set_loading_state("continuing", busy=True)
                 else:
-                    self.post_system("Error", error_message, is_error=True)
+                    retry_payload = self._build_silent_retry_payload(session_id)
+                    if retry_payload is not None:
+                        run_state.failure_recovery_payload = retry_payload
+                        run_state.failure_recovery_attempts += 1
+                        run_state.silent_recovery_active = True
+                        self._set_loading_state("continuing", busy=True)
+                    else:
+                        self.post_system("Error", error_message, is_error=True)
             else:
                 if run_state.retryable_turn_payload is not None:
-                    self.post_recovery_status(
-                        error_message=error_message,
-                        recovering=False,
-                        retry_available=True,
-                    )
+                    retry_payload = self._build_silent_retry_payload(session_id)
+                    if (
+                        retry_payload is not None
+                        and run_state.failure_recovery_attempts < 1
+                    ):
+                        run_state.failure_recovery_payload = retry_payload
+                        run_state.failure_recovery_attempts += 1
+                        run_state.silent_recovery_active = True
+                        self._set_loading_state("continuing", busy=True)
                 else:
-                    self.post_system("Error", error_message, is_error=True)
+                    if run_state.silent_recovery_active:
+                        self._set_loading_state("idle", busy=False)
+                    else:
+                        self.post_system("Error", error_message, is_error=True)
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
             return
@@ -10529,7 +10558,29 @@ class ReupApp(App):
             return
         await markdown_widget.update(markdown_text)
 
-    async def _clear_inflight_turn_ui(self) -> None:
+    def _persist_interrupted_streaming_message(self, text: str) -> None:
+        content = str(text or "")
+        if not content.strip() or not self.agent or not self.agent.session:
+            return
+        context_manager = self.agent.session.context_manager
+        if context_manager is None:
+            return
+        try:
+            messages = context_manager.get_messages()
+        except Exception:
+            messages = []
+        if messages:
+            last = messages[-1]
+            if (
+                last.get("role") == "assistant"
+                and str(last.get("content") or "") == content
+            ):
+                return
+        context_manager.add_assistant_message(content)
+
+    async def _clear_inflight_turn_ui(
+        self, *, preserve_streaming_message: bool = False
+    ) -> None:
         self._resolve_pending_plan_question(empty=True)
         if self._plan_question_card is not None:
             try:
@@ -10540,13 +10591,18 @@ class ReupApp(App):
             self._message_count = max(0, self._message_count - 1)
 
         if self._streaming_widget is not None:
-            try:
-                await self._streaming_widget.remove()
-            except Exception:
-                pass
-            self._streaming_widget = None
-            self._streaming_buffer = ""
-            self._message_count = max(0, self._message_count - 1)
+            if preserve_streaming_message and self._streaming_buffer.strip():
+                interrupted_text = self._streaming_buffer
+                await self.finalize_streaming_message()
+                self._persist_interrupted_streaming_message(interrupted_text)
+            else:
+                try:
+                    await self._streaming_widget.remove()
+                except Exception:
+                    pass
+                self._streaming_widget = None
+                self._streaming_buffer = ""
+                self._message_count = max(0, self._message_count - 1)
 
         running_widgets = [
             card for card in self._tool_widgets.values() if card.has_class("running")
@@ -13404,7 +13460,7 @@ class ReupApp(App):
         self._active_turn_task = None
         self._is_turn_running = False
         self._send_meta_frame = 0
-        await self._clear_inflight_turn_ui()
+        await self._clear_inflight_turn_ui(preserve_streaming_message=True)
         self._set_loading_state("idle", busy=False)
         await self._broadcast_remote_state()
 
