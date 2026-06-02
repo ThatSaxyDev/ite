@@ -5,6 +5,7 @@ from ite.client.response import ToolCallDelta
 from openai import APIError
 from openai import APIConnectionError
 import asyncio
+import json
 from openai import RateLimitError
 from typing import AsyncGenerator
 from ite.client.response import StreamEventType
@@ -206,14 +207,9 @@ class LLMClient:
             )
 
         if code == "model_rate_limited":
-            reset_label = _format_reset(reset_at, "five_hour")
             return (
-                "This bundled model is rate-limited right now for your account. "
-                + (
-                    f"Try again after {reset_label}, switch models, or use your own key."
-                    if reset_label
-                    else "Try a cheaper model, wait a moment, or use your own key."
-                )
+                "Too many bundled request round-trips happened in the current hourly pace window. "
+                "Your central usage balance is separate."
             )
 
         if code == "model_budget_exhausted":
@@ -351,6 +347,112 @@ class LLMClient:
         if last_error is not None:
             raise last_error
         return 502, {}
+
+    async def _stream_cloud_inference_events(
+        self,
+        session: Any,
+        request_payload: dict[str, Any],
+    ) -> AsyncGenerator[StreamEvent, None]:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            async with client.stream(
+                "POST",
+                f"{session.api_url.rstrip('/')}/inference/chat",
+                headers={
+                    "authorization": f"Bearer {session.access_token}",
+                    "content-type": "application/json",
+                },
+                json=request_payload,
+            ) as response:
+                if response.status_code != 200:
+                    try:
+                        payload = json.loads((await response.aread()).decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        payload = {}
+                    yield StreamEvent(
+                        type=StreamEventType.ERROR,
+                        error=self._format_cloud_error(payload),
+                    )
+                    return
+
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    event_type = str(event.get("type") or "")
+
+                    if event_type == "text_delta":
+                        content = str(event.get("content") or "")
+                        if content:
+                            yield StreamEvent(
+                                type=StreamEventType.TEXT_DELTA,
+                                text_delta=TextDelta(content=content),
+                            )
+                        continue
+
+                    if event_type == "tool_call_start":
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL_START,
+                            tool_call_delta=ToolCallDelta(
+                                call_id=str(event.get("id") or ""),
+                                name=str(event.get("name") or ""),
+                            ),
+                        )
+                        continue
+
+                    if event_type == "tool_call_delta":
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL_DELTA,
+                            tool_call_delta=ToolCallDelta(
+                                call_id=str(event.get("id") or ""),
+                                name=str(event.get("name") or ""),
+                                arguments_delta=str(event.get("argumentsDelta") or ""),
+                            ),
+                        )
+                        continue
+
+                    if event_type == "tool_call_complete":
+                        yield StreamEvent(
+                            type=StreamEventType.TOOL_CALL_COMPLETE,
+                            tool_call=ToolCall(
+                                call_id=str(event.get("id") or ""),
+                                name=str(event.get("name") or ""),
+                                arguments=parse_tool_call_arguments(str(event.get("arguments") or "{}")),
+                            ),
+                        )
+                        continue
+
+                    if event_type == "message_complete":
+                        usage_payload = event.get("usage") or {}
+                        if not isinstance(usage_payload, dict):
+                            usage_payload = {}
+                        usage = TokenUsage(
+                            prompt_tokens=int(usage_payload.get("promptTokens") or 0),
+                            completion_tokens=int(usage_payload.get("completionTokens") or 0),
+                            total_tokens=int(usage_payload.get("totalTokens") or 0),
+                            cached_tokens=0,
+                        )
+                        reasoning_content = event.get("reasoningContent")
+                        yield StreamEvent(
+                            type=StreamEventType.MESSAGE_COMPLETE,
+                            finish_reason=str(event.get("finishReason") or "stop"),
+                            usage=usage,
+                            reasoning_content=str(reasoning_content) if reasoning_content else None,
+                        )
+                        continue
+
+                    if event_type == "error":
+                        error_payload = event.get("error")
+                        payload = {
+                            "error": error_payload if isinstance(error_payload, dict) else {}
+                        }
+                        yield StreamEvent(
+                            type=StreamEventType.ERROR,
+                            error=self._format_cloud_error(payload),
+                        )
+                        return
 
     async def close(self) -> None:
         if self._client is not None:
@@ -589,6 +691,7 @@ class LLMClient:
             "messages": safe_messages,
             "maxTokens": self._cloud_agent_max_tokens(model_name),
             "temperature": self.config.temperature,
+            "stream": True,
         }
         if self.config.model_name == "gemma4:31b-cloud":
             request_payload["temperature"] = 1.0
@@ -603,66 +706,17 @@ class LLMClient:
             request_payload["toolChoice"] = "auto"
 
         try:
-            status_code, payload = await self._post_cloud_inference(
+            async for event in self._stream_cloud_inference_events(
                 session, request_payload
-            )
+            ):
+                yield event
+            return
         except httpx.HTTPError as exc:
             yield StreamEvent(
                 type=StreamEventType.ERROR,
                 error=f"Could not reach iTE bundled inference: {exc}",
             )
             return
-
-        if status_code != 200 or not payload.get("ok"):
-            if await self._activate_saved_provider_fallback() if self._should_bypass_bundled_error(payload) else False:
-                async for event in self.chat_completion(
-                    messages,
-                    tools=tools,
-                    stream=True,
-                    visual_budget=visual_budget,
-                ):
-                    yield event
-                return
-            message = self._format_cloud_error(payload)
-            yield StreamEvent(type=StreamEventType.ERROR, error=message)
-            return
-
-        output = str(payload.get("output") or "")
-        if output:
-            yield StreamEvent(
-                type=StreamEventType.TEXT_DELTA,
-                text_delta=TextDelta(content=output),
-            )
-
-        for tc in payload.get("toolCalls") or []:
-            if not isinstance(tc, dict):
-                continue
-            yield StreamEvent(
-                type=StreamEventType.TOOL_CALL_COMPLETE,
-                tool_call=ToolCall(
-                    call_id=str(tc.get("id") or ""),
-                    name=str(tc.get("name") or ""),
-                    arguments=parse_tool_call_arguments(str(tc.get("arguments") or "{}")),
-                ),
-            )
-
-        usage_payload = payload.get("usage") or {}
-        usage = TokenUsage(
-            prompt_tokens=int(usage_payload.get("promptTokens") or 0),
-            completion_tokens=int(usage_payload.get("completionTokens") or 0),
-            total_tokens=int(usage_payload.get("totalTokens") or 0),
-            cached_tokens=0,
-        )
-        reasoning_content = payload.get("reasoningContent")
-        if reasoning_content is None:
-            reasoning_content = payload.get("reasoning_content")
-
-        yield StreamEvent(
-            type=StreamEventType.MESSAGE_COMPLETE,
-            finish_reason="stop",
-            usage=usage,
-            reasoning_content=str(reasoning_content) if reasoning_content else None,
-        )
 
     async def _cloud_complete_text(self, messages: list[dict[str, Any]]) -> str:
         session = get_cloud_session(self.config)
