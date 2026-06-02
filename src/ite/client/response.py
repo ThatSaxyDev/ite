@@ -59,6 +59,7 @@ class StreamEvent:
     text_delta: TextDelta | None = None
     reasoning_content: str | None = None
     error: str | None = None
+    error_payload: dict[str, Any] | None = None
     finish_reason: str | None = None
     tool_call_delta: ToolCallDelta | None = None
     tool_call: ToolCall | None = None

@@ -12,7 +12,7 @@ async def handle_flow(ctx: CommandContext, args: list[str]) -> bool:
     if action == "status":
         status = "ready" if ctx.config.voice.enabled else "not enabled"
         key_status = (
-            "Groq key saved"
+            "Groq key ready"
             if str(ctx.config.voice.groq_api_key or "").strip()
             else "Groq key missing"
         )

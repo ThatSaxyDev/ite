@@ -3442,17 +3442,23 @@ class ReupApp(App):
         if self._is_bundled_model():
             self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
 
-    async def _refresh_usage_summary_cache(self) -> None:
+    def _set_usage_summary_cache(self, summary: dict[str, Any] | None) -> None:
+        self._usage_summary_cache = summary
+        remaining = (
+            self._five_hour_usage_remaining_percent(summary) if summary else None
+        )
+        if remaining != self._usage_remaining_percent:
+            self._usage_remaining_percent = remaining
+            self.refresh_header()
+
+    async def _refresh_usage_summary_cache(self) -> dict[str, Any] | None:
         try:
             summary = await asyncio.to_thread(get_usage_summary, self.config)
         except Exception:
-            return
-        self._usage_summary_cache = summary
-        if summary:
-            remaining = self._five_hour_usage_remaining_percent(summary)
-            if remaining != self._usage_remaining_percent:
-                self._usage_remaining_percent = remaining
-                self.refresh_header()
+            self._set_usage_summary_cache(None)
+            return None
+        self._set_usage_summary_cache(summary)
+        return summary
 
     @staticmethod
     def _five_hour_usage_remaining_percent(summary: dict[str, Any]) -> int:
@@ -3649,12 +3655,9 @@ class ReupApp(App):
         self._usage_refresh_in_flight = True
         try:
             summary = await asyncio.to_thread(get_usage_summary, self.config)
-            remaining: int | None = None
-            if summary:
-                remaining = self._five_hour_usage_remaining_percent(summary)
-            if remaining != self._usage_remaining_percent:
-                self._usage_remaining_percent = remaining
-                self.refresh_header()
+            self._set_usage_summary_cache(summary)
+        except Exception:
+            self._set_usage_summary_cache(None)
         finally:
             self._usage_refresh_in_flight = False
 
@@ -4771,19 +4774,16 @@ class ReupApp(App):
                 is_error=True,
             )
             return
-        summary = self._usage_summary_cache
-        if summary is None:
-            summary = await asyncio.to_thread(get_usage_summary, self.config)
-        else:
-            self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
+        self._usage_summary_cache = None
+        if self._usage_remaining_percent is not None:
+            self._usage_remaining_percent = None
+            self.refresh_header()
+        summary = await self._refresh_usage_summary_cache()
         if not summary:
             self.post_system(
                 "Usage", "Usage is not available right now.", is_error=True
             )
             return
-        self._usage_summary_cache = summary
-        self._usage_remaining_percent = self._five_hour_usage_remaining_percent(summary)
-        self.refresh_header()
         await self._open_modal(UsageSummaryModal(summary))
 
     async def _open_context_modal_from_meta(self) -> None:
@@ -7834,14 +7834,14 @@ class ReupApp(App):
         if not self.config.voice.enabled:
             self.post_notice(
                 "Flow",
-                "Set up flow with `/flow setup` before recording.",
+                "Enable flow with `/flow on` before recording.",
                 timeout=6,
             )
             return
         if not str(self.config.voice.groq_api_key or "").strip():
             self.post_notice(
                 "Flow",
-                "Add your Groq API key with `/flow setup` before recording.",
+                "Add a Groq API key with `/flow setup` before recording.",
                 timeout=6,
             )
             return
@@ -7920,7 +7920,7 @@ class ReupApp(App):
         if action == "status":
             status = "Ready" if self.config.voice.enabled else "Not enabled"
             key_status = (
-                "Groq key saved"
+                "Groq key ready"
                 if str(self.config.voice.groq_api_key or "").strip()
                 else "Groq key missing"
             )
@@ -9784,6 +9784,7 @@ class ReupApp(App):
             run_state.context_meter_floor_pct = None
             error_message = str(event.data.get("error", "Unknown error"))
             self._mark_retryable_turn_failure(session_id, error_message)
+            scheduled_recovery = False
             should_attempt_recovery = (
                 run_state.retryable_turn_payload is not None
                 and run_state.turn_made_progress
@@ -9795,6 +9796,7 @@ class ReupApp(App):
                     run_state.failure_recovery_payload = recovery_payload
                     run_state.failure_recovery_attempts += 1
                     run_state.silent_recovery_active = True
+                    scheduled_recovery = True
                     self._set_loading_state("continuing", busy=True)
                 else:
                     retry_payload = self._build_silent_retry_payload(session_id)
@@ -9802,9 +9804,8 @@ class ReupApp(App):
                         run_state.failure_recovery_payload = retry_payload
                         run_state.failure_recovery_attempts += 1
                         run_state.silent_recovery_active = True
+                        scheduled_recovery = True
                         self._set_loading_state("continuing", busy=True)
-                    else:
-                        self.post_system("Error", error_message, is_error=True)
             else:
                 if run_state.retryable_turn_payload is not None:
                     retry_payload = self._build_silent_retry_payload(session_id)
@@ -9815,12 +9816,13 @@ class ReupApp(App):
                         run_state.failure_recovery_payload = retry_payload
                         run_state.failure_recovery_attempts += 1
                         run_state.silent_recovery_active = True
+                        scheduled_recovery = True
                         self._set_loading_state("continuing", busy=True)
-                else:
-                    if run_state.silent_recovery_active:
-                        self._set_loading_state("idle", busy=False)
-                    else:
-                        self.post_system("Error", error_message, is_error=True)
+            if not scheduled_recovery:
+                if run_state.silent_recovery_active:
+                    run_state.silent_recovery_active = False
+                    self._set_loading_state("idle", busy=False)
+                self.post_system("Error", error_message, is_error=True)
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
             return
@@ -13651,6 +13653,13 @@ class ReupApp(App):
 
             if not first_user:
                 return "New thread"
+            if (
+                str(getattr(self.config.model, "source_kind", "") or "")
+                .strip()
+                .lower()
+                == "bundled"
+            ):
+                return self._fallback_session_name(session)
 
             naming_messages = [
                 {

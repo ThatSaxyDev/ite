@@ -2,6 +2,8 @@ import unittest
 from unittest.mock import AsyncMock
 from unittest.mock import patch
 import httpx
+import base64
+import json
 
 from ite.client.response import StreamEvent
 from ite.client.response import StreamEventType
@@ -19,6 +21,34 @@ class _FakeResponse:
 
     def json(self):
         return self._payload
+
+    async def aread(self):
+        return json.dumps(self._payload).encode("utf-8")
+
+    async def aiter_lines(self):
+        if self.status_code != 200:
+            yield json.dumps(self._payload)
+            return
+        yield json.dumps(
+            {
+                "type": "message_complete",
+                "finishReason": "stop",
+                "usage": {},
+            }
+        )
+
+
+class _FakeStreamContext:
+    def __init__(self, response: object) -> None:
+        self._response = response
+
+    async def __aenter__(self):
+        if isinstance(self._response, Exception):
+            raise self._response
+        return self._response
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 class _FakeAsyncClient:
@@ -40,6 +70,12 @@ class _FakeAsyncClient:
                 raise response
             return response
         return _FakeResponse()
+
+    def stream(self, _method, url, headers=None, json=None):
+        self._capture.append({"url": url, "headers": headers or {}, "json": json or {}})
+        if self._responses:
+            return _FakeStreamContext(self._responses.pop(0))
+        return _FakeStreamContext(_FakeResponse())
 
 
 class _Obj:
@@ -73,6 +109,11 @@ class _AsyncChunks:
             return next(self._iter)
         except StopIteration:
             raise StopAsyncIteration
+
+
+def _decode_cloud_envelope(payload: dict) -> dict:
+    assert payload["payloadEncoding"] == "base64json"
+    return json.loads(base64.urlsafe_b64decode(payload["payload"]).decode("utf-8"))
 
 
 class LLMClientTests(unittest.IsolatedAsyncioTestCase):
@@ -136,11 +177,169 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
                 events.append(event)
 
         self.assertTrue(events)
-        payload = captured[0]["json"]
+        envelope = captured[0]["json"]
+        payload = _decode_cloud_envelope(envelope)
         self.assertEqual(payload["model"], "moonshotai/kimi-k2.5")
         self.assertEqual(payload["messages"], [{"role": "user", "content": "hello"}])
         self.assertNotIn("tools", payload)
         self.assertNotIn("toolChoice", payload)
+        self.assertNotIn("hello", json.dumps(envelope))
+
+    async def test_cloud_stream_falls_back_to_plain_payload_for_old_api(self) -> None:
+        captured: list[dict] = []
+        config = self._bundled_config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        responses: list[object] = [
+            _FakeResponse(
+                status_code=400,
+                payload={
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_request",
+                        "details": {
+                            "issues": {
+                                "fieldErrors": {
+                                    "model": ["Required"],
+                                    "messages": ["Required"],
+                                }
+                            }
+                        },
+                    },
+                },
+            ),
+            _FakeResponse(),
+        ]
+
+        def _fake_async_client(*args, **kwargs):
+            return _FakeAsyncClient(capture=captured, responses=responses)
+
+        with (
+            patch("ite.client.llm_client.get_cloud_session", return_value=session),
+            patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client),
+        ):
+            events = []
+            async for event in client._cloud_chat_completion(
+                [{"role": "user", "content": "hello"}],
+                tools=None,
+            ):
+                events.append(event)
+
+        self.assertEqual(len(captured), 2)
+        self.assertEqual(captured[0]["json"]["payloadEncoding"], "base64json")
+        self.assertEqual(captured[1]["json"]["model"], "moonshotai/kimi-k2.5")
+        self.assertEqual(events[-1].type, StreamEventType.MESSAGE_COMPLETE)
+
+    async def test_cloud_stream_http_error_includes_endpoint_and_status(self) -> None:
+        config = self._bundled_config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        original_async_client = httpx.AsyncClient
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(
+                str(request.url),
+                "http://127.0.0.1:4000/inference/chat",
+            )
+            return httpx.Response(502, content=b"")
+
+        def _fake_async_client(*args, **kwargs):
+            return original_async_client(
+                transport=httpx.MockTransport(_handler),
+                timeout=kwargs.get("timeout"),
+            )
+
+        with patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client):
+            events = []
+            async for event in client._stream_cloud_inference_events(
+                session, {"model": "moonshotai/kimi-k2.5"}
+            ):
+                events.append(event)
+
+        self.assertEqual(events[0].type, StreamEventType.ERROR)
+        self.assertIn("HTTP 502", events[0].error)
+        self.assertIn("http://127.0.0.1:4000/inference/chat", events[0].error)
+
+    async def test_cloud_stream_html_403_reports_edge_block_without_raw_html(self) -> None:
+        config = self._bundled_config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        original_async_client = httpx.AsyncClient
+
+        def _handler(request: httpx.Request) -> httpx.Response:
+            self.assertEqual(request.headers["user-agent"], "ite-agent/0.0.84")
+            self.assertEqual(request.headers["x-ite-client"], "terminal-runtime")
+            return httpx.Response(
+                403,
+                content=b"<!DOCTYPE html><html><head><title>Blocked</title></head></html>",
+                headers={"content-type": "text/html"},
+            )
+
+        def _fake_async_client(*args, **kwargs):
+            return original_async_client(
+                transport=httpx.MockTransport(_handler),
+                timeout=kwargs.get("timeout"),
+            )
+
+        with patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client):
+            events = []
+            async for event in client._stream_cloud_inference_events(
+                session, {"model": "moonshotai/kimi-k2.5"}
+            ):
+                events.append(event)
+
+        self.assertEqual(events[0].type, StreamEventType.ERROR)
+        self.assertIn("blocked before it reached the API app", events[0].error)
+        self.assertIn("HTTP 403", events[0].error)
+        self.assertNotIn("<!DOCTYPE html>", events[0].error)
+
+    async def test_cloud_stream_generic_error_mentions_it_reached_endpoint(self) -> None:
+        config = self._bundled_config()
+        client = LLMClient(config)
+        session = type(
+            "CloudSessionStub",
+            (),
+            {"api_url": "http://127.0.0.1:4000", "access_token": "token"},
+        )()
+        original_async_client = httpx.AsyncClient
+
+        def _handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content=(
+                    b'{"type":"error","error":'
+                    b'{"message":"Bundled inference request failed."}}\n'
+                ),
+            )
+
+        def _fake_async_client(*args, **kwargs):
+            return original_async_client(
+                transport=httpx.MockTransport(_handler),
+                timeout=kwargs.get("timeout"),
+            )
+
+        with patch("ite.client.llm_client.httpx.AsyncClient", side_effect=_fake_async_client):
+            events = []
+            async for event in client._stream_cloud_inference_events(
+                session, {"model": "moonshotai/kimi-k2.5"}
+            ):
+                events.append(event)
+
+        self.assertEqual(events[0].type, StreamEventType.ERROR)
+        self.assertIn("after reaching", events[0].error)
+        self.assertIn("http://127.0.0.1:4000/inference/chat", events[0].error)
 
     def test_format_cloud_error_surfaces_provider_failure_details(self) -> None:
         client = LLMClient(self._config())

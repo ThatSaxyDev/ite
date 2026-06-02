@@ -920,7 +920,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_usage_modal_uses_cached_summary_without_refetch(self) -> None:
+    def test_open_usage_modal_refreshes_stale_cached_summary(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.7"
@@ -929,21 +929,24 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
             ]
             app._usage_summary_cache = {
-                "quotas": {"fiveHour": {"usedUsdCents": 12, "capUsdCents": 20}}
+                "quotas": {"fiveHour": {"usedUsdCents": 20, "capUsdCents": 20}}
+            }
+            fresh_summary = {
+                "quotas": {"fiveHour": {"usedUsdCents": 2, "capUsdCents": 20}}
             }
 
             with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.get_usage_summary"
+                "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
             ) as get_usage_summary, patch.object(
                 app, "_open_modal", AsyncMock(return_value=None)
-            ), patch.object(
-                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
             ), patch.object(
                 app, "refresh_header"
             ):
                 await app._open_usage_modal_from_meta()
 
-            get_usage_summary.assert_not_called()
+            get_usage_summary.assert_called_once()
+            self.assertEqual(app._usage_summary_cache, fresh_summary)
+            self.assertEqual(app._usage_remaining_percent, 90)
 
         asyncio.run(run_test())
 
@@ -955,7 +958,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app._bundled_models_cache = [
                 {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
             ]
-            app._usage_summary_cache = {
+            fresh_summary = {
                 "quotas": {
                     "fiveHour": {"usedUsdCents": 10, "capUsdCents": 100},
                     "sevenDay": {"usedUsdCents": 30, "capUsdCents": 100},
@@ -963,16 +966,35 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 }
             }
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-                app, "_open_modal", AsyncMock(return_value=None)
+            with patch.object(app, "ensure_agent", AsyncMock()), patch(
+                "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
             ), patch.object(
-                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+                app, "_open_modal", AsyncMock(return_value=None)
             ), patch.object(
                 app, "refresh_header"
             ):
                 await app._open_usage_modal_from_meta()
 
             self.assertEqual(app._usage_remaining_percent, 90)
+
+        asyncio.run(run_test())
+
+    def test_usage_meta_refresh_clears_stale_remaining_when_summary_missing(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app._usage_summary_cache = {
+                "quotas": {"fiveHour": {"usedUsdCents": 20, "capUsdCents": 20}}
+            }
+            app._usage_remaining_percent = 0
+
+            with patch(
+                "ite.ui.reup.app.get_usage_summary", return_value=None
+            ), patch.object(app, "refresh_header") as refresh_header:
+                await app._refresh_usage_meta()
+
+            self.assertIsNone(app._usage_summary_cache)
+            self.assertIsNone(app._usage_remaining_percent)
+            refresh_header.assert_called_once()
 
         asyncio.run(run_test())
 
@@ -2252,6 +2274,55 @@ class ReupCommandPaletteTests(unittest.TestCase):
             post_system.assert_not_called()
             post_notice.assert_not_called()
             post_recovery.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_agent_error_posts_card_after_silent_recovery_attempt_is_exhausted(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    plan_mode_enabled=False,
+                    plan_phase="idle",
+                )
+            )
+            app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
+            run_state = app._run_state("s1")
+            run_state.active_turn_id = 1
+            run_state.last_turn_payload = {
+                "message": "Explain repository architecture.",
+                "display_message": "",
+                "attachments": [],
+                "suppress_user_echo": True,
+            }
+            run_state.failure_recovery_attempts = 1
+            run_state.silent_recovery_active = True
+
+            with patch.object(app, "post_system") as post_system, patch.object(
+                app, "refresh_header"
+            ), patch.object(
+                app, "_schedule_usage_meta_refresh_for_cloud_model"
+            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
+                app, "_hide_activity_indicator", AsyncMock()
+            ), patch.object(
+                app, "_set_loading_state"
+            ) as set_loading:
+                await app.handle_agent_event(
+                    AgentEvent.agent_error(
+                        "Bundled inference provider failed (deepseek) with status 429."
+                    ),
+                    "s1",
+                    1,
+                )
+
+            post_system.assert_called_once_with(
+                "Error",
+                "Bundled inference provider failed (deepseek) with status 429.",
+                is_error=True,
+            )
+            set_loading.assert_called_once_with("idle", busy=False)
+            self.assertFalse(run_state.silent_recovery_active)
+            self.assertIsNone(run_state.failure_recovery_payload)
 
         asyncio.run(run_test())
 
@@ -3666,6 +3737,29 @@ class ReupCommandPaletteTests(unittest.TestCase):
         title = asyncio.run(app.generate_session_name(session))
 
         self.assertEqual(title, "Portfolio JSON Overview")
+
+    def test_generate_session_name_skips_bundled_inference(self) -> None:
+        app = self._app()
+        app.config.model.name = "deepseek-v4-pro"
+        app.config.model.source_kind = "bundled"
+
+        async def fail_if_called(*_args, **_kwargs):
+            raise AssertionError("bundled title generation should not call inference")
+            yield
+
+        session = SimpleNamespace(
+            client=SimpleNamespace(chat_completion=fail_if_called),
+            name_generation_context=lambda: {
+                "first_user": "Explain this codebase?",
+                "first_assistant": "",
+                "latest_user": "Explain this codebase?",
+                "focus_hint": "",
+            },
+        )
+
+        title = asyncio.run(app.generate_session_name(session))
+
+        self.assertEqual(title, "Explain this codebase")
 
     def test_remember_open_session_tracks_order_and_workspace(self) -> None:
         app = self._app()

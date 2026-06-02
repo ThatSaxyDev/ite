@@ -11,6 +11,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, TextArea
 
 from ite.config.config import Config
+from ite.config.config import DEFAULT_VOICE_GROQ_API_KEY
 from ite.ui.reup.app import ReupApp
 from ite.ui.reup.app import insert_voice_text_into_widget, redact_sensitive_command_text
 from ite.ui.reup.composer_views import composer_meta_text, flow_control_text
@@ -18,11 +19,11 @@ from ite.voice.transcription import _is_hallucination
 
 
 class VoiceConfigTests(unittest.TestCase):
-    def test_voice_is_disabled_by_default(self) -> None:
+    def test_voice_is_enabled_by_default_with_builtin_key(self) -> None:
         config = Config(api_key="key", base_url="http://example.test")
 
-        self.assertFalse(config.voice.enabled)
-        self.assertIsNone(config.voice.groq_api_key)
+        self.assertTrue(config.voice.enabled)
+        self.assertEqual(config.voice.groq_api_key, DEFAULT_VOICE_GROQ_API_KEY)
 
     def test_voice_env_vars_override_config(self) -> None:
         with patch.dict(
@@ -36,6 +37,13 @@ class VoiceConfigTests(unittest.TestCase):
 
         self.assertTrue(config.voice.enabled)
         self.assertEqual(config.voice.groq_api_key, "gsk-test")
+
+    def test_voice_env_can_disable_builtin_voice(self) -> None:
+        with patch.dict(os.environ, {"ITE_VOICE_ENABLED": "false"}):
+            config = Config(api_key="key", base_url="http://example.test")
+
+        self.assertFalse(config.voice.enabled)
+        self.assertEqual(config.voice.groq_api_key, DEFAULT_VOICE_GROQ_API_KEY)
 
 
 class VoiceCopySafetyTests(unittest.TestCase):
@@ -77,8 +85,19 @@ class VoiceCommandRouteTests(unittest.IsolatedAsyncioTestCase):
 
 
 class VoiceComposerMetaTests(unittest.TestCase):
-    def test_flow_control_is_hidden_until_flow_is_enabled(self) -> None:
+    def test_flow_control_is_visible_by_default(self) -> None:
         app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+
+        rendered = flow_control_text(
+            flow_enabled=bool(app.config.voice.enabled),
+            flow_state=app._flow_meta_state(),
+        )
+
+        self.assertIn("flow", rendered.plain)
+
+    def test_flow_control_is_hidden_when_flow_is_disabled(self) -> None:
+        app = ReupApp(Config(api_key="key", base_url="http://example.test"))
+        app.config.voice.enabled = False
 
         rendered = flow_control_text(
             flow_enabled=bool(app.config.voice.enabled),

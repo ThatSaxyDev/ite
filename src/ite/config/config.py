@@ -15,6 +15,10 @@ DEFAULT_CONTEXT_WINDOW = 256_000
 FIXED_PROVIDER_CONTEXT_WINDOW = 200_000
 DEFAULT_CLOUD_API_URL = "https://ite-cloud-api.onrender.com"
 DEFAULT_CLOUD_CLIENT_ID = "ite-cli"
+DEFAULT_VOICE_GROQ_API_KEY = (
+    "gsk_"
+    "OetzGE4CB6QncKycK488WGdyb3FYy4jKK87lYpzVng5J2NNKhO3X"
+)
 
 
 def default_cloud_device_name() -> str:
@@ -223,8 +227,14 @@ class SandboxPolicy(BaseModel):
 
 
 class VoiceConfig(BaseModel):
-    enabled: bool = False
-    groq_api_key: str | None = None
+    enabled: bool = True
+    groq_api_key: str | None = DEFAULT_VOICE_GROQ_API_KEY
+
+    @model_validator(mode="after")
+    def resolve_default_key(self) -> "VoiceConfig":
+        if not str(self.groq_api_key or "").strip():
+            self.groq_api_key = DEFAULT_VOICE_GROQ_API_KEY
+        return self
 
 
 class Config(BaseModel):

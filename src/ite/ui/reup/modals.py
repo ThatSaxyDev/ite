@@ -872,7 +872,7 @@ class VoiceSetupModal(ModalScreen[str | None]):
         with Container(classes="modal voice-setup-modal"):
             yield Label("Flow", classes="modal-title")
             yield Static(
-                "Add your Groq API key to enable dictation in iTE. The key is saved in your local iTE config and is never shown in command history.",
+                "Add your own Groq API key for dictation in iTE. The key is saved in your local iTE config and is never shown in command history.",
                 classes="modal-body",
             )
             yield Static("Groq API key", classes="voice-setup-label")

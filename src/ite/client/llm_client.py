@@ -5,6 +5,7 @@ from ite.client.response import ToolCallDelta
 from openai import APIError
 from openai import APIConnectionError
 import asyncio
+import base64
 import json
 from openai import RateLimitError
 from typing import AsyncGenerator
@@ -18,6 +19,7 @@ from ite.utils.errors import format_provider_error
 from ite.cloud import get_cloud_session
 from ite.cloud import get_bundled_models
 from ite.config.loader import load_saved_custom_provider
+from ite import __version__
 import httpx
 from datetime import datetime
 
@@ -147,6 +149,86 @@ class LLMClient:
         if "deepseek-v4" in normalized:
             return CLOUD_AGENT_MAX_TOKENS_DEEPSEEK
         return CLOUD_AGENT_MAX_TOKENS_DEFAULT
+
+    def _cloud_inference_endpoint(self, session: Any) -> str:
+        return f"{session.api_url.rstrip('/')}/inference/chat"
+
+    def _cloud_headers(self, session: Any) -> dict[str, str]:
+        return {
+            "authorization": f"Bearer {session.access_token}",
+            "content-type": "application/json",
+            "accept": "application/x-ndjson, application/json",
+            "user-agent": f"ite-agent/{__version__}",
+            "x-ite-client": "terminal-runtime",
+        }
+
+    def _encoded_cloud_request_payload(self, request_payload: dict[str, Any]) -> dict[str, Any]:
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(request_payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).decode("ascii")
+        return {
+            "payloadEncoding": "base64json",
+            "payloadVersion": 1,
+            "payload": encoded,
+        }
+
+    def _should_retry_plain_cloud_payload(
+        self,
+        *,
+        status_code: int,
+        payload: dict[str, Any],
+    ) -> bool:
+        if status_code != 400:
+            return False
+        error = payload.get("error") or {}
+        if str(error.get("code") or "").strip().lower() != "invalid_request":
+            return False
+        details = error.get("details") or {}
+        issues = details.get("issues") if isinstance(details, dict) else {}
+        field_errors = issues.get("fieldErrors") if isinstance(issues, dict) else {}
+        if not isinstance(field_errors, dict):
+            return False
+        return "model" in field_errors and "messages" in field_errors
+
+    def _format_cloud_transport_error(self, exc: httpx.HTTPError, endpoint: str) -> str:
+        return f"Could not reach iTE bundled inference at {endpoint}: {exc}"
+
+    def _format_cloud_http_error(
+        self,
+        *,
+        status_code: int,
+        endpoint: str,
+        payload: dict[str, Any],
+        body: bytes,
+    ) -> str:
+        formatted = self._format_cloud_error(payload)
+        if payload.get("error"):
+            if formatted == "Bundled inference request failed.":
+                return (
+                    "Bundled inference request failed after reaching "
+                    f"{endpoint} (HTTP {status_code})."
+                )
+            return formatted
+
+        body_excerpt = body.decode("utf-8", errors="replace").strip()
+        body_lower = body_excerpt.lower()
+        if status_code == 403 and (
+            "<title>blocked</title>" in body_lower
+            or body_lower.startswith("<!doctype html")
+        ):
+            return (
+                "iTE Cloud inference was blocked before it reached the API app "
+                f"(HTTP 403 from {endpoint}). Server logs may not show "
+                "`POST /inference/chat` for this request. Try again in a moment; "
+                "if it keeps happening, the cloud host edge rules need to allow "
+                "terminal inference POSTs."
+            )
+        if len(body_excerpt) > 240:
+            body_excerpt = f"{body_excerpt[:240]}..."
+        message = f"iTE Cloud inference returned HTTP {status_code} from {endpoint}."
+        if body_excerpt:
+            message = f"{message} Response: {body_excerpt}"
+        return message
 
     def _format_cloud_error(self, payload: dict[str, Any]) -> str:
         error = payload.get("error") or {}
@@ -307,17 +389,17 @@ class LLMClient:
     ) -> tuple[int, dict[str, Any]]:
         max_attempts = min(self._max_retries + 1, 3)
         last_error: Exception | None = None
+        use_encoded_payload = True
 
         for attempt in range(max_attempts):
             try:
                 async with httpx.AsyncClient(timeout=300.0) as client:
                     response = await client.post(
-                        f"{session.api_url.rstrip('/')}/inference/chat",
-                        headers={
-                            "authorization": f"Bearer {session.access_token}",
-                            "content-type": "application/json",
-                        },
-                        json=request_payload,
+                        self._cloud_inference_endpoint(session),
+                        headers=self._cloud_headers(session),
+                        json=self._encoded_cloud_request_payload(request_payload)
+                        if use_encoded_payload
+                        else request_payload,
                     )
             except httpx.HTTPError as exc:
                 last_error = exc
@@ -330,6 +412,16 @@ class LLMClient:
                 payload = response.json()
             except ValueError:
                 payload = {}
+
+            if (
+                use_encoded_payload
+                and self._should_retry_plain_cloud_payload(
+                    status_code=response.status_code,
+                    payload=payload,
+                )
+            ):
+                use_encoded_payload = False
+                continue
 
             if (
                 (response.status_code != 200 or not payload.get("ok"))
@@ -353,106 +445,165 @@ class LLMClient:
         session: Any,
         request_payload: dict[str, Any],
     ) -> AsyncGenerator[StreamEvent, None]:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream(
-                "POST",
-                f"{session.api_url.rstrip('/')}/inference/chat",
-                headers={
-                    "authorization": f"Bearer {session.access_token}",
-                    "content-type": "application/json",
-                },
-                json=request_payload,
-            ) as response:
-                if response.status_code != 200:
-                    try:
-                        payload = json.loads((await response.aread()).decode("utf-8"))
-                    except (ValueError, UnicodeDecodeError):
-                        payload = {}
-                    yield StreamEvent(
-                        type=StreamEventType.ERROR,
-                        error=self._format_cloud_error(payload),
-                    )
-                    return
+        endpoint = self._cloud_inference_endpoint(session)
+        max_attempts = min(self._max_retries + 1, 3)
+        last_error: httpx.HTTPError | None = None
+        use_encoded_payload = True
 
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    event_type = str(event.get("type") or "")
-
-                    if event_type == "text_delta":
-                        content = str(event.get("content") or "")
-                        if content:
+        for attempt in range(max_attempts):
+            emitted_event = False
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    async with client.stream(
+                        "POST",
+                        endpoint,
+                        headers=self._cloud_headers(session),
+                        json=self._encoded_cloud_request_payload(request_payload)
+                        if use_encoded_payload
+                        else request_payload,
+                    ) as response:
+                        if response.status_code != 200:
+                            body = await response.aread()
+                            try:
+                                payload = json.loads(body.decode("utf-8"))
+                            except (ValueError, UnicodeDecodeError):
+                                payload = {}
+                            if (
+                                use_encoded_payload
+                                and self._should_retry_plain_cloud_payload(
+                                    status_code=response.status_code,
+                                    payload=payload,
+                                )
+                            ):
+                                use_encoded_payload = False
+                                continue
+                            if (
+                                attempt < (max_attempts - 1)
+                                and self._is_retryable_cloud_failure(
+                                    response_status=response.status_code,
+                                    payload=payload,
+                                )
+                            ):
+                                await asyncio.sleep(2**attempt)
+                                continue
                             yield StreamEvent(
-                                type=StreamEventType.TEXT_DELTA,
-                                text_delta=TextDelta(content=content),
+                                type=StreamEventType.ERROR,
+                                error=self._format_cloud_http_error(
+                                    status_code=response.status_code,
+                                    endpoint=endpoint,
+                                    payload=payload,
+                                    body=body,
+                                ),
+                                error_payload=payload,
                             )
-                        continue
+                            return
 
-                    if event_type == "tool_call_start":
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL_START,
-                            tool_call_delta=ToolCallDelta(
-                                call_id=str(event.get("id") or ""),
-                                name=str(event.get("name") or ""),
-                            ),
-                        )
-                        continue
+                        async for line in response.aiter_lines():
+                            if not line.strip():
+                                continue
+                            try:
+                                event = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            event_type = str(event.get("type") or "")
 
-                    if event_type == "tool_call_delta":
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL_DELTA,
-                            tool_call_delta=ToolCallDelta(
-                                call_id=str(event.get("id") or ""),
-                                name=str(event.get("name") or ""),
-                                arguments_delta=str(event.get("argumentsDelta") or ""),
-                            ),
-                        )
-                        continue
+                            if event_type == "text_delta":
+                                content = str(event.get("content") or "")
+                                if content:
+                                    emitted_event = True
+                                    yield StreamEvent(
+                                        type=StreamEventType.TEXT_DELTA,
+                                        text_delta=TextDelta(content=content),
+                                    )
+                                continue
 
-                    if event_type == "tool_call_complete":
-                        yield StreamEvent(
-                            type=StreamEventType.TOOL_CALL_COMPLETE,
-                            tool_call=ToolCall(
-                                call_id=str(event.get("id") or ""),
-                                name=str(event.get("name") or ""),
-                                arguments=parse_tool_call_arguments(str(event.get("arguments") or "{}")),
-                            ),
-                        )
-                        continue
+                            if event_type == "tool_call_start":
+                                emitted_event = True
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_START,
+                                    tool_call_delta=ToolCallDelta(
+                                        call_id=str(event.get("id") or ""),
+                                        name=str(event.get("name") or ""),
+                                    ),
+                                )
+                                continue
 
-                    if event_type == "message_complete":
-                        usage_payload = event.get("usage") or {}
-                        if not isinstance(usage_payload, dict):
-                            usage_payload = {}
-                        usage = TokenUsage(
-                            prompt_tokens=int(usage_payload.get("promptTokens") or 0),
-                            completion_tokens=int(usage_payload.get("completionTokens") or 0),
-                            total_tokens=int(usage_payload.get("totalTokens") or 0),
-                            cached_tokens=0,
-                        )
-                        reasoning_content = event.get("reasoningContent")
-                        yield StreamEvent(
-                            type=StreamEventType.MESSAGE_COMPLETE,
-                            finish_reason=str(event.get("finishReason") or "stop"),
-                            usage=usage,
-                            reasoning_content=str(reasoning_content) if reasoning_content else None,
-                        )
-                        continue
+                            if event_type == "tool_call_delta":
+                                emitted_event = True
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_DELTA,
+                                    tool_call_delta=ToolCallDelta(
+                                        call_id=str(event.get("id") or ""),
+                                        name=str(event.get("name") or ""),
+                                        arguments_delta=str(event.get("argumentsDelta") or ""),
+                                    ),
+                                )
+                                continue
 
-                    if event_type == "error":
-                        error_payload = event.get("error")
-                        payload = {
-                            "error": error_payload if isinstance(error_payload, dict) else {}
-                        }
-                        yield StreamEvent(
-                            type=StreamEventType.ERROR,
-                            error=self._format_cloud_error(payload),
-                        )
-                        return
+                            if event_type == "tool_call_complete":
+                                emitted_event = True
+                                yield StreamEvent(
+                                    type=StreamEventType.TOOL_CALL_COMPLETE,
+                                    tool_call=ToolCall(
+                                        call_id=str(event.get("id") or ""),
+                                        name=str(event.get("name") or ""),
+                                        arguments=parse_tool_call_arguments(str(event.get("arguments") or "{}")),
+                                    ),
+                                )
+                                continue
+
+                            if event_type == "message_complete":
+                                usage_payload = event.get("usage") or {}
+                                if not isinstance(usage_payload, dict):
+                                    usage_payload = {}
+                                usage = TokenUsage(
+                                    prompt_tokens=int(usage_payload.get("promptTokens") or 0),
+                                    completion_tokens=int(usage_payload.get("completionTokens") or 0),
+                                    total_tokens=int(usage_payload.get("totalTokens") or 0),
+                                    cached_tokens=0,
+                                )
+                                reasoning_content = event.get("reasoningContent")
+                                emitted_event = True
+                                yield StreamEvent(
+                                    type=StreamEventType.MESSAGE_COMPLETE,
+                                    finish_reason=str(event.get("finishReason") or "stop"),
+                                    usage=usage,
+                                    reasoning_content=str(reasoning_content) if reasoning_content else None,
+                                )
+                                continue
+
+                            if event_type == "error":
+                                error_payload = event.get("error")
+                                payload = {
+                                    "error": error_payload if isinstance(error_payload, dict) else {}
+                                }
+                                error_text = self._format_cloud_error(payload)
+                                if error_text == "Bundled inference request failed.":
+                                    error_text = (
+                                        "Bundled inference request failed after reaching "
+                                        f"{endpoint}."
+                                    )
+                                emitted_event = True
+                                yield StreamEvent(
+                                    type=StreamEventType.ERROR,
+                                    error=error_text,
+                                    error_payload=payload,
+                                )
+                                return
+                    return
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if (
+                    not emitted_event
+                    and attempt < (max_attempts - 1)
+                    and self._is_retryable_cloud_failure(error=exc)
+                ):
+                    await asyncio.sleep(2**attempt)
+                    continue
+                raise
+
+        if last_error is not None:
+            raise last_error
 
     async def close(self) -> None:
         if self._client is not None:
@@ -709,12 +860,24 @@ class LLMClient:
             async for event in self._stream_cloud_inference_events(
                 session, request_payload
             ):
+                if (
+                    event.type == StreamEventType.ERROR
+                    and self._should_bypass_bundled_error(event.error_payload or {})
+                    and await self._activate_saved_provider_fallback()
+                ):
+                    async for fallback_event in self.chat_completion(
+                        messages, tools=tools, visual_budget=visual_budget
+                    ):
+                        yield fallback_event
+                    return
                 yield event
             return
         except httpx.HTTPError as exc:
             yield StreamEvent(
                 type=StreamEventType.ERROR,
-                error=f"Could not reach iTE bundled inference: {exc}",
+                error=self._format_cloud_transport_error(
+                    exc, self._cloud_inference_endpoint(session)
+                ),
             )
             return
 
@@ -739,7 +902,11 @@ class LLMClient:
                 session, request_payload
             )
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"Could not reach iTE bundled inference: {exc}") from exc
+            raise RuntimeError(
+                self._format_cloud_transport_error(
+                    exc, self._cloud_inference_endpoint(session)
+                )
+            ) from exc
 
         if status_code != 200 or not payload.get("ok"):
             if await self._activate_saved_provider_fallback() if self._should_bypass_bundled_error(payload) else False:
