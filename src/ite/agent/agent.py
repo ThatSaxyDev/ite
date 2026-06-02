@@ -1040,6 +1040,7 @@ class Agent:
             "grep",
             "edit",
             "apply_patch",
+            "write_file",
             "memory",
             "skills",
         }:
@@ -1062,6 +1063,11 @@ class Agent:
                 "Parameter 'path': Field required; Parameter 'new_string': Field required",
             },
             "apply_patch": {"Parameter 'patch': Field required"},
+            "write_file": {
+                "Parameter 'path': Field required",
+                "Parameter 'content': Field required",
+                "Parameter 'path': Field required; Parameter 'content': Field required",
+            },
             "memory": {"Parameter 'action': Field required"},
             "skills": {"Parameter '': Value error, skill is required for show, activate, and deactivate"},
         }
