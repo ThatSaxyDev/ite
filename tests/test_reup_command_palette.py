@@ -4076,6 +4076,43 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(app._open_sessions["s1"], first)
         self.assertEqual(app._workspace_for_session_id("s2"), (self.cwd / "two").resolve())
 
+    def test_session_config_for_workspace_reloads_target_agents_instructions(self) -> None:
+        root = self.cwd / "repo"
+        child = root / "ite"
+        child.mkdir(parents=True)
+        (root / "AGENTS.md").write_text("# Root\nMonorepo overview.", encoding="utf-8")
+        (child / "AGENTS.md").write_text("# Child\niTE runtime overview.", encoding="utf-8")
+        app = ReupApp(
+            Config(
+                cwd=root,
+                api_key="runtime-key",
+                base_url="http://runtime.example/v1",
+                model={"name": "runtime-model"},
+                developer_instructions="# Root\nMonorepo overview.",
+            )
+        )
+        system_dir = self.cwd / "system"
+        data_dir = self.cwd / "data"
+        home_dir = self.cwd / "home"
+
+        with (
+            patch("ite.config.loader.get_config_dir", return_value=system_dir),
+            patch("ite.config.loader.get_data_dir", return_value=data_dir),
+            patch("ite.config.loader.Path.home", return_value=home_dir),
+        ):
+            session_config = app._session_config_for_workspace(child)
+
+        instructions = session_config.developer_instructions or ""
+        self.assertEqual(session_config.cwd, child.resolve())
+        self.assertEqual(session_config.api_key, "runtime-key")
+        self.assertEqual(session_config.base_url, "http://runtime.example/v1")
+        self.assertEqual(session_config.model.name, "runtime-model")
+        self.assertLess(instructions.index("# Child"), instructions.index("# Root"))
+        self.assertLess(
+            instructions.index(str(child / "AGENTS.md")),
+            instructions.index(str(root / "AGENTS.md")),
+        )
+
     def test_start_new_thread_keeps_previous_session_open(self) -> None:
         app = self._app()
         previous = SimpleNamespace(

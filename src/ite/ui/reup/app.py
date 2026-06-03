@@ -97,6 +97,7 @@ from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import DEFAULT_CONTEXT_WINDOW, ApprovalPolicy, Config
 from ite.config.loader import (
     get_workspace_agents_recommendation,
+    load_config,
     load_saved_custom_provider,
     load_theme,
     remove_saved_custom_provider,
@@ -2588,8 +2589,22 @@ class ReupApp(App):
 
     def _session_config_for_workspace(self, workspace: Path | None = None) -> Config:
         resolved_workspace = Path(workspace or self.config.cwd).resolve()
-        return self.config.model_copy(
-            update={"cwd": resolved_workspace},
+        workspace_config = load_config(resolved_workspace)
+        return workspace_config.model_copy(
+            update={
+                "cwd": resolved_workspace,
+                "model": self.config.model.model_copy(deep=True),
+                "voice": self.config.voice.model_copy(deep=True),
+                "api_key": self.config.api_key,
+                "base_url": self.config.base_url,
+                "cloud_auth_enabled": self.config.cloud_auth_enabled,
+                "cloud_api_url": self.config.cloud_api_url,
+                "cloud_client_id": self.config.cloud_client_id,
+                "cloud_device_name": self.config.cloud_device_name,
+                "approval": self.config.approval,
+                "debug": self.config.debug,
+                "resume_last_session": self.config.resume_last_session,
+            },
             deep=False,
         )
 
