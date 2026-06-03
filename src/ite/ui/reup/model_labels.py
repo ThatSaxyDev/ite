@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 BUNDLED_MODEL_DISPLAY_NAMES_BY_MODEL: dict[str, str] = {
-    "deepseek-v4": "Cortex",
-    "deepseek-v4-pro": "Cortex",
-    "deepseek/deepseek-v4-pro": "Cortex",
+    "deepseek-v4": "cortex",
+    "deepseek-v4-pro": "cortex",
+    "deepseek/deepseek-v4-pro": "cortex",
 }
 
 BUNDLED_MODEL_DISPLAY_NAMES_BY_LABEL: dict[str, str] = {
-    "deepseek v4 pro": "Cortex",
+    "deepseek v4 pro": "cortex",
 }
 
 

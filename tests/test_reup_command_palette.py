@@ -1,30 +1,36 @@
-import unittest
 import asyncio
+import unittest
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock, PropertyMock, patch
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, PropertyMock, patch
 
 from rich.console import Console
+from rich.table import Table
+from textual.widgets import Static
+
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
-from ite.config.config import Config
-from ite.cloud.auth import BundledModelsResult, CloudAuthStatus, CloudSessionState
-from ite.client.response import TokenUsage
 from ite.agent.session_manager import SessionSnapshot
+from ite.client.response import TokenUsage
+from ite.cloud.auth import BundledModelsResult, CloudAuthStatus, CloudSessionState
+from ite.config.config import Config
+from ite.tools.base import ToolInvocation
+from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.app import ReupApp, UserMessageRow, pluralize_tool_title
 from ite.ui.reup.composer_views import composer_meta_text
 from ite.ui.reup.markdown_widget import CopyableMarkdown
 from ite.ui.reup.modals import ActivityModal, ConfirmModal, UsageSummaryModal
-from ite.ui.reup.adapters.registry import StreamingCommandOutput
-from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
-from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
-from ite.tools.base import ToolInvocation
-from rich.table import Table
-from textual.widgets import Static
+from ite.ui.reup.tool_views import (
+    collapse_terminal_rewrites,
+    render_shell_result_payload,
+    render_skills_payload,
+    shell_session_state,
+    split_shell_payload,
+)
 
 
 class ReupCommandPaletteTests(unittest.TestCase):
@@ -68,9 +74,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "How did you find out all this information without even checking "
                 "through the code? I'm curious."
             )
-            with patch.object(app, "query_one", return_value=conversation), patch.object(
-                app, "_pin_activity_indicator_to_end", AsyncMock()
-            ), patch.object(app, "_refresh_empty_state"):
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()),
+                patch.object(app, "_refresh_empty_state"),
+            ):
                 await app.add_user_message(message)
 
             self.assertEqual(len(conversation.mounted), 1)
@@ -91,7 +99,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_extract_at_query_only_when_editing_trailing_token(self) -> None:
         self.assertEqual(ReupApp._extract_at_query("@"), "")
         self.assertEqual(ReupApp._extract_at_query("inspect @sr"), "sr")
-        self.assertEqual(ReupApp._extract_at_query("inspect @screenshot 2021"), "screenshot 2021")
+        self.assertEqual(
+            ReupApp._extract_at_query("inspect @screenshot 2021"), "screenshot 2021"
+        )
         self.assertIsNone(ReupApp._extract_at_query("inspect @src/app.py now"))
         self.assertIsNone(ReupApp._extract_at_query("inspect\n@src"))
 
@@ -207,9 +217,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
             app.agent = SimpleNamespace(session=session)
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-                app, "_open_modal", AsyncMock(return_value=False)
-            ) as open_modal:
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(
+                    app, "_open_modal", AsyncMock(return_value=False)
+                ) as open_modal,
+            ):
                 result = await app._apply_intent_assist("let's plan the remote cleanup")
 
             self.assertEqual(result, "let's plan the remote cleanup")
@@ -336,11 +349,13 @@ class ReupCommandPaletteTests(unittest.TestCase):
             plan_question_future = asyncio.get_running_loop().create_future()
             app._plan_question_future = plan_question_future
 
-            with patch.object(
-                app, "_clear_inflight_turn_ui", AsyncMock()
-            ) as clear_inflight, patch.object(
-                app, "_set_loading_state"
-            ), patch.object(app, "_broadcast_remote_state", AsyncMock()):
+            with (
+                patch.object(
+                    app, "_clear_inflight_turn_ui", AsyncMock()
+                ) as clear_inflight,
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_broadcast_remote_state", AsyncMock()),
+            ):
                 await app.cancel_active_turn()
 
             self.assertEqual(
@@ -354,7 +369,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_clear_inflight_turn_ui_preserves_interrupted_streaming_message(self) -> None:
+    def test_clear_inflight_turn_ui_preserves_interrupted_streaming_message(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app._streaming_widget = Static()
@@ -405,7 +422,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         filtered = app._filtered_command_palette("/ap")
 
         self.assertTrue(slash_only)
-        self.assertEqual(slash_only, sorted(slash_only, key=lambda entry: entry.name.lower()))
+        self.assertEqual(
+            slash_only, sorted(slash_only, key=lambda entry: entry.name.lower())
+        )
         self.assertGreater(len(slash_only), 8)
         # /activity and /approval are alphabetically first
         self.assertIn(slash_only[0].name, ["/activity", "/approval"])
@@ -435,7 +454,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual([entry.name for entry in filtered[:1]], ["@src/app.py"])
         self.assertEqual(filtered[0].insert_text, "@src/app.py")
 
-    def test_attachment_ref_for_path_quotes_spaces_and_uses_absolute_outside_workspace(self) -> None:
+    def test_attachment_ref_for_path_quotes_spaces_and_uses_absolute_outside_workspace(
+        self,
+    ) -> None:
         app = self._app()
         inside = self.cwd / "shot one.png"
         inside.write_text("x", encoding="utf-8")
@@ -466,9 +487,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 return None
 
         prompt = DummyPrompt()
-        with patch.object(app, "query_one", return_value=prompt), patch.object(
-            app, "_sync_command_palette"
-        ), patch.object(app, "_resize_composer_for_prompt"):
+        with (
+            patch.object(app, "query_one", return_value=prompt),
+            patch.object(app, "_sync_command_palette"),
+            patch.object(app, "_resize_composer_for_prompt"),
+        ):
             added = app._insert_attachment_refs_into_prompt([str(sample)])
 
         self.assertEqual(added, 1)
@@ -478,7 +501,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app = self._app()
 
         rendered = app._build_command_result_renderable("Installed skills: critique")
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
 
         self.assertIn("Installed skills: critique", text)
         self.assertNotIn("slash command result", text)
@@ -494,7 +519,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(getattr(children[0], "_Static__content", None), "command")
         self.assertEqual(getattr(children[1], "_Static__content", None), "/tools")
 
-    def test_post_native_command_result_marks_stats_cards_for_theme_rerender(self) -> None:
+    def test_post_native_command_result_marks_stats_cards_for_theme_rerender(
+        self,
+    ) -> None:
         app = self._app()
         app.agent = SimpleNamespace(
             session=SimpleNamespace(
@@ -526,9 +553,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
         )
 
-        with patch.object(app, "run_worker") as run_worker, patch.object(
-            app, "add_assistant_card", AsyncMock()
-        ) as add_card:
+        with (
+            patch.object(app, "run_worker") as run_worker,
+            patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+        ):
             posted = app._post_native_command_result("/stats", [])
             scheduled = run_worker.call_args.args[0]
 
@@ -585,11 +613,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_run_command_starts_remote_feed_for_workboard_native_card(self) -> None:
         app = self._app()
 
-        with patch.object(
-            app, "_start_remote_command_feed_entry", return_value="cmd-7"
-        ) as start_feed, patch.object(
-            app, "_run_workboard_command_native", AsyncMock()
-        ) as run_workboard:
+        with (
+            patch.object(
+                app, "_start_remote_command_feed_entry", return_value="cmd-7"
+            ) as start_feed,
+            patch.object(
+                app, "_run_workboard_command_native", AsyncMock()
+            ) as run_workboard,
+        ):
             asyncio.run(app.run_command("/workboard"))
 
         start_feed.assert_called_once_with("/workboard")
@@ -604,7 +635,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(len(renderables), 3)
         self.assertEqual(renderables[1].style, app._render_styles()["muted"])
 
-    def test_update_tool_call_list_dir_renders_without_missing_style_locals(self) -> None:
+    def test_update_tool_call_list_dir_renders_without_missing_style_locals(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             call_id = "call_list_dir_1"
@@ -614,7 +647,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
             with (
                 patch.object(app, "query_one", return_value=SimpleNamespace()),
-                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()) as pin_end,
+                patch.object(
+                    app, "_pin_activity_indicator_to_end", AsyncMock()
+                ) as pin_end,
             ):
                 await app.update_tool_call(
                     call_id=call_id,
@@ -661,7 +696,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("context", rendered.plain)
         self.assertNotEqual(app._composer_context_hitbox, (0, 0))
 
-    def test_composer_meta_text_does_not_fetch_bundled_models_during_render(self) -> None:
+    def test_composer_meta_text_does_not_fetch_bundled_models_during_render(
+        self,
+    ) -> None:
         app = self._app()
         app.config.model_name = "kimi-k2.6:cloud"
         app.config.model.source_kind = "custom"
@@ -716,7 +753,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertNotIn("kimi-k2.5", rendered.plain)
         self.assertNotIn("context", rendered.plain)
 
-    def test_model_options_do_not_add_unbacked_legacy_cloud_alias_as_custom(self) -> None:
+    def test_model_options_do_not_add_unbacked_legacy_cloud_alias_as_custom(
+        self,
+    ) -> None:
         app = ReupApp(
             Config(
                 cwd=self.cwd,
@@ -727,14 +766,16 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
-            options, current_entry_id, _bundled_names, _saved = app._build_model_options(
-                [
-                    {
-                        "model_name": "deepseek-v4-pro",
-                        "label": "DeepSeek V4 Pro",
-                    }
-                ],
-                "kimi-k2.5:cloud",
+            options, current_entry_id, _bundled_names, _saved = (
+                app._build_model_options(
+                    [
+                        {
+                            "model_name": "deepseek-v4-pro",
+                            "label": "DeepSeek V4 Pro",
+                        }
+                    ],
+                    "kimi-k2.5:cloud",
+                )
             )
 
         self.assertEqual([item["source_kind"] for item in options], ["bundled"])
@@ -759,7 +800,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         ]
 
         with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
-            self.assertEqual(app._model_display_name(), "Cortex")
+            self.assertEqual(app._model_display_name(), "cortex")
 
         self.assertEqual(app.config.model.name, "deepseek-v4-pro")
 
@@ -809,30 +850,34 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
-            options, current_entry_id, _bundled_names, _saved = app._build_model_options(
-                [
-                    {
-                        "model_name": "deepseek-v4-pro",
-                        "label": "DeepSeek V4 Pro",
-                    }
-                ],
-                "deepseek-v4-pro",
+            options, current_entry_id, _bundled_names, _saved = (
+                app._build_model_options(
+                    [
+                        {
+                            "model_name": "deepseek-v4-pro",
+                            "label": "DeepSeek V4 Pro",
+                        }
+                    ],
+                    "deepseek-v4-pro",
+                )
             )
 
         self.assertEqual(options[0]["model_name"], "deepseek-v4-pro")
-        self.assertEqual(options[0]["label"], "Cortex")
+        self.assertEqual(options[0]["label"], "cortex")
         self.assertEqual(current_entry_id, "bundled:deepseek-v4-pro")
 
     def test_usage_summary_masks_deepseek_v4_model_label(self) -> None:
-        self.assertEqual(ActivityModal._model_label("deepseek-v4-pro"), "Cortex")
+        self.assertEqual(ActivityModal._model_label("deepseek-v4-pro"), "cortex")
         self.assertEqual(
             ActivityModal._detail_for(
                 {"metadata": {"model": "deepseek-v4-pro", "window": "five_hour"}}
             ),
-            "Cortex · five_hour",
+            "cortex · five_hour",
         )
 
-    def test_open_model_picker_opens_empty_state_without_agent_when_no_model_selected(self) -> None:
+    def test_open_model_picker_opens_empty_state_without_agent_when_no_model_selected(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = ReupApp(
                 Config(
@@ -848,11 +893,13 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 self.assertEqual(modal._models, [])
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent, patch(
-                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
-            ), patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
-            ) as open_modal:
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}),
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ) as open_modal,
+            ):
                 await app._open_model_picker_from_meta()
 
             ensure_agent.assert_not_awaited()
@@ -907,7 +954,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_dispatch_payload_blocks_stale_bundled_model_without_entitlement(self) -> None:
+    def test_dispatch_payload_blocks_stale_bundled_model_without_entitlement(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = ReupApp(
                 Config(
@@ -956,7 +1005,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_refresh_bundled_models_cache_migrates_legacy_bundled_selection(self) -> None:
+    def test_refresh_bundled_models_cache_migrates_legacy_bundled_selection(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "glm-5.1:cloud"
@@ -964,16 +1015,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app.config.api_key = ""
             app.config.base_url = ""
 
-            with patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result(
-                    [{"model_name": "z-ai/glm-5.1", "label": "GLM-5.1"}]
+            with (
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [{"model_name": "z-ai/glm-5.1", "label": "GLM-5.1"}]
+                    ),
                 ),
-            ), patch(
-                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(app, "refresh_header"):
+                patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(app, "refresh_header"),
+            ):
                 await app._refresh_bundled_models_cache()
 
             _, kwargs = save_system_config.call_args
@@ -1040,15 +1092,23 @@ class ReupCommandPaletteTests(unittest.TestCase):
             async def fake_open_modal(_modal):
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result(
-                    [{"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}]
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.7",
+                                "label": "MiniMax M2.7",
+                            }
+                        ]
+                    ),
+                ) as get_bundled_models,
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
                 ),
-            ) as get_bundled_models, patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
             ):
                 await app._open_model_picker_from_meta()
 
@@ -1056,7 +1116,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_usage_modal_opens_before_refreshing_stale_cached_summary(self) -> None:
+    def test_open_usage_modal_opens_before_refreshing_stale_cached_summary(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.7"
@@ -1076,12 +1138,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 self.assertEqual(modal._summary, app._usage_summary_cache)
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
-            ) as get_usage_summary, patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
-            ), patch.object(
-                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
+                ) as get_usage_summary,
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ),
+                patch.object(
+                    app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+                ),
             ):
                 await app._open_usage_modal_from_meta()
 
@@ -1110,10 +1177,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             }
             modal = UsageSummaryModal(None, loading=True)
 
-            with patch(
-                "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
-            ) as get_usage_summary, patch.object(
-                app, "refresh_header"
+            with (
+                patch(
+                    "ite.ui.reup.app.get_usage_summary", return_value=fresh_summary
+                ) as get_usage_summary,
+                patch.object(app, "refresh_header"),
             ):
                 await app._refresh_usage_modal(modal)
 
@@ -1131,14 +1199,13 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state = app._run_state("s1")
             run_state.active_turn_id = 1
             summary = {
-                "quotas": {
-                    "fiveHour": {"usedUsdCents": 0.5, "capUsdCents": 100}
-                }
+                "quotas": {"fiveHour": {"usedUsdCents": 0.5, "capUsdCents": 100}}
             }
 
-            with patch.object(
-                app, "_broadcast_remote_agent_event", AsyncMock()
-            ), patch.object(app, "refresh_header") as refresh_header:
+            with (
+                patch.object(app, "_broadcast_remote_agent_event", AsyncMock()),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
                 await app.handle_agent_event(
                     AgentEvent.usage_update(summary),
                     "s1",
@@ -1151,7 +1218,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_usage_meta_refresh_clears_stale_remaining_when_summary_missing(self) -> None:
+    def test_usage_meta_refresh_clears_stale_remaining_when_summary_missing(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app._usage_summary_cache = {
@@ -1159,9 +1228,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
             }
             app._usage_remaining_percent = 0
 
-            with patch(
-                "ite.ui.reup.app.get_usage_summary", return_value=None
-            ), patch.object(app, "refresh_header") as refresh_header:
+            with (
+                patch("ite.ui.reup.app.get_usage_summary", return_value=None),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
                 await app._refresh_usage_meta()
 
             self.assertIsNone(app._usage_summary_cache)
@@ -1175,12 +1245,13 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app = self._app()
             app._activity_cache = {"totals": {}, "daily": [], "by_model": []}
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.get_activity"
-            ) as get_activity, patch.object(
-                app, "_open_modal", AsyncMock(return_value=None)
-            ), patch.object(
-                app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch("ite.ui.reup.app.get_activity") as get_activity,
+                patch.object(app, "_open_modal", AsyncMock(return_value=None)),
+                patch.object(
+                    app, "run_worker", side_effect=lambda coro, **_kwargs: coro.close()
+                ),
             ):
                 await app._open_activity_modal_from_meta()
 
@@ -1201,10 +1272,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
         app.agent = SimpleNamespace(session=session)
 
-        with patch(
-            "ite.ui.reup.app.get_bundled_models_result",
-            return_value=[{"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}],
-        ), patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+        with (
+            patch(
+                "ite.ui.reup.app.get_bundled_models_result",
+                return_value=[
+                    {"model_name": "minimax/minimax-m2.7", "label": "MiniMax M2.7"}
+                ],
+            ),
+            patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}),
+        ):
             rendered = app._composer_meta_text()
 
         self.assertIn("usage", rendered.plain)
@@ -1246,10 +1322,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_theme_change_rerenders_composer_meta_line(self) -> None:
         app = self._app()
 
-        with patch.object(app, "refresh_header"), patch.object(
-            app, "_refresh_empty_state"
-        ), patch.object(app, "_update_composer_meta_line") as update_meta, patch.object(
-            app, "call_after_refresh"
+        with (
+            patch.object(app, "refresh_header"),
+            patch.object(app, "_refresh_empty_state"),
+            patch.object(app, "_update_composer_meta_line") as update_meta,
+            patch.object(app, "call_after_refresh"),
         ):
             app.watch_theme("textual-dark", "textual-light")
 
@@ -1259,13 +1336,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app = self._app()
         meta_line = SimpleNamespace(update=lambda _value: None)
 
-        with patch.object(app, "query_one", return_value=meta_line), patch.object(
-            app, "_composer_meta_text", return_value="meta"
-        ), patch.object(
-            app, "_update_composer_flow_control"
-        ) as update_flow, patch.object(
-            app, "_update_composer_send_control"
-        ) as update_send:
+        with (
+            patch.object(app, "query_one", return_value=meta_line),
+            patch.object(app, "_composer_meta_text", return_value="meta"),
+            patch.object(app, "_update_composer_flow_control") as update_flow,
+            patch.object(app, "_update_composer_send_control") as update_send,
+        ):
             app._update_composer_meta_line()
 
         update_flow.assert_called_once_with()
@@ -1283,8 +1359,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         event = SimpleNamespace(x=12, stop=lambda: None)
 
-        with patch.object(app, "run_worker") as run_worker, patch.object(
-            app, "_open_context_modal_from_meta", return_value=None
+        with (
+            patch.object(app, "run_worker") as run_worker,
+            patch.object(app, "_open_context_modal_from_meta", return_value=None),
         ):
             app.on_composer_meta_line_click(event)
 
@@ -1293,8 +1370,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
     def test_live_context_meter_tick_updates_only_while_turn_running(self) -> None:
         app = self._app()
 
-        with patch.object(app, "_update_composer_meta_line") as update_meta, patch.object(
-            ReupApp, "is_mounted", new_callable=PropertyMock, return_value=True
+        with (
+            patch.object(app, "_update_composer_meta_line") as update_meta,
+            patch.object(
+                ReupApp, "is_mounted", new_callable=PropertyMock, return_value=True
+            ),
         ):
             app._is_turn_running = False
             app._tick_live_context_meter()
@@ -1304,7 +1384,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app._tick_live_context_meter()
             update_meta.assert_called_once()
 
-    def test_open_model_picker_passes_availability_metadata_and_warns_when_current_bundled_model_is_down(self) -> None:
+    def test_open_model_picker_passes_availability_metadata_and_warns_when_current_bundled_model_is_down(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.7"
@@ -1320,29 +1402,35 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 self.assertTrue(modal._models[1]["available"])
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider", return_value={}
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "minimax/minimax-m2.7",
-                        "label": "MiniMax M2.7",
-                        "provider": "Bundled",
-                        "available": False,
-                        "unavailable_reason": "Local bundled provider returned 500.",
-                    },
-                    {
-                        "model_name": "z-ai/glm-5",
-                        "label": "GLM-5",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    },
-                ]),
-            ), patch.object(app, "_open_modal", AsyncMock(side_effect=fake_open_modal)), patch.object(
-                app, "post_system"
-            ) as post_system:
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.7",
+                                "label": "MiniMax M2.7",
+                                "provider": "Bundled",
+                                "available": False,
+                                "unavailable_reason": "Local bundled provider returned 500.",
+                            },
+                            {
+                                "model_name": "z-ai/glm-5",
+                                "label": "GLM-5",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            },
+                        ]
+                    ),
+                ),
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ),
+                patch.object(app, "post_system") as post_system,
+            ):
                 await app._open_model_picker_from_meta()
 
             post_system.assert_not_called()
@@ -1364,18 +1452,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 message="Stored iTE Cloud session is expired or revoked.",
             )
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=result,
-            ), patch(
-                "ite.ui.reup.app.clear_cloud_auth"
-            ) as clear_auth, patch.object(
-                app, "_set_signed_out_state"
-            ) as set_signed_out, patch.object(
-                app, "post_system"
-            ) as post_system, patch.object(
-                app, "_open_modal", AsyncMock()
-            ) as open_modal:
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=result,
+                ),
+                patch("ite.ui.reup.app.clear_cloud_auth") as clear_auth,
+                patch.object(app, "_set_signed_out_state") as set_signed_out,
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "_open_modal", AsyncMock()) as open_modal,
+            ):
                 await app._open_model_picker_from_meta()
 
             clear_auth.assert_called_once_with(revoke_remote=False)
@@ -1415,19 +1502,22 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 self.assertEqual(modal._models[0]["source_kind"], "saved")
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={"gemma4:e4b": saved_provider},
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=result,
-            ) as get_bundled_models, patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
-            ) as open_modal, patch.object(
-                app, "post_system"
-            ) as post_system, patch.object(
-                app, "post_notice"
-            ) as post_notice:
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
+                    return_value={"gemma4:e4b": saved_provider},
+                ),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=result,
+                ) as get_bundled_models,
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ) as open_modal,
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "post_notice") as post_notice,
+            ):
                 await app._open_model_picker_from_meta()
 
             get_bundled_models.assert_called_once()
@@ -1439,47 +1529,62 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_includes_saved_custom_provider_when_current_model_is_bundled(self) -> None:
+    def test_open_model_picker_includes_saved_custom_provider_when_current_model_is_bundled(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.7"
             app.config.model.source_kind = "bundled"
 
             async def fake_open_modal(modal):
-                self.assertEqual(modal._models[0]["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+                self.assertEqual(
+                    modal._models[0]["model_name"], "unsloth/gemma-4-E4B-it-UD-MLX-4bit"
+                )
                 self.assertEqual(modal._models[0]["provider"], "localhost")
                 self.assertTrue(modal._models[0]["saved_profile"])
                 self.assertEqual(modal._models[0]["context_window"], 131072)
                 self.assertEqual(modal._models[1]["model_name"], "minimax/minimax-m2.7")
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "unsloth/gemma-4-E4B-it-UD-MLX-4bit": {
-                        "api_key": "custom-key",
-                        "base_url": "http://localhost:8080",
-                        "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
-                        "context_window": 131072,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "minimax/minimax-m2.7",
-                        "label": "MiniMax M2.7",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch.object(app, "_open_modal", AsyncMock(side_effect=fake_open_modal)):
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
+                    return_value={
+                        "unsloth/gemma-4-E4B-it-UD-MLX-4bit": {
+                            "api_key": "custom-key",
+                            "base_url": "http://localhost:8080",
+                            "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                            "context_window": 131072,
+                        }
+                    },
+                ),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.7",
+                                "label": "MiniMax M2.7",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ),
+            ):
                 await app._open_model_picker_from_meta()
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_keeps_bundled_and_saved_entries_distinct_when_names_match(self) -> None:
+    def test_open_model_picker_keeps_bundled_and_saved_entries_distinct_when_names_match(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "z-ai/glm-5.1"
@@ -1497,32 +1602,40 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 self.assertTrue(modal._models[1]["saved_profile"])
                 return {"action": "select", "entry_id": "saved:z-ai/glm-5.1"}
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "z-ai/glm-5.1": {
-                        "api_key": "openrouter-key",
-                        "base_url": "https://openrouter.ai/api/v1",
-                        "model_name": "z-ai/glm-5.1",
-                        "context_window": 196608,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "z-ai/glm-5.1",
-                        "label": "GLM-5.1",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
-            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
+                    return_value={
+                        "z-ai/glm-5.1": {
+                            "api_key": "openrouter-key",
+                            "base_url": "https://openrouter.ai/api/v1",
+                            "model_name": "z-ai/glm-5.1",
+                            "context_window": 196608,
+                        }
+                    },
+                ),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "z-ai/glm-5.1",
+                                "label": "GLM-5.1",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_notice"),
+            ):
                 await app._open_model_picker_from_meta()
 
             _, kwargs = save_system_config.call_args
@@ -1532,7 +1645,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_keeps_bundled_and_saved_entries_distinct_for_minimax_free(self) -> None:
+    def test_open_model_picker_keeps_bundled_and_saved_entries_distinct_for_minimax_free(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax/minimax-m2.5:free"
@@ -1542,40 +1657,55 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
             async def fake_open_modal(modal):
                 self.assertEqual(len(modal._models), 2)
-                self.assertEqual(modal._models[0]["model_name"], "minimax/minimax-m2.5:free")
+                self.assertEqual(
+                    modal._models[0]["model_name"], "minimax/minimax-m2.5:free"
+                )
                 self.assertEqual(modal._models[0]["provider"], "Bundled")
                 self.assertFalse(modal._models[0]["saved_profile"])
-                self.assertEqual(modal._models[1]["model_name"], "minimax/minimax-m2.5:free")
+                self.assertEqual(
+                    modal._models[1]["model_name"], "minimax/minimax-m2.5:free"
+                )
                 self.assertEqual(modal._models[1]["provider"], "OpenRouter")
                 self.assertTrue(modal._models[1]["saved_profile"])
-                return {"action": "select", "entry_id": "saved:minimax/minimax-m2.5:free"}
+                return {
+                    "action": "select",
+                    "entry_id": "saved:minimax/minimax-m2.5:free",
+                }
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "minimax/minimax-m2.5:free": {
-                        "api_key": "openrouter-key",
-                        "base_url": "https://openrouter.ai/api/v1",
-                        "model_name": "minimax/minimax-m2.5:free",
-                        "context_window": 196608,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "minimax/minimax-m2.5:free",
-                        "label": "MiniMax M2.5 (free)",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
-            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
+                    return_value={
+                        "minimax/minimax-m2.5:free": {
+                            "api_key": "openrouter-key",
+                            "base_url": "https://openrouter.ai/api/v1",
+                            "model_name": "minimax/minimax-m2.5:free",
+                            "context_window": 196608,
+                        }
+                    },
+                ),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.5:free",
+                                "label": "MiniMax M2.5 (free)",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_notice"),
+            ):
                 await app._open_model_picker_from_meta()
 
             _, kwargs = save_system_config.call_args
@@ -1585,7 +1715,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_preserves_ollama_cloud_named_model_as_saved_byok(self) -> None:
+    def test_open_model_picker_preserves_ollama_cloud_named_model_as_saved_byok(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax-m2.5:cloud"
@@ -1605,41 +1737,49 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 )
             )
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "minimax-m2.5:cloud": {
-                        "api_key": "ollama",
-                        "base_url": "http://localhost:11434/v1",
-                        "model_name": "minimax-m2.5:cloud",
-                        "context_window": 200000,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "minimax/minimax-m2.5",
-                        "label": "MiniMax M2.5",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(
-                app,
-                "_open_modal",
-                AsyncMock(
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
                     return_value={
-                        "action": "select",
-                        "entry_id": "saved:minimax-m2.5:cloud",
-                        "model_name": "minimax-m2.5:cloud",
-                        "source_kind": "saved",
-                    }
+                        "minimax-m2.5:cloud": {
+                            "api_key": "ollama",
+                            "base_url": "http://localhost:11434/v1",
+                            "model_name": "minimax-m2.5:cloud",
+                            "context_window": 200000,
+                        }
+                    },
                 ),
-            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.5",
+                                "label": "MiniMax M2.5",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(
+                    app,
+                    "_open_modal",
+                    AsyncMock(
+                        return_value={
+                            "action": "select",
+                            "entry_id": "saved:minimax-m2.5:cloud",
+                            "model_name": "minimax-m2.5:cloud",
+                            "source_kind": "saved",
+                        }
+                    ),
+                ),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_notice"),
+            ):
                 await app._open_model_picker_from_meta()
 
             save_system_config.assert_not_called()
@@ -1652,7 +1792,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_selects_bundled_minimax_without_byok_credentials(self) -> None:
+    def test_open_model_picker_selects_bundled_minimax_without_byok_credentials(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "minimax-m2.5:cloud"
@@ -1672,41 +1814,49 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 )
             )
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "minimax-m2.5:cloud": {
-                        "api_key": "ollama",
-                        "base_url": "http://localhost:11434/v1",
-                        "model_name": "minimax-m2.5:cloud",
-                        "context_window": 200000,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "minimax/minimax-m2.5",
-                        "label": "MiniMax M2.5",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(
-                app,
-                "_open_modal",
-                AsyncMock(
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
                     return_value={
-                        "action": "select",
-                        "entry_id": "bundled:minimax/minimax-m2.5",
-                        "model_name": "minimax/minimax-m2.5",
-                        "source_kind": "bundled",
-                    }
+                        "minimax-m2.5:cloud": {
+                            "api_key": "ollama",
+                            "base_url": "http://localhost:11434/v1",
+                            "model_name": "minimax-m2.5:cloud",
+                            "context_window": 200000,
+                        }
+                    },
                 ),
-            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.5",
+                                "label": "MiniMax M2.5",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(
+                    app,
+                    "_open_modal",
+                    AsyncMock(
+                        return_value={
+                            "action": "select",
+                            "entry_id": "bundled:minimax/minimax-m2.5",
+                            "model_name": "minimax/minimax-m2.5",
+                            "source_kind": "bundled",
+                        }
+                    ),
+                ),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_notice"),
+            ):
                 await app._open_model_picker_from_meta()
 
             save_system_config.assert_called_once()
@@ -1733,39 +1883,47 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app.config.api_key = "runtime-key"
             app.config.base_url = "http://127.0.0.1:4000/v1"
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "unsloth/gemma-4-E4B-it-UD-MLX-4bit": {
-                        "api_key": "custom-key",
-                        "base_url": "http://localhost:8080",
-                        "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
-                        "context_window": 131072,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "minimax/minimax-m2.7",
-                        "label": "MiniMax M2.7",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(
-                app,
-                "_open_modal",
-                AsyncMock(
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
                     return_value={
-                        "action": "select",
-                        "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
-                    }
+                        "unsloth/gemma-4-E4B-it-UD-MLX-4bit": {
+                            "api_key": "custom-key",
+                            "base_url": "http://localhost:8080",
+                            "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                            "context_window": 131072,
+                        }
+                    },
                 ),
-            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "minimax/minimax-m2.7",
+                                "label": "MiniMax M2.7",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(
+                    app,
+                    "_open_modal",
+                    AsyncMock(
+                        return_value={
+                            "action": "select",
+                            "model_name": "unsloth/gemma-4-E4B-it-UD-MLX-4bit",
+                        }
+                    ),
+                ),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_notice"),
+            ):
                 await app._open_model_picker_from_meta()
 
             save_system_config.assert_called_once()
@@ -1776,7 +1934,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertEqual(kwargs["context_window"], 131072)
             self.assertEqual(app.config.api_key, "custom-key")
             self.assertEqual(app.config.base_url, "http://localhost:8080")
-            self.assertEqual(app.config.model.name, "unsloth/gemma-4-E4B-it-UD-MLX-4bit")
+            self.assertEqual(
+                app.config.model.name, "unsloth/gemma-4-E4B-it-UD-MLX-4bit"
+            )
             self.assertEqual(app.config.model.context_window, 131072)
 
         asyncio.run(run_test())
@@ -1798,7 +1958,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_uses_saved_models_without_backend_in_local_mode(self) -> None:
+    def test_open_model_picker_uses_saved_models_without_backend_in_local_mode(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.cloud_auth_enabled = False
@@ -1809,25 +1971,32 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
             async def fake_open_modal(modal):
                 self.assertEqual(len(modal._models), 1)
-                self.assertEqual(modal._models[0]["entry_id"], "saved:minimax-m2.5:cloud")
+                self.assertEqual(
+                    modal._models[0]["entry_id"], "saved:minimax-m2.5:cloud"
+                )
                 self.assertEqual(modal._models[0]["provider"], "Ollama")
                 return None
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "minimax-m2.5:cloud": {
-                        "api_key": "ollama",
-                        "base_url": "http://localhost:11434/v1",
-                        "model_name": "minimax-m2.5:cloud",
-                        "context_window": 200000,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result"
-            ) as get_bundled_models_result, patch.object(
-                app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
-            ) as open_modal:
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
+                    return_value={
+                        "minimax-m2.5:cloud": {
+                            "api_key": "ollama",
+                            "base_url": "http://localhost:11434/v1",
+                            "model_name": "minimax-m2.5:cloud",
+                            "context_window": 200000,
+                        }
+                    },
+                ),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result"
+                ) as get_bundled_models_result,
+                patch.object(
+                    app, "_open_modal", AsyncMock(side_effect=fake_open_modal)
+                ) as open_modal,
+            ):
                 await app._open_model_picker_from_meta()
 
             open_modal.assert_awaited_once()
@@ -1835,7 +2004,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_open_model_picker_clears_custom_provider_credentials_for_bundled_cloud_model(self) -> None:
+    def test_open_model_picker_clears_custom_provider_credentials_for_bundled_cloud_model(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.config.model.name = "arcee-ai/trinity-large-preview:free"
@@ -1845,34 +2016,44 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 session=SimpleNamespace(client=SimpleNamespace(close=AsyncMock()))
             )
 
-            with patch.object(app, "ensure_agent", AsyncMock()), patch(
-                "ite.ui.reup.app.load_saved_custom_provider",
-                return_value={
-                    "arcee-ai/trinity-large-preview:free": {
-                        "api_key": "openrouter-key",
-                        "base_url": "https://openrouter.ai/api/v1",
-                        "model_name": "arcee-ai/trinity-large-preview:free",
-                        "context_window": 196608,
-                    }
-                },
-            ), patch(
-                "ite.ui.reup.app.get_bundled_models_result",
-                return_value=self._bundled_models_result([
-                    {
-                        "model_name": "z-ai/glm-5.1",
-                        "label": "GLM-5.1",
-                        "provider": "Bundled",
-                        "available": True,
-                        "unavailable_reason": "",
-                    }
-                ]),
-            ), patch(
-                "ite.ui.reup.app.save_system_config"
-            ) as save_system_config, patch.object(
-                app,
-                "_open_modal",
-                AsyncMock(return_value={"action": "select", "model_name": "z-ai/glm-5.1"}),
-            ), patch.object(app, "refresh_header"), patch.object(app, "post_notice"):
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch(
+                    "ite.ui.reup.app.load_saved_custom_provider",
+                    return_value={
+                        "arcee-ai/trinity-large-preview:free": {
+                            "api_key": "openrouter-key",
+                            "base_url": "https://openrouter.ai/api/v1",
+                            "model_name": "arcee-ai/trinity-large-preview:free",
+                            "context_window": 196608,
+                        }
+                    },
+                ),
+                patch(
+                    "ite.ui.reup.app.get_bundled_models_result",
+                    return_value=self._bundled_models_result(
+                        [
+                            {
+                                "model_name": "z-ai/glm-5.1",
+                                "label": "GLM-5.1",
+                                "provider": "Bundled",
+                                "available": True,
+                                "unavailable_reason": "",
+                            }
+                        ]
+                    ),
+                ),
+                patch("ite.ui.reup.app.save_system_config") as save_system_config,
+                patch.object(
+                    app,
+                    "_open_modal",
+                    AsyncMock(
+                        return_value={"action": "select", "model_name": "z-ai/glm-5.1"}
+                    ),
+                ),
+                patch.object(app, "refresh_header"),
+                patch.object(app, "post_notice"),
+            ):
                 await app._open_model_picker_from_meta()
 
             save_system_config.assert_called_once()
@@ -1889,7 +2070,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_build_streaming_command_renderable_shows_spinner_without_label(self) -> None:
+    def test_build_streaming_command_renderable_shows_spinner_without_label(
+        self,
+    ) -> None:
         app = self._app()
 
         rendered = app._build_streaming_command_renderable(
@@ -1899,10 +2082,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             spinner_index=0,
         )
 
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
         self.assertIn("▰▱▱", text)
 
-    def test_build_streaming_command_renderable_hides_generic_spinner_once_lines_exist(self) -> None:
+    def test_build_streaming_command_renderable_hides_generic_spinner_once_lines_exist(
+        self,
+    ) -> None:
         app = self._app()
 
         rendered = app._build_streaming_command_renderable(
@@ -1912,10 +2099,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             spinner_index=0,
         )
 
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
         self.assertEqual(text.count("▰▱▱"), 1)
 
-    def test_build_streaming_command_renderable_animates_prefix_on_first_line(self) -> None:
+    def test_build_streaming_command_renderable_animates_prefix_on_first_line(
+        self,
+    ) -> None:
         app = self._app()
 
         first = app._build_streaming_command_renderable(
@@ -1931,8 +2122,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
             spinner_index=1,
         )
 
-        first_text = "".join(getattr(part, "plain", str(part)) for part in first.renderables)
-        second_text = "".join(getattr(part, "plain", str(part)) for part in second.renderables)
+        first_text = "".join(
+            getattr(part, "plain", str(part)) for part in first.renderables
+        )
+        second_text = "".join(
+            getattr(part, "plain", str(part)) for part in second.renderables
+        )
         self.assertIn("▰▱▱", first_text)
         self.assertIn("▱▰▱", second_text)
 
@@ -1973,14 +2168,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     return conversation
                 raise AssertionError(f"Unexpected selector: {selector}")
 
-            with patch.object(app, "query_one", side_effect=fake_query_one), patch.object(
-                app, "_pin_activity_indicator_to_end", AsyncMock()
-            ), patch.object(app, "_refresh_empty_state"), patch.object(
-                app, "get_tool_kind", return_value=None
-            ), patch.object(app, "_hide_activity_indicator", AsyncMock()), patch.object(
-                app, "_cancel_activity_resume_timer"
-            ), patch.object(app, "_set_loading_state"), patch.object(
-                app, "_progress_state_label", return_value="Reading file"
+            with (
+                patch.object(app, "query_one", side_effect=fake_query_one),
+                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()),
+                patch.object(app, "_refresh_empty_state"),
+                patch.object(app, "get_tool_kind", return_value=None),
+                patch.object(app, "_hide_activity_indicator", AsyncMock()),
+                patch.object(app, "_cancel_activity_resume_timer"),
+                patch.object(app, "_set_loading_state"),
+                patch.object(app, "_progress_state_label", return_value="Reading file"),
             ):
                 await app.stream_assistant_delta("First segment.")
                 first_widget = app._streaming_widget
@@ -2004,7 +2200,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_tick_top_indicator_advances_streaming_command_spinner_without_top_busy(self) -> None:
+    def test_tick_top_indicator_advances_streaming_command_spinner_without_top_busy(
+        self,
+    ) -> None:
         app = self._app()
         widget = Static()
         app._streaming_command_cards["/mcp"] = (SimpleNamespace(), widget, [], True, "")
@@ -2016,7 +2214,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app._top_spinner_index, before + 1)
 
-    def test_finalize_streaming_message_prefers_final_text_over_stream_buffer(self) -> None:
+    def test_finalize_streaming_message_prefers_final_text_over_stream_buffer(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
 
@@ -2040,9 +2240,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app._streaming_widget = RemovableStatic()
             app._streaming_buffer = "Alpha\nAlpha\nBeta"
 
-            with patch.object(app, "query_one", return_value=conversation), patch.object(
-                app, "_pin_activity_indicator_to_end", AsyncMock()
-            ), patch("ite.ui.reup.app.CopyableMarkdown", FakeMarkdown):
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()),
+                patch("ite.ui.reup.app.CopyableMarkdown", FakeMarkdown),
+            ):
                 await app.finalize_streaming_message("Alpha\nBeta")
 
             self.assertIsNone(app._streaming_widget)
@@ -2066,8 +2268,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                     self.mounted.append(widget)
 
             conversation = DummyConversation()
-            with patch.object(app, "query_one", return_value=conversation), patch.object(
-                app, "_pin_activity_indicator_to_end", AsyncMock()
+            with (
+                patch.object(app, "query_one", return_value=conversation),
+                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()),
             ):
                 await app.stream_assistant_delta("Hello `code`")
 
@@ -2087,12 +2290,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 async def mount(self, _card) -> None:
                     return None
 
-            with patch.object(app, "query_one", return_value=DummyConversation()), patch.object(
-                app, "_pin_activity_indicator_to_end", AsyncMock()
-            ), patch.object(app, "_refresh_empty_state"):
-                await app._append_command_result_card("/mcp", "Failed to start MCP server 'netlify'")
+            with (
+                patch.object(app, "query_one", return_value=DummyConversation()),
+                patch.object(app, "_pin_activity_indicator_to_end", AsyncMock()),
+                patch.object(app, "_refresh_empty_state"),
+            ):
+                await app._append_command_result_card(
+                    "/mcp", "Failed to start MCP server 'netlify'"
+                )
 
-            card, _body, _lines, _pending_active, _pending_text = app._streaming_command_cards["/mcp"]
+            card, _body, _lines, _pending_active, _pending_text = (
+                app._streaming_command_cards["/mcp"]
+            )
             self.assertIn("command-error", card.classes)
 
         asyncio.run(run_test())
@@ -2104,13 +2313,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
         async def fake_dispatch(_command, _args, ctx):
             ctx.console.print("Command finished.")
 
-        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-            app._command_registry,
-            "dispatch",
-            AsyncMock(side_effect=fake_dispatch),
-        ), patch.object(app, "post_command_result") as post_command, patch.object(
-            app, "_post_skills_command_result", return_value=True
-        ) as post_skills:
+        with (
+            patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(
+                app._command_registry,
+                "dispatch",
+                AsyncMock(side_effect=fake_dispatch),
+            ),
+            patch.object(app, "post_command_result") as post_command,
+            patch.object(
+                app, "_post_skills_command_result", return_value=True
+            ) as post_skills,
+        ):
             asyncio.run(app.run_command("/demo"))
 
         post_command.assert_called_once_with("/demo", "Command finished.")
@@ -2133,13 +2347,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
         async def fake_dispatch(_command, _args, ctx):
             ctx.console.print("legacy boxed output")
 
-        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-            app._command_registry,
-            "dispatch",
-            AsyncMock(side_effect=fake_dispatch),
-        ), patch.object(app, "post_command_result") as post_command, patch.object(
-            app, "_post_skills_command_result", return_value=False
-        ), patch.object(app, "add_assistant_card", AsyncMock()) as add_card:
+        with (
+            patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(
+                app._command_registry,
+                "dispatch",
+                AsyncMock(side_effect=fake_dispatch),
+            ),
+            patch.object(app, "post_command_result") as post_command,
+            patch.object(app, "_post_skills_command_result", return_value=False),
+            patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+        ):
             asyncio.run(app.run_command("/tools"))
 
         post_command.assert_not_called()
@@ -2164,21 +2382,31 @@ class ReupCommandPaletteTests(unittest.TestCase):
             load_active_controls=lambda: {},
             list_entries=lambda _store: [],
             list_episodes=lambda: [],
-            debug_prompt_memory=lambda query: {"controls": {}, "episodic": [], "long_term": {}, "semantic": {}, "short_term": {}, "query": query},
+            debug_prompt_memory=lambda query: {
+                "controls": {},
+                "episodic": [],
+                "long_term": {},
+                "semantic": {},
+                "short_term": {},
+                "query": query,
+            },
         )
 
         async def fake_dispatch(_command, _args, ctx):
             ctx.console.print("legacy memory output")
 
-        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-            app._command_registry,
-            "dispatch",
-            AsyncMock(side_effect=fake_dispatch),
-        ), patch("ite.ui.reup.app.MemoryManager", return_value=manager), patch.object(
-            app, "post_command_result"
-        ) as post_command, patch.object(
-            app, "_post_skills_command_result", return_value=False
-        ), patch.object(app, "add_assistant_card", AsyncMock()) as add_card:
+        with (
+            patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(
+                app._command_registry,
+                "dispatch",
+                AsyncMock(side_effect=fake_dispatch),
+            ),
+            patch("ite.ui.reup.app.MemoryManager", return_value=manager),
+            patch.object(app, "post_command_result") as post_command,
+            patch.object(app, "_post_skills_command_result", return_value=False),
+            patch.object(app, "add_assistant_card", AsyncMock()) as add_card,
+        ):
             asyncio.run(app.run_command("/memory"))
 
         post_command.assert_not_called()
@@ -2191,13 +2419,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
         async def fake_dispatch(_command, _args, ctx):
             ctx.console.print("Skills updated.")
 
-        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-            app._command_registry,
-            "dispatch",
-            AsyncMock(side_effect=fake_dispatch),
-        ), patch.object(app, "post_command_result") as post_command, patch.object(
-            app, "_post_skills_command_result", return_value=True
-        ) as post_skills:
+        with (
+            patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(
+                app._command_registry,
+                "dispatch",
+                AsyncMock(side_effect=fake_dispatch),
+            ),
+            patch.object(app, "post_command_result") as post_command,
+            patch.object(
+                app, "_post_skills_command_result", return_value=True
+            ) as post_skills,
+        ):
             asyncio.run(app.run_command("/skills"))
 
         post_skills.assert_called_once_with([], "Skills updated.")
@@ -2222,13 +2455,16 @@ class ReupCommandPaletteTests(unittest.TestCase):
             ctx.console.print("step one")
             ctx.console.print("step two")
 
-        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-            app._command_registry,
-            "dispatch",
-            AsyncMock(side_effect=fake_dispatch),
-        ), patch.object(app, "post_streaming_command_result") as post_stream, patch.object(
-            app, "post_command_result"
-        ) as post_command:
+        with (
+            patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(
+                app._command_registry,
+                "dispatch",
+                AsyncMock(side_effect=fake_dispatch),
+            ),
+            patch.object(app, "post_streaming_command_result") as post_stream,
+            patch.object(app, "post_command_result") as post_command,
+        ):
             asyncio.run(app.run_command("/mcp start vercel"))
 
         self.assertEqual(
@@ -2250,13 +2486,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
             context_manager.compaction_count = 1
             ctx.console.print("Compacted.")
 
-        with patch.object(app, "ensure_agent", AsyncMock()), patch.object(
-            app._command_registry,
-            "dispatch",
-            AsyncMock(side_effect=fake_dispatch),
-        ), patch.object(app, "post_notice") as post_notice, patch.object(
-            app, "post_system"
-        ) as post_system, patch.object(app, "post_command_result") as post_command:
+        with (
+            patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(
+                app._command_registry,
+                "dispatch",
+                AsyncMock(side_effect=fake_dispatch),
+            ),
+            patch.object(app, "post_notice") as post_notice,
+            patch.object(app, "post_system") as post_system,
+            patch.object(app, "post_command_result") as post_command,
+        ):
             asyncio.run(app.run_command("/compact"))
 
         post_notice.assert_called_once_with("Context", "Compacting context")
@@ -2276,16 +2516,19 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app.agent = SimpleNamespace(session=SimpleNamespace())
         app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
 
-        with patch.object(app, "_dispatch_payload", AsyncMock()) as dispatch, patch.object(
-            app, "post_notice"
-        ) as post_notice:
+        with (
+            patch.object(app, "_dispatch_payload", AsyncMock()) as dispatch,
+            patch.object(app, "post_notice") as post_notice,
+        ):
             asyncio.run(app.run_command("/retry"))
 
         dispatch.assert_awaited_once()
         post_notice.assert_called_once_with("Retry", "Retrying last turn.")
         self.assertIsNone(run_state.retryable_turn_payload)
 
-    def test_agent_error_marks_retryable_bundled_failure_and_queues_silent_retry(self) -> None:
+    def test_agent_error_marks_retryable_bundled_failure_and_queues_silent_retry(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.agent = SimpleNamespace(
@@ -2303,14 +2546,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 "attachments": [],
             }
 
-            with patch.object(app, "post_system") as post_system, patch.object(
-                app, "post_notice"
-            ) as post_notice, patch.object(
-                app, "post_recovery_status"
-            ) as post_recovery, patch.object(app, "refresh_header"), patch.object(
-                app, "_schedule_usage_meta_refresh_for_cloud_model"
-            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
-                app, "_hide_activity_indicator", AsyncMock()
+            with (
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(app, "post_recovery_status") as post_recovery,
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_schedule_usage_meta_refresh_for_cloud_model"),
+                patch.object(app, "_cancel_activity_resume_timer"),
+                patch.object(app, "_hide_activity_indicator", AsyncMock()),
             ):
                 await app.handle_agent_event(
                     AgentEvent.agent_error(
@@ -2364,14 +2607,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             }
             run_state.turn_made_progress = True
 
-            with patch.object(app, "post_system") as post_system, patch.object(
-                app, "post_notice"
-            ) as post_notice, patch.object(
-                app, "post_recovery_status"
-            ) as post_recovery, patch.object(app, "refresh_header"), patch.object(
-                app, "_schedule_usage_meta_refresh_for_cloud_model"
-            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
-                app, "_hide_activity_indicator", AsyncMock()
+            with (
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(app, "post_recovery_status") as post_recovery,
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_schedule_usage_meta_refresh_for_cloud_model"),
+                patch.object(app, "_cancel_activity_resume_timer"),
+                patch.object(app, "_hide_activity_indicator", AsyncMock()),
             ):
                 await app.handle_agent_event(
                     AgentEvent.agent_error(
@@ -2402,7 +2645,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_agent_error_treats_incomplete_bundled_stream_as_silent_recovery(self) -> None:
+    def test_agent_error_treats_incomplete_bundled_stream_as_silent_recovery(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.agent = SimpleNamespace(
@@ -2421,14 +2666,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             }
             run_state.turn_made_progress = True
 
-            with patch.object(app, "post_system") as post_system, patch.object(
-                app, "post_notice"
-            ) as post_notice, patch.object(
-                app, "post_recovery_status"
-            ) as post_recovery, patch.object(app, "refresh_header"), patch.object(
-                app, "_schedule_usage_meta_refresh_for_cloud_model"
-            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
-                app, "_hide_activity_indicator", AsyncMock()
+            with (
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(app, "post_recovery_status") as post_recovery,
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_schedule_usage_meta_refresh_for_cloud_model"),
+                patch.object(app, "_cancel_activity_resume_timer"),
+                patch.object(app, "_hide_activity_indicator", AsyncMock()),
             ):
                 await app.handle_agent_event(
                     AgentEvent.agent_error(
@@ -2449,7 +2694,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_agent_error_posts_card_after_silent_recovery_attempt_is_exhausted(self) -> None:
+    def test_agent_error_posts_card_after_silent_recovery_attempt_is_exhausted(
+        self,
+    ) -> None:
         async def run_test() -> None:
             app = self._app()
             app.agent = SimpleNamespace(
@@ -2470,15 +2717,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state.failure_recovery_attempts = 1
             run_state.silent_recovery_active = True
 
-            with patch.object(app, "post_system") as post_system, patch.object(
-                app, "refresh_header"
-            ), patch.object(
-                app, "_schedule_usage_meta_refresh_for_cloud_model"
-            ), patch.object(app, "_cancel_activity_resume_timer"), patch.object(
-                app, "_hide_activity_indicator", AsyncMock()
-            ), patch.object(
-                app, "_set_loading_state"
-            ) as set_loading:
+            with (
+                patch.object(app, "post_system") as post_system,
+                patch.object(app, "refresh_header"),
+                patch.object(app, "_schedule_usage_meta_refresh_for_cloud_model"),
+                patch.object(app, "_cancel_activity_resume_timer"),
+                patch.object(app, "_hide_activity_indicator", AsyncMock()),
+                patch.object(app, "_set_loading_state") as set_loading,
+            ):
                 await app.handle_agent_event(
                     AgentEvent.agent_error(
                         "Bundled inference provider failed (deepseek) with status 429."
@@ -2512,11 +2758,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state.active_turn_id = 1
             run_state.is_turn_running = True
 
-            with patch.object(app, "_cancel_activity_resume_timer"), patch.object(
-                app, "_hide_activity_indicator", new=AsyncMock()
-            ) as hide_indicator, patch.object(
-                app, "_start_live_compaction_card", new=AsyncMock()
-            ) as start_card:
+            with (
+                patch.object(app, "_cancel_activity_resume_timer"),
+                patch.object(
+                    app, "_hide_activity_indicator", new=AsyncMock()
+                ) as hide_indicator,
+                patch.object(
+                    app, "_start_live_compaction_card", new=AsyncMock()
+                ) as start_card,
+            ):
                 await app.handle_agent_event(
                     AgentEvent(type=AgentEventType.CONTEXT_COMPACTING, data={}),
                     "s1",
@@ -2542,9 +2792,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state.active_turn_id = 1
             run_state.is_turn_running = True
 
-            with patch.object(
-                app, "_finish_live_compaction_card", new=AsyncMock()
-            ) as finish_card, patch.object(app, "refresh_header"):
+            with (
+                patch.object(
+                    app, "_finish_live_compaction_card", new=AsyncMock()
+                ) as finish_card,
+                patch.object(app, "refresh_header"),
+            ):
                 await app.handle_agent_event(
                     AgentEvent.context_compacted(
                         trigger_tokens=170000,
@@ -2587,17 +2840,23 @@ class ReupCommandPaletteTests(unittest.TestCase):
         }
 
         async def scenario() -> None:
-            with patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
-                app, "post_notice"
-            ) as post_notice, patch.object(app, "_set_loading_state") as set_loading:
+            with (
+                patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch,
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(app, "_set_loading_state") as set_loading,
+            ):
                 await app._dispatch_queued_payload_if_ready()
-                set_loading.assert_called_once_with("resuming after compaction", busy=True)
+                set_loading.assert_called_once_with(
+                    "resuming after compaction", busy=True
+                )
                 dispatch.assert_awaited_once_with(expected_payload)
                 post_notice.assert_not_called()
 
         asyncio.run(scenario())
 
-    def test_run_agent_message_dispatches_compaction_auto_resume_after_turn(self) -> None:
+    def test_run_agent_message_dispatches_compaction_auto_resume_after_turn(
+        self,
+    ) -> None:
         app = self._app()
         run_state = app._run_state("s1")
         app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
@@ -2621,14 +2880,21 @@ class ReupCommandPaletteTests(unittest.TestCase):
             run_state.auto_resume_payload = dict(expected_payload)
 
         async def scenario() -> None:
-            with patch.object(app, "ensure_agent", new=AsyncMock()), patch.object(
-                app, "_prepare_attachments_for_turn", return_value=("hello", None, None, None)
-            ), patch.object(app, "add_user_message", new=AsyncMock()), patch.object(
-                app, "auto_save", new=AsyncMock()
-            ), patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
-                app, "_set_loading_state"
-            ) as set_loading, patch.object(app, "refresh_header"), patch.object(
-                app, "_agent_turn", new=AsyncMock(side_effect=fake_agent_turn)
+            with (
+                patch.object(app, "ensure_agent", new=AsyncMock()),
+                patch.object(
+                    app,
+                    "_prepare_attachments_for_turn",
+                    return_value=("hello", None, None, None),
+                ),
+                patch.object(app, "add_user_message", new=AsyncMock()),
+                patch.object(app, "auto_save", new=AsyncMock()),
+                patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch,
+                patch.object(app, "_set_loading_state") as set_loading,
+                patch.object(app, "refresh_header"),
+                patch.object(
+                    app, "_agent_turn", new=AsyncMock(side_effect=fake_agent_turn)
+                ),
             ):
                 await app.run_agent_message("hello")
                 dispatch.assert_awaited_once_with(expected_payload)
@@ -2658,9 +2924,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
         }
 
         async def scenario() -> None:
-            with patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch, patch.object(
-                app, "post_notice"
-            ) as post_notice, patch.object(app, "_set_loading_state") as set_loading:
+            with (
+                patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch,
+                patch.object(app, "post_notice") as post_notice,
+                patch.object(app, "_set_loading_state") as set_loading,
+            ):
                 await app._dispatch_queued_payload_if_ready()
                 set_loading.assert_called_once_with(
                     "continuing after transient failure", busy=True
@@ -2670,7 +2938,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_render_skills_payload_formats_show_output_instead_of_raw_json(self) -> None:
+    def test_render_skills_payload_formats_show_output_instead_of_raw_json(
+        self,
+    ) -> None:
         rendered = render_skills_payload(
             output="""
 {
@@ -2738,14 +3008,21 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("frontend-design", text)
         self.assertNotIn('"identifier": "animate"', text)
 
-    def test_consume_dropped_path_text_inserts_refs_instead_of_hidden_queue(self) -> None:
+    def test_consume_dropped_path_text_inserts_refs_instead_of_hidden_queue(
+        self,
+    ) -> None:
         app = self._app()
         sample = self.cwd / "report.pdf"
         sample.write_text("x", encoding="utf-8")
-        app.agent = SimpleNamespace(session=SimpleNamespace(pending_attachment_paths=[]))
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
 
-        with patch.object(app, "_insert_attachment_refs_into_prompt", return_value=1) as insert_refs, patch.object(
-            app, "post_attachment_note"
+        with (
+            patch.object(
+                app, "_insert_attachment_refs_into_prompt", return_value=1
+            ) as insert_refs,
+            patch.object(app, "post_attachment_note"),
         ):
             handled = app._consume_dropped_path_text(str(sample))
 
@@ -2766,11 +3043,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 return None
 
         prompt = DummyPrompt()
-        with patch.object(app, "query_one", return_value=prompt), patch.object(
-            app, "_clear_command_palette"
-        ) as clear_palette, patch.object(app, "_resize_composer_for_prompt"):
+        with (
+            patch.object(app, "query_one", return_value=prompt),
+            patch.object(app, "_clear_command_palette") as clear_palette,
+            patch.object(app, "_resize_composer_for_prompt"),
+        ):
             app._apply_attachment_palette_selection(
-                SimpleNamespace(insert_text='@"report one.pdf"', name='@"report one.pdf"')
+                SimpleNamespace(
+                    insert_text='@"report one.pdf"', name='@"report one.pdf"'
+                )
             )
 
         self.assertIn('@"report one.pdf"', prompt.text)
@@ -2827,7 +3108,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertEqual(stderr, "warning one\nwarning two")
 
-    def test_collapse_terminal_rewrites_keeps_latest_carriage_return_frame(self) -> None:
+    def test_collapse_terminal_rewrites_keeps_latest_carriage_return_frame(
+        self,
+    ) -> None:
         collapsed = collapse_terminal_rewrites(
             "Uploading wheel\n0%\r15%\r71%\r100%\nDone\n"
         )
@@ -2908,7 +3191,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             "⌛",
         )
 
-    def test_shell_session_card_content_shows_idle_when_running_without_new_output(self) -> None:
+    def test_shell_session_card_content_shows_idle_when_running_without_new_output(
+        self,
+    ) -> None:
         app = self._app()
 
         header, body = app._build_shell_session_card_content(
@@ -2968,8 +3253,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         text = "".join(
-            getattr(part, "plain", str(part))
-            for part in rendered.renderables
+            getattr(part, "plain", str(part)) for part in rendered.renderables
         )
         self.assertIn("Waiting on specialists", text)
         self.assertIn("recent activity", text.lower())
@@ -3004,7 +3288,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             "❌",
         )
 
-    def test_shell_session_card_content_shows_idle_when_running_without_new_output(self) -> None:
+    def test_shell_session_card_content_shows_idle_when_running_without_new_output(
+        self,
+    ) -> None:
         app = self._app()
 
         header, body = app._build_shell_session_card_content(
@@ -3028,7 +3314,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("idle", text)
         self.assertNotIn("command running", text)
 
-    def test_render_wait_subagent_running_card_prioritizes_more_runs_over_extra_history(self) -> None:
+    def test_render_wait_subagent_running_card_prioritizes_more_runs_over_extra_history(
+        self,
+    ) -> None:
         app = self._app()
         runs = []
         for index in range(4):
@@ -3066,13 +3354,17 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         table = next(part for part in rendered.renderables if isinstance(part, Table))
         self.assertEqual(len(table.rows), 4)
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
         self.assertIn("agent_001 · Goal 1 recent activity", text)
         self.assertIn("agent_002 · Goal 2 recent activity", text)
         self.assertIn("agent_003 · Goal 3 recent activity", text)
         self.assertIn("agent_004 · Goal 4 recent activity", text)
 
-    def test_render_wait_subagent_running_card_compacts_completed_result_to_one_line(self) -> None:
+    def test_render_wait_subagent_running_card_compacts_completed_result_to_one_line(
+        self,
+    ) -> None:
         app = self._app()
         app.agent = SimpleNamespace(
             session=SimpleNamespace(
@@ -3098,7 +3390,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             spinner_index=0,
         )
 
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
         self.assertNotIn("Session Creation", text)
         table = next(part for part in rendered.renderables if isinstance(part, Table))
         self.assertEqual(len(table.rows), 1)
@@ -3136,14 +3430,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
             spinner_index=0,
         )
 
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
         self.assertIn("Asking specialist", text)
         self.assertIn("Inspect subagent architecture", text)
         self.assertIn("Reading subagent.py.", text)
         self.assertIn("child session child-session-1", text)
         self.assertIn("Recent activity", text)
 
-    def test_render_wait_subagent_running_card_shows_three_recent_entries_per_run(self) -> None:
+    def test_render_wait_subagent_running_card_shows_three_recent_entries_per_run(
+        self,
+    ) -> None:
         app = self._app()
         app.agent = SimpleNamespace(
             session=SimpleNamespace(
@@ -3158,10 +3456,22 @@ class ReupCommandPaletteTests(unittest.TestCase):
                             started_at="2026-03-22T00:00:00+00:00",
                             last_update_at="2026-03-22T00:00:03+00:00",
                             activity_history=[
-                                {"at": "2026-03-22T00:00:00+00:00", "message": "Looking through the workspace."},
-                                {"at": "2026-03-22T00:00:01+00:00", "message": "Finding files matching `*subagent*.py`."},
-                                {"at": "2026-03-22T00:00:02+00:00", "message": "Reading subagent_loader.py."},
-                                {"at": "2026-03-22T00:00:03+00:00", "message": "Reading subagent.py."},
+                                {
+                                    "at": "2026-03-22T00:00:00+00:00",
+                                    "message": "Looking through the workspace.",
+                                },
+                                {
+                                    "at": "2026-03-22T00:00:01+00:00",
+                                    "message": "Finding files matching `*subagent*.py`.",
+                                },
+                                {
+                                    "at": "2026-03-22T00:00:02+00:00",
+                                    "message": "Reading subagent_loader.py.",
+                                },
+                                {
+                                    "at": "2026-03-22T00:00:03+00:00",
+                                    "message": "Reading subagent.py.",
+                                },
                             ],
                         )
                     ]
@@ -3174,7 +3484,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             spinner_index=0,
         )
 
-        text = "".join(getattr(part, "plain", str(part)) for part in rendered.renderables)
+        text = "".join(
+            getattr(part, "plain", str(part)) for part in rendered.renderables
+        )
         self.assertIn("Finding files matching `*subagent*.py`.", text)
         self.assertIn("Reading subagent_loader.py.", text)
         self.assertIn("Reading subagent.py.", text)
@@ -3303,7 +3615,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
         )
 
-    def test_normalize_tool_start_arguments_summarizes_truncated_read_paths(self) -> None:
+    def test_normalize_tool_start_arguments_summarizes_truncated_read_paths(
+        self,
+    ) -> None:
         self.assertEqual(
             ReupApp._normalize_tool_start_arguments(
                 "read_file",
@@ -3319,7 +3633,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._tool_widgets["call_1"] = Static()
         app._tool_args_by_call_id["call_1"] = {"session_id": "sh_123"}
 
-        with patch.object(ReupApp, "is_mounted", new_callable=PropertyMock, return_value=False):
+        with patch.object(
+            ReupApp, "is_mounted", new_callable=PropertyMock, return_value=False
+        ):
             app._reset_session_local_ui_state()
 
         self.assertEqual(app._tool_widgets, {})
@@ -3385,7 +3701,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "query_one", return_value=conversation),
                 patch.object(app, "_refresh_empty_state"),
                 patch.object(app, "_pin_activity_indicator_to_end", new=AsyncMock()),
-                patch.object(app, "_move_card_to_bottom", new=AsyncMock()) as move_bottom,
+                patch.object(
+                    app, "_move_card_to_bottom", new=AsyncMock()
+                ) as move_bottom,
             ):
                 await app.add_tool_call_start(
                     call_id="call_1",
@@ -3446,7 +3764,6 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-
     def test_plan_ready_enter_is_not_implicit_approval(self) -> None:
         app = self._app()
 
@@ -3467,7 +3784,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._plan_ready_future = loop.create_future()
 
         event = DummyEvent("enter")
-        with patch.object(ReupApp, "focused", new_callable=PropertyMock, return_value=None):
+        with patch.object(
+            ReupApp, "focused", new_callable=PropertyMock, return_value=None
+        ):
             app.on_key(event)  # type: ignore[arg-type]
 
         self.assertFalse(event.stopped)
@@ -3554,7 +3873,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         async def scenario() -> None:
             with (
                 patch.object(app, "query_one", return_value=prompt),
-                patch.object(app, "_resolve_active_turn_send", new=AsyncMock(return_value=True)) as resolve,
+                patch.object(
+                    app, "_resolve_active_turn_send", new=AsyncMock(return_value=True)
+                ) as resolve,
                 patch.object(app, "cancel_active_turn", new=AsyncMock()) as cancel,
             ):
                 await app.handle_send()
@@ -3582,7 +3903,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "query_one", return_value=prompt),
                 patch.object(app, "_resize_composer_for_prompt"),
                 patch.object(app, "_set_loading_state"),
-                patch.object(app, "_resolve_active_turn_send", new=AsyncMock()) as resolve,
+                patch.object(
+                    app, "_resolve_active_turn_send", new=AsyncMock()
+                ) as resolve,
                 patch(
                     "ite.ui.reup.app.send_input_to_shell_run",
                     new=AsyncMock(return_value=True),
@@ -3616,7 +3939,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "_resize_composer_for_prompt") as resize,
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch,
-                patch.object(app, "_broadcast_remote_state", new=AsyncMock()) as broadcast,
+                patch.object(
+                    app, "_broadcast_remote_state", new=AsyncMock()
+                ) as broadcast,
                 patch(
                     "ite.ui.reup.app.send_input_to_shell_run",
                     new=AsyncMock(return_value=True),
@@ -3683,7 +4008,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
     def test_cancel_active_turn_cancels_active_session_subagents(self) -> None:
         app = self._app()
-        runtime = SimpleNamespace(cancel=AsyncMock(return_value={"cancelled_run_ids": ["agent_001"]}))
+        runtime = SimpleNamespace(
+            cancel=AsyncMock(return_value={"cancelled_run_ids": ["agent_001"]})
+        )
         app.agent = SimpleNamespace(session=SimpleNamespace(subagent_runtime=runtime))
 
         async def scenario() -> None:
@@ -3708,7 +4035,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         asyncio.run(scenario())
 
-    def test_run_agent_message_auto_dispatches_queued_payload_after_clean_finish(self) -> None:
+    def test_run_agent_message_auto_dispatches_queued_payload_after_clean_finish(
+        self,
+    ) -> None:
         app = self._app()
         app.agent = SimpleNamespace(session=SimpleNamespace(session_id="s1"))
         app._queued_turn_payload = {"message": "next", "attachments": []}
@@ -3722,8 +4051,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "_progress_state_label", return_value="thinking"),
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "refresh_header"),
-                patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()) as dispatch_queued,
-                patch.object(app, "_restore_queued_payload_after_unsuccessful_turn") as restore_queued,
+                patch.object(
+                    app, "_dispatch_queued_payload_if_ready", new=AsyncMock()
+                ) as dispatch_queued,
+                patch.object(
+                    app, "_restore_queued_payload_after_unsuccessful_turn"
+                ) as restore_queued,
             ):
                 await app.run_agent_message("hello")
                 dispatch_queued.assert_awaited_once()
@@ -3756,8 +4089,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "_progress_state_label", return_value="thinking"),
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "refresh_header"),
-                patch.object(app, "_dispatch_queued_payload_if_ready", new=AsyncMock()) as dispatch_queued,
-                patch.object(app, "_restore_queued_payload_after_unsuccessful_turn") as restore_queued,
+                patch.object(
+                    app, "_dispatch_queued_payload_if_ready", new=AsyncMock()
+                ) as dispatch_queued,
+                patch.object(
+                    app, "_restore_queued_payload_after_unsuccessful_turn"
+                ) as restore_queued,
             ):
                 await app.run_agent_message("hello")
                 dispatch_queued.assert_not_called()
@@ -3777,7 +4114,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", new=AsyncMock()),
                 patch.object(app, "add_user_message", new=AsyncMock()),
                 patch.object(app, "_agent_turn", new=AsyncMock()),
-                patch.object(app, "auto_save", new=AsyncMock(side_effect=auto_save_check)) as auto_save,
+                patch.object(
+                    app, "auto_save", new=AsyncMock(side_effect=auto_save_check)
+                ) as auto_save,
                 patch.object(app, "_progress_state_label", return_value="thinking"),
                 patch.object(app, "_set_loading_state"),
                 patch.object(app, "refresh_header"),
@@ -3901,7 +4240,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
             with (
                 patch.object(app, "ensure_agent", AsyncMock()),
-                patch.object(app, "_start_remote_command_feed_entry", return_value=None),
+                patch.object(
+                    app, "_start_remote_command_feed_entry", return_value=None
+                ),
                 patch.object(app, "_post_native_command_result", return_value=True),
             ):
                 await app.run_command(f"/sandbox allow {outside}")
@@ -3936,7 +4277,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app = self._app()
 
         async def fail_if_called(*_args, **_kwargs):
-            raise AssertionError("session title generation should not call the active chat client")
+            raise AssertionError(
+                "session title generation should not call the active chat client"
+            )
             yield
 
         session = SimpleNamespace(
@@ -3949,7 +4292,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
             },
         )
 
-        with patch("ite.ui.reup.app.generate_cloud_session_title", AsyncMock(return_value="Portfolio JSON Overview")):
+        with patch(
+            "ite.ui.reup.app.generate_cloud_session_title",
+            AsyncMock(return_value="Portfolio JSON Overview"),
+        ):
             title = asyncio.run(app.generate_session_name(session))
 
         self.assertEqual(title, "Portfolio JSON Overview")
@@ -3973,7 +4319,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             },
         )
 
-        with patch("ite.ui.reup.app.generate_cloud_session_title", AsyncMock(return_value=None)):
+        with patch(
+            "ite.ui.reup.app.generate_cloud_session_title", AsyncMock(return_value=None)
+        ):
             title = asyncio.run(app.generate_session_name(session))
 
         self.assertEqual(title, "Explain Codebase")
@@ -4067,7 +4415,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         with (
-            patch.object(app, "_generate_cloud_session_name", AsyncMock(return_value=None)),
+            patch.object(
+                app, "_generate_cloud_session_name", AsyncMock(return_value=None)
+            ),
             patch("ite.ui.reup.app.SessionManager") as session_manager,
         ):
             asyncio.run(
@@ -4198,14 +4548,20 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app._open_session_order, ["s1", "s2"])
         self.assertEqual(app._open_sessions["s1"], first)
-        self.assertEqual(app._workspace_for_session_id("s2"), (self.cwd / "two").resolve())
+        self.assertEqual(
+            app._workspace_for_session_id("s2"), (self.cwd / "two").resolve()
+        )
 
-    def test_session_config_for_workspace_reloads_target_agents_instructions(self) -> None:
+    def test_session_config_for_workspace_reloads_target_agents_instructions(
+        self,
+    ) -> None:
         root = self.cwd / "repo"
         child = root / "ite"
         child.mkdir(parents=True)
         (root / "AGENTS.md").write_text("# Root\nMonorepo overview.", encoding="utf-8")
-        (child / "AGENTS.md").write_text("# Child\niTE runtime overview.", encoding="utf-8")
+        (child / "AGENTS.md").write_text(
+            "# Child\niTE runtime overview.", encoding="utf-8"
+        )
         app = ReupApp(
             Config(
                 cwd=root,
@@ -4257,7 +4613,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         conversation = SimpleNamespace(remove_children=AsyncMock())
         app.agent = SimpleNamespace(session=previous)
         app._remember_open_session(previous, workspace=self.cwd)
-        fresh_agent = SimpleNamespace(session=fresh, __aenter__=AsyncMock(return_value=None))
+        fresh_agent = SimpleNamespace(
+            session=fresh, __aenter__=AsyncMock(return_value=None)
+        )
 
         async def scenario() -> None:
             with (
@@ -4284,7 +4642,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIs(app._open_sessions["s1"], previous)
         self.assertIs(app._open_sessions["s2"], fresh)
 
-    def test_confirmation_callback_keeps_local_approval_available_with_remote(self) -> None:
+    def test_confirmation_callback_keeps_local_approval_available_with_remote(
+        self,
+    ) -> None:
         app = self._app()
         app.agent = SimpleNamespace(session=SimpleNamespace(session_id="session-1"))
         remote_result: asyncio.Future[bool] | None = None
@@ -4321,7 +4681,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
             with (
                 patch.object(app, "_active_session_id", return_value="session-1"),
                 patch.object(app, "_broadcast_remote_state", new=AsyncMock()),
-                patch.object(app, "_open_modal", new=AsyncMock(return_value=True)) as modal,
+                patch.object(
+                    app, "_open_modal", new=AsyncMock(return_value=True)
+                ) as modal,
             ):
                 approved = await app.confirmation_callback(confirmation)
                 modal.assert_awaited_once()
@@ -4415,7 +4777,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         async def scenario() -> None:
             with (
                 patch.object(app, "ensure_agent", new=AsyncMock()),
-                patch.object(app, "_activate_open_session", new=AsyncMock(return_value=True)) as activate,
+                patch.object(
+                    app, "_activate_open_session", new=AsyncMock(return_value=True)
+                ) as activate,
                 patch("ite.ui.reup.app.Session") as session_cls,
             ):
                 await app._resume_snapshot(snapshot)
@@ -4474,7 +4838,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", new=AsyncMock()),
                 patch.object(app, "_build_session_agent", return_value=resumed_agent),
                 patch.object(app, "refresh_header"),
-                patch.object(app, "_hydrate_chat_from_snapshot", new=AsyncMock()) as hydrate,
+                patch.object(
+                    app, "_hydrate_chat_from_snapshot", new=AsyncMock()
+                ) as hydrate,
                 patch.object(app, "_remove_cards_by_title", new=AsyncMock()),
                 patch.object(app, "query_one", return_value=conversation),
                 patch("ite.ui.reup.app.Session", return_value=resumed),
@@ -4489,7 +4855,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIs(app.agent, resumed_agent)
         current_agent.__aexit__.assert_awaited_once()
 
-    def test_resume_snapshot_prefers_restored_transcript_messages_for_hydration(self) -> None:
+    def test_resume_snapshot_prefers_restored_transcript_messages_for_hydration(
+        self,
+    ) -> None:
         app = self._app()
         conversation = AsyncMock()
         restored_messages = [{"role": "assistant", "content": "runtime truth"}]
@@ -4534,7 +4902,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", new=AsyncMock()),
                 patch.object(app, "_build_session_agent", return_value=resumed_agent),
                 patch.object(app, "refresh_header"),
-                patch.object(app, "_hydrate_chat_from_snapshot", new=AsyncMock()) as hydrate,
+                patch.object(
+                    app, "_hydrate_chat_from_snapshot", new=AsyncMock()
+                ) as hydrate,
                 patch.object(app, "_remove_cards_by_title", new=AsyncMock()),
                 patch.object(app, "query_one", return_value=conversation),
                 patch("ite.ui.reup.app.Session", return_value=resumed),
