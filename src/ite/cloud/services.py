@@ -10,7 +10,7 @@ import httpx
 from ite.agent.session_naming import sanitize_model_session_title
 from ite.config.config import Config
 
-from .auth import CloudSession, _load_cloud_session, _refresh_cloud_session, get_cloud_session
+from .auth import CloudSession, _load_cloud_session, _refresh_cloud_session
 
 
 class CloudServiceError(RuntimeError):
@@ -23,9 +23,31 @@ async def transcribe_cloud_voice_file(
     *,
     cleanup: bool,
 ) -> tuple[str, str]:
-    session = get_cloud_session(config)
+    """Transcribe a voice recording via the iTE Cloud voice endpoint.
+
+    Uses _load_cloud_session (file I/O only) instead of get_cloud_session()
+    to avoid blocking the event loop with synchronous /auth/me validation.
+    The transcription endpoint itself validates the bearer token; a 401 is
+    surfaced as CloudServiceError so the pipeline can fall back to direct Groq.
+    """
+    session = _load_cloud_session()
     if session is None:
         raise CloudServiceError("No active iTE Cloud session.")
+
+    api_url = str(config.cloud_api_url or "").strip().rstrip("/")
+    if session.api_url.rstrip("/") != api_url:
+        raise CloudServiceError("No active iTE Cloud session.")
+
+    if not session.is_access_valid and session.refresh_token:
+        try:
+            refreshed = await asyncio.to_thread(_refresh_cloud_session, session)
+        except Exception:
+            refreshed = None
+        if refreshed is not None and refreshed.access_token:
+            session = refreshed
+        else:
+            raise CloudServiceError("No active iTE Cloud session.")
+
     try:
         audio_base64 = base64.b64encode(audio_path.read_bytes()).decode("ascii")
     except OSError as exc:
