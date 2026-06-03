@@ -763,6 +763,41 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app.config.model.name, "deepseek-v4-pro")
 
+    def test_saved_deepseek_v4_model_does_not_display_as_bundled_cortex(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="deepseek-key",
+                base_url="https://api.deepseek.com",
+                model={
+                    "name": "deepseek-v4-pro",
+                    "source_kind": "saved",
+                    "context_window": 200000,
+                },
+            )
+        )
+        app._bundled_models_cache = [
+            {
+                "model_name": "deepseek-v4-pro",
+                "label": "DeepSeek V4 Pro",
+                "context_window": 1000000,
+                "available": True,
+            }
+        ]
+
+        with patch(
+            "ite.ui.reup.app.load_saved_custom_provider",
+            return_value={
+                "deepseek-v4-pro": {
+                    "api_key": "deepseek-key",
+                    "base_url": "https://api.deepseek.com",
+                    "model_name": "deepseek-v4-pro",
+                    "context_window": 200000,
+                }
+            },
+        ):
+            self.assertEqual(app._model_display_name(), "deepseek-v4-pro")
+
     def test_model_options_mask_bundled_deepseek_v4_label_only(self) -> None:
         app = ReupApp(
             Config(
@@ -948,6 +983,50 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertEqual(app.config.model.source_kind, "bundled")
 
         asyncio.run(run_test())
+
+    def test_sync_bundled_context_window_updates_stale_active_session(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={
+                    "name": "deepseek-v4-pro",
+                    "source_kind": "bundled",
+                    "context_window": 1000000,
+                    "context_window_source": "bundled_provider_api",
+                },
+            )
+        )
+        session_config = Config(
+            cwd=self.cwd,
+            api_key="",
+            base_url="",
+            model={
+                "name": "deepseek-v4-pro",
+                "source_kind": "bundled",
+                "context_window": 200000,
+                "context_window_source": "provider_fixed_default",
+            },
+        )
+        app.agent = SimpleNamespace(session=SimpleNamespace(config=session_config))
+        app._bundled_models_cache = [
+            {
+                "model_name": "deepseek-v4-pro",
+                "label": "DeepSeek V4 Pro",
+                "context_window": 1000000,
+                "context_window_source": "bundled_provider_api",
+                "available": True,
+            }
+        ]
+
+        app._sync_bundled_context_window()
+
+        self.assertEqual(app.config.model.context_window, 1000000)
+        self.assertEqual(session_config.model.context_window, 1000000)
+        self.assertEqual(
+            session_config.model.context_window_source, "bundled_provider_api"
+        )
 
     def test_open_model_picker_revalidates_cached_bundled_models(self) -> None:
         async def run_test() -> None:

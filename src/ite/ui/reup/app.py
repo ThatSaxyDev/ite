@@ -3351,6 +3351,10 @@ class ReupApp(App):
                         str(item.get("label") or model_name).strip(),
                     )
             return "select model"
+        if persisted_source_kind in {"saved", "custom"}:
+            if self._setup_required_for_model_selection():
+                return "/setup"
+            return current_model.removesuffix(":cloud")
         for item in self._bundled_models_cache:
             model_name = str(item.get("model_name") or "").strip()
             if model_name == current_model:
@@ -3524,19 +3528,25 @@ class ReupApp(App):
             if str(item.get("model_name") or "").strip() == current_model:
                 api_window = item.get("context_window")
                 if isinstance(api_window, int) and api_window > 0:
+                    context_window_source = (
+                        str(item.get("context_window_source") or "")
+                        or "bundled_provider_api"
+                    )
                     if self.config.model.context_window != api_window:
                         self.config.model.context_window = api_window
-                        self.config.model.context_window_source = (
-                            str(item.get("context_window_source") or "")
-                            or "bundled_provider_api"
-                        )
-                        if self.agent and self.agent.session:
-                            session_config = getattr(self.agent.session, "config", None)
-                            if session_config is not None:
-                                session_config.model.context_window = api_window
-                                session_config.model.context_window_source = (
-                                    self.config.model.context_window_source
-                                )
+                    if self.config.model.context_window_source != context_window_source:
+                        self.config.model.context_window_source = context_window_source
+                    if self.agent and self.agent.session:
+                        session_config = getattr(self.agent.session, "config", None)
+                        if (
+                            session_config is not None
+                            and str(session_config.model_name or "").strip()
+                            == current_model
+                        ):
+                            session_config.model.context_window = api_window
+                            session_config.model.context_window_source = (
+                                context_window_source
+                            )
                 break
 
     def _set_usage_summary_cache(self, summary: dict[str, Any] | None) -> None:
