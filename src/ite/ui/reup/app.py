@@ -1978,12 +1978,13 @@ class ReupApp(App):
             if child.has_class("sandbox"):
                 try:
                     body_widget = child.query_one(".card-body", Static)
+                    sandbox_config = self._sandbox_render_config()
                     new_body = build_sandbox_command_renderable(
-                        enabled=self.config.sandbox.enabled,
+                        enabled=sandbox_config.sandbox.enabled,
                         allowed_paths=[
-                            str(p) for p in self.config.sandbox.allowed_paths
+                            str(p) for p in sandbox_config.sandbox.allowed_paths
                         ],
-                        cwd=str(self.config.cwd),
+                        cwd=str(sandbox_config.cwd),
                         styles=styles,
                     )
                     await replace_card_body(child, body_widget, new_body)
@@ -2602,11 +2603,55 @@ class ReupApp(App):
                 "cloud_client_id": self.config.cloud_client_id,
                 "cloud_device_name": self.config.cloud_device_name,
                 "approval": self.config.approval,
+                "sandbox": self.config.sandbox.model_copy(deep=True),
                 "debug": self.config.debug,
                 "resume_last_session": self.config.resume_last_session,
             },
             deep=False,
         )
+
+    def _active_session_config(self) -> Config | None:
+        if self.agent is None:
+            return None
+        session = getattr(self.agent, "session", None)
+        session_config = getattr(session, "config", None)
+        return session_config if isinstance(session_config, Config) else None
+
+    @staticmethod
+    def _merged_sandbox_allowed_paths(*path_groups: list[Path]) -> list[Path]:
+        merged: list[Path] = []
+        seen: set[Path] = set()
+        for paths in path_groups:
+            for path in paths:
+                resolved = Path(path).expanduser().resolve()
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                merged.append(resolved)
+        return merged
+
+    def _prepare_sandbox_command_config(self) -> Config:
+        session_config = self._active_session_config()
+        if session_config is None or session_config is self.config:
+            return self.config
+
+        merged_allowed_paths = self._merged_sandbox_allowed_paths(
+            self.config.sandbox.allowed_paths,
+            session_config.sandbox.allowed_paths,
+        )
+        self.config.sandbox.allowed_paths = list(merged_allowed_paths)
+        session_config.sandbox.allowed_paths = list(merged_allowed_paths)
+        session_config.sandbox.enabled = self.config.sandbox.enabled
+        return session_config
+
+    def _sync_app_sandbox_from_active_session(self) -> None:
+        session_config = self._active_session_config()
+        if session_config is None or session_config is self.config:
+            return
+        self.config.sandbox = session_config.sandbox.model_copy(deep=True)
+
+    def _sandbox_render_config(self) -> Config:
+        return self._active_session_config() or self.config
 
     def _workspace_for_session_id(self, session_id: str | None) -> Path:
         if session_id and session_id in self._open_session_workspaces:
@@ -8968,6 +9013,11 @@ class ReupApp(App):
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
+        command_config = (
+            self._prepare_sandbox_command_config()
+            if command == "/sandbox"
+            else self.config
+        )
         live_stream_command = command in {"/mcp", "/init"} and (
             not args or args[0].lower() != "status"
         )
@@ -8995,7 +9045,7 @@ class ReupApp(App):
             compact_before = self.agent.session.context_manager.compaction_count
             self.post_notice("Context", "Compacting context")
         ctx = build_command_context(
-            config=self.config,
+            config=command_config,
             agent=self.agent,
             tui=self._adapter,
             output_stream=output,
@@ -9018,6 +9068,8 @@ class ReupApp(App):
                 )
                 return
             await registry.dispatch(command, args, ctx)
+            if command == "/sandbox":
+                self._sync_app_sandbox_from_active_session()
         except SystemExit:
             self.exit()
             return
@@ -11801,10 +11853,11 @@ class ReupApp(App):
                     episodic=manager.list_episodes()[-5:],
                 )
         elif command == "/sandbox":
+            sandbox_config = self._sandbox_render_config()
             body = build_sandbox_command_renderable(
-                enabled=self.config.sandbox.enabled,
-                allowed_paths=[str(p) for p in self.config.sandbox.allowed_paths],
-                cwd=str(self.config.cwd),
+                enabled=sandbox_config.sandbox.enabled,
+                allowed_paths=[str(p) for p in sandbox_config.sandbox.allowed_paths],
+                cwd=str(sandbox_config.cwd),
                 styles=self._render_styles(),
             )
 

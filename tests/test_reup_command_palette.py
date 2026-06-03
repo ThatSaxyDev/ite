@@ -22,6 +22,7 @@ from ite.ui.reup.modals import ActivityModal, ConfirmModal, UsageSummaryModal
 from ite.ui.reup.adapters.registry import StreamingCommandOutput
 from ite.ui.reup.tool_views import collapse_terminal_rewrites, render_shell_result_payload, render_skills_payload
 from ite.ui.reup.tool_views import shell_session_state, split_shell_payload
+from ite.tools.base import ToolInvocation
 from rich.table import Table
 from textual.widgets import Static
 
@@ -3807,6 +3808,50 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(first.config.cwd, first_workspace.resolve())
         self.assertEqual(second.config.cwd, second_workspace.resolve())
         self.assertEqual(app.config.cwd, self.cwd / "active")
+
+    def test_sandbox_allow_updates_active_session_tool_config(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            session = Session(config=app._session_config_for_workspace())
+            app.agent = SimpleNamespace(session=session)
+            outside_temp = TemporaryDirectory()
+            self.addCleanup(outside_temp.cleanup)
+            outside = Path(outside_temp.name)
+            child = outside / "child.txt"
+            child.write_text("allowed\n", encoding="utf-8")
+
+            with (
+                patch.object(app, "ensure_agent", AsyncMock()),
+                patch.object(app, "_start_remote_command_feed_entry", return_value=None),
+                patch.object(app, "_post_native_command_result", return_value=True),
+            ):
+                await app.run_command(f"/sandbox allow {outside}")
+
+            self.assertIn(outside.resolve(), app.config.sandbox.allowed_paths)
+            self.assertIn(outside.resolve(), session.config.sandbox.allowed_paths)
+
+            tool = session.tool_registry.get("shell")
+            self.assertIsNotNone(tool)
+            result = await tool.execute(
+                ToolInvocation(params={"command": f"cat '{child}'"}, cwd=self.cwd)
+            )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIn("allowed", result.output)
+
+        asyncio.run(run_test())
+
+    def test_session_config_for_workspace_inherits_runtime_sandbox_policy(self) -> None:
+        app = self._app()
+        outside_temp = TemporaryDirectory()
+        self.addCleanup(outside_temp.cleanup)
+        outside = Path(outside_temp.name).resolve()
+        app.config.sandbox.allowed_paths.append(outside)
+
+        session_config = app._session_config_for_workspace(self.cwd / "child")
+
+        self.assertIn(outside, session_config.sandbox.allowed_paths)
+        self.assertIsNot(session_config.sandbox, app.config.sandbox)
 
     def test_generate_session_name_uses_cloud_title_generation(self) -> None:
         app = self._app()
