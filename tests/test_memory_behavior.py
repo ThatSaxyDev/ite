@@ -10,8 +10,11 @@ from ite.commands.info import cmd_memory
 from ite.agent.events import AgentEventType
 from ite.client.response import StreamEvent, StreamEventType, TextDelta, TokenUsage
 from ite.config.config import Config
-from ite.ui.tui import TUI
 from rich.console import Console
+
+
+class _DummyTUI:
+    pass
 
 
 class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
@@ -246,7 +249,7 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         ctx = CommandContext(
             config=agent.config,
             agent=agent,
-            tui=TUI(config=agent.config, console=console),
+            tui=_DummyTUI(),
             console=console,
         )
 
@@ -273,7 +276,7 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         ctx = CommandContext(
             config=agent.config,
             agent=agent,
-            tui=TUI(config=agent.config, console=console),
+            tui=_DummyTUI(),
             console=console,
         )
 
@@ -301,7 +304,7 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         ctx = CommandContext(
             config=agent.config,
             agent=agent,
-            tui=TUI(config=agent.config, console=console),
+            tui=_DummyTUI(),
             console=console,
         )
 

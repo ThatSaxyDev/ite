@@ -11,7 +11,18 @@ from ite.client.response import StreamEvent, StreamEventType, TextDelta, TokenUs
 from ite.commands import CommandContext
 from ite.commands.aside import cmd_aside, is_aside_command_text
 from ite.config.config import Config
-from ite.ui.tui import TUI
+
+
+class _DummyTUI:
+    def __init__(self) -> None:
+        self.started: list[tuple[str, str]] = []
+        self.stopped = 0
+
+    def start_spinner(self, command: str = "", message: str = "Thinking") -> None:
+        self.started.append((command, message))
+
+    def stop_spinner(self) -> None:
+        self.stopped += 1
 
 
 class AsideCommandTests(unittest.IsolatedAsyncioTestCase):
@@ -56,7 +67,7 @@ class AsideCommandTests(unittest.IsolatedAsyncioTestCase):
         ctx = CommandContext(
             config=agent.config,
             agent=agent,
-            tui=TUI(config=agent.config, console=console),
+            tui=_DummyTUI(),
             console=console,
         )
 
@@ -100,7 +111,7 @@ class AsideCommandTests(unittest.IsolatedAsyncioTestCase):
         ctx = CommandContext(
             config=agent.config,
             agent=agent,
-            tui=TUI(config=agent.config, console=console),
+            tui=_DummyTUI(),
             console=console,
         )
 
@@ -142,22 +153,18 @@ class AsideCommandTests(unittest.IsolatedAsyncioTestCase):
         session.client.chat_completion = fake_chat_completion  # type: ignore[method-assign]
 
         console = Console(record=True, file=StringIO())
-        tui = TUI(config=agent.config, console=console)
-        with (
-            patch.object(tui, "start_spinner") as start_spinner,
-            patch.object(tui, "stop_spinner") as stop_spinner,
-        ):
-            ctx = CommandContext(
-                config=agent.config,
-                agent=agent,
-                tui=tui,
-                console=console,
-            )
+        tui = _DummyTUI()
+        ctx = CommandContext(
+            config=agent.config,
+            agent=agent,
+            tui=tui,
+            console=console,
+        )
 
-            await cmd_aside(ctx, ["who", "am", "i"])
+        await cmd_aside(ctx, ["who", "am", "i"])
 
-        start_spinner.assert_called_once_with("Thinking")
-        stop_spinner.assert_called_once()
+        self.assertEqual(tui.started, [("/aside", "Thinking")])
+        self.assertEqual(tui.stopped, 1)
 
 
 if __name__ == "__main__":

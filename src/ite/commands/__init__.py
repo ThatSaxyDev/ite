@@ -8,7 +8,6 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from ite.config.config import Config
     from ite.agent.agent import Agent
-    from ite.ui.tui import TUI
 
 from rich.console import Console
 
@@ -19,7 +18,7 @@ class CommandContext:
 
     config: Config
     agent: Agent | None
-    tui: TUI
+    tui: Any
     console: Console
 
 

@@ -8,6 +8,7 @@ from ite.config.config import Config
 from rich.text import Text
 from rich.table import Table
 from rich.panel import Panel
+from rich.console import Console
 from rich import box
 import logging
 
@@ -15,10 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _get_console():
-    """Lazily import the shared console to avoid circular imports."""
-    from ite.ui.tui import get_console
-
-    return get_console()
+    return Console()
 
 
 class MCPManager:
