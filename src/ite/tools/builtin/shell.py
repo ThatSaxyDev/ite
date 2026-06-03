@@ -156,6 +156,7 @@ _SHELL_RUNNER_EXTRA_PATH_CANDIDATES = (
 )
 _SHELL_SESSION_BUFFER_LIMIT = 128 * 1024
 _SHELL_SESSION_CHUNK_SIZE = 4096
+_SHELL_PROGRESS_HEARTBEAT_SECONDS = 5.0
 
 
 @dataclass
@@ -765,12 +766,13 @@ class ShellTool(_ShellCommonTool):
             nonlocal last_interaction_at
             last_interaction_at = time.monotonic()
 
-        async def emit_progress() -> None:
+        async def emit_progress(*, has_new_output: bool) -> None:
             if invocation.progress_callback is None:
                 return
             async with state_lock:
                 output_snapshot = combined_output
                 awaiting_input = _shell_output_looks_awaiting_input(output_snapshot)
+                silent_for_seconds = max(0.0, time.monotonic() - last_interaction_at)
                 metadata = {
                     "command": params.command,
                     "cwd": str(cwd),
@@ -782,7 +784,8 @@ class ShellTool(_ShellCommonTool):
                     "timed_out": False,
                     "running": True,
                     "status": "command_running",
-                    "has_new_output": True,
+                    "has_new_output": has_new_output,
+                    "silent_for_seconds": round(silent_for_seconds, 1),
                     "input_capable": bool(invocation.call_id),
                     "awaiting_input": awaiting_input,
                 }
@@ -813,7 +816,16 @@ class ShellTool(_ShellCommonTool):
                     stderr_bytes += len(text.encode("utf-8", errors="replace"))
                     has_stderr = has_stderr or bool(text.strip())
                 last_stream = stream
-            await emit_progress()
+            await emit_progress(has_new_output=True)
+
+        async def emit_heartbeat() -> None:
+            if invocation.progress_callback is None:
+                return
+            while True:
+                await asyncio.sleep(_SHELL_PROGRESS_HEARTBEAT_SECONDS)
+                if process.returncode is not None:
+                    return
+                await emit_progress(has_new_output=False)
 
         async def read_stream(
             reader: asyncio.StreamReader | None,
@@ -874,6 +886,8 @@ class ShellTool(_ShellCommonTool):
                 asyncio.create_task(read_stream(reader, stream="stdout")),
             ]
 
+        heartbeat_task = asyncio.create_task(emit_heartbeat())
+
         try:
             while True:
                 idle_for = max(0.0, time.monotonic() - last_interaction_at)
@@ -895,6 +909,7 @@ class ShellTool(_ShellCommonTool):
                 pass
             for task in reader_tasks:
                 task.cancel()
+            heartbeat_task.cancel()
             raise
         except asyncio.TimeoutError:
             async with state_lock:
@@ -909,6 +924,7 @@ class ShellTool(_ShellCommonTool):
                 pass
             for task in reader_tasks:
                 task.cancel()
+            heartbeat_task.cancel()
             return ToolResult.error_result(
                 f"Command timed out after {params.timeout} seconds",
                 output=timeout_output,
@@ -928,9 +944,19 @@ class ShellTool(_ShellCommonTool):
             )
         finally:
             await _SHELL_RUN_INPUT_MANAGER.unregister(invocation.call_id)
+            heartbeat_task.cancel()
             if transport is not None:
                 transport.close()
-            await asyncio.gather(*reader_tasks, return_exceptions=True)
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*reader_tasks, return_exceptions=True),
+                    timeout=0.5,
+                )
+            except asyncio.TimeoutError:
+                for task in reader_tasks:
+                    task.cancel()
+                await asyncio.gather(*reader_tasks, return_exceptions=True)
 
         exit_code = process.returncode
         async with state_lock:

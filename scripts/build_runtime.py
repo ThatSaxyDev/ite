@@ -85,9 +85,6 @@ HIDDEN_IMPORTS: list[str] = [
     "bs4",
     "bs4.builder._html5lib",
     "bs4.builder._lxml",
-    # flet
-    "flet",
-    "flet_core",
     # PIL plugins for image processing
     "PIL.Image",
     "PIL.ImageDraw",
@@ -126,12 +123,34 @@ def _find_venv_python() -> str:
     return sys.executable
 
 
-def _find_site_packages() -> Path | None:
-    """Find the site-packages directory for the current Python."""
-    for p in sys.path:
-        if p.endswith("site-packages") and os.path.isdir(p):
-            return Path(p)
-    return None
+def _find_site_packages(python_exe: str) -> list[Path]:
+    """Find site-packages directories for the Python used by PyInstaller."""
+    script = (
+        "import json, sysconfig; "
+        "paths = sysconfig.get_paths(); "
+        "print(json.dumps([paths.get('purelib'), paths.get('platlib')]))"
+    )
+    try:
+        result = subprocess.run(
+            [python_exe, "-c", script],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=10,
+        )
+        raw_paths = json.loads(result.stdout)
+    except Exception:
+        raw_paths = []
+    site_packages: list[Path] = []
+    seen: set[Path] = set()
+    for raw in raw_paths:
+        if not raw:
+            continue
+        path = Path(str(raw))
+        if path.exists() and path not in seen:
+            site_packages.append(path)
+            seen.add(path)
+    return site_packages
 
 
 def _detect_current_target() -> str:
@@ -181,7 +200,7 @@ def _clean_dist(target: str) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _discover_mypyc_modules() -> tuple[list[str], list[tuple[str, str | None]]]:
+def _discover_mypyc_modules(python_exe: str) -> tuple[list[str], list[tuple[str, str | None]]]:
     """Find mypyc-compiled extension modules in site-packages.
 
     Returns (module_names, binaries) where module_names are hidden import
@@ -189,8 +208,7 @@ def _discover_mypyc_modules() -> tuple[list[str], list[tuple[str, str | None]]]:
     """
     module_names: list[str] = []
     binaries: list[tuple[str, str | None]] = []
-    site_packages = _find_site_packages()
-    if site_packages:
+    for site_packages in _find_site_packages(python_exe):
         for entry in sorted(site_packages.iterdir()):
             if "__mypyc" in entry.name and entry.suffix == ".so":
                 modname = entry.stem.split(".")[0]  # strip .cpython-*-*.so
@@ -199,12 +217,12 @@ def _discover_mypyc_modules() -> tuple[list[str], list[tuple[str, str | None]]]:
     return module_names, binaries
 
 
-def _write_pyinstaller_spec(target: str, executable: str) -> Path:
+def _write_pyinstaller_spec(target: str, executable: str, python_exe: str) -> Path:
     """Write a PyInstaller .spec file for the target."""
     SPEC_DIR.mkdir(parents=True, exist_ok=True)
     spec_path = SPEC_DIR / f"ite_{target}.spec"
 
-    mypyc_modules, mypyc_binaries = _discover_mypyc_modules()
+    mypyc_modules, mypyc_binaries = _discover_mypyc_modules(python_exe)
     all_hidden_imports = list(HIDDEN_IMPORTS) + mypyc_modules
     hidden_imports_str = ",\n        ".join(repr(h) for h in all_hidden_imports)
     datas_str = ",\n        ".join(
@@ -243,6 +261,9 @@ a = Analysis(
         "distutils",
         "setuptools",
         "pip",
+        "flet",
+        "flet_core",
+        "prompt_toolkit",
     ],
     noarchive=False,
     copy_metadata=["fastmcp", "pydantic", "pydantic_core"],
@@ -296,14 +317,14 @@ def build_target(
     if clean:
         _clean_dist(target)
 
-    spec_path = _write_pyinstaller_spec(target, executable)
+    # Run PyInstaller — use venv Python so PyInstaller is found
+    python_exe = _find_venv_python()
+    spec_path = _write_pyinstaller_spec(target, executable, python_exe)
 
     print(f"\n{'='*60}")
     print(f"Building iTE v{version} for {info['label']} ({target})")
     print(f"{'='*60}")
-
-    # Run PyInstaller — use venv Python so PyInstaller is found
-    python_exe = _find_venv_python()
+    print(f"Using Python: {python_exe}")
 
     # Verify PyInstaller is available
     try:
