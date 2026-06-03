@@ -227,7 +227,7 @@ def _get_agents_md_section() -> str:
     - Instructions about code style, structure, naming, etc. apply only to code within the AGENTS.md file's scope, unless the file states otherwise.
     - More-deeply-nested AGENTS.md files take precedence in the case of conflicting instructions.
     - Direct system/developer/user instructions (as part of a prompt) take precedence over AGENTS.md instructions.
-- The contents of all AGENTS.md files from the repo root up to and including the CWD are included with the developer message and merged with precedence: deeper files override parent files. When working in a subdirectory of CWD, or a directory outside the CWD, check for any AGENTS.md files that may be applicable."""
+- The contents of all AGENTS.md files from the repo root up to and including the CWD are included with the developer message and merged with precedence: deeper files override parent files. For general questions about the current codebase or workspace, ground the answer in the nearest/deepest applicable AGENTS.md file first. Treat parent files as inherited background unless the user asks about the broader repository. When working in a subdirectory of CWD, or a directory outside the CWD, check for any AGENTS.md files that may be applicable."""
 
 
 def _get_security_section() -> str:

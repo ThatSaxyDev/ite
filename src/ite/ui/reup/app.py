@@ -1388,7 +1388,6 @@ class ReupApp(App):
         self._session_agents: dict[str, Agent] = {}
         self._session_run_states: dict[str, SessionRunState] = {}
         self._session_name_refinements: set[str] = set()
-        self._session_name_refinement_failures: dict[str, int] = {}
         self._fallback_run_state = SessionRunState()
         self._command_registry = None
         self._command_registry_ready: bool = False
@@ -13682,6 +13681,12 @@ class ReupApp(App):
             session.set_auto_name(self._fallback_session_name(session))
             if refresh_ui:
                 self.refresh_header()
+            if allow_name_generation:
+                self._queue_session_name_refinement(
+                    session,
+                    workspace=workspace,
+                    refresh_ui=refresh_ui,
+                )
         elif allow_name_generation and session.should_refresh_auto_name():
             self._queue_session_name_refinement(
                 session,
@@ -13704,6 +13709,17 @@ class ReupApp(App):
         session_id = self._session_id(session)
         if not session_id or session_id in self._session_name_refinements:
             return
+        # Pre-flight: check for stored credentials (disk-only, no network).
+        # Do not call get_cloud_session() here — it makes a sync HTTP call
+        # to /auth/me that would block the Textual event loop for 10 seconds.
+        # The actual token validation happens inside the worker.
+        if not has_stored_cloud_auth(self.config):
+            self._apply_local_name_refinement(
+                session,
+                workspace=workspace,
+                refresh_ui=refresh_ui,
+            )
+            return
         self._session_name_refinements.add(session_id)
         self.run_worker(
             self._refine_session_name(
@@ -13713,6 +13729,27 @@ class ReupApp(App):
             ),
             exclusive=False,
         )
+
+    def _apply_local_name_refinement(
+        self,
+        session: Session,
+        *,
+        workspace: Path,
+        refresh_ui: bool,
+    ) -> None:
+        if getattr(session, "name_locked", False):
+            return
+        current = str(session.name or "").strip()
+        refreshed = self._fallback_session_name(session)
+        if refreshed and refreshed != current:
+            session.set_auto_name(refreshed)
+        else:
+            session.mark_auto_name_attempt()
+        snapshot = SessionSnapshot(
+            **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
+        )
+        SessionManager().save_session(snapshot)
+        self._refresh_session_name_ui(session, refresh_ui=refresh_ui)
 
     async def _refine_session_name(
         self,
@@ -13727,29 +13764,35 @@ class ReupApp(App):
                 return
             current = str(session.name or "").strip()
             refreshed = (await self._generate_cloud_session_name(session) or "").strip()
+            if not refreshed:
+                refreshed = self._fallback_session_name(session)
             if refreshed and refreshed != current:
                 session.set_auto_name(refreshed)
-                if session_id:
-                    self._session_name_refinement_failures.pop(session_id, None)
-            elif getattr(session, "name_source", None) == "auto" and session_id:
-                failures = self._session_name_refinement_failures.get(session_id, 0) + 1
-                self._session_name_refinement_failures[session_id] = failures
-                if failures < 2:
-                    return
-                session.name_last_generated_turn = max(
-                    int(getattr(session, "name_last_generated_turn", 0) or 0),
-                    int(getattr(session, "turn_count", 0) or 0),
-                )
-                self._session_name_refinement_failures.pop(session_id, None)
+            else:
+                session.mark_auto_name_attempt()
             snapshot = SessionSnapshot(
                 **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
             )
             SessionManager().save_session(snapshot)
-            if refresh_ui and refreshed and refreshed != current:
-                self.refresh_header()
+            self._refresh_session_name_ui(session, refresh_ui=refresh_ui)
         finally:
             if session_id:
                 self._session_name_refinements.discard(session_id)
+
+    def _refresh_session_name_ui(
+        self,
+        session: Session,
+        *,
+        refresh_ui: bool,
+    ) -> None:
+        if refresh_ui and self._session_id(session) == self._active_session_id():
+            self.refresh_header()
+        elif self.is_mounted:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            self._queue_session_tabs_refresh()
 
     def _fallback_session_name(self, session: Session) -> str:
         try:

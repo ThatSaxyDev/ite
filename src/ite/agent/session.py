@@ -31,6 +31,11 @@ from ite.skills import SkillManager
 from ite.skills import SkillTrustManager
 from dataclasses import dataclass, field
 
+AUTO_NAME_REFRESH_MILESTONES = (1, 3, 6)
+NAME_CONTEXT_FIELD_CHARS = 200
+NAME_CONTEXT_FIRST_TURN_CHARS = 900
+NAME_CONTEXT_TOOL_OUTPUT_CHARS = 120
+
 
 @dataclass
 class RuntimeIssue:
@@ -332,14 +337,33 @@ class Session:
             bool(self.name)
             and self.name_source == "auto"
             and not self.name_locked
-            and self.turn_count >= 3
-            and self.name_last_generated_turn < 3
+            and any(
+                self.turn_count >= milestone > self.name_last_generated_turn
+                for milestone in AUTO_NAME_REFRESH_MILESTONES
+            )
         )
+
+    def mark_auto_name_attempt(self) -> None:
+        if self.name_source != "auto" or self.name_locked:
+            return
+        completed_milestones = [
+            milestone
+            for milestone in AUTO_NAME_REFRESH_MILESTONES
+            if self.turn_count >= milestone
+        ]
+        if not completed_milestones:
+            return
+        self.name_last_generated_turn = max(
+            self.name_last_generated_turn,
+            completed_milestones[-1],
+        )
+        self.updated_at = datetime.now()
 
     def name_generation_context(self) -> dict[str, str]:
         first_user = ""
         first_assistant = ""
         latest_user = ""
+        first_turn_parts: list[str] = []
         if self.context_manager:
             transcript_state = self.context_manager.export_transcript_state()
             transcript_events = (
@@ -357,19 +381,104 @@ class Session:
                 if role == "user":
                     content = str(msg.get("content", "") or "").strip()
                     if content and not first_user:
-                        first_user = content[:200]
+                        first_user = content[:NAME_CONTEXT_FIELD_CHARS]
                     if content:
-                        latest_user = content[:200]
+                        latest_user = content[:NAME_CONTEXT_FIELD_CHARS]
                 elif role == "assistant" and first_user and not first_assistant:
                     content = str(msg.get("content", "") or "").strip()
                     if content:
-                        first_assistant = content[:200]
+                        first_assistant = content[:NAME_CONTEXT_FIELD_CHARS]
+            first_turn_parts = self._first_turn_name_context(transcript_messages)
         return {
             "first_user": first_user,
             "first_assistant": first_assistant,
             "latest_user": latest_user,
-            "focus_hint": self._derive_current_focus()[:200],
+            "focus_hint": self._derive_current_focus()[:NAME_CONTEXT_FIELD_CHARS],
+            "first_turn": "\n".join(first_turn_parts)[:NAME_CONTEXT_FIRST_TURN_CHARS],
+            "turn_count": str(self.turn_count),
         }
+
+    def _first_turn_name_context(
+        self,
+        transcript_messages: list[dict[str, Any]],
+    ) -> list[str]:
+        parts: list[str] = []
+        in_first_turn = False
+        first_user_seen = False
+        tool_names_by_id: dict[str, str] = {}
+        for msg in transcript_messages:
+            role = str(msg.get("role", "") or "").strip()
+            if role == "user":
+                if first_user_seen:
+                    break
+                first_user_seen = True
+                in_first_turn = True
+                content = self._compact_name_context_text(msg.get("content"))
+                if content:
+                    parts.append(f"User: {content}")
+                continue
+            if not in_first_turn:
+                continue
+            if role == "assistant":
+                content = self._compact_name_context_text(msg.get("content"))
+                if content:
+                    parts.append(f"Assistant: {content}")
+                for tool_call in msg.get("tool_calls") or []:
+                    if not isinstance(tool_call, dict):
+                        continue
+                    call_id = str(tool_call.get("id") or "").strip()
+                    function = tool_call.get("function")
+                    function = function if isinstance(function, dict) else {}
+                    tool_name = str(function.get("name") or "").strip()
+                    if not tool_name:
+                        continue
+                    if call_id:
+                        tool_names_by_id[call_id] = tool_name
+                    arguments = self._compact_name_context_text(function.get("arguments"))
+                    if arguments:
+                        parts.append(f"Tool call: {tool_name} {arguments}")
+                    else:
+                        parts.append(f"Tool call: {tool_name}")
+                continue
+            if role == "tool":
+                tool_ui = msg.get("tool_ui") if isinstance(msg.get("tool_ui"), dict) else {}
+                call_id = str(msg.get("tool_call_id") or "").strip()
+                tool_name = str(tool_ui.get("name") or tool_names_by_id.get(call_id) or "tool")
+                success = bool(tool_ui.get("success", True))
+                output = tool_ui.get("output")
+                if output in (None, ""):
+                    output = msg.get("content")
+                compact_output = self._compact_name_context_text(
+                    output,
+                    limit=NAME_CONTEXT_TOOL_OUTPUT_CHARS,
+                )
+                if not compact_output:
+                    compact_output = "completed" if success else "failed"
+                state = "ok" if success else "error"
+                parts.append(f"Tool result: {tool_name} {state} - {compact_output}")
+        return parts
+
+    def _compact_name_context_text(
+        self,
+        value: Any,
+        *,
+        limit: int = NAME_CONTEXT_FIELD_CHARS,
+    ) -> str:
+        if isinstance(value, str):
+            text = value
+        elif isinstance(value, (dict, list)):
+            try:
+                import json
+
+                text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            except Exception:
+                text = str(value)
+        else:
+            text = str(value or "")
+        text = " ".join(text.split())
+        if len(text) > limit:
+            return text[:limit].rsplit(" ", 1)[0].strip() or text[:limit].strip()
+        return text
 
     def snapshot_kwargs(self, *, workspace_path: str) -> dict[str, Any]:
         self.session_memory_manager.refresh_from_session(self)

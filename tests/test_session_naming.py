@@ -19,7 +19,7 @@ class SessionNamingTests(unittest.TestCase):
         self.assertEqual(self.session.name_source, "manual")
         self.assertTrue(self.session.name_locked)
 
-    def test_auto_name_can_refresh_once_after_turn_three(self) -> None:
+    def test_auto_name_refreshes_at_later_milestones(self) -> None:
         self.session.turn_count = 1
         self.session.set_auto_name("Initial Title")
         self.assertFalse(self.session.should_refresh_auto_name())
@@ -28,6 +28,13 @@ class SessionNamingTests(unittest.TestCase):
         self.assertTrue(self.session.should_refresh_auto_name())
 
         self.session.set_auto_name("Better Title")
+        self.assertFalse(self.session.should_refresh_auto_name())
+        self.assertEqual(self.session.name, "Better Title")
+
+        self.session.turn_count = 6
+        self.assertTrue(self.session.should_refresh_auto_name())
+
+        self.session.mark_auto_name_attempt()
         self.assertFalse(self.session.should_refresh_auto_name())
         self.assertEqual(self.session.name, "Better Title")
 
@@ -52,6 +59,47 @@ class SessionNamingTests(unittest.TestCase):
             "Audit the context runtime architecture."[:200],
         )
         self.assertIn("Now map the gaps against csrc.", context["latest_user"])
+
+    def test_name_generation_context_summarizes_first_turn_tools(self) -> None:
+        asyncio.run(self.session.initialize())
+        assert self.session.context_manager is not None
+
+        self.session.context_manager.add_user_message("Why is session naming stuck?")
+        self.session.context_manager.add_assistant_message(
+            "I will inspect the runtime naming path.",
+            [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "grep",
+                        "arguments": '{"pattern":"should_refresh_auto_name"}',
+                    },
+                }
+            ],
+        )
+        self.session.context_manager.add_tool_result(
+            "call_1",
+            "Found should_refresh_auto_name in session.py and app.py.",
+            tool_ui={
+                "name": "grep",
+                "success": True,
+                "output": "src/ite/agent/session.py:330:def should_refresh_auto_name",
+            },
+        )
+        self.session.context_manager.add_assistant_message(
+            "The first title is being saved before refinement has enough context."
+        )
+        self.session.context_manager.add_user_message("Now fix the first turn naming.")
+
+        context = self.session.name_generation_context()
+
+        self.assertIn("User: Why is session naming stuck?", context["first_turn"])
+        self.assertIn("Tool call: grep", context["first_turn"])
+        self.assertIn("Tool result: grep ok", context["first_turn"])
+        self.assertIn("The first title is being saved", context["first_turn"])
+        self.assertNotIn("Now fix the first turn naming.", context["first_turn"])
+        self.assertEqual(context["turn_count"], "0")
 
     def test_local_session_title_removes_filler_without_inference(self) -> None:
         title = local_session_title(

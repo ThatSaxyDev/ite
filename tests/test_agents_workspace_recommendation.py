@@ -4,10 +4,32 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from ite.config.loader import _merge_agents_md_instructions
 from ite.config.loader import get_workspace_agents_recommendation
 
 
 class WorkspaceAgentsRecommendationTests(unittest.TestCase):
+    def test_merged_agents_instructions_put_nearest_file_first(self) -> None:
+        with TemporaryDirectory() as td:
+            root = Path(td)
+            child = root / "ite"
+            files = [
+                (root / "AGENTS.md", "# Root\nMonorepo overview."),
+                (child / "AGENTS.md", "# Child\niTE runtime overview."),
+            ]
+
+            merged = _merge_agents_md_instructions(files)
+
+            self.assertIsNotNone(merged)
+            assert merged is not None
+            self.assertIn("files are listed from most specific to least specific", merged)
+            self.assertIn("primary grounding for questions about the current workspace", merged)
+            self.assertLess(
+                merged.index(str(child / "AGENTS.md")),
+                merged.index(str(root / "AGENTS.md")),
+            )
+            self.assertLess(merged.index("# Child"), merged.index("# Root"))
+
     def test_recommends_init_when_workspace_has_no_local_instruction_file(self) -> None:
         with TemporaryDirectory() as td:
             workspace = Path(td)

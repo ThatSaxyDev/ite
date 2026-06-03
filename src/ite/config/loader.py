@@ -304,16 +304,19 @@ def _merge_agents_md_instructions(files: list[tuple[Path, str]]) -> str | None:
     if not files:
         return None
 
-    # Build merged content with source annotations (start from most specific)
-    # Work backwards from most specific to least, so we can track size
-    parts: list[str] = []
-    current_size = 0
+    header = """[AGENTS.md Instructions]
+
+Precedence: files are listed from most specific to least specific. Use the first applicable file as the primary grounding for questions about the current workspace or codebase. Parent and global files provide inherited constraints and background only; do not summarize them as the main project when a more specific file applies.
+"""
+
+    parts: list[str] = [header]
+    current_size = len(header.encode("utf-8"))
     truncated_files: list[Path] = []
 
-    # Files are ordered root -> ... -> cwd. Process in reverse (cwd -> ... -> root)
-    # so we prioritize most specific instructions when close to limit
-    for file_path, content in reversed(files):
-        separator = f"<!-- From: {file_path} -->\n\n"
+    # Files are ordered global -> root -> ... -> cwd. Process in reverse so the
+    # most specific instructions are both preserved and shown first.
+    for index, (file_path, content) in enumerate(reversed(files), start=1):
+        separator = f"## Priority {index}: {file_path}\n\n"
         section = separator + content
         section_bytes = len(section.encode("utf-8"))
 
@@ -321,7 +324,7 @@ def _merge_agents_md_instructions(files: list[tuple[Path, str]]) -> str | None:
             truncated_files.append(file_path)
             continue
 
-        parts.insert(0, section)  # Insert at beginning to maintain root -> cwd order
+        parts.append(section)
         current_size += section_bytes
 
     if truncated_files:

@@ -48,6 +48,19 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("do not automatically install it with `shell`", prompt)
         self.assertIn("ask whether they want you to install it", prompt)
 
+    def test_system_prompt_prefers_deepest_agents_file_for_current_codebase_questions(self) -> None:
+        config = Config(cwd=self.cwd, api_key="test")
+        prompt = get_system_prompt(config)
+
+        self.assertIn(
+            "ground the answer in the nearest/deepest applicable AGENTS.md file first",
+            prompt,
+        )
+        self.assertIn(
+            "Treat parent files as inherited background unless the user asks about the broader repository",
+            prompt,
+        )
+
     def test_system_prompt_prefers_json_tools_for_structured_json_tasks(self) -> None:
         config = Config(cwd=self.cwd, api_key="test")
         prompt = get_system_prompt(config)
