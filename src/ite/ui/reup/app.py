@@ -12714,10 +12714,11 @@ class ReupApp(App):
                     tool_name=name,
                     arguments=arguments,
                     cwd=self.config.cwd,
+                    theme_variables=self._theme_tokens(),
                 )
             )
         elif arguments:
-            blocks.append(render_args_table(name, arguments, cwd=self.config.cwd))
+            blocks.append(render_args_table(name, arguments, cwd=self.config.cwd, theme_variables=self._theme_tokens()))
         else:
             blocks.append(Text("(no args)", style=self._render_styles()["muted"]))
 
@@ -12740,6 +12741,7 @@ class ReupApp(App):
                         arguments,
                         cwd=self.config.cwd,
                         spinner_index=self._top_spinner_index,
+                        theme_variables=self._theme_tokens(),
                     )
                 )
         elif name.startswith("subagent_"):
