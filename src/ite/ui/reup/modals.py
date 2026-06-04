@@ -1451,31 +1451,41 @@ class UsageSummaryModal(ModalScreen[None]):
         text.append(reset_time, style=muted)
         return text
 
-    def _build_bar(self, remaining_percent: int, width: int = 92) -> Text:
+    _bar_width: int = 92
+
+    def _compute_bar_width(self) -> None:
+        try:
+            body = self.query_one("#usage-summary-body", Static)
+            w = body.size.width
+            if w > 0:
+                self._bar_width = w
+        except Exception:
+            pass
+
+    def _build_bar(self, remaining_percent: int) -> Text:
         used_percent = max(0, min(100, 100 - remaining_percent))
-        filled = max(0, min(width, round((used_percent / 100) * width)))
-        empty = max(0, width - filled)
+        filled = max(0, min(self._bar_width, round((used_percent / 100) * self._bar_width)))
+        empty = max(0, self._bar_width - filled)
         bar = Text()
-        # Get theme-aware colors
         from ite.ui.reup.app import ReupApp
         app = self.app
         if isinstance(app, ReupApp):
             styles = app._render_styles()
-            fg = styles.get("fg", "#f3f4f6")
-            # Use border color for empty portion - more visible than muted
-            empty_color = styles.get("border", "#7d8591")
+            filled_color = styles.get("success", "#8AD4A1")
+            empty_color = styles.get("disabled", "#3a3a3f")
         else:
-            fg = "#f3f4f6"
-            empty_color = "#7d8591"
+            filled_color = "#8AD4A1"
+            empty_color = "#3a3a3f"
+        line = Text()
         if filled:
-            bar.append("━" * filled, style=f"bold {fg}")
+            line.append("█" * filled, style=f"bold {filled_color}")
         if empty:
-            bar.append("━" * empty, style=empty_color)
+            line.append("█" * empty, style=empty_color)
+        bar.append(line)
         return bar
 
     def _build_renderable(self) -> Group:
         sections: list[object] = []
-        # Get theme-aware colors
         from ite.ui.reup.app import ReupApp
         app = self.app
         if isinstance(app, ReupApp):
@@ -1518,11 +1528,20 @@ class UsageSummaryModal(ModalScreen[None]):
                 Text(f"{remaining}% remaining", style=f"bold {fg}"),
             )
             sections.append(row)
+            sections.append(Text(""))
             sections.append(self._build_bar(remaining))
             if index < len(quota_rows) - 1:
                 sections.append(Text(""))
 
         return Group(*sections)
+
+    def on_mount(self) -> None:
+        self._compute_bar_width()
+        self._refresh_body()
+
+    def on_resize(self, _event: events.Resize) -> None:
+        self._compute_bar_width()
+        self._refresh_body()
 
     def _refresh_body(self) -> None:
         try:
@@ -1568,26 +1587,37 @@ class ContextSummaryModal(ModalScreen[None]):
         super().__init__()
         self._payload = payload
 
-    def _build_bar(self, used_percent: float, width: int = 92) -> Text:
+    _bar_width: int = 92
+
+    def _compute_bar_width(self) -> None:
+        try:
+            body = self.query_one(".usage-summary-body", Static)
+            w = body.size.width
+            if w > 0:
+                self._bar_width = w
+        except Exception:
+            pass
+
+    def _build_bar(self, used_percent: float) -> Text:
         normalized = max(0, min(100, round(used_percent)))
-        filled = max(0, min(width, round((normalized / 100) * width)))
-        empty = max(0, width - filled)
+        filled = max(0, min(self._bar_width, round((normalized / 100) * self._bar_width)))
+        empty = max(0, self._bar_width - filled)
         bar = Text()
-        # Get theme-aware colors
         from ite.ui.reup.app import ReupApp
         app = self.app
         if isinstance(app, ReupApp):
             styles = app._render_styles()
-            fg = styles.get("fg", "#f3f4f6")
-            # Use border color for empty portion - more visible than muted
-            empty_color = styles.get("border", "#7d8591")
+            filled_color = styles.get("success", "#8AD4A1")
+            empty_color = styles.get("disabled", "#3a3a3f")
         else:
-            fg = "#f3f4f6"
-            empty_color = "#7d8591"
+            filled_color = "#8AD4A1"
+            empty_color = "#3a3a3f"
+        line = Text()
         if filled:
-            bar.append("━" * filled, style=f"bold {fg}")
+            line.append("█" * filled, style=f"bold {filled_color}")
         if empty:
-            bar.append("━" * empty, style=empty_color)
+            line.append("█" * empty, style=empty_color)
+        bar.append(line)
         return bar
 
     @staticmethod
@@ -1607,7 +1637,6 @@ class ContextSummaryModal(ModalScreen[None]):
         trigger_at = int(self._payload.get("trigger_at") or 0)
         trigger_pct = (trigger_at / context_window * 100) if context_window else 0.0
 
-        # Get theme-aware colors
         from ite.ui.reup.app import ReupApp
         app = self.app
         if isinstance(app, ReupApp):
@@ -1637,7 +1666,21 @@ class ContextSummaryModal(ModalScreen[None]):
                 style=dim,
             ),
         )
-        return Group(summary, self._build_bar(used_pct))
+        return Group(summary, Text(""), self._build_bar(used_pct))
+
+    def _refresh_body(self) -> None:
+        try:
+            self.query_one(".usage-summary-body", Static).update(self._build_renderable())
+        except Exception:
+            return
+
+    def on_mount(self) -> None:
+        self._compute_bar_width()
+        self._refresh_body()
+
+    def on_resize(self, _event: events.Resize) -> None:
+        self._compute_bar_width()
+        self._refresh_body()
 
     def compose(self) -> ComposeResult:
         with Container(classes="modal context-modal"):
