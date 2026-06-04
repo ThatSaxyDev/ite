@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -1538,6 +1539,7 @@ class ReupApp(App):
         self._thread_switcher_sync_lock = asyncio.Lock()
         self._thread_nav_order: list[str] = []
         self._shutdown_started: bool = False
+        self._sigint_handled: bool = False
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
         self._remote_port_preference: int = 0
@@ -1746,6 +1748,24 @@ class ReupApp(App):
         self.set_interval(0.3, self._poll_head_change)
         self.run_worker(self._initialize_command_palette(), exclusive=False)
         self.run_worker(self._bootstrap_after_mount(), exclusive=False)
+        self._install_sigint_handler()
+
+    def _install_sigint_handler(self) -> None:
+        app = self
+
+        def _handle_sigint(signum: int, frame: object) -> None:
+            if app._sigint_handled:
+                os._exit(1)
+            app._sigint_handled = True
+            try:
+                loop = asyncio.get_running_loop()
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.ensure_future(app._perform_quit())
+                )
+            except RuntimeError:
+                os._exit(1)
+
+        signal.signal(signal.SIGINT, _handle_sigint)
 
     async def _initialize_command_palette(self) -> None:
         if self._command_registry_ready or self._command_registry_loading:
@@ -2097,6 +2117,7 @@ class ReupApp(App):
             )
 
     async def on_unmount(self) -> None:
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         if self._voice_recorder is not None:
             await self._voice_recorder.cancel()
             self._voice_recorder = None
