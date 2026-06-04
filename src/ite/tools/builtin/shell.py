@@ -677,7 +677,7 @@ class _ShellCommonTool(Tool):
 
 class ShellTool(_ShellCommonTool):
     name = "shell"
-    description = "Execute a shell command. Use this for running system commands, scripts and CLI tools."
+    description = "Execute a shell command. Use this for running system commands, scripts and CLI tools. WARNING: Do NOT use this for git inspection commands (git log, git diff, git show, git blame, etc.) — git will auto-launch `less` as its pager on the PTY and hang waiting for input. Use the dedicated git_log, git_diff, git_status, git_branch, git_remote, git_commit, and git_push tools instead. If you MUST use shell for git, always prefix with GIT_PAGER=cat or use --no-pager."
 
     schema = ShellParams
 

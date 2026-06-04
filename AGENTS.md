@@ -11,6 +11,21 @@ An AI coding agent for the terminal. Users connect a model service, authenticate
 - **Install:** `pipx install ite-agent` or `uv tool install ite-agent`
 - **Local editable install:** `uv pip install -e .` from the repo root, or `source .venv/bin/activate && python -m pip install -e .`
 
+## ⚠️ ATTENTION — GIT PAGER WILL HANG YOUR SHELL CALLS ⚠️
+
+**This is a warning to you, the agent reading this file.** Read it.
+
+When you use `shell` to run `git log`, `git diff`, `git show`, `git blame`, or any other git command that produces multi-screen output, **git will auto-launch `less` as its pager** because the `shell` tool allocates a pseudo-terminal (PTY). `less` will print the first screenful and then block, waiting for keyboard input that will never arrive. The command will hang until the timeout kills it.
+
+**What this looks like**: the output streams commit IDs and titles, then just stops — silence, no prompt return, no exit.
+
+**How to avoid it — always do one of these:**
+
+- ✅ **USE THE DEDICATED GIT TOOLS.** They exist for exactly this reason: `git_log`, `git_diff`, `git_status`, `git_commit`, `git_push`, `git_branch`, `git_remote`. They never invoke a pager. ALWAYS prefer these over `shell` for git operations.
+- ✅ If you must use `shell`, **always** prefix with `GIT_PAGER=cat` or append `--no-pager` (e.g., `GIT_PAGER=cat git log ...` or `git --no-pager log ...`).
+
+**Do not skip this.** If you run a raw `git log` through `shell` without disabling the pager, you will waste a turn, confuse the user, and look like you don't know what you're doing.
+
 ## Current Runtime
 
 Reup Textual is the only supported runtime UI.
