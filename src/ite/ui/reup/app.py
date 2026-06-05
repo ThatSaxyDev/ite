@@ -3659,7 +3659,7 @@ class ReupApp(App):
             and not self._account_plan_unavailable
             and self._account_plan_is_pro is not None
         ):
-            return 15.0
+            return 3.0
         return 2.0
 
     def _should_probe_cloud_network_recovery(self) -> bool:
@@ -3691,6 +3691,17 @@ class ReupApp(App):
     async def _probe_cloud_network_recovery(self) -> None:
         try:
             if self._cloud_signed_out:
+                reachable = await asyncio.to_thread(
+                    is_cloud_api_reachable,
+                    self.config,
+                )
+                if reachable:
+                    self._handle_cloud_network_reachable()
+                else:
+                    self._handle_cloud_network_unreachable()
+                return
+
+            if not self._account_plan_unavailable:
                 reachable = await asyncio.to_thread(
                     is_cloud_api_reachable,
                     self.config,
@@ -3741,13 +3752,14 @@ class ReupApp(App):
         self._cloud_network_watch_enabled = False
         if auth is not None:
             self._apply_cloud_auth_status(auth, context="iTE Cloud", interactive=False)
+            if not recovered:
+                return
             self._set_account_plan_badge_state(None, unavailable=False)
             self._prefetch_cloud_caches()
-            if recovered:
-                self.post_notice(
-                    "iTE Cloud",
-                    "Back online. Cloud features are available.",
-                )
+            self.post_notice(
+                "iTE Cloud",
+                "Back online. Cloud features are available.",
+            )
             return
         self._cloud_signed_out_status_message = (
             "iTE Cloud is reachable. Sign in to continue."

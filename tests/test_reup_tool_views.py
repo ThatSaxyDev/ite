@@ -4,6 +4,7 @@ from pathlib import Path
 from rich.table import Table
 from rich.text import Text
 
+from ite.ui.reup.command_views import build_sandbox_command_renderable
 from ite.ui.reup.tool_views import compact_tool_preview_blocks
 from ite.ui.reup.tool_views import normalize_unified_diff_paths
 from ite.ui.reup.tool_views import render_subagent_metrics_payload
@@ -13,6 +14,27 @@ from ite.ui.reup.tool_views import render_git_log_output
 
 
 class ReupToolViewsTests(unittest.TestCase):
+    def test_sandbox_command_summary_uses_allowed_path_plurality(self) -> None:
+        one_path = build_sandbox_command_renderable(
+            True,
+            ["/tmp/one"],
+            "/tmp/workspace",
+        )
+        many_paths = build_sandbox_command_renderable(
+            True,
+            ["/tmp/one", "/tmp/two"],
+            "/tmp/workspace",
+        )
+
+        self.assertEqual(
+            one_path.renderables[1].plain,
+            "filesystem on  •  1 allowed path",
+        )
+        self.assertEqual(
+            many_paths.renderables[1].plain,
+            "filesystem on  •  2 allowed paths",
+        )
+
     def test_compact_tool_preview_blocks_uses_first_useful_text_line(self) -> None:
         blocks = [
             Text(""),

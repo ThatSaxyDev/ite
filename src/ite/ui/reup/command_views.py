@@ -686,8 +686,12 @@ def build_sandbox_command_renderable(
         style=f"bold {success}" if enabled else f"bold {warning}",
     )
     summary.append("  •  ", style=disabled)
-    summary.append(str(len(allowed_paths)), style=f"bold {fg}")
-    summary.append(" allowed path(s)", style=muted)
+    allowed_path_count = len(allowed_paths)
+    allowed_path_label = (
+        "allowed path" if allowed_path_count == 1 else "allowed paths"
+    )
+    summary.append(str(allowed_path_count), style=f"bold {fg}")
+    summary.append(f" {allowed_path_label}", style=muted)
 
     blocks: list[object] = [
         Text("sandbox", style=f"bold {fg}"),

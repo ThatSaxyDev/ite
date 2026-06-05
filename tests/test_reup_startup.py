@@ -1016,6 +1016,36 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_network_watcher_successful_online_check_does_not_refresh_ui(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = True
+            app._account_plan_is_pro = True
+            app._account_plan_unavailable = False
+            app._cloud_network_was_unreachable = False
+
+            with (
+                patch(
+                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    return_value=True,
+                ) as is_reachable,
+                patch("ite.ui.reup.app.get_cloud_auth_status") as get_auth_status,
+                patch.object(app, "_set_account_plan_badge_state") as set_badge,
+                patch.object(app, "_prefetch_cloud_caches") as prefetch,
+                patch.object(app, "post_notice") as post_notice,
+            ):
+                await app._probe_cloud_network_recovery()
+
+            is_reachable.assert_called_once_with(app.config)
+            get_auth_status.assert_not_called()
+            set_badge.assert_not_called()
+            prefetch.assert_not_called()
+            post_notice.assert_not_called()
+            self.assertTrue(app._account_plan_is_pro)
+            self.assertFalse(app._account_plan_unavailable)
+
+        asyncio.run(run_test())
+
     def test_network_watcher_is_scoped_to_recovery_states(self) -> None:
         app = self._app()
         app.config.cloud_auth_enabled = True
@@ -1072,7 +1102,7 @@ class ReupStartupTests(unittest.TestCase):
         app.config.cloud_auth_enabled = True
         app._account_plan_is_pro = True
 
-        self.assertEqual(app._cloud_network_recovery_probe_interval(), 15.0)
+        self.assertEqual(app._cloud_network_recovery_probe_interval(), 3.0)
 
     def test_network_watcher_marks_active_cloud_session_offline(self) -> None:
         async def run_test() -> None:
@@ -1080,18 +1110,18 @@ class ReupStartupTests(unittest.TestCase):
             app.config.cloud_auth_enabled = True
             app._account_plan_is_pro = False
             app._account_plan_unavailable = False
-            auth = CloudAuthStatus(
-                state=CloudSessionState.NETWORK_ERROR,
-                message="network down",
-            )
-
             with (
-                patch("ite.ui.reup.app.get_cloud_auth_status", return_value=auth),
+                patch(
+                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    return_value=False,
+                ),
+                patch("ite.ui.reup.app.get_cloud_auth_status") as get_auth_status,
                 patch.object(app, "refresh_header") as refresh_header,
                 patch.object(app, "post_notice") as post_notice,
             ):
                 await app._probe_cloud_network_recovery()
 
+            get_auth_status.assert_not_called()
             self.assertIsNone(app._account_plan_is_pro)
             self.assertTrue(app._account_plan_unavailable)
             self.assertTrue(app._cloud_network_was_unreachable)
