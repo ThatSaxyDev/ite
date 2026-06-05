@@ -101,7 +101,9 @@ class GitOutboundState:
         return self.branch
 
 
-def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    cwd: Path, *args: str, timeout: float | None = None
+) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             ["git", "-C", str(cwd), *args],
@@ -111,34 +113,55 @@ def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
             errors="replace",
             check=False,
             start_new_session=True,
+            timeout=timeout,
         )
     except FileNotFoundError:
         result = subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="git not found")
         return result
+    except subprocess.TimeoutExpired as exc:
+        result = subprocess.CompletedProcess(
+            args,
+            returncode=124,
+            stdout=str(exc.stdout or ""),
+            stderr="git command timed out",
+        )
+        return result
 
 
-def _run_git_bytes(cwd: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+def _run_git_bytes(
+    cwd: Path, *args: str, timeout: float | None = None
+) -> subprocess.CompletedProcess[bytes]:
     try:
         return subprocess.run(
             ["git", "-C", str(cwd), *args],
             capture_output=True,
             check=False,
             start_new_session=True,
+            timeout=timeout,
         )
     except FileNotFoundError:
         result = subprocess.CompletedProcess(args, returncode=1, stdout=b"", stderr=b"git not found")
         return result
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout if isinstance(exc.stdout, bytes) else b""
+        result = subprocess.CompletedProcess(
+            args,
+            returncode=124,
+            stdout=stdout,
+            stderr=b"git command timed out",
+        )
+        return result
 
 
-def _git_output(cwd: Path, *args: str) -> str:
-    result = _run_git(cwd, *args)
+def _git_output(cwd: Path, *args: str, timeout: float | None = None) -> str:
+    result = _run_git(cwd, *args, timeout=timeout)
     if result.returncode != 0:
         return ""
     return result.stdout
 
 
-def _head_has_path(cwd: Path, path: str) -> bool:
-    result = _run_git(cwd, "cat-file", "-e", f"HEAD:{path}")
+def _head_has_path(cwd: Path, path: str, *, timeout: float | None = None) -> bool:
+    result = _run_git(cwd, "cat-file", "-e", f"HEAD:{path}", timeout=timeout)
     return result.returncode == 0
 
 
@@ -154,8 +177,14 @@ def _looks_binary(data: bytes) -> bool:
     return False
 
 
-def _git_blob_content(cwd: Path, pathspec: str, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
-    result = _run_git_bytes(cwd, "show", pathspec)
+def _git_blob_content(
+    cwd: Path,
+    pathspec: str,
+    *,
+    binary_placeholder: str = _BINARY_BASELINE,
+    timeout: float | None = None,
+) -> str:
+    result = _run_git_bytes(cwd, "show", pathspec, timeout=timeout)
     if result.returncode != 0:
         return ""
     if _looks_binary(result.stdout):
@@ -163,21 +192,43 @@ def _git_blob_content(cwd: Path, pathspec: str, *, binary_placeholder: str = _BI
     return result.stdout.decode("utf-8", errors="replace")
 
 
-def _head_content(cwd: Path, path: str, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
-    return _git_blob_content(cwd, f"HEAD:{path}", binary_placeholder=binary_placeholder)
+def _head_content(
+    cwd: Path,
+    path: str,
+    *,
+    binary_placeholder: str = _BINARY_BASELINE,
+    timeout: float | None = None,
+) -> str:
+    return _git_blob_content(
+        cwd,
+        f"HEAD:{path}",
+        binary_placeholder=binary_placeholder,
+        timeout=timeout,
+    )
 
 
-def _index_has_path(cwd: Path, path: str) -> bool:
-    result = _run_git(cwd, "cat-file", "-e", f":{path}")
+def _index_has_path(cwd: Path, path: str, *, timeout: float | None = None) -> bool:
+    result = _run_git(cwd, "cat-file", "-e", f":{path}", timeout=timeout)
     return result.returncode == 0
 
 
-def _index_content(cwd: Path, path: str, *, binary_placeholder: str = _BINARY_BASELINE) -> str:
-    return _git_blob_content(cwd, f":{path}", binary_placeholder=binary_placeholder)
+def _index_content(
+    cwd: Path,
+    path: str,
+    *,
+    binary_placeholder: str = _BINARY_BASELINE,
+    timeout: float | None = None,
+) -> str:
+    return _git_blob_content(
+        cwd,
+        f":{path}",
+        binary_placeholder=binary_placeholder,
+        timeout=timeout,
+    )
 
 
-def _parse_status_entries(cwd: Path) -> list[tuple[str, str]]:
-    result = _run_git(cwd, "status", "--porcelain", "-z")
+def _parse_status_entries(cwd: Path, *, timeout: float | None = None) -> list[tuple[str, str]]:
+    result = _run_git(cwd, "status", "--porcelain", "-z", timeout=timeout)
     if result.returncode != 0 or not result.stdout:
         return []
 
@@ -199,8 +250,18 @@ def _parse_status_entries(cwd: Path) -> list[tuple[str, str]]:
     return entries
 
 
-def _expand_untracked_directory(cwd: Path, relative_dir: str) -> list[str]:
-    result = _run_git(cwd, "ls-files", "--others", "--exclude-standard", "--", relative_dir)
+def _expand_untracked_directory(
+    cwd: Path, relative_dir: str, *, timeout: float | None = None
+) -> list[str]:
+    result = _run_git(
+        cwd,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "--",
+        relative_dir,
+        timeout=timeout,
+    )
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -242,16 +303,29 @@ def _friendly_push_error(message: str) -> str:
     return text or "Push failed."
 
 
-def git_outbound_state(cwd: Path) -> GitOutboundState | None:
+def git_outbound_state(cwd: Path, *, timeout: float | None = None) -> GitOutboundState | None:
     try:
-        branch = _git_output(cwd, "rev-parse", "--abbrev-ref", "HEAD").strip()
+        branch = _git_output(
+            cwd, "rev-parse", "--abbrev-ref", "HEAD", timeout=timeout
+        ).strip()
     except FileNotFoundError:
         return None
     if not branch or branch == "HEAD":
         return None
 
-    remotes = [line.strip() for line in _git_output(cwd, "remote").splitlines() if line.strip()]
-    upstream_result = _run_git(cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    remotes = [
+        line.strip()
+        for line in _git_output(cwd, "remote", timeout=timeout).splitlines()
+        if line.strip()
+    ]
+    upstream_result = _run_git(
+        cwd,
+        "rev-parse",
+        "--abbrev-ref",
+        "--symbolic-full-name",
+        "@{u}",
+        timeout=timeout,
+    )
     upstream = upstream_result.stdout.strip() if upstream_result.returncode == 0 else None
     remote_name: str | None = None
     ahead = 0
@@ -259,7 +333,14 @@ def git_outbound_state(cwd: Path) -> GitOutboundState | None:
 
     if upstream:
         remote_name = upstream.split("/", 1)[0]
-        counts = _git_output(cwd, "rev-list", "--left-right", "--count", f"HEAD...{upstream}").strip()
+        counts = _git_output(
+            cwd,
+            "rev-list",
+            "--left-right",
+            "--count",
+            f"HEAD...{upstream}",
+            timeout=timeout,
+        ).strip()
         if counts:
             left, right = (counts.split() + ["0", "0"])[:2]
             try:
@@ -272,7 +353,15 @@ def git_outbound_state(cwd: Path) -> GitOutboundState | None:
                 behind = 0
     elif remotes:
         remote_name = "origin" if "origin" in remotes else remotes[0]
-        local_only = _git_output(cwd, "rev-list", "--count", "HEAD", "--not", "--remotes").strip()
+        local_only = _git_output(
+            cwd,
+            "rev-list",
+            "--count",
+            "HEAD",
+            "--not",
+            "--remotes",
+            timeout=timeout,
+        ).strip()
         try:
             ahead = int(local_only)
         except ValueError:
@@ -453,8 +542,10 @@ def push_current_branch(cwd: Path) -> GitActionResult:
     return GitActionResult(True, f"Published {outbound.branch} to {outbound.remote_name} with {count} {noun}.")
 
 
-def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff | None:
-    in_head = _head_has_path(cwd, rel_path)
+def _build_combined_diff(
+    cwd: Path, rel_path: str, abs_path: Path, *, timeout: float | None = None
+) -> FileDiff | None:
+    in_head = _head_has_path(cwd, rel_path, timeout=timeout)
     exists_now = abs_path.exists()
 
     if not in_head and exists_now:
@@ -466,7 +557,7 @@ def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff |
             is_deletion=False,
         )
 
-    old_content = _head_content(cwd, rel_path) if in_head else ""
+    old_content = _head_content(cwd, rel_path, timeout=timeout) if in_head else ""
     if not exists_now:
         return FileDiff(
             path=abs_path,
@@ -485,16 +576,23 @@ def _build_combined_diff(cwd: Path, rel_path: str, abs_path: Path) -> FileDiff |
     )
 
 
-def _build_staged_diff(cwd: Path, rel_path: str, abs_path: Path, status_x: str) -> FileDiff | None:
+def _build_staged_diff(
+    cwd: Path,
+    rel_path: str,
+    abs_path: Path,
+    status_x: str,
+    *,
+    timeout: float | None = None,
+) -> FileDiff | None:
     if status_x in {" ", "?"}:
         return None
 
-    in_head = _head_has_path(cwd, rel_path)
-    in_index = _index_has_path(cwd, rel_path)
+    in_head = _head_has_path(cwd, rel_path, timeout=timeout)
+    in_index = _index_has_path(cwd, rel_path, timeout=timeout)
     if not in_index and status_x != "D":
         return None
 
-    old_content = _head_content(cwd, rel_path) if in_head else ""
+    old_content = _head_content(cwd, rel_path, timeout=timeout) if in_head else ""
 
     if status_x == "D":
         return FileDiff(
@@ -505,7 +603,12 @@ def _build_staged_diff(cwd: Path, rel_path: str, abs_path: Path, status_x: str) 
             is_deletion=True,
         )
 
-    new_content = _index_content(cwd, rel_path, binary_placeholder=_BINARY_STAGED)
+    new_content = _index_content(
+        cwd,
+        rel_path,
+        binary_placeholder=_BINARY_STAGED,
+        timeout=timeout,
+    )
     return FileDiff(
         path=abs_path,
         old_content=old_content,
@@ -515,7 +618,15 @@ def _build_staged_diff(cwd: Path, rel_path: str, abs_path: Path, status_x: str) 
     )
 
 
-def _build_unstaged_diff(cwd: Path, rel_path: str, abs_path: Path, status_y: str, status: str) -> FileDiff | None:
+def _build_unstaged_diff(
+    cwd: Path,
+    rel_path: str,
+    abs_path: Path,
+    status_y: str,
+    status: str,
+    *,
+    timeout: float | None = None,
+) -> FileDiff | None:
     is_untracked = status == "??"
     if status_y == " " and not is_untracked:
         return None
@@ -531,8 +642,8 @@ def _build_unstaged_diff(cwd: Path, rel_path: str, abs_path: Path, status_y: str
             is_deletion=False,
         )
 
-    in_index = _index_has_path(cwd, rel_path)
-    old_content = _index_content(cwd, rel_path) if in_index else ""
+    in_index = _index_has_path(cwd, rel_path, timeout=timeout)
+    old_content = _index_content(cwd, rel_path, timeout=timeout) if in_index else ""
 
     if status_y == "D" or not abs_path.exists():
         return FileDiff(
@@ -552,8 +663,10 @@ def _build_unstaged_diff(cwd: Path, rel_path: str, abs_path: Path, status_y: str
     )
 
 
-def working_tree_change_set(cwd: Path) -> GitWorkingTreeChangeSet | None:
-    entries = _parse_status_entries(cwd)
+def working_tree_change_set(
+    cwd: Path, *, timeout: float | None = None
+) -> GitWorkingTreeChangeSet | None:
+    entries = _parse_status_entries(cwd, timeout=timeout)
     if not entries:
         return None
 
@@ -566,7 +679,10 @@ def working_tree_change_set(cwd: Path) -> GitWorkingTreeChangeSet | None:
     for status, raw_path in entries:
         candidate_paths = [raw_path.strip()]
         if status == "??" and raw_path.endswith("/"):
-            candidate_paths = _expand_untracked_directory(cwd, raw_path.strip()) or []
+            candidate_paths = (
+                _expand_untracked_directory(cwd, raw_path.strip(), timeout=timeout)
+                or []
+            )
 
         for rel_path in candidate_paths:
             if not rel_path or rel_path in seen:
@@ -576,18 +692,24 @@ def working_tree_change_set(cwd: Path) -> GitWorkingTreeChangeSet | None:
             if abs_path.is_dir():
                 continue
 
-            combined = _build_combined_diff(cwd, rel_path, abs_path)
+            combined = _build_combined_diff(
+                cwd, rel_path, abs_path, timeout=timeout
+            )
             if combined is not None:
                 combined_changes.append(combined)
 
             status_x = status[0]
             status_y = status[1]
 
-            staged = _build_staged_diff(cwd, rel_path, abs_path, status_x)
+            staged = _build_staged_diff(
+                cwd, rel_path, abs_path, status_x, timeout=timeout
+            )
             if staged is not None:
                 staged_changes.append(staged)
 
-            unstaged = _build_unstaged_diff(cwd, rel_path, abs_path, status_y, status)
+            unstaged = _build_unstaged_diff(
+                cwd, rel_path, abs_path, status_y, status, timeout=timeout
+            )
             if unstaged is not None:
                 unstaged_changes.append(unstaged)
                 if status == "??":

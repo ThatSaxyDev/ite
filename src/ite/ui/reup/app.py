@@ -1381,6 +1381,7 @@ class ReupApp(App):
     CONTAINER_EXTRA = 0
     COMPOSER_EXTRA = 1
     COMMAND_PALETTE_MAX_ROWS = 8
+    GIT_POLL_TIMEOUT_SECONDS = 2.0
 
     def __init__(self, config: Config) -> None:
         super().__init__()
@@ -1522,6 +1523,7 @@ class ReupApp(App):
         self._change_review_preview_version: int = 0
         self._git_outbound_state: Any = None
         self._last_change_review_git_poll: float = 0.0
+        self._change_review_refresh_in_flight: bool = False
         self._last_status_hash: str = ""
         self._last_status_cwd: Path | None = None
         self._cached_git_cwd: Path | None = None
@@ -6230,6 +6232,20 @@ class ReupApp(App):
     async def _refresh_change_review_source(
         self, *, prefer_git_only: bool = False, force: bool = False
     ) -> None:
+        if self._change_review_refresh_in_flight:
+            return
+        self._change_review_refresh_in_flight = True
+        try:
+            await self._refresh_change_review_source_once(
+                prefer_git_only=prefer_git_only,
+                force=force,
+            )
+        finally:
+            self._change_review_refresh_in_flight = False
+
+    async def _refresh_change_review_source_once(
+        self, *, prefer_git_only: bool = False, force: bool = False
+    ) -> None:
         now = time.monotonic()
         if not force and now - self._last_change_review_git_poll < 1.0:
             return
@@ -6249,7 +6265,11 @@ class ReupApp(App):
                     errors="replace",
                     check=False,
                     start_new_session=True,
+                    timeout=self.GIT_POLL_TIMEOUT_SECONDS,
                 )
+                if status_result.returncode != 0:
+                    self._apply_change_review_panel_state()
+                    return
                 status_payload = (status_result.stdout or "").encode()
                 # Append mtimes so that content edits to tracked files
                 # produce a different hash even when status codes are unchanged.
@@ -6279,6 +6299,7 @@ class ReupApp(App):
                         errors="replace",
                         check=False,
                         start_new_session=True,
+                        timeout=self.GIT_POLL_TIMEOUT_SECONDS,
                     )
                     head_ref = (head_result.stdout or "").strip()
                     if head_ref:
@@ -6288,7 +6309,15 @@ class ReupApp(App):
                 except Exception:
                     pass
             except Exception:
-                status_hash = ""
+                self._apply_change_review_panel_state()
+                return
+            outbound_state = await asyncio.to_thread(
+                git_outbound_state,
+                cwd,
+                timeout=self.GIT_POLL_TIMEOUT_SECONDS,
+            )
+            if outbound_state is not None or self._git_outbound_state is None:
+                self._git_outbound_state = outbound_state
             if (
                 not force
                 and status_hash
@@ -6300,8 +6329,14 @@ class ReupApp(App):
                 return
             self._last_status_hash = status_hash
             self._last_status_cwd = cwd
-            self._git_outbound_state = await asyncio.to_thread(git_outbound_state, cwd)
-            change_set = await asyncio.to_thread(working_tree_change_set, cwd)
+            change_set = await asyncio.to_thread(
+                working_tree_change_set,
+                cwd,
+                timeout=self.GIT_POLL_TIMEOUT_SECONDS,
+            )
+            if status_payload and change_set is None:
+                self._apply_change_review_panel_state()
+                return
             if change_set is not None:
                 source = "git"
                 title = (
@@ -6671,7 +6706,9 @@ class ReupApp(App):
                 self._head_mtime = mtime
                 if await asyncio.to_thread(is_git_repo, cwd):
                     self._git_outbound_state = await asyncio.to_thread(
-                        git_outbound_state, cwd
+                        git_outbound_state,
+                        cwd,
+                        timeout=self.GIT_POLL_TIMEOUT_SECONDS,
                     )
                     self._update_composer_meta_line()
                     # Also trigger a full refresh for the change review panel

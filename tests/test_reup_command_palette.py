@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import subprocess
 import unittest
 from datetime import datetime
 from io import StringIO
@@ -244,6 +246,115 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app._top_state_text, "thinking")
         self.assertTrue(app._top_busy)
+
+    def test_change_review_refresh_is_single_flight(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            started = asyncio.Event()
+            release = asyncio.Event()
+            calls = 0
+
+            async def fake_refresh_once(**_kwargs) -> None:
+                nonlocal calls
+                calls += 1
+                started.set()
+                await release.wait()
+
+            with patch.object(
+                app,
+                "_refresh_change_review_source_once",
+                side_effect=fake_refresh_once,
+            ):
+                first = asyncio.create_task(app._refresh_change_review_source())
+                await started.wait()
+                await app._refresh_change_review_source(force=True)
+                self.assertEqual(calls, 1)
+                release.set()
+                await first
+
+            self.assertFalse(app._change_review_refresh_in_flight)
+
+        asyncio.run(run_test())
+
+    def test_change_review_refresh_keeps_existing_state_when_git_probe_times_out(
+        self,
+    ) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            existing_change_set = object()
+            app._change_review_change_set = existing_change_set
+
+            with (
+                patch("ite.ui.reup.app.is_git_repo", return_value=True),
+                patch(
+                    "ite.ui.reup.app.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired(["git"], 2.0),
+                ),
+                patch.object(app, "_apply_change_review_panel_state") as apply_state,
+                patch("ite.ui.reup.app.git_outbound_state") as outbound_state,
+                patch("ite.ui.reup.app.working_tree_change_set") as change_set,
+            ):
+                await app._refresh_change_review_source(force=True)
+
+            self.assertIs(app._change_review_change_set, existing_change_set)
+            apply_state.assert_called_once()
+            outbound_state.assert_not_called()
+            change_set.assert_not_called()
+
+        asyncio.run(run_test())
+
+    def test_change_review_refresh_updates_outbound_state_when_status_is_unchanged(
+        self,
+    ) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            cwd = self.cwd.resolve()
+            head = "abc123"
+            status_hash = hashlib.sha256(b"").hexdigest()
+            status_hash = hashlib.sha256(
+                status_hash.encode() + head.encode()
+            ).hexdigest()
+            app._last_status_hash = status_hash
+            app._last_status_cwd = cwd
+            app._git_outbound_state = SimpleNamespace(
+                branch="main",
+                needs_attention=True,
+                needs_publish=False,
+                ahead_count=1,
+            )
+            refreshed_outbound = SimpleNamespace(
+                branch="main",
+                needs_attention=False,
+                needs_publish=False,
+                ahead_count=0,
+            )
+            git_results = [
+                subprocess.CompletedProcess(
+                    ["git", "status"], returncode=0, stdout="", stderr=""
+                ),
+                subprocess.CompletedProcess(
+                    ["git", "rev-parse"], returncode=0, stdout=f"{head}\n", stderr=""
+                ),
+            ]
+
+            with (
+                patch("ite.ui.reup.app.is_git_repo", return_value=True),
+                patch("ite.ui.reup.app.subprocess.run", side_effect=git_results),
+                patch(
+                    "ite.ui.reup.app.git_outbound_state",
+                    return_value=refreshed_outbound,
+                ) as outbound_state,
+                patch("ite.ui.reup.app.working_tree_change_set") as change_set,
+                patch.object(app, "_apply_change_review_panel_state") as apply_state,
+            ):
+                await app._refresh_change_review_source()
+
+            outbound_state.assert_called_once()
+            change_set.assert_not_called()
+            apply_state.assert_called_once()
+            self.assertIs(app._git_outbound_state, refreshed_outbound)
+
+        asyncio.run(run_test())
 
     def test_session_tabs_refresh_closes_coroutine_when_app_stops(self) -> None:
         app = self._app()
