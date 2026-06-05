@@ -90,6 +90,7 @@ from ite.cloud import (
     get_remote_companion_access_status,
     get_usage_summary,
     has_stored_cloud_auth,
+    is_cloud_api_reachable,
     mark_cloud_signed_out,
 )
 from ite.cloud.services import generate_cloud_session_title
@@ -1451,6 +1452,11 @@ class ReupApp(App):
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
+        self._cloud_network_probe_in_flight: bool = False
+        self._cloud_network_last_probe_at: float = 0.0
+        self._cloud_network_watch_enabled: bool = False
+        self._cloud_network_was_unreachable: bool = False
+        self._cloud_signed_out_status_message: str = ""
         self._session_switching: bool = (
             False  # Show centered spinner during session switch
         )
@@ -1744,6 +1750,7 @@ class ReupApp(App):
         self.set_interval(0.15, self._tick_top_indicator)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
+        self.set_interval(1.0, self._maybe_probe_cloud_network_recovery)
         self._change_review_poll_timer = self.set_interval(
             3.0, self._poll_change_review_panel
         )
@@ -1801,6 +1808,7 @@ class ReupApp(App):
                 )
                 if not has_cloud_session:
                     self._cloud_bootstrap_busy = False
+                    self._cloud_network_watch_enabled = True
                     self._set_startup_state(False)
                     self._set_signed_out_state(True)
                     self._set_loading_state("idle", busy=False)
@@ -3643,6 +3651,121 @@ class ReupApp(App):
         if self._is_bundled_model():
             self.run_worker(self._refresh_usage_summary_cache(), exclusive=False)
 
+    def _cloud_network_recovery_probe_interval(self) -> float:
+        if self._cloud_signed_out or self._account_plan_unavailable:
+            return 2.0
+        if (
+            not self._cloud_signed_out
+            and not self._account_plan_unavailable
+            and self._account_plan_is_pro is not None
+        ):
+            return 15.0
+        return 2.0
+
+    def _should_probe_cloud_network_recovery(self) -> bool:
+        if not self.config.cloud_auth_enabled:
+            return False
+        if self._cloud_auth_busy or self._cloud_bootstrap_busy:
+            return False
+        if self._cloud_network_probe_in_flight:
+            return False
+        if self._cloud_signed_out:
+            return self._cloud_network_watch_enabled
+        if self._account_plan_is_pro is not None:
+            return True
+        return self._account_plan_unavailable
+
+    def _maybe_probe_cloud_network_recovery(self) -> None:
+        if not self._should_probe_cloud_network_recovery():
+            return
+        now = time.monotonic()
+        if (
+            now - self._cloud_network_last_probe_at
+            < self._cloud_network_recovery_probe_interval()
+        ):
+            return
+        self._cloud_network_last_probe_at = now
+        self._cloud_network_probe_in_flight = True
+        self.run_worker(self._probe_cloud_network_recovery(), exclusive=False)
+
+    async def _probe_cloud_network_recovery(self) -> None:
+        try:
+            if self._cloud_signed_out:
+                reachable = await asyncio.to_thread(
+                    is_cloud_api_reachable,
+                    self.config,
+                )
+                if reachable:
+                    self._handle_cloud_network_reachable()
+                else:
+                    self._handle_cloud_network_unreachable()
+                return
+
+            auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
+            if auth.state == CloudSessionState.NETWORK_ERROR:
+                self._handle_cloud_network_unreachable()
+                return
+            if auth.state == CloudSessionState.VALID:
+                self._handle_cloud_network_reachable(auth)
+                return
+            self._apply_cloud_auth_status(
+                auth,
+                context="iTE Cloud",
+                interactive=False,
+            )
+        finally:
+            self._cloud_network_probe_in_flight = False
+
+    def _handle_cloud_network_unreachable(self) -> None:
+        self._cloud_network_was_unreachable = True
+        if self._cloud_signed_out:
+            self._cloud_network_watch_enabled = True
+            self._cloud_signed_out_status_message = (
+                "Waiting for iTE Cloud to come online..."
+            )
+            self._refresh_signed_out_status()
+            return
+        was_unavailable = self._account_plan_unavailable
+        self._set_account_plan_badge_state(None, unavailable=True)
+        if not was_unavailable:
+            self.post_notice(
+                "iTE Cloud",
+                "Offline. Cloud features will reconnect automatically.",
+            )
+
+    def _handle_cloud_network_reachable(self, auth: Any | None = None) -> None:
+        recovered = (
+            self._cloud_network_was_unreachable or self._account_plan_unavailable
+        )
+        self._cloud_network_was_unreachable = False
+        self._cloud_network_watch_enabled = False
+        if auth is not None:
+            self._apply_cloud_auth_status(auth, context="iTE Cloud", interactive=False)
+            self._set_account_plan_badge_state(None, unavailable=False)
+            self._prefetch_cloud_caches()
+            if recovered:
+                self.post_notice(
+                    "iTE Cloud",
+                    "Back online. Cloud features are available.",
+                )
+            return
+        self._cloud_signed_out_status_message = (
+            "iTE Cloud is reachable. Sign in to continue."
+        )
+        self._refresh_signed_out_status()
+        if recovered:
+            self.post_notice("iTE Cloud", "Back online. You can sign in now.")
+
+    def _refresh_signed_out_status(self) -> None:
+        if not self.is_mounted:
+            return
+        try:
+            self.query_one("#signed-out-status", Static).update(
+                self._signed_out_status_text()
+            )
+        except (NoMatches, ScreenStackError):
+            pass
+
     def _schedule_runtime_update_check(self) -> None:
         if not self.is_mounted or self._runtime_update_check_in_flight:
             return
@@ -5157,8 +5280,11 @@ class ReupApp(App):
         self._refresh_empty_state()
 
     def _set_signed_out_state(self, enabled: bool) -> None:
+        was_enabled = self._cloud_signed_out
         self._cloud_signed_out = enabled
         if enabled:
+            if not was_enabled:
+                self._cloud_signed_out_status_message = ""
             self._onboarding_active = False
             self._bundled_models_cache = []
             self._bundled_access_denied = True
@@ -5166,6 +5292,10 @@ class ReupApp(App):
             self._usage_remaining_percent = None
             self._account_plan_is_pro = False
             self._account_plan_unavailable = False
+        else:
+            self._cloud_signed_out_status_message = ""
+            self._cloud_network_watch_enabled = False
+            self._cloud_network_was_unreachable = False
         self._apply_shell_surface()
 
     def _set_startup_state(self, enabled: bool) -> None:
@@ -5400,6 +5530,11 @@ class ReupApp(App):
                 f"{frame} Opening your browser",
                 style=f"bold {self._render_styles()['fg']}",
             )
+        elif self._cloud_signed_out_status_message:
+            status.append(
+                self._cloud_signed_out_status_message,
+                style=f"bold {self._render_styles()['muted']}",
+            )
         else:
             status.append(" ", style=self._render_styles()["muted"])
         return status
@@ -5457,9 +5592,12 @@ class ReupApp(App):
         except CloudConnectionError as exc:
             self._cloud_auth_busy = False
             self._set_signed_out_state(True)
+            self._cloud_network_watch_enabled = True
+            self._cloud_network_was_unreachable = True
+            self._cloud_signed_out_status_message = f"Cloud API unreachable: {exc}"
             self.query_one("#signed-out-status", Static).update(
                 Text(
-                    f"Cloud API unreachable: {exc}",
+                    self._cloud_signed_out_status_message,
                     style="bold #ffcf92",
                     justify="center",
                 )
@@ -5468,8 +5606,14 @@ class ReupApp(App):
         except CloudAuthError as exc:
             self._cloud_auth_busy = False
             self._set_signed_out_state(True)
+            self._cloud_network_watch_enabled = False
+            self._cloud_signed_out_status_message = f"Sign-in failed: {exc}"
             self.query_one("#signed-out-status", Static).update(
-                Text(f"Sign-in failed: {exc}", style="bold #ffcf92", justify="center")
+                Text(
+                    self._cloud_signed_out_status_message,
+                    style="bold #ffcf92",
+                    justify="center",
+                )
             )
             return
 

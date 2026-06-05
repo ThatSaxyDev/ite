@@ -28,6 +28,7 @@ from ite.cloud.auth import (
     get_cloud_session,
     has_stored_cloud_auth,
     has_remote_companion_access,
+    is_cloud_api_reachable,
     get_usage_summary,
 )
 from ite.config.config import Config
@@ -563,3 +564,13 @@ class CloudAuthTests(unittest.TestCase):
 
         self.assertEqual(status, 503)
         self.assertEqual(payload, {})
+
+    def test_is_cloud_api_reachable_accepts_auth_required_response(self) -> None:
+        with patch("ite.cloud.auth._get_json", return_value=(401, {})) as get_json:
+            self.assertTrue(is_cloud_api_reachable(self.config))
+
+        get_json.assert_called_once_with("http://127.0.0.1:4000/auth/me")
+
+    def test_is_cloud_api_reachable_rejects_server_error_response(self) -> None:
+        with patch("ite.cloud.auth._get_json", return_value=(503, {})):
+            self.assertFalse(is_cloud_api_reachable(self.config))

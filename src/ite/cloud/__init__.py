@@ -17,6 +17,7 @@ from ite.cloud.auth import get_usage_summary
 from ite.cloud.auth import has_remote_companion_access
 from ite.cloud.auth import has_valid_cloud_auth
 from ite.cloud.auth import has_stored_cloud_auth
+from ite.cloud.auth import is_cloud_api_reachable
 from ite.cloud.auth import is_cloud_signed_out
 from ite.cloud.auth import mark_cloud_signed_out
 from ite.cloud.auth import check_cloud_session
@@ -41,6 +42,7 @@ __all__ = [
     "has_remote_companion_access",
     "has_valid_cloud_auth",
     "has_stored_cloud_auth",
+    "is_cloud_api_reachable",
     "is_cloud_signed_out",
     "mark_cloud_signed_out",
     "check_cloud_session",

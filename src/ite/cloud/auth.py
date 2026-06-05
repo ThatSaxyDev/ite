@@ -609,6 +609,19 @@ def get_cloud_auth_status(config: Config) -> CloudAuthStatus:
     )
 
 
+def is_cloud_api_reachable(config: Config) -> bool:
+    if not config.cloud_auth_enabled:
+        return False
+    cloud_api_url = str(config.cloud_api_url or "").strip().rstrip("/")
+    if not cloud_api_url:
+        return False
+    try:
+        status, _payload = _get_json(f"{cloud_api_url}/auth/me")
+    except CloudConnectionError:
+        return False
+    return status < 500
+
+
 def has_valid_cloud_auth(config: Config) -> bool:
     if not config.cloud_auth_enabled:
         return True
