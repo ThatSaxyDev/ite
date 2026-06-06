@@ -177,13 +177,15 @@ class VoiceRecorder:
                 self._arecord_backend = True
                 return [arecord, "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav", str(output)]
             raise VoiceRecorderError(
-                "Voice typing needs arecord (alsa-utils) on Linux, or set ITE_VOICE_RECORDER_CMD."
+                "Voice recording is not available. "
+                "Install the 'alsa-utils' package to use voice typing on Linux."
             )
 
         swift = shutil.which("swift")
         if not swift:
             raise VoiceRecorderError(
-                "Voice typing needs Swift on macOS, or set ITE_VOICE_RECORDER_CMD."
+                "Voice recording is not available. "
+                "Install the Xcode command line tools to use voice typing on macOS."
             )
         script = Path(tempfile.mkstemp(prefix="ite-voice-recorder-", suffix=".swift")[1])
         script.write_text(SWIFT_RECORDER_SOURCE, encoding="utf-8")
