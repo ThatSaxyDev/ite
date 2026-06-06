@@ -5,6 +5,8 @@ import contextlib
 import os
 import shlex
 import shutil
+import signal
+import sys
 import tempfile
 from pathlib import Path
 
@@ -65,17 +67,19 @@ do {
 
 
 class VoiceRecorder:
-    """Small macOS recorder wrapper.
+    """Voice recorder with platform-specific backends.
 
-    The default backend uses the system Swift toolchain and AVFoundation. A custom
-    recorder can be supplied with ITE_VOICE_RECORDER_CMD; the command must accept
-    an output path and stop cleanly when stdin closes.
+    macOS: system Swift toolchain + AVFoundation.
+    Linux: arecord from alsa-utils (auto-detected).
+    A custom recorder can be supplied via ITE_VOICE_RECORDER_CMD; the command
+    must accept an output path and stop cleanly when stdin closes or SIGINT.
     """
 
     def __init__(self) -> None:
         self._process: asyncio.subprocess.Process | None = None
         self._audio_path: Path | None = None
         self._script_path: Path | None = None
+        self._arecord_backend: bool = False
 
     async def start(self) -> Path:
         if self._process is not None:
@@ -112,16 +116,28 @@ class VoiceRecorder:
         if process is None or audio_path is None:
             raise VoiceRecorderError("Voice recording is not running.")
 
+        arecord = self._arecord_backend
         self._process = None
         self._audio_path = None
+        self._arecord_backend = False
         try:
             if process.stdin is not None:
                 process.stdin.close()
-            await asyncio.wait_for(process.wait(), timeout=8.0)
-        except asyncio.TimeoutError:
-            process.terminate()
-            await process.wait()
-            raise VoiceRecorderError("Voice recorder did not stop cleanly.")
+            try:
+                await asyncio.wait_for(process.wait(), timeout=1.5)
+            except asyncio.TimeoutError:
+                if arecord:
+                    process.send_signal(signal.SIGINT)
+                else:
+                    process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=4.0)
+                except asyncio.TimeoutError:
+                    process.terminate()
+                    await process.wait()
+                    raise VoiceRecorderError(
+                        "Voice recorder did not stop cleanly."
+                    )
         finally:
             self._cleanup_script()
 
@@ -140,6 +156,7 @@ class VoiceRecorder:
         audio_path = self._audio_path
         self._process = None
         self._audio_path = None
+        self._arecord_backend = False
         self._cleanup_script()
         if process is not None and process.returncode is None:
             process.terminate()
@@ -149,9 +166,19 @@ class VoiceRecorder:
             self._cleanup_paths(audio_path)
 
     def _recorder_command(self, output: Path) -> list[str]:
+        self._arecord_backend = False
         custom = os.environ.get("ITE_VOICE_RECORDER_CMD")
         if custom:
             return [part.format(output=str(output)) for part in shlex.split(custom)]
+
+        if sys.platform == "linux":
+            arecord = shutil.which("arecord")
+            if arecord:
+                self._arecord_backend = True
+                return [arecord, "-f", "S16_LE", "-r", "16000", "-c", "1", "-t", "wav", str(output)]
+            raise VoiceRecorderError(
+                "Voice typing needs arecord (alsa-utils) on Linux, or set ITE_VOICE_RECORDER_CMD."
+            )
 
         swift = shutil.which("swift")
         if not swift:
