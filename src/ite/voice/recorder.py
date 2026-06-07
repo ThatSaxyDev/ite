@@ -80,6 +80,7 @@ class VoiceRecorder:
         self._audio_path: Path | None = None
         self._script_path: Path | None = None
         self._arecord_backend: bool = False
+        self._sent_sigint: bool = False
 
     async def start(self) -> Path:
         if self._process is not None:
@@ -128,6 +129,7 @@ class VoiceRecorder:
             except asyncio.TimeoutError:
                 if arecord:
                     process.send_signal(signal.SIGINT)
+                    self._sent_sigint = True
                 else:
                     process.terminate()
                 try:
@@ -141,7 +143,9 @@ class VoiceRecorder:
         finally:
             self._cleanup_script()
 
-        if process.returncode not in {0, None}:
+        if process.returncode not in {0, None} and not (
+            self._sent_sigint and process.returncode == -signal.SIGINT
+        ):
             stderr = await self._read_stderr(process)
             self._cleanup_paths(audio_path)
             raise VoiceRecorderError(stderr or "Voice recorder failed.")

@@ -1759,6 +1759,10 @@ class ReupApp(App):
         self.run_worker(self._bootstrap_after_mount(), exclusive=False)
         self._install_sigint_handler()
 
+    def on_resize(self, _event: events.Resize) -> None:
+        self._update_composer_meta_line()
+        self._resize_composer_for_prompt()
+
     def _install_sigint_handler(self) -> None:
         app = self
 

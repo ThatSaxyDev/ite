@@ -170,7 +170,7 @@ def composer_meta_text(
                 (
                     "usage",
                     [
-                        ("usage " if not compact_labels else "use ", f"bold {muted}"),
+                        ("usage ", f"bold {muted}"),
                         (usage_text, f"bold {fg}"),
                     ],
                     "usage",
@@ -247,8 +247,8 @@ def composer_meta_text(
         ),
         dict(
             spacer="  ",
-            include_usage=False,
-            include_context=show_context,
+            include_usage=show_usage,
+            include_context=False if show_usage else show_context,
             meter_width=4,
             compact_labels=True,
         ),
