@@ -362,6 +362,10 @@ def _post_json(
         ) from exc
     except URLError as exc:
         raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
+    except OSError as exc:
+        raise CloudConnectionError(
+            "Could not reach iTE Cloud API. Check your connection and try again."
+        ) from exc
 
 
 def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str, Any]]:
@@ -387,6 +391,10 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
         ) from exc
     except URLError as exc:
         raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
+    except OSError as exc:
+        raise CloudConnectionError(
+            "Could not reach iTE Cloud API. Check your connection and try again."
+        ) from exc
 
 
 def _decode_json_body(body: str) -> dict[str, Any]:
@@ -544,6 +552,8 @@ def check_cloud_session(session: CloudSession) -> str:
             return CloudSessionState.NETWORK_ERROR
         except CloudAuthError:
             return CloudSessionState.INVALID
+        except Exception:
+            return CloudSessionState.NETWORK_ERROR
     # Need to refresh
     try:
         refreshed = _refresh_cloud_session(session)
@@ -554,6 +564,8 @@ def check_cloud_session(session: CloudSession) -> str:
         return CloudSessionState.NETWORK_ERROR
     except CloudAuthError:
         return CloudSessionState.INVALID
+    except Exception:
+        return CloudSessionState.NETWORK_ERROR
 
 
 def get_cloud_auth_status(config: Config) -> CloudAuthStatus:
@@ -617,7 +629,7 @@ def is_cloud_api_reachable(config: Config) -> bool:
         return False
     try:
         status, _payload = _get_json(f"{cloud_api_url}/auth/me")
-    except CloudConnectionError:
+    except Exception:
         return False
     return status < 500
 
@@ -645,6 +657,8 @@ def has_valid_cloud_auth(config: Config) -> bool:
         return True
     except CloudAuthError:
         return False
+    except Exception:
+        return True
 
 
 def has_stored_cloud_auth(config: Config) -> bool:

@@ -3728,6 +3728,8 @@ class ReupApp(App):
                 context="iTE Cloud",
                 interactive=False,
             )
+        except Exception:
+            self._handle_cloud_network_unreachable()
         finally:
             self._cloud_network_probe_in_flight = False
 
