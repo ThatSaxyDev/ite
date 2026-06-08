@@ -194,7 +194,6 @@ from .composer_views import (
     render_turn_action_palette,
     send_control_text,
 )
-from .model_labels import bundled_model_display_label
 from .modals import (
     ActivityModal,
     ApprovalPickerModal,
@@ -213,6 +212,7 @@ from .modals import (
     UsageSummaryModal,
     VoiceSetupModal,
 )
+from .model_labels import bundled_model_display_label
 from .tool_views import (
     compact_tool_preview_blocks,
     detect_host_textual_theme,
@@ -1318,9 +1318,7 @@ class ChangeReviewSidePanel(Widget):
                 discard_all_label
             )
             self.query_one("#change-review-commit", Static).update(commit_label)
-            self.query_one("#change-review-stage-file", Static).update(
-                stage_file_label
-            )
+            self.query_one("#change-review-stage-file", Static).update(stage_file_label)
             self.query_one("#change-review-unstage-file", Static).update(
                 unstage_file_label
             )
@@ -3352,10 +3350,11 @@ class ReupApp(App):
             return False
         if load_saved_custom_provider():
             return False
-        if (
-            str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
-            in {"bundled", "saved", "custom"}
-        ):
+        if str(getattr(self.config.model, "source_kind", "") or "").strip().lower() in {
+            "bundled",
+            "saved",
+            "custom",
+        }:
             return False
         if self._bundled_models_cache:
             return False
@@ -3911,9 +3910,8 @@ class ReupApp(App):
                 api_key=self.config.api_key or "",
                 base_url=self.config.base_url or "",
                 model_name=canonical_model,
-                context_window=api_window or int(
-                    self.config.model.context_window or DEFAULT_CONTEXT_WINDOW
-                ),
+                context_window=api_window
+                or int(self.config.model.context_window or DEFAULT_CONTEXT_WINDOW),
                 context_window_source=(
                     "bundled_provider_api"
                     if api_window
@@ -4526,11 +4524,14 @@ class ReupApp(App):
                 str(item.get("entry_id") or "").strip() == selected_entry_id
                 for item in model_options
             ):
-                model_options, current_entry_id, bundled_model_names, saved_providers = (
-                    self._build_model_options(
-                        [] if self._bundled_access_denied else self._bundled_models_cache,
-                        self.config.model_name,
-                    )
+                (
+                    model_options,
+                    current_entry_id,
+                    bundled_model_names,
+                    saved_providers,
+                ) = self._build_model_options(
+                    [] if self._bundled_access_denied else self._bundled_models_cache,
+                    self.config.model_name,
                 )
 
             if action == "delete":
@@ -4610,9 +4611,7 @@ class ReupApp(App):
                 else ""
             )
         ) or "fallback_default"
-        next_source_kind = (
-            selected_item_source_kind or selected_source_kind
-        )
+        next_source_kind = selected_item_source_kind or selected_source_kind
 
         try:
             save_system_config(
@@ -5776,6 +5775,25 @@ class ReupApp(App):
                 self.post_notice("iTE Cloud", "Signed out. Use `/login` to sign in.")
             return
         self._apply_cloud_auth_status(auth, context="iTE Cloud", interactive=True)
+
+    async def _run_refresh_flow(self) -> None:
+        if self._cloud_signed_out:
+            self.post_notice(
+                "iTE Cloud",
+                "Not signed in. Use `/login` to sign in first.",
+            )
+            return
+        if self._cloud_auth_busy or self._cloud_bootstrap_busy:
+            self.post_notice(
+                "iTE Cloud",
+                "Another cloud operation is in progress. Please wait.",
+            )
+            return
+        self._prefetch_cloud_caches()
+        self.post_notice(
+            "iTE Cloud",
+            "Refreshing...",
+        )
 
     async def _finish_onboarding_flow(self, *, skip: bool) -> None:
         if self._onboarding_busy:
@@ -7561,7 +7579,8 @@ class ReupApp(App):
         flow_animating = self._voice_recorder is not None or self._voice_busy
         send_animating = self._is_turn_running
         plan_animating = (
-            self._account_plan_is_pro is None and not self._cloud_signed_out
+            self._account_plan_is_pro is None
+            and not self._cloud_signed_out
             and not self._account_plan_unavailable
         )
         onboarding_animating = self._onboarding_busy
@@ -9222,6 +9241,10 @@ class ReupApp(App):
                 "Use `/cloud status`, `/cloud login`, or `/cloud logout`.",
                 is_error=True,
             )
+            return
+
+        if command == "/refresh":
+            await self._run_refresh_flow()
             return
 
         if command == "/logout":
@@ -12942,7 +12965,14 @@ class ReupApp(App):
                 )
             )
         elif arguments:
-            blocks.append(render_args_table(name, arguments, cwd=self.config.cwd, theme_variables=self._theme_tokens()))
+            blocks.append(
+                render_args_table(
+                    name,
+                    arguments,
+                    cwd=self.config.cwd,
+                    theme_variables=self._theme_tokens(),
+                )
+            )
         else:
             blocks.append(Text("(no args)", style=self._render_styles()["muted"]))
 

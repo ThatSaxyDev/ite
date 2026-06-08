@@ -1,4 +1,4 @@
-"""General commands: /ite, /exit, /quit, /help, /clear, /new, /close."""
+"""General commands: /ite, /exit, /quit, /help, /clear, /new, /close, /refresh."""
 
 import sys
 
@@ -177,6 +177,13 @@ async def cmd_logout(ctx: CommandContext, args: list[str]) -> None:
     ctx.console.print("[dim]No local cloud session was present.[/dim]")
 
 
+async def cmd_refresh(ctx: CommandContext, args: list[str]) -> None:
+    ctx.console.print(
+        "[dim]Use `/refresh` while signed in to refresh Pro status, "
+        "bundled models, and entitlements.[/dim]"
+    )
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(
         Command(
@@ -226,6 +233,13 @@ def register(registry: CommandRegistry) -> None:
             name="/logout",
             description="Log out of iTE",
             handler=cmd_logout,
+        )
+    )
+    registry.register(
+        Command(
+            name="/refresh",
+            description="Refresh Pro status, bundled models, and entitlements",
+            handler=cmd_refresh,
         )
     )
     registry.register(
