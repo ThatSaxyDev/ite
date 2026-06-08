@@ -80,16 +80,17 @@ def current_runtime_version() -> str:
 
 
 def detect_install_method() -> str:
-    """Return the install method: 'installer' if installed via curl install.sh, 'pipx' otherwise."""
+    """Return the install method: 'installer' if installed via curl install.sh, 'pipx' otherwise.
+    Defaults to 'installer' when resolution fails — the one-shot installer is the safer fallback."""
     try:
         import ite
         package_path = Path(ite.__file__).resolve()
         managed_root = Path.home() / ".ite"
         if str(package_path).startswith(str(managed_root)):
             return "installer"
+        return "pipx"
     except Exception:
-        pass
-    return "pipx"
+        return "installer"
 
 
 def _state_path() -> Path:
