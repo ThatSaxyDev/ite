@@ -21,6 +21,7 @@ def _notice(*, required: bool = False) -> RuntimeUpdateNotice:
         title="Update available",
         message="",
         upgrade_command="pipx upgrade ite-agent",
+        installer_command="curl -fsSL https://ite.kiishi.space/install.sh | sh",
         release_url=None,
         update_required=required,
         required=required,

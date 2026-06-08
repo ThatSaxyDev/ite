@@ -48,6 +48,7 @@ class RuntimeUpdateNotice:
     title: str
     message: str
     upgrade_command: str
+    installer_command: str
     release_url: str | None
     update_required: bool
     current_version: str = ""
@@ -76,6 +77,19 @@ def current_runtime_version() -> str:
         return version("ite-agent")
     except PackageNotFoundError:
         return source_version or "0.0.0"
+
+
+def detect_install_method() -> str:
+    """Return the install method: 'installer' if installed via curl install.sh, 'pipx' otherwise."""
+    try:
+        import ite
+        package_path = Path(ite.__file__).resolve()
+        managed_root = Path.home() / ".ite"
+        if str(package_path).startswith(str(managed_root)):
+            return "installer"
+    except Exception:
+        pass
+    return "pipx"
 
 
 def _state_path() -> Path:
@@ -156,6 +170,7 @@ def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdate
     title = str(payload.get("title") or "Update available").strip() or "Update available"
     message = str(payload.get("message") or "").strip()
     upgrade = str(payload.get("upgradeCommand") or "pipx upgrade ite-agent").strip()
+    installer = str(payload.get("installerCommand") or "curl -fsSL https://ite.kiishi.space/install.sh | sh").strip()
     release_url = str(payload.get("releaseUrl") or "").strip() or None
 
     return RuntimeUpdateNotice(
@@ -164,6 +179,7 @@ def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdate
         title=title,
         message=message,
         upgrade_command=upgrade or "pipx upgrade ite-agent",
+        installer_command=installer or "curl -fsSL https://ite.kiishi.space/install.sh | sh",
         release_url=release_url,
         update_required=required,
         current_version=local_version,

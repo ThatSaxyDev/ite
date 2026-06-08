@@ -208,6 +208,7 @@ class ReupStartupTests(unittest.TestCase):
                 title="Update available",
                 message="",
                 upgrade_command="pipx upgrade ite-agent",
+                installer_command="curl -fsSL https://ite.kiishi.space/install.sh | sh",
                 release_url=None,
                 update_required=False,
             )
@@ -237,6 +238,7 @@ class ReupStartupTests(unittest.TestCase):
                 title="Update available",
                 message="",
                 upgrade_command="pipx upgrade ite-agent",
+                installer_command="curl -fsSL https://ite.kiishi.space/install.sh | sh",
                 release_url=None,
                 update_required=False,
             )

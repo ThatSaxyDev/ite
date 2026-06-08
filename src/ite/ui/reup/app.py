@@ -158,6 +158,7 @@ from ite.ui.tool_narrative import activity_title, describe_tool_activity, progre
 from ite.update_check import (
     check_runtime_update,
     current_runtime_version,
+    detect_install_method,
     get_notification_type,
     mark_update_notice_seen,
     should_show_update_notice,
@@ -3820,14 +3821,25 @@ class ReupApp(App):
         finally:
             self._runtime_update_check_in_flight = False
 
+    def _upgrade_command_for_notice(self, notice: Any) -> str:
+        install_method = detect_install_method()
+        if install_method == "installer":
+            command = (
+                str(getattr(notice, "installer_command", "") or "").strip()
+                or "curl -fsSL https://ite.kiishi.space/install.sh | sh"
+            )
+        else:
+            command = (
+                str(getattr(notice, "upgrade_command", "") or "").strip()
+                or "pipx upgrade ite-agent"
+            )
+        return command
+
     def _runtime_update_notice_copy(
         self, notice: Any, *, include_command: bool = True
     ) -> tuple[str, str]:
         latest = str(getattr(notice, "latest_version", "") or "").strip()
-        command = (
-            str(getattr(notice, "upgrade_command", "") or "").strip()
-            or "pipx upgrade ite-agent"
-        )
+        command = self._upgrade_command_for_notice(notice)
         title = str(getattr(notice, "title", "") or "").strip() or "Update available"
         message = str(getattr(notice, "message", "") or "").strip()
         if not message:
@@ -3860,10 +3872,7 @@ class ReupApp(App):
 
     def _runtime_update_notice_feed_card(self, notice: Any) -> tuple[str, str]:
         title, message = self._runtime_update_notice_copy(notice, include_command=False)
-        command = (
-            str(getattr(notice, "upgrade_command", "") or "").strip()
-            or "pipx upgrade ite-agent"
-        )
+        command = self._upgrade_command_for_notice(notice)
         body = f"{message}\n\n```bash\n{command}\n```"
         return title, body
 
@@ -5487,10 +5496,7 @@ class ReupApp(App):
             str(getattr(notice, "current_version", "") or "").strip()
             or current_runtime_version()
         )
-        command = (
-            str(getattr(notice, "upgrade_command", "") or "").strip()
-            or "pipx upgrade ite-agent"
-        )
+        command = self._upgrade_command_for_notice(notice)
         message = str(getattr(notice, "message", "") or "").strip()
         if not message:
             target = latest or "the latest version"
