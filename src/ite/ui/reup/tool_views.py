@@ -890,6 +890,25 @@ def render_todo_payload(
     return blocks, was_truncated
 
 
+_ARG_KEY_LABELS: dict[str, str] = {
+    "old_string": "search",
+    "new_string": "replace",
+    "offset": "starting line",
+    "limit": "max lines",
+    "replace_all": "replace all",
+    "create_directories": "create folders",
+    "case_insensitive": "case insensitive",
+    "include_hidden": "show hidden",
+    "key_path": "key",
+    "json_path": "key",
+    "max_pages": "max pages",
+    "max_bytes": "max bytes",
+    "max_results": "max results",
+    "append_newline": "append newline",
+    "follow_redirects": "follow redirects",
+}
+
+
 def render_args_table(
     tool_name: str,
     args: dict[str, Any],
@@ -903,8 +922,9 @@ def render_args_table(
     table.add_column(style=palette["fg"], overflow="fold")
 
     for key, value in ordered_args(tool_name, args):
-        if key in {"raw", "raw_arguments"}:
-            key = "arguments"
+        label = _ARG_KEY_LABELS.get(key, key)
+        if label in {"raw", "raw_arguments"}:
+            label = "arguments"
         if key in {"path", "cwd"} and isinstance(value, str):
             value = display_path(value, cwd=cwd)
         elif isinstance(value, str) and key in {"content", "old_string", "new_string"}:
@@ -913,7 +933,7 @@ def render_args_table(
             value = f"<{line_count} lines, {byte_count} bytes>"
         elif not isinstance(value, str):
             value = str(value)
-        table.add_row(key, value)
+        table.add_row(label, value)
 
     return table
 

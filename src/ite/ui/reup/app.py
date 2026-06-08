@@ -12223,24 +12223,24 @@ class ReupApp(App):
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
 
-    @staticmethod
     def _shell_card_icon_and_style(
+        self,
         metadata: dict[str, Any] | None,
         *,
         success: bool,
     ) -> tuple[str, str]:
         if not success:
-            return "❌", "bold #ffb0b0"
+            return "❌", f"bold {self._style('error')}"
         state = shell_session_state(metadata)
         if state == "command_running":
-            return "⌛", "bold #b7c8e1"
+            return "⌛", f"bold {self._style('primary')}"
         if state == "idle":
-            return "💤", "bold #8c93a1"
+            return "💤", f"bold {self._style('muted')}"
         if state == "stopped":
-            return "⏹", "bold #8c93a1"
+            return "⏹", f"bold {self._style('muted')}"
         if state == "exited":
-            return "▫️", "bold #dfe4ea"
-        return "▫️", "bold #dfe4ea"
+            return "▫️", f"bold {self._style('secondary')}"
+        return "▫️", f"bold {self._style('secondary')}"
 
     def _tool_completion_icon_and_style(
         self,
@@ -12988,7 +12988,7 @@ class ReupApp(App):
             )
         else:
             header = Text()
-            header.append("⌛ ", style="bold #b7c8e1")
+            header.append("⌛ ", style=f"bold {self._style('primary')}")
             header.append(title_text, style=f"bold {self._style('fg')}")
             header.append("  running", style=self._render_styles()["muted"])
             if tool_kind == "mcp" and narrative:
