@@ -192,8 +192,35 @@ class PushReviewModal(ModalScreen[bool]):
         self._behind_count = behind_count
         self._commit_subjects = commit_subjects
 
+    def _get_theme_colors(self) -> dict[str, str]:
+        """Get theme-aware colors."""
+        from ite.ui.reup.app import ReupApp
+
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            return {
+                "fg": styles.get("fg", "#dfe8f8"),
+                "muted": styles.get("muted", "#8c93a1"),
+                "success": styles.get("success", "#79d8a4"),
+                "error": styles.get("error", "#f29b9b"),
+                "primary": styles.get("primary", "#8fb7dc"),
+                "secondary": styles.get("secondary", "#aeb7c6"),
+                "warning": styles.get("warning", "#f2b38f"),
+            }
+        return {
+            "fg": "#dfe8f8",
+            "muted": "#8c93a1",
+            "success": "#79d8a4",
+            "error": "#f29b9b",
+            "primary": "#8fb7dc",
+            "secondary": "#aeb7c6",
+            "warning": "#f2b38f",
+        }
+
     def compose(self) -> ComposeResult:
         noun = "commit" if self._ahead_count == 1 else "commits"
+        colors = self._get_theme_colors()
         with Container(classes="modal resume-modal push-review-modal"):
             yield Label(
                 "Publish branch" if self._action_label == "publish" else "Push commits",
@@ -209,13 +236,13 @@ class PushReviewModal(ModalScreen[bool]):
                 with Horizontal(classes="push-review-row"):
                     yield Static("Outgoing", classes="push-review-label")
                     stats = Text()
-                    stats.append(f"{self._ahead_count} {noun}", style="bold #dfe8f8")
+                    stats.append(f"{self._ahead_count} {noun}", style=f"bold {colors['fg']}")
                     stats.append("  ")
-                    stats.append("↑", style="bold #79d8a4")
+                    stats.append("↑", style=f"bold {colors['success']}")
                     if self._behind_count > 0:
                         stats.append("    ")
                         stats.append(
-                            f"{self._behind_count} behind", style="bold #f2b38f"
+                            f"{self._behind_count} behind", style=f"bold {colors['warning']}"
                         )
                     yield Static(stats, classes="push-review-value")
                 if self._behind_count > 0:
