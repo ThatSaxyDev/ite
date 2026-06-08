@@ -1497,6 +1497,7 @@ class ReupApp(App):
         self._flow_meta_frame: int = 0
         self._usage_remaining_percent: int | None = None
         self._usage_refresh_in_flight: bool = False
+        self._usage_poll_active: bool = False
         self._runtime_update_check_in_flight: bool = False
         self._required_update_notice: Any | None = None
         self._bundled_access_announced: bool = False
@@ -1838,6 +1839,7 @@ class ReupApp(App):
                 await self.ensure_agent()
             self._set_startup_state(False)
             self._schedule_usage_meta_refresh()
+            self._start_usage_idle_poll()
             await self._refresh_change_review_source()
             self._set_loading_state("idle", busy=False)
             self.query_one("#prompt", TextArea).focus()
@@ -3952,6 +3954,26 @@ class ReupApp(App):
             self._set_usage_summary_cache(None)
         finally:
             self._usage_refresh_in_flight = False
+
+    def _start_usage_idle_poll(self) -> None:
+        if self._usage_poll_active:
+            return
+        if not self._is_bundled_model():
+            return
+        self._usage_poll_active = True
+        self.set_timer(30.0, self._on_usage_poll_tick)
+
+    def _cancel_usage_idle_poll(self) -> None:
+        self._usage_poll_active = False
+
+    def _on_usage_poll_tick(self) -> None:
+        self._usage_poll_active = False
+        if self._is_turn_running:
+            return
+        if not self._is_bundled_model():
+            return
+        self._schedule_usage_meta_refresh()
+        self._start_usage_idle_poll()
 
     def _build_command_palette_options(self) -> list[SlashCommandOption]:
         registry = self._command_registry
@@ -9948,6 +9970,7 @@ class ReupApp(App):
             )
         )
         run_state.is_turn_running = True
+        self._cancel_usage_idle_poll()
         if self._active_session_id() == session_id:
             self._send_meta_frame = 0
         if self._active_session_id() == session_id:
@@ -10078,6 +10101,7 @@ class ReupApp(App):
             await self._post_turn_change_summary()
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
+            self._start_usage_idle_poll()
             return
 
         if event.type == AgentEventType.USAGE_UPDATE:
@@ -10184,6 +10208,7 @@ class ReupApp(App):
                 self.post_system("Error", error_message, is_error=True)
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
+            self._start_usage_idle_poll()
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTING:

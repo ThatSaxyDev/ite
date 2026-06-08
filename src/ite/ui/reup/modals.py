@@ -1518,7 +1518,7 @@ class UsageSummaryModal(ModalScreen[None]):
             used = float(quota.get("usedUsdCents") or 0)
             cap = max(1.0, float(quota.get("capUsdCents") or 1))
             remaining = self._remaining_percent(used, cap)
-            reset_time = self._format_reset_time(str(quota.get("nextResetAt") or ""), label)
+            reset_time = self._format_reset_time(str(quota.get("fullWindowClearAt") or quota.get("nextResetAt") or ""), label)
 
             row = Table.grid(expand=True)
             row.add_column(ratio=1)
