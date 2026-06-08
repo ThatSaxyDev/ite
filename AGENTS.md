@@ -11,7 +11,7 @@ An AI coding agent for the terminal. Users connect a model service, authenticate
 - **Install:** `pipx install ite-agent` or `uv tool install ite-agent`
 - **Local editable install:** `uv pip install -e .` from the repo root, or `source .venv/bin/activate && python -m pip install -e .`
 
-## ⚠️ ATTENTION — GIT PAGER WILL HANG YOUR SHELL CALLS  ⚠️
+## ⚠️ ATTENTION — GIT PAGER WILL HANG YOUR SHELL CALLS ⚠️
 
 **This is a warning to you, the agent reading this file.** Read it.
 
