@@ -1743,6 +1743,7 @@ class ReupApp(App):
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
+        self.query_one("#prompt", TextArea).focus()
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self._apply_hooks_panel_state()
@@ -5458,6 +5459,7 @@ class ReupApp(App):
             )
         if in_chat:
             self._refresh_empty_state()
+            prompt.focus()
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self._apply_thread_switcher_button_state()
