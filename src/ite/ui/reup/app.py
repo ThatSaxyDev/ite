@@ -2900,6 +2900,7 @@ class ReupApp(App):
             except Exception:
                 pass
         self._apply_thread_switcher_button_state()
+        self._maybe_focus_prompt()
 
     async def _toggle_thread_switcher_panel(self) -> None:
         if self._thread_switcher_panel_is_open():
@@ -4866,7 +4867,8 @@ class ReupApp(App):
                 CommandPalette(
                     providers=[ReupSystemCommandsProvider],
                     id="--command-palette",
-                )
+                ),
+                callback=lambda _: self._maybe_focus_prompt(),
             )
 
     def _commands_panel_is_open(self) -> bool:
@@ -4908,6 +4910,7 @@ class ReupApp(App):
         except Exception:
             pass
         await self._sync_thread_switcher_panel()
+        self._maybe_focus_prompt()
 
     def _hooks_panel_is_open(self) -> bool:
         panel = self._hooks_panel
@@ -4942,6 +4945,7 @@ class ReupApp(App):
         except Exception:
             pass
         self._apply_hooks_panel_state()
+        self._maybe_focus_prompt()
 
     def _change_review_panel_is_open(self) -> bool:
         return self._change_review_panel is not None
@@ -4983,6 +4987,7 @@ class ReupApp(App):
         except Exception:
             pass
         self._apply_change_review_panel_state()
+        self._maybe_focus_prompt()
 
     def get_system_commands(self, screen) -> Iterable[SystemCommand]:
         theme_command: SystemCommand | None = None
@@ -5318,6 +5323,14 @@ class ReupApp(App):
             or self._required_update_notice is not None
         )
         self._refresh_empty_state()
+
+    def _maybe_focus_prompt(self) -> None:
+        if self._cloud_signed_out or self._startup_active or self._onboarding_active:
+            return
+        try:
+            self.query_one("#prompt", TextArea).focus()
+        except (NoMatches, ScreenStackError):
+            pass
 
     def _set_signed_out_state(self, enabled: bool) -> None:
         was_enabled = self._cloud_signed_out
@@ -7231,6 +7244,7 @@ class ReupApp(App):
     def on_change_review_close_pressed(self, _event: Button.Pressed) -> None:
         self._change_review_visible = False
         self._apply_change_review_panel_state()
+        self._maybe_focus_prompt()
 
     def _show_change_review_row(self, row_key_value: str | None) -> None:
         if not row_key_value:
@@ -7907,7 +7921,9 @@ class ReupApp(App):
                 result_future.set_result(result)
 
         self.push_screen(screen, callback=_on_dismiss)
-        return await result_future
+        result = await result_future
+        self._maybe_focus_prompt()
+        return result
 
     async def _perform_quit(self) -> None:
         self._resolve_pending_plan_question(empty=True)
@@ -8906,6 +8922,7 @@ class ReupApp(App):
 
         selected_id = await self.push_screen_wait(SessionResumeModal(sessions))
         if not selected_id:
+            self._maybe_focus_prompt()
             return
 
         snapshot = SessionManager().load_session(selected_id)
