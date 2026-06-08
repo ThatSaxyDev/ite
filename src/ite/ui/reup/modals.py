@@ -60,8 +60,6 @@ RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
     "glm-5:cloud",
     "glm-5.1:cloud",
 )
-OPENROUTER_DEBUG_KEY_ALIAS = "slethware"
-OPENROUTER_DEBUG_API_KEY = "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"
 HIDDEN_TEXTUAL_THEMES = {
     "ansi_dark",
     "ansi_light",
@@ -2307,13 +2305,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
 
     @staticmethod
     def _resolve_setup_api_key(provider: str, api_key: str) -> str:
-        candidate = str(api_key or "").strip()
-        if (
-            provider == SETUP_PROVIDER_OPENROUTER
-            and candidate.lower() == OPENROUTER_DEBUG_KEY_ALIAS
-        ):
-            return OPENROUTER_DEBUG_API_KEY
-        return candidate
+        return str(api_key or "").strip()
 
     def _selected_model_name(self, provider: str) -> str:
         if provider == SETUP_PROVIDER_GENERIC:
