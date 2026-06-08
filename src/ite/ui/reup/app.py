@@ -635,7 +635,7 @@ class CompactToolCard(Static):
         classes: str | None = None,
     ) -> None:
         super().__init__(classes=classes)
-        self.expanded = True
+        self.expanded = False
         self.has_completed_content = False
         self._header: Text | None = None
         self._compact_blocks: list[Any] = []
