@@ -59,7 +59,7 @@ class InlineAttachmentResolution:
         return bool(self.refs)
 
 
-def discover_attachable_files(cwd: Path, *, max_files: int = 250) -> list[Path]:
+def discover_attachable_files(cwd: Path, *, max_files: int = 10000) -> list[Path]:
     cwd = cwd.resolve()
     files: list[Path] = []
     temp_root = cwd / ".ite" / "tmp_attachments"
