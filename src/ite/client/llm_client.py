@@ -358,11 +358,9 @@ class LLMClient:
             return isinstance(
                 error,
                 (
-                    httpx.ConnectError,
-                    httpx.ReadTimeout,
-                    httpx.WriteTimeout,
+                    httpx.NetworkError,
                     httpx.RemoteProtocolError,
-                    httpx.PoolTimeout,
+                    httpx.TimeoutException,
                 ),
             )
 
@@ -717,7 +715,7 @@ class LLMClient:
                         ),
                     )
                     return
-            except httpx.ReadTimeout as e:
+            except httpx.ReadTimeout:
                 if attempt < self._max_retries:
                     wait_time = 2**attempt
                     await asyncio.sleep(wait_time)

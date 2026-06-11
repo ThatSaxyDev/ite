@@ -261,6 +261,9 @@ LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
     "glm-5.1:cloud": "z-ai/glm-5.1",
 }
 
+CLOUD_NETWORK_ONLINE_PROBE_INTERVAL_SEC = 30.0
+CLOUD_NETWORK_OFFLINE_FAILURE_THRESHOLD = 3
+
 
 class ReupPromptTextArea(TextArea):
     class Submitted(Message):
@@ -1456,6 +1459,7 @@ class ReupApp(App):
         self._cloud_network_last_probe_at: float = 0.0
         self._cloud_network_watch_enabled: bool = False
         self._cloud_network_was_unreachable: bool = False
+        self._cloud_network_unreachable_probe_count: int = 0
         self._cloud_signed_out_status_message: str = ""
         self._session_switching: bool = (
             False  # Show centered spinner during session switch
@@ -1745,7 +1749,10 @@ class ReupApp(App):
         self._set_loading_state("idle", busy=False)
         self._refresh_empty_state()
         self._resize_composer_for_prompt()
-        self.query_one("#prompt", TextArea).focus()
+        try:
+            self.query_one("#prompt", TextArea).focus()
+        except (AttributeError, NoMatches, ScreenStackError):
+            pass
         self._apply_aside_panel_state()
         self._apply_change_review_panel_state()
         self._apply_hooks_panel_state()
@@ -3636,11 +3643,26 @@ class ReupApp(App):
         try:
             result = await asyncio.to_thread(get_cloud_entitlements_result, self.config)
         except Exception:
+            if (
+                self._account_plan_is_pro is not None
+                and not self._account_plan_unavailable
+            ):
+                self._cloud_network_watch_enabled = True
+                return
             self._set_account_plan_badge_state(None, unavailable=True)
             return
         state = str(getattr(result.auth, "state", "") or "")
         if state == CloudSessionState.NO_ENTITLEMENT:
             self._set_account_plan_badge_state(False)
+            return
+        if state == CloudSessionState.NETWORK_ERROR:
+            if (
+                self._account_plan_is_pro is not None
+                and not self._account_plan_unavailable
+            ):
+                self._cloud_network_watch_enabled = True
+                return
+            self._set_account_plan_badge_state(None, unavailable=True)
             return
         if not result.auth.is_valid:
             self._set_account_plan_badge_state(None, unavailable=True)
@@ -3668,7 +3690,7 @@ class ReupApp(App):
             and not self._account_plan_unavailable
             and self._account_plan_is_pro is not None
         ):
-            return 3.0
+            return CLOUD_NETWORK_ONLINE_PROBE_INTERVAL_SEC
         return 2.0
 
     def _should_probe_cloud_network_recovery(self) -> bool:
@@ -3739,14 +3761,22 @@ class ReupApp(App):
             self._cloud_network_probe_in_flight = False
 
     def _handle_cloud_network_unreachable(self) -> None:
-        self._cloud_network_was_unreachable = True
         if self._cloud_signed_out:
+            self._cloud_network_was_unreachable = True
             self._cloud_network_watch_enabled = True
             self._cloud_signed_out_status_message = (
                 "Waiting for iTE Cloud to come online..."
             )
             self._refresh_signed_out_status()
             return
+        self._cloud_network_unreachable_probe_count += 1
+        if (
+            not self._account_plan_unavailable
+            and self._cloud_network_unreachable_probe_count
+            < CLOUD_NETWORK_OFFLINE_FAILURE_THRESHOLD
+        ):
+            return
+        self._cloud_network_was_unreachable = True
         was_unavailable = self._account_plan_unavailable
         self._set_account_plan_badge_state(None, unavailable=True)
         if not was_unavailable:
@@ -3759,6 +3789,7 @@ class ReupApp(App):
         recovered = (
             self._cloud_network_was_unreachable or self._account_plan_unavailable
         )
+        self._cloud_network_unreachable_probe_count = 0
         self._cloud_network_was_unreachable = False
         self._cloud_network_watch_enabled = False
         if auth is not None:
@@ -5366,6 +5397,7 @@ class ReupApp(App):
             self._cloud_signed_out_status_message = ""
             self._cloud_network_watch_enabled = False
             self._cloud_network_was_unreachable = False
+            self._cloud_network_unreachable_probe_count = 0
         self._apply_shell_surface()
 
     def _set_startup_state(self, enabled: bool) -> None:

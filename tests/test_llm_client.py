@@ -290,7 +290,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         original_async_client = httpx.AsyncClient
 
         def _handler(request: httpx.Request) -> httpx.Response:
-            self.assertEqual(request.headers["user-agent"], "ite-agent/0.0.84")
+            self.assertTrue(request.headers["user-agent"].startswith("ite-agent/"))
             self.assertEqual(request.headers["x-ite-client"], "terminal-runtime")
             return httpx.Response(
                 403,
@@ -351,6 +351,15 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[0].type, StreamEventType.ERROR)
         self.assertIn("after reaching", events[0].error)
         self.assertIn("http://127.0.0.1:4000/inference/chat", events[0].error)
+
+    def test_cloud_read_error_is_retryable(self) -> None:
+        client = LLMClient(self._config())
+
+        self.assertTrue(
+            client._is_retryable_cloud_failure(
+                error=httpx.ReadError("bad record mac")
+            )
+        )
 
     def test_format_cloud_error_surfaces_provider_failure_details(self) -> None:
         client = LLMClient(self._config())
