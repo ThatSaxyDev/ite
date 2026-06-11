@@ -21,6 +21,7 @@ from ite.cloud import get_bundled_models
 from ite.config.loader import load_saved_custom_provider
 from ite import __version__
 import httpx
+import ssl
 from datetime import datetime
 
 LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
@@ -36,6 +37,20 @@ LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
 CLOUD_AGENT_MAX_TOKENS_DEFAULT = 4_096
 CLOUD_AGENT_MAX_TOKENS_DEEPSEEK = 8_192
 CLOUD_TEXT_MAX_TOKENS = 1_200
+
+
+def _is_ssl_error(exc: BaseException) -> bool:
+    """Check whether an exception chain contains an ssl.SSLError."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None:
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLError):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class LLMClient:
@@ -599,6 +614,148 @@ class LLMClient:
                     return
             except httpx.HTTPError as exc:
                 last_error = exc
+
+                # SSL/TLS errors are transient — retry silently in a dedicated
+                # loop until the connection recovers. Never surface to the user.
+                if _is_ssl_error(exc):
+                    delay = 1.0
+                    while True:
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 2, 30.0)
+                        try:
+                            async with httpx.AsyncClient(timeout=300.0) as client:
+                                async with client.stream(
+                                    "POST",
+                                    endpoint,
+                                    headers=self._cloud_headers(session),
+                                    json=self._encoded_cloud_request_payload(request_payload)
+                                    if use_encoded_payload
+                                    else request_payload,
+                                ) as response:
+                                    if response.status_code != 200:
+                                        body = await response.aread()
+                                        try:
+                                            payload = json.loads(body.decode("utf-8"))
+                                        except (ValueError, UnicodeDecodeError):
+                                            payload = {}
+                                        if (
+                                            use_encoded_payload
+                                            and self._should_retry_plain_cloud_payload(
+                                                status_code=response.status_code,
+                                                payload=payload,
+                                            )
+                                        ):
+                                            use_encoded_payload = False
+                                            break
+                                        yield StreamEvent(
+                                            type=StreamEventType.ERROR,
+                                            error=self._format_cloud_http_error(
+                                                status_code=response.status_code,
+                                                endpoint=endpoint,
+                                                payload=payload,
+                                                body=body,
+                                            ),
+                                            error_payload=payload,
+                                        )
+                                        return
+
+                                    async for line in response.aiter_lines():
+                                        if not line.strip():
+                                            continue
+                                        try:
+                                            event = json.loads(line)
+                                        except json.JSONDecodeError:
+                                            continue
+                                        event_type = str(event.get("type") or "")
+
+                                        if event_type == "text_delta":
+                                            content = str(event.get("content") or "")
+                                            if content:
+                                                yield StreamEvent(
+                                                    type=StreamEventType.TEXT_DELTA,
+                                                    text_delta=TextDelta(content=content),
+                                                )
+                                            continue
+
+                                        if event_type == "tool_call_start":
+                                            yield StreamEvent(
+                                                type=StreamEventType.TOOL_CALL_START,
+                                                tool_call_delta=ToolCallDelta(
+                                                    call_id=str(event.get("id") or ""),
+                                                    name=str(event.get("name") or ""),
+                                                ),
+                                            )
+                                            continue
+
+                                        if event_type == "tool_call_delta":
+                                            yield StreamEvent(
+                                                type=StreamEventType.TOOL_CALL_DELTA,
+                                                tool_call_delta=ToolCallDelta(
+                                                    call_id=str(event.get("id") or ""),
+                                                    name=str(event.get("name") or ""),
+                                                    arguments_delta=str(event.get("argumentsDelta") or ""),
+                                                ),
+                                            )
+                                            continue
+
+                                        if event_type == "tool_call_complete":
+                                            yield StreamEvent(
+                                                type=StreamEventType.TOOL_CALL_COMPLETE,
+                                                tool_call=ToolCall(
+                                                    call_id=str(event.get("id") or ""),
+                                                    name=str(event.get("name") or ""),
+                                                    arguments=parse_tool_call_arguments(str(event.get("arguments") or "{}")),
+                                                ),
+                                            )
+                                            continue
+
+                                        if event_type == "message_complete":
+                                            usage_payload = event.get("usage") or {}
+                                            if not isinstance(usage_payload, dict):
+                                                usage_payload = {}
+                                            quotas_payload = event.get("quotas")
+                                            usage_summary = (
+                                                {"quotas": quotas_payload}
+                                                if isinstance(quotas_payload, dict)
+                                                else None
+                                            )
+                                            usage = TokenUsage(
+                                                prompt_tokens=int(usage_payload.get("promptTokens") or 0),
+                                                completion_tokens=int(usage_payload.get("completionTokens") or 0),
+                                                total_tokens=int(usage_payload.get("totalTokens") or 0),
+                                                cached_tokens=0,
+                                            )
+                                            reasoning_content = event.get("reasoningContent")
+                                            yield StreamEvent(
+                                                type=StreamEventType.MESSAGE_COMPLETE,
+                                                finish_reason=str(event.get("finishReason") or "stop"),
+                                                usage=usage,
+                                                usage_summary=usage_summary,
+                                                reasoning_content=str(reasoning_content) if reasoning_content else None,
+                                            )
+                                            continue
+
+                                        if event_type == "error":
+                                            error_payload = event.get("error")
+                                            payload = {
+                                                "error": error_payload if isinstance(error_payload, dict) else {}
+                                            }
+                                            error_text = self._format_cloud_error(payload)
+                                            if error_text == "Bundled inference request failed.":
+                                                error_text = (
+                                                    "Bundled inference request failed after reaching "
+                                                    f"{endpoint}."
+                                                )
+                                            yield StreamEvent(
+                                                type=StreamEventType.ERROR,
+                                                error=error_text,
+                                                error_payload=payload,
+                                            )
+                                            return
+                                return
+                        except httpx.HTTPError:
+                            continue
+
                 if (
                     not emitted_event
                     and attempt < (max_attempts - 1)
@@ -607,6 +764,146 @@ class LLMClient:
                     await asyncio.sleep(2**attempt)
                     continue
                 raise
+            except Exception as exc:
+                if not _is_ssl_error(exc):
+                    raise
+                delay = 1.0
+                while True:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 30.0)
+                    try:
+                        async with httpx.AsyncClient(timeout=300.0) as client:
+                            async with client.stream(
+                                "POST",
+                                endpoint,
+                                headers=self._cloud_headers(session),
+                                json=self._encoded_cloud_request_payload(request_payload)
+                                if use_encoded_payload
+                                else request_payload,
+                            ) as response:
+                                if response.status_code != 200:
+                                    body = await response.aread()
+                                    try:
+                                        payload = json.loads(body.decode("utf-8"))
+                                    except (ValueError, UnicodeDecodeError):
+                                        payload = {}
+                                    if (
+                                        use_encoded_payload
+                                        and self._should_retry_plain_cloud_payload(
+                                            status_code=response.status_code,
+                                            payload=payload,
+                                        )
+                                    ):
+                                        use_encoded_payload = False
+                                        break
+                                    yield StreamEvent(
+                                        type=StreamEventType.ERROR,
+                                        error=self._format_cloud_http_error(
+                                            status_code=response.status_code,
+                                            endpoint=endpoint,
+                                            payload=payload,
+                                            body=body,
+                                        ),
+                                        error_payload=payload,
+                                    )
+                                    return
+
+                                async for line in response.aiter_lines():
+                                    if not line.strip():
+                                        continue
+                                    try:
+                                        event = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    event_type = str(event.get("type") or "")
+
+                                    if event_type == "text_delta":
+                                        content = str(event.get("content") or "")
+                                        if content:
+                                            yield StreamEvent(
+                                                type=StreamEventType.TEXT_DELTA,
+                                                text_delta=TextDelta(content=content),
+                                            )
+                                        continue
+
+                                    if event_type == "tool_call_start":
+                                        yield StreamEvent(
+                                            type=StreamEventType.TOOL_CALL_START,
+                                            tool_call_delta=ToolCallDelta(
+                                                call_id=str(event.get("id") or ""),
+                                                name=str(event.get("name") or ""),
+                                            ),
+                                        )
+                                        continue
+
+                                    if event_type == "tool_call_delta":
+                                        yield StreamEvent(
+                                            type=StreamEventType.TOOL_CALL_DELTA,
+                                            tool_call_delta=ToolCallDelta(
+                                                call_id=str(event.get("id") or ""),
+                                                name=str(event.get("name") or ""),
+                                                arguments_delta=str(event.get("argumentsDelta") or ""),
+                                            ),
+                                        )
+                                        continue
+
+                                    if event_type == "tool_call_complete":
+                                        yield StreamEvent(
+                                            type=StreamEventType.TOOL_CALL_COMPLETE,
+                                            tool_call=ToolCall(
+                                                call_id=str(event.get("id") or ""),
+                                                name=str(event.get("name") or ""),
+                                                arguments=parse_tool_call_arguments(str(event.get("arguments") or "{}")),
+                                            ),
+                                        )
+                                        continue
+
+                                    if event_type == "message_complete":
+                                        usage_payload = event.get("usage") or {}
+                                        if not isinstance(usage_payload, dict):
+                                            usage_payload = {}
+                                        quotas_payload = event.get("quotas")
+                                        usage_summary = (
+                                            {"quotas": quotas_payload}
+                                            if isinstance(quotas_payload, dict)
+                                            else None
+                                        )
+                                        usage = TokenUsage(
+                                            prompt_tokens=int(usage_payload.get("promptTokens") or 0),
+                                            completion_tokens=int(usage_payload.get("completionTokens") or 0),
+                                            total_tokens=int(usage_payload.get("totalTokens") or 0),
+                                            cached_tokens=0,
+                                        )
+                                        reasoning_content = event.get("reasoningContent")
+                                        yield StreamEvent(
+                                            type=StreamEventType.MESSAGE_COMPLETE,
+                                            finish_reason=str(event.get("finishReason") or "stop"),
+                                            usage=usage,
+                                            usage_summary=usage_summary,
+                                            reasoning_content=str(reasoning_content) if reasoning_content else None,
+                                        )
+                                        continue
+
+                                    if event_type == "error":
+                                        error_payload = event.get("error")
+                                        payload = {
+                                            "error": error_payload if isinstance(error_payload, dict) else {}
+                                        }
+                                        error_text = self._format_cloud_error(payload)
+                                        if error_text == "Bundled inference request failed.":
+                                            error_text = (
+                                                "Bundled inference request failed after reaching "
+                                                f"{endpoint}."
+                                            )
+                                        yield StreamEvent(
+                                            type=StreamEventType.ERROR,
+                                            error=error_text,
+                                            error_payload=payload,
+                                        )
+                                        return
+                            return
+                    except Exception:
+                        continue
 
         if last_error is not None:
             raise last_error
