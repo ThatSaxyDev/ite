@@ -4139,7 +4139,7 @@ class ReupApp(App):
             query,
             cwd=cwd,
             files=self._discover_attachable_files(),
-            limit=50,
+            limit=10000,
         )
         options: list[SlashCommandOption] = []
         for path in matches:
