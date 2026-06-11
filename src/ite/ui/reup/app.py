@@ -340,18 +340,12 @@ class ReupPromptTextArea(TextArea):
         if not paths:
             return
 
-        workspace = Path(app.config.cwd).resolve()
-        manager = AttachmentManager(workspace)
-        turn_id = int(time.time() * 1000)
-        temp_turn_id = f"paste_{turn_id}"
-        staged, errors = manager.stage_paths([Path(p) for p in paths], temp_turn_id)
-
-        if errors:
-            for error in errors:
-                app.post_attachment_note(error)
-
-        if not staged:
-            return
+        if app.agent and app.agent.session:
+            pending = list(app.agent.session.pending_attachment_paths)
+            for p in paths:
+                if p not in pending:
+                    pending.append(p)
+            app.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
 
         app._insert_attachment_refs_into_prompt(paths)
 
@@ -4389,16 +4383,10 @@ class ReupApp(App):
         self._resize_composer_for_prompt()
 
     def _attachment_ref_for_path(self, path: Path) -> str:
-        resolved = path.expanduser().resolve()
-        cwd = Path(self.config.cwd).resolve()
-        try:
-            display = str(resolved.relative_to(cwd))
-        except Exception:
-            display = str(resolved)
-        display = display.replace("\\", "/")
-        if any(ch.isspace() for ch in display):
-            return f'@"{display}"'
-        return f"@{display}"
+        name = path.expanduser().resolve().name
+        if any(ch.isspace() for ch in name):
+            return f'@"{name}"'
+        return f"@{name}"
 
     def _insert_attachment_refs_into_prompt(self, paths: list[str]) -> int:
         prompt = self.query_one("#prompt", TextArea)
@@ -5322,6 +5310,13 @@ class ReupApp(App):
             if not path.exists() or not path.is_file():
                 return False
             paths.append(str(path))
+
+        if self.agent and self.agent.session:
+            pending = list(self.agent.session.pending_attachment_paths)
+            for p in paths:
+                if p not in pending:
+                    pending.append(p)
+            self.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
 
         self._insert_attachment_refs_into_prompt(paths[:MAX_ATTACHMENTS])
         return True

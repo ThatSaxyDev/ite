@@ -565,7 +565,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual([entry.name for entry in filtered[:1]], ["@src/app.py"])
         self.assertEqual(filtered[0].insert_text, "@src/app.py")
 
-    def test_attachment_ref_for_path_quotes_spaces_and_uses_absolute_outside_workspace(
+    def test_attachment_ref_for_path_uses_filename_only(
         self,
     ) -> None:
         app = self._app()
@@ -579,7 +579,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             self.assertEqual(app._attachment_ref_for_path(inside), '@"shot one.png"')
             self.assertEqual(
                 app._attachment_ref_for_path(outside),
-                f'@"{outside.resolve()}"',
+                '@"report one.pdf"',
             )
 
     def test_insert_attachment_refs_into_prompt_uses_visible_refs(self) -> None:
