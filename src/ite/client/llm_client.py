@@ -748,6 +748,17 @@ class LLMClient:
                     ),
                     )
                 return
+            except Exception as e:
+                yield StreamEvent(
+                    type=StreamEventType.ERROR,
+                    error=format_provider_error(
+                        kind="connection",
+                        message=str(e),
+                        model_name=self.config.model_name,
+                        base_url=self.config.base_url,
+                    ),
+                )
+                return
 
     async def complete_text(
         self,
@@ -879,6 +890,14 @@ class LLMClient:
                 yield event
             return
         except httpx.HTTPError as exc:
+            yield StreamEvent(
+                type=StreamEventType.ERROR,
+                error=self._format_cloud_transport_error(
+                    exc, self._cloud_inference_endpoint(session)
+                ),
+            )
+            return
+        except Exception as exc:
             yield StreamEvent(
                 type=StreamEventType.ERROR,
                 error=self._format_cloud_transport_error(

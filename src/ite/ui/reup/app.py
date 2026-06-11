@@ -1590,18 +1590,9 @@ class ReupApp(App):
         )
 
         if isinstance(error, (CloudConnectionError, ssl.SSLError)) or is_transient_network:
-            self._return_code = 0
             if self._exception is None:
                 self._exception = error
                 self._exception_event.set()
-            self.bell()
-            self.exit(
-                message=(
-                    "iTE lost its network connection.\n\n"
-                    "Your session is intact. Run `ite` again to continue.\n"
-                    f"\nDetails: {error_str}"
-                ),
-            )
             return
 
         super()._handle_exception(error)
