@@ -1442,6 +1442,24 @@ class ReupApp(App):
     COMMAND_PALETTE_MAX_ROWS = 8
     GIT_POLL_TIMEOUT_SECONDS = 2.0
 
+    @staticmethod
+    def is_macos_terminal_app() -> bool:
+        """True when running inside macOS Terminal.app.
+
+        Terminal.app is the only mainstream macOS terminal that cannot
+        distinguish Shift+Enter from Enter at the input layer (it sends the
+        same CR byte for both). This means no TUI, including iTE, can bind
+        a distinct Shift+Enter gesture inside Terminal.app.
+
+        Other macOS terminals (iTerm2 in non-legacy mode, WezTerm, Ghostty,
+        Alacritty, the VS Code integrated terminal, and the JetBrains
+        terminal) do transmit a distinct Shift+Enter.
+        """
+        return (
+            sys.platform == "darwin"
+            and os.environ.get("TERM_PROGRAM", "") == "Apple_Terminal"
+        )
+
     def __init__(self, config: Config) -> None:
         super().__init__()
         self.title = "iTE"
@@ -1451,6 +1469,7 @@ class ReupApp(App):
         self._session_run_states: dict[str, SessionRunState] = {}
         self._session_name_refinements: set[str] = set()
         self._fallback_run_state = SessionRunState()
+        self._macos_terminal_hint_shown: bool = False
         self._command_registry = None
         self._command_registry_ready: bool = False
         self._command_registry_loading: bool = False
@@ -1812,6 +1831,19 @@ class ReupApp(App):
             self.theme = saved_theme or detect_host_textual_theme()
         finally:
             self._suppress_theme_prompt_sync = False
+        # macOS Terminal.app cannot distinguish Shift+Enter from Enter at the
+        # input layer, so any Shift+Enter press there looks identical to
+        # pressing Enter (which submits the prompt). Surface a one-time
+        # notice telling the user to use Ctrl+J for new lines.
+        if self.is_macos_terminal_app() and not self._macos_terminal_hint_shown:
+            self._macos_terminal_hint_shown = True
+            self.post_notice(
+                "macOS Terminal",
+                "Shift+Enter sends the same byte as Enter in macOS Terminal.app, "
+                "so it cannot insert a newline here. Use Ctrl+J for new lines, "
+                "or run iTE in iTerm2/WezTerm/Ghostty/VS Code to use Shift+Enter.",
+                timeout=10,
+            )
         self.query_one("#aside-toggle", Button).display = False
         self.query_one("#changes-toggle", Button).display = False
         try:
@@ -8312,9 +8344,18 @@ class ReupApp(App):
         return message
 
     def action_show_help(self) -> None:
+        newline_hint = (
+            "On macOS Terminal.app, Shift+Enter cannot insert a newline "
+            "(the terminal does not distinguish it from Enter). "
+            "Use Ctrl+J to insert a newline. Shift+Enter works normally "
+            "in iTerm2, WezTerm, Ghostty, VS Code, and JetBrains terminals."
+            if self.is_macos_terminal_app()
+            else "Use Shift+Enter to insert a newline, or Ctrl+J as a fallback."
+        )
         self.post_system(
             "Help",
             "Enter text and use Ctrl+Enter to send.\n"
+            f"{newline_hint}\n"
             "Commands begin with /.\n"
             "Use Ctrl+C to interrupt a running turn, or quit when idle.",
         )
@@ -8669,7 +8710,13 @@ class ReupApp(App):
         prompt_container = self.query_one("#prompt-container", Container)
         composer = self.query_one("#composer", Horizontal)
 
-        line_count = max(1, prompt.text.count("\n") + 1)
+        # Use the wrapped document height so soft-wrapped lines (long single
+        # lines that wrap visually) expand the composer. Counting only "\n"
+        # underestimates the visual row count when a long line wraps.
+        try:
+            line_count = max(1, int(prompt.wrapped_document.height))
+        except Exception:
+            line_count = max(1, prompt.text.count("\n") + 1)
         prompt_lines = min(
             max(line_count, self.MIN_PROMPT_LINES), self.MAX_PROMPT_LINES
         )
