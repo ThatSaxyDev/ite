@@ -353,12 +353,7 @@ class ReupPromptTextArea(TextArea):
         if not staged:
             return
 
-        added = app._insert_attachment_refs_into_prompt(paths)
-        if added > 0:
-            noun = "reference" if added == 1 else "references"
-            app.post_attachment_note(
-                f"Inserted {added} attachment {noun} into the composer."
-            )
+        app._insert_attachment_refs_into_prompt(paths)
 
         event.prevent_default()
         event.stop()
@@ -5290,14 +5285,9 @@ class ReupApp(App):
         selected = await self._open_modal(AttachPickerModal(cwd, []))
         if selected is None:
             return
-        added = self._insert_attachment_refs_into_prompt(
+        self._insert_attachment_refs_into_prompt(
             list(selected)[:MAX_ATTACHMENTS]
         )
-        if added:
-            noun = "reference" if added == 1 else "references"
-            self.post_attachment_note(
-                f"Inserted {added} attachment {noun} into the composer."
-            )
 
     def _consume_dropped_path_text(self, message: str) -> bool:
         if not self.agent:
@@ -5333,12 +5323,7 @@ class ReupApp(App):
                 return False
             paths.append(str(path))
 
-        added = self._insert_attachment_refs_into_prompt(paths[:MAX_ATTACHMENTS])
-        if added > 0:
-            noun = "reference" if added == 1 else "references"
-            self.post_attachment_note(
-                f"Inserted {added} attachment {noun} into the composer."
-            )
+        self._insert_attachment_refs_into_prompt(paths[:MAX_ATTACHMENTS])
         return True
 
     def _empty_state_thread_count(self) -> int:
