@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import mimetypes
 import re
 import uuid
 from pathlib import Path
@@ -22,6 +24,17 @@ from ite.prompts.system import create_loop_breaker_prompt
 from ite.tools.base import ToolConfirmation, ToolKind, ToolResult
 from ite.utils.paths import resolve_path
 from ite.utils.errors import is_context_overflow_error
+
+
+def _encode_image_part(image_path: str) -> dict:
+    """Encode an image file as a base64 data-URL multimodal content part."""
+    p = Path(image_path)
+    raw = p.read_bytes()
+    encoded = base64.b64encode(raw).decode("ascii")
+    mime, _ = mimetypes.guess_type(str(p))
+    if not mime or mime.split("/", 1)[0] != "image":
+        mime = "image/png"
+    return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}}
 
 
 class Agent:
@@ -2136,21 +2149,18 @@ class Agent:
                     budget = effective_args.get("budget", 280)
                     if image_path:
                         current_visual_budget = budget
-                        # Inject visual content into the most recent user message
-                        # to follow the "Modality Order" (Images before Text).
                         messages = session.context_manager.get_messages()
                         for msg in reversed(messages):
                             if msg.get("role") == "user":
                                 content = msg.get("content")
+                                image_part = _encode_image_part(image_path)
                                 if isinstance(content, str):
-                                    # Convert existing text to a multimodal list
                                     msg["content"] = [
-                                        {"type": "image_url", "image_url": {"url": f"file://{image_path}"}},
+                                        image_part,
                                         {"type": "text", "text": content},
                                     ]
                                 elif isinstance(content, list):
-                                    # Prepend the image to the list
-                                    content.insert(0, {"type": "image_url", "image_url": {"url": f"file://{image_path}"}})
+                                    content.insert(0, image_part)
                                 break
 
                 if tool_call.name == "plan_question" and result.success:

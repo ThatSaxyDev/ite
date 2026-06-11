@@ -256,6 +256,7 @@ LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
     "kimi-k2.6:cloud": "moonshotai/kimi-k2.6",
     "minimax-m2.5:cloud": "minimax/minimax-m2.5",
     "minimax-m2.7:cloud": "minimax/minimax-m2.7",
+    "minimax-m3:cloud": "minimax/minimax-m3",
     "glm-5:cloud": "z-ai/glm-5",
     "glm-5.1:cloud": "z-ai/glm-5.1",
 }
@@ -4710,6 +4711,7 @@ class ReupApp(App):
             *,
             context_window: int | None = None,
             context_window_source: str | None = None,
+            capabilities: list[str] | None = None,
             available: bool = True,
             unavailable_reason: str = "",
             saved_profile: bool = False,
@@ -4728,6 +4730,7 @@ class ReupApp(App):
                 "provider": provider,
                 "context_window": context_window,
                 "context_window_source": context_window_source,
+                "capabilities": capabilities,
                 "available": available,
                 "unavailable_reason": unavailable_reason,
                 "saved_profile": saved_profile,
@@ -4813,6 +4816,11 @@ class ReupApp(App):
                     item.get("context_window_source") or ""
                 ).strip()
                 or None,
+                capabilities=(
+                    item.get("capabilities")
+                    if isinstance(item.get("capabilities"), list)
+                    else None
+                ),
                 available=bool(item.get("available", True)),
                 unavailable_reason=str(item.get("unavailable_reason") or ""),
             )

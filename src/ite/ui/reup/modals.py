@@ -1150,7 +1150,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
 
     async def on_mount(self) -> None:
         table = self.query_one("#models", DataTable)
-        for column in ("Model", "Source", "Context", "Status", "Current"):
+        for column in ("Model", "Source", "Context", "Capabilities", "Status", "Current"):
             table.add_column(column)
         self._populate_table(table)
         refresh_label = self.query_one("#model-picker-refresh", Label)
@@ -1165,6 +1165,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
         self._model_sources = []
         self._model_saved_profile = []
         self._model_context_windows = []
+        self._model_capabilities = []
         for item in self._models:
             model_name = str(item.get("model_name") or "").strip()
             label = str(item.get("label") or model_name).strip()
@@ -1173,6 +1174,7 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
             unavailable_reason = str(item.get("unavailable_reason") or "").strip()
             saved_profile = bool(item.get("saved_profile", False))
             context_window = item.get("context_window")
+            capabilities = item.get("capabilities")
             entry_id = str(item.get("entry_id") or model_name).strip()
             if not model_name:
                 continue
@@ -1187,10 +1189,14 @@ class ModelPickerModal(ModalScreen[dict[str, Any] | None]):
                 if isinstance(context_window, int) and context_window > 0
                 else None
             )
+            self._model_capabilities.append(
+                capabilities if isinstance(capabilities, list) else None
+            )
             table.add_row(
                 label,
                 provider,
                 format_context_window_label(self._model_context_windows[-1]),
+                ", ".join(str(c) for c in self._model_capabilities[-1]) if self._model_capabilities[-1] else "",
                 "Available" if available else "Unavailable",
                 "✓"
                 if (
@@ -1934,6 +1940,7 @@ class ActivityModal(ModalScreen[None]):
             "kimi-k2.6": "Kimi K2.6",
             "minimax-m2.5": "MiniMax M2.5",
             "minimax-m2.7": "MiniMax M2.7",
+            "minimax-m3": "MiniMax M3",
             "glm-5": "GLM-5",
             "glm-5.1": "GLM-5.1",
         }

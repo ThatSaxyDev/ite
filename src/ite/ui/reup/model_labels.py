@@ -4,10 +4,13 @@ BUNDLED_MODEL_DISPLAY_NAMES_BY_MODEL: dict[str, str] = {
     "deepseek-v4": "cortex",
     "deepseek-v4-pro": "cortex",
     "deepseek/deepseek-v4-pro": "cortex",
+    "minimax-m3": "contessa",
+    "minimax/minimax-m3": "contessa",
 }
 
 BUNDLED_MODEL_DISPLAY_NAMES_BY_LABEL: dict[str, str] = {
     "deepseek v4 pro": "cortex",
+    "minimax m3": "contessa",
 }
 
 

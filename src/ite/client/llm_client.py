@@ -28,6 +28,7 @@ LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
     "kimi-k2.6:cloud": "moonshotai/kimi-k2.6",
     "minimax-m2.5:cloud": "minimax/minimax-m2.5",
     "minimax-m2.7:cloud": "minimax/minimax-m2.7",
+    "minimax-m3:cloud": "minimax/minimax-m3",
     "glm-5:cloud": "z-ai/glm-5",
     "glm-5.1:cloud": "z-ai/glm-5.1",
 }

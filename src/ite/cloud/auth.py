@@ -727,6 +727,7 @@ def _parse_bundled_models(payload: dict[str, Any]) -> list[dict[str, Any]]:
         )
         if not model_name:
             continue
+        capabilities = item.get("capabilities")
         bundled.append(
             {
                 "model_name": model_name,
@@ -735,6 +736,9 @@ def _parse_bundled_models(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "context_window": context_window,
                 "context_window_source": "bundled_provider_api"
                 if context_window
+                else None,
+                "capabilities": capabilities
+                if isinstance(capabilities, list)
                 else None,
                 "available": available,
                 "unavailable_reason": unavailable_reason,
