@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import platform
 import shutil
+from base64 import b64encode
 from pathlib import Path
 from typing import Any
 
@@ -74,7 +74,7 @@ def _load_pytesseract():
     return pytesseract
 
 
-def _resize_image_if_needed(image, max_dimension: int = 2048):
+def _resize_image_if_needed(image, max_dimension: int = 1024):
     """Resize image to fit within max_dimension while maintaining aspect ratio."""
     from PIL import Image as PILImage
     
@@ -200,6 +200,26 @@ def _truncate_text(text: str, limit: int = 60 * 1024) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
     return text[:limit] + "\n... [truncated]", True
+
+
+def _image_to_data_url(image_bytes: bytes, fmt: str | None = None) -> str:
+    encoded = b64encode(image_bytes).decode("ascii")
+    mime = _mime_for_format(fmt)
+    return f"data:{mime};base64,{encoded}"
+
+
+def _mime_for_format(fmt: str | None) -> str:
+    mapping = {
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "bmp": "image/bmp",
+        "tiff": "image/tiff",
+    }
+    key = (fmt or "").lower()
+    return mapping.get(key, "image/png")
 
 
 def _compact_preview(text: str, *, limit: int = 320) -> str:
@@ -334,9 +354,16 @@ class ReadImageTool(Tool):
                 image_format = image.format
                 info = _json_safe(dict(image.info or {}))
                 
+                # Convert RGBA to RGB for smaller file size, use JPEG compression
+                if image.mode == "RGBA":
+                    rgb_image = Image.new("RGB", image.size, (255, 255, 255))
+                    rgb_image.paste(image, mask=image.split()[3])  # Use alpha as mask
+                    image = rgb_image
+                    image_format = "JPEG"
+                
                 # Save resized image to a temporary file for caching
                 temp_path = path.parent / f".resized_{path.name}"
-                image.save(temp_path, format=image_format or "PNG")
+                image.save(temp_path, format=image_format or "JPEG", quality=85, optimize=True)
                 
                 # Cache the resized image for persistence across sessions
                 cached_path = _cache_image(temp_path)
@@ -404,4 +431,30 @@ class ReadImageTool(Tool):
             "ocr_text_length": len(ocr_text) if params.ocr else 0,
         }
         output, truncated = _truncate_text(json.dumps(summary, indent=2, ensure_ascii=False))
-        return ToolResult.success_result(output, truncated=truncated, metadata=metadata)
+
+        content_parts = None
+        supports_vision = bool(getattr(self.config.model, "supports_vision", True))
+        if supports_vision and cached_path.exists():
+            try:
+                image_bytes = cached_path.read_bytes()
+                # Skip if image is too large (>2MB base64 would be ~2.6MB)
+                if len(image_bytes) > 2 * 1024 * 1024:
+                    output += "\n[Note: Image too large to embed, showing metadata only]"
+                else:
+                    data_url = _image_to_data_url(image_bytes, image_format)
+                    content_parts = [
+                        {"type": "text", "text": output},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_url},
+                        },
+                    ]
+            except Exception:
+                pass
+
+        return ToolResult.success_result(
+            output,
+            truncated=truncated,
+            metadata=metadata,
+            content_parts=content_parts,
+        )

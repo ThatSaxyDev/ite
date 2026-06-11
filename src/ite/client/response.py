@@ -72,14 +72,19 @@ class ToolResultMessage:
     tool_call_id: str
     content: str
     is_error: bool = False
+    content_parts: list[dict[str, Any]] | None = None
 
     def to_openai_message(self) -> dict[str, Any]:
-        return {
+        msg: dict[str, Any] = {
             "role": "tool",
             "tool_call_id": self.tool_call_id,
-            "content": self.content,
-            "is_error": self.is_error,
         }
+        if self.content_parts:
+            msg["content"] = self.content_parts
+        else:
+            msg["content"] = self.content
+        msg["is_error"] = self.is_error
+        return msg
 
 
 def parse_tool_call_arguments(arguments_str: str) -> dict[str, Any]:

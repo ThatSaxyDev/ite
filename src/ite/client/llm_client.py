@@ -935,8 +935,8 @@ class LLMClient:
 
             msg: dict[str, Any] = {"role": role}
             content = raw.get("content")
-            if role == "user" and isinstance(content, list):
-                # Preserve multimodal user content parts.
+            if role in ("user", "tool") and isinstance(content, list):
+                # Preserve multimodal user/tool content parts.
                 msg["content"] = content
             else:
                 # OpenAI-compatible providers can reject missing/null content.

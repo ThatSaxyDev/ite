@@ -219,11 +219,16 @@ def build_user_model_content(
     message: str,
     attachments: list[Attachment],
     workspace: Path,
+    *,
+    supports_vision: bool = True,
 ) -> str | list[dict]:
     text = build_user_text_with_manifest(message, attachments, workspace)
     images = [a for a in attachments if a.kind == "image"]
     if not images:
         return text
+
+    if not supports_vision:
+        return _build_text_only_content(text, images)
 
     parts: list[dict] = [{"type": "text", "text": text}]
     for img in images:
@@ -239,3 +244,79 @@ def build_user_model_content(
             }
         )
     return parts
+
+
+def _build_text_only_content(text: str, images: list[Attachment]) -> str:
+    """For text-only models: run local image processing and append metadata/OCR as text."""
+    parts: list[str] = [text]
+    for img in images:
+        source_path = Path(img.source_path) if Path(img.source_path).exists() else Path(img.temp_path)
+        desc = _describe_image_locally(source_path, img.original_name)
+        if desc:
+            parts.append(desc)
+    return "\n\n".join(parts)
+
+
+def _describe_image_locally(image_path: Path, name: str) -> str:
+    """Extract image metadata and optional OCR text, returning a text description."""
+    try:
+        from PIL import Image
+        with Image.open(image_path) as image:
+            width, height = image.size
+            mode = image.mode
+            fmt = image.format or "unknown"
+            file_size = image_path.stat().st_size
+    except Exception:
+        return f"[Image: {name} — could not read metadata]"
+
+    lines = [
+        f"[Image: {name}]",
+        f"  Format: {fmt}",
+        f"  Dimensions: {width}x{height}",
+        f"  Mode: {mode}",
+        f"  File size: {_human_size(file_size)}",
+    ]
+
+    ocr_available, _ = _ocr_backend_status_local()
+    if ocr_available:
+        try:
+            from PIL import Image as PILImage
+            import pytesseract  # noqa: F401
+            with PILImage.open(image_path) as img:
+                ocr_text = pytesseract.image_to_string(img).strip()
+            if ocr_text:
+                preview = _compact_preview_local(ocr_text)
+                lines.append(f"  OCR text ({len(ocr_text)} chars): {preview}")
+        except Exception:
+            pass
+
+    return "\n".join(lines)
+
+
+def _ocr_backend_status_local() -> tuple[bool, str]:
+    """Check if OCR (tesseract + pytesseract) is available."""
+    try:
+        import pytesseract  # noqa: F401
+        import shutil
+        if shutil.which("tesseract"):
+            return True, "tesseract"
+    except ImportError:
+        pass
+    return False, "none"
+
+
+def _compact_preview_local(text: str, *, limit: int = 320) -> str:
+    normalized = " ".join(text.split())
+    if not normalized:
+        return ""
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit] + "…"
+
+
+def _human_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    return f"{size_bytes / (1024 * 1024):.1f} MB"

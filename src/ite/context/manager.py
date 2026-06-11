@@ -266,14 +266,21 @@ class ContextManager:
         content: str,
         *,
         tool_ui: dict[str, Any] | None = None,
+        content_parts: list[dict[str, Any]] | None = None,
     ) -> None:
+        token_text = content
+        if content_parts:
+            for part in content_parts:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    token_text += str(part.get("text", ""))
         item = MessageItem(
             role="tool",
             content=content,
             tool_call_id=tool_call_id,
             tool_ui=tool_ui,
+            content_parts=content_parts,
             token_count=count_tokens(
-                content,
+                token_text,
                 self._model_name,
             ),
         )

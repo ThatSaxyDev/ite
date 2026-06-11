@@ -116,6 +116,7 @@ class ToolResult:
     diff: FileDiff | None = None
     file_diffs: list[FileDiff] = field(default_factory=list)
     exit_code: int | None = None
+    content_parts: list[dict[str, Any]] | None = None
 
     @classmethod
     def error_result(

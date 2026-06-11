@@ -9,6 +9,60 @@ class ModelMetadata:
     model_name: str
     context_window: int | None = None
     source: str | None = None
+    supports_vision: bool = False
+
+
+# Vision-capable model identifiers. Models whose name contains any of these
+# prefixes/substrings are assumed to support image inputs.
+_VISION_MODEL_PATTERNS = (
+    "claude",
+    "gpt-4o",
+    "gpt-4.1",
+    "gemini",
+    "gemma-3",
+    "gemma3",
+    "pixtral",
+    "llava",
+    "bakllava",
+    "cogvlm",
+    "qwen-vl",
+    "qwen2-vl",
+    "qwen2.5-vl",
+    "minicpm-v",
+    "phi-3-vision",
+    "phi-3.5-vision",
+    "phi-4-vision",
+    "internvl",
+    "internlm-xcomposer",
+    "yi-vision",
+    "fuyu",
+    "paligemma",
+    "ovis",
+    "moondream",
+    "instructblip",
+    "florence",
+    "janus",
+    "mantis",
+    "aria",
+)
+
+
+def detect_vision_from_model_name(model_name: str) -> bool:
+    """Heuristic: detect multimodal/vision support from model name patterns."""
+    normalized = model_name.strip().lower()
+    for pattern in _VISION_MODEL_PATTERNS:
+        if pattern in normalized:
+            return True
+    return False
+
+
+def _openrouter_modality_from_item(item: dict[str, Any]) -> str | None:
+    architecture = item.get("architecture")
+    if isinstance(architecture, dict):
+        modality = architecture.get("modality")
+        if isinstance(modality, str):
+            return modality.strip().lower()
+    return None
 
 
 def parse_openrouter_model_metadata(item: dict[str, Any]) -> ModelMetadata | None:
@@ -24,10 +78,17 @@ def parse_openrouter_model_metadata(item: dict[str, Any]) -> ModelMetadata | Non
     if context_window is None:
         context_window = _parse_int(item.get("context_length"))
 
+    modality = _openrouter_modality_from_item(item)
+    if modality:
+        supports_vision = modality == "multimodal"
+    else:
+        supports_vision = detect_vision_from_model_name(model_name)
+
     return ModelMetadata(
         model_name=model_name,
         context_window=context_window,
         source="openrouter_models_api",
+        supports_vision=supports_vision,
     )
 
 
@@ -37,10 +98,12 @@ def parse_ollama_model_metadata(
     payload: dict[str, Any],
 ) -> ModelMetadata:
     context_window = _extract_ollama_context_window(payload)
+    supports_vision = detect_vision_from_model_name(model_name)
     return ModelMetadata(
         model_name=model_name,
         context_window=context_window,
         source="ollama_show_api",
+        supports_vision=supports_vision,
     )
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,8 @@ HALLUCINATION_PHRASES = {
 }
 HALLUCINATION_NO_SPEECH_THRESHOLD = 0.1
 
+_TRANSCRIPTION_MAX_RETRIES = 10
+
 
 async def transcribe_audio_file(
     audio_path: Path,
@@ -51,13 +54,23 @@ async def transcribe_audio_file(
             files = {
                 "file": (audio_path.name, audio_file, _audio_content_type(audio_path)),
             }
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    url,
-                    headers={"authorization": f"Bearer {api_key}"},
-                    data=data,
-                    files=files,
-                )
+            for attempt in range(_TRANSCRIPTION_MAX_RETRIES + 1):
+                try:
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        response = await client.post(
+                            url,
+                            headers={"authorization": f"Bearer {api_key}"},
+                            data=data,
+                            files=files,
+                        )
+                    break
+                except httpx.HTTPError as exc:
+                    if attempt < _TRANSCRIPTION_MAX_RETRIES:
+                        await asyncio.sleep(min(2**attempt, 30))
+                        # Reset file position for retry
+                        audio_file.seek(0)
+                        continue
+                    raise
     except httpx.TimeoutException as exc:
         raise VoiceTranscriptionError("Transcription timed out.") from exc
     except httpx.HTTPError as exc:

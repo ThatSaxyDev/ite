@@ -12,6 +12,8 @@ from ite.config.config import Config
 
 from .auth import CloudSession, _load_cloud_session, _refresh_cloud_session
 
+_CLOUD_SERVICE_MAX_RETRIES = 10
+
 
 class CloudServiceError(RuntimeError):
     pass
@@ -60,15 +62,23 @@ async def transcribe_cloud_voice_file(
         "cleanup": cleanup,
     }
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{session.api_url.rstrip('/')}/voice/transcribe",
-                headers={
-                    "authorization": f"Bearer {session.access_token}",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            )
+        for attempt in range(_CLOUD_SERVICE_MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    response = await client.post(
+                        f"{session.api_url.rstrip('/')}/voice/transcribe",
+                        headers={
+                            "authorization": f"Bearer {session.access_token}",
+                            "content-type": "application/json",
+                        },
+                        json=payload,
+                    )
+                break
+            except httpx.HTTPError as exc:
+                if attempt < _CLOUD_SERVICE_MAX_RETRIES:
+                    await asyncio.sleep(min(2**attempt, 30))
+                    continue
+                raise
     except httpx.TimeoutException as exc:
         raise CloudServiceError("Cloud voice transcription timed out.") from exc
     except httpx.HTTPError as exc:
@@ -102,15 +112,23 @@ async def generate_cloud_session_title(
     try:
         # The cloud API may be cold-starting (Render free tier: 5-15 s).
         # It then calls Groq with a 3 s AbortSignal. 18 s total covers both.
-        async with httpx.AsyncClient(timeout=18.0) as client:
-            response = await client.post(
-                f"{api_url}/metadata/session-title",
-                headers={
-                    "authorization": f"Bearer {session.access_token}",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            )
+        for attempt in range(_CLOUD_SERVICE_MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=18.0) as client:
+                    response = await client.post(
+                        f"{api_url}/metadata/session-title",
+                        headers={
+                            "authorization": f"Bearer {session.access_token}",
+                            "content-type": "application/json",
+                        },
+                        json=payload,
+                    )
+                break
+            except httpx.HTTPError:
+                if attempt < _CLOUD_SERVICE_MAX_RETRIES:
+                    await asyncio.sleep(min(2**attempt, 30))
+                    continue
+                raise
     except httpx.HTTPError:
         return None
 

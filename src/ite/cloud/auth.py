@@ -40,6 +40,7 @@ class CloudCredentialStoreError(CloudAuthError):
 
 _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
 _CLOUD_HTTP_TIMEOUT_SEC = 10
+_CLOUD_HTTP_MAX_RETRIES = 10
 _CLOUD_SESSION_FORMAT_VERSION = 2
 _CLOUD_ENTITLEMENTS_CACHE_VERSION = 1
 _REMOTE_ENTITLEMENT_GRACE_SECONDS = 72 * 60 * 60
@@ -338,63 +339,113 @@ def _post_json(
     headers: dict[str, str] = {"content-type": "application/json"}
     if access_token:
         headers["authorization"] = f"Bearer {access_token}"
-    request = Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers=headers,
-        method="POST",
-    )
-    try:
-        with urlopen(
-            request,
-            timeout=_CLOUD_HTTP_TIMEOUT_SEC,
-            context=_SSL_CONTEXT,
-        ) as response:
-            body = response.read().decode("utf-8")
-            return int(response.status), _decode_json_body(body)
-    except HTTPError as exc:
-        body = exc.read().decode("utf-8")
-        payload = _decode_json_body(body)
-        return int(exc.code), payload
-    except (TimeoutError, socket.timeout) as exc:
+    last_error: Exception | None = None
+    for attempt in range(_CLOUD_HTTP_MAX_RETRIES + 1):
+        try:
+            request = Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers=headers,
+                method="POST",
+            )
+            with urlopen(
+                request,
+                timeout=_CLOUD_HTTP_TIMEOUT_SEC,
+                context=_SSL_CONTEXT,
+            ) as response:
+                body = response.read().decode("utf-8")
+                return int(response.status), _decode_json_body(body)
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8")
+            error_payload = _decode_json_body(body)
+            status = int(exc.code)
+            if status >= 500 and attempt < _CLOUD_HTTP_MAX_RETRIES:
+                last_error = exc
+                time.sleep(min(2**attempt, 30))
+                continue
+            return status, error_payload
+        except (TimeoutError, socket.timeout) as exc:
+            last_error = exc
+            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+                time.sleep(min(2**attempt, 30))
+                continue
+        except URLError as exc:
+            last_error = exc
+            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+                time.sleep(min(2**attempt, 30))
+                continue
+        except OSError as exc:
+            last_error = exc
+            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+                time.sleep(min(2**attempt, 30))
+                continue
+    if isinstance(last_error, (TimeoutError, socket.timeout)):
         raise CloudConnectionError(
             "iTE Cloud API took too long to respond. Check your connection and try again."
-        ) from exc
-    except URLError as exc:
-        raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
-    except OSError as exc:
+        ) from last_error
+    if isinstance(last_error, URLError):
+        raise CloudConnectionError(f"Could not reach iTE Cloud API: {last_error}") from last_error
+    if isinstance(last_error, OSError):
         raise CloudConnectionError(
             "Could not reach iTE Cloud API. Check your connection and try again."
-        ) from exc
+        ) from last_error
+    raise CloudConnectionError(
+        "Could not reach iTE Cloud API. Check your connection and try again."
+    )
 
 
 def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str, Any]]:
     headers = {}
     if access_token:
         headers["authorization"] = f"Bearer {access_token}"
-    request = Request(url, headers=headers, method="GET")
-    try:
-        with urlopen(
-            request,
-            timeout=_CLOUD_HTTP_TIMEOUT_SEC,
-            context=_SSL_CONTEXT,
-        ) as response:
-            body = response.read().decode("utf-8")
-            return int(response.status), _decode_json_body(body)
-    except HTTPError as exc:
-        body = exc.read().decode("utf-8")
-        payload = _decode_json_body(body)
-        return int(exc.code), payload
-    except (TimeoutError, socket.timeout) as exc:
+    last_error: Exception | None = None
+    for attempt in range(_CLOUD_HTTP_MAX_RETRIES + 1):
+        try:
+            request = Request(url, headers=headers, method="GET")
+            with urlopen(
+                request,
+                timeout=_CLOUD_HTTP_TIMEOUT_SEC,
+                context=_SSL_CONTEXT,
+            ) as response:
+                body = response.read().decode("utf-8")
+                return int(response.status), _decode_json_body(body)
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8")
+            error_payload = _decode_json_body(body)
+            status = int(exc.code)
+            if status >= 500 and attempt < _CLOUD_HTTP_MAX_RETRIES:
+                last_error = exc
+                time.sleep(min(2**attempt, 30))
+                continue
+            return status, error_payload
+        except (TimeoutError, socket.timeout) as exc:
+            last_error = exc
+            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+                time.sleep(min(2**attempt, 30))
+                continue
+        except URLError as exc:
+            last_error = exc
+            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+                time.sleep(min(2**attempt, 30))
+                continue
+        except OSError as exc:
+            last_error = exc
+            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+                time.sleep(min(2**attempt, 30))
+                continue
+    if isinstance(last_error, (TimeoutError, socket.timeout)):
         raise CloudConnectionError(
             "iTE Cloud API took too long to respond. Check your connection and try again."
-        ) from exc
-    except URLError as exc:
-        raise CloudConnectionError(f"Could not reach iTE Cloud API: {exc}") from exc
-    except OSError as exc:
+        ) from last_error
+    if isinstance(last_error, URLError):
+        raise CloudConnectionError(f"Could not reach iTE Cloud API: {last_error}") from last_error
+    if isinstance(last_error, OSError):
         raise CloudConnectionError(
             "Could not reach iTE Cloud API. Check your connection and try again."
-        ) from exc
+        ) from last_error
+    raise CloudConnectionError(
+        "Could not reach iTE Cloud API. Check your connection and try again."
+    )
 
 
 def _decode_json_body(body: str) -> dict[str, Any]:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 
 from .config import CLEANUP_FALLBACK_MODEL, CLEANUP_MODEL, GROQ_BASE_URL
@@ -7,6 +9,9 @@ from .config import CLEANUP_FALLBACK_MODEL, CLEANUP_MODEL, GROQ_BASE_URL
 
 class VoiceCleanupError(RuntimeError):
     pass
+
+
+_CLEANUP_MAX_RETRIES = 10
 
 
 DICTATION_CLEANUP_PROMPT = """
@@ -96,15 +101,23 @@ async def _clean_with_model(
         payload["include_reasoning"] = False
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{base_url.rstrip('/')}/chat/completions",
-                headers={
-                    "authorization": f"Bearer {api_key}",
-                    "content-type": "application/json",
-                },
-                json=payload,
-            )
+        for attempt in range(_CLEANUP_MAX_RETRIES + 1):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"{base_url.rstrip('/')}/chat/completions",
+                        headers={
+                            "authorization": f"Bearer {api_key}",
+                            "content-type": "application/json",
+                        },
+                        json=payload,
+                    )
+                break
+            except httpx.HTTPError as exc:
+                if attempt < _CLEANUP_MAX_RETRIES:
+                    await asyncio.sleep(min(2**attempt, 30))
+                    continue
+                raise
     except httpx.TimeoutException as exc:
         raise VoiceCleanupError("Transcript cleanup timed out.") from exc
     except httpx.HTTPError as exc:

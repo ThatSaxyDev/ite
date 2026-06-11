@@ -30,6 +30,7 @@ class MessageItem:
     metadata: dict[str, Any] | None = None
     token_count: int | None = None
     pruned_at: datetime | None = None
+    content_parts: list[dict[str, Any]] | None = None
 
     def to_dict(
         self,
@@ -46,7 +47,10 @@ class MessageItem:
             result["tool_calls"] = _json_safe(self.tool_calls)
 
         if self.role == "tool":
-            result["content"] = self.content or ""
+            if self.content_parts:
+                result["content"] = self.content_parts
+            else:
+                result["content"] = self.content or ""
         elif self.content or self.tool_calls:
             result["content"] = self.content or ""
 

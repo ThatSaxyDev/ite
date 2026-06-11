@@ -77,6 +77,7 @@ from ite.attachments import (
     build_user_model_content,
     build_user_text_with_manifest,
 )
+from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import (
     CloudAuthError,
     CloudConnectionError,
@@ -1569,6 +1570,41 @@ class ReupApp(App):
         self._remote_command_seq: int = 0
         self._remote_change_feed: list[dict[str, Any]] = []
         self._remote_change_seq: int = 0
+
+    def _handle_exception(self, error: Exception) -> None:
+        import ssl
+
+        error_str = str(error)
+
+        transient_markers = (
+            "SSLV3_ALERT_BAD_RECORD_MAC",
+            "ssl/tls alert bad record mac",
+            "CERTIFICATE_VERIFY_FAILED",
+            "SSL: DECRYPTION_FAILED_OR_BAD_RECORD_MAC",
+            "Connection reset by peer",
+            "Remote end closed connection",
+            "Broken pipe",
+        )
+        is_transient_network = any(
+            marker.lower() in error_str.lower() for marker in transient_markers
+        )
+
+        if isinstance(error, (CloudConnectionError, ssl.SSLError)) or is_transient_network:
+            self._return_code = 0
+            if self._exception is None:
+                self._exception = error
+                self._exception_event.set()
+            self.bell()
+            self.exit(
+                message=(
+                    "iTE lost its network connection.\n\n"
+                    "Your session is intact. Run `ite` again to continue.\n"
+                    f"\nDetails: {error_str}"
+                ),
+            )
+            return
+
+        super()._handle_exception(error)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -8639,6 +8675,15 @@ class ReupApp(App):
             or "could not reach ite bundled inference" in text
             or "incomplete chunked read" in text
             or "peer closed connection" in text
+            or "ssl/tls alert bad record mac" in text
+            or "sslv3_alert_bad_record_mac" in text
+            or "ssl: decryption_failed_or_bad_record_mac" in text
+            or "remote end closed connection" in text
+            or "connection reset by peer" in text
+            or "connection lost" in text
+            or "could not reach ite cloud api" in text
+            or "connection error" in text
+            or "ssl error" in text
         )
 
     def _mark_retryable_turn_failure(self, session_id: str, error_message: str) -> None:
@@ -8744,6 +8789,7 @@ class ReupApp(App):
         attachments: list[str],
         turn_id: int,
         workspace: Path,
+        supports_vision: bool = True,
     ) -> tuple[str, str | list[dict] | None, str | None, list[Attachment]] | None:
         if not attachments:
             return message, None, None, []
@@ -8755,7 +8801,9 @@ class ReupApp(App):
                 self.post_attachment_note(error)
         if not staged:
             return None
-        user_model_content = build_user_model_content(message, staged, workspace)
+        user_model_content = build_user_model_content(
+            message, staged, workspace, supports_vision=supports_vision,
+        )
         prepared_message = build_user_text_with_manifest(message, staged, workspace)
         return prepared_message, user_model_content, temp_turn_id, staged
 
@@ -10019,6 +10067,8 @@ class ReupApp(App):
         attachments = list(
             getattr(active_agent.session, "pending_attachment_paths", [])
         )
+        model_name = str(getattr(active_agent.session.config, "model_name", "") or "").strip()
+        supports_vision = detect_vision_from_model_name(model_name) if model_name else True
         run_state.active_turn_id += 1
         turn_id = run_state.active_turn_id
         try:
@@ -10040,6 +10090,7 @@ class ReupApp(App):
             attachments=attachments,
             turn_id=turn_id,
             workspace=workspace,
+            supports_vision=supports_vision,
         )
         if prepared is None:
             return
@@ -10162,6 +10213,31 @@ class ReupApp(App):
                 message, user_model_content=user_model_content
             ):
                 await self.handle_agent_event(event, session_id, turn_id)
+        except Exception as exc:
+            error_str = str(exc)
+            run_state = self._run_state(session_id)
+            run_state.turn_had_error = True
+            run_state.context_meter_floor_pct = None
+            self._mark_retryable_turn_failure(session_id, error_str)
+            recovery_payload = self._build_followup_recovery_payload(session_id)
+            if recovery_payload is not None and run_state.failure_recovery_attempts < 3:
+                run_state.failure_recovery_payload = recovery_payload
+                run_state.failure_recovery_attempts += 1
+                run_state.silent_recovery_active = True
+                self._set_loading_state("Reconnecting...", busy=True)
+            else:
+                retry_payload = self._build_silent_retry_payload(session_id)
+                if retry_payload is not None and run_state.failure_recovery_attempts < 3:
+                    run_state.failure_recovery_payload = retry_payload
+                    run_state.failure_recovery_attempts += 1
+                    run_state.silent_recovery_active = True
+                    self._set_loading_state("Reconnecting...", busy=True)
+                else:
+                    self.post_system(
+                        "Connection lost",
+                        error_str,
+                        is_error=True,
+                    )
         finally:
             if attachment_turn_id:
                 AttachmentManager(

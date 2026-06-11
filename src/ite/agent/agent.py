@@ -2211,6 +2211,7 @@ class Agent:
                             tool_call_id=tool_call.call_id,
                             content=result.to_model_output(),
                             is_error=not result.success,
+                            content_parts=result.content_parts,
                         ),
                         result,
                     )
@@ -2229,6 +2230,7 @@ class Agent:
                         "truncated": result.truncated,
                         "exit_code": result.exit_code,
                     },
+                    content_parts=result.content_parts,
                 )
 
             if skipped_plan_validation_errors:
