@@ -298,6 +298,71 @@ class ReupPromptTextArea(TextArea):
             self.action_submit()
             return
 
+    async def on_paste(self, event: events.Paste) -> None:
+        """Handle paste events to intercept file paths and stage them as attachments.
+
+        When a user drags a file into the terminal (or pastes a file path),
+        the terminal may send the file path as text in the paste event.
+        We detect valid file paths, stage them, and insert attachment refs.
+        """
+        app = self.app
+        raw = (event.text or "").strip()
+        if not raw:
+            return
+
+        candidates: list[str]
+        if "\n" in raw:
+            candidates = [
+                line.strip().strip('"').strip("'")
+                for line in raw.splitlines()
+                if line.strip()
+            ]
+        else:
+            try:
+                candidates = shlex.split(raw)
+            except ValueError:
+                candidates = [raw.strip().strip('"').strip("'")]
+
+        if not candidates or len(candidates) > MAX_ATTACHMENTS:
+            return
+
+        paths: list[str] = []
+        for candidate in candidates:
+            if not any(
+                sep in candidate for sep in ("/", "\\")
+            ) and not candidate.startswith("~"):
+                continue
+            path = Path(candidate).expanduser()
+            if not path.exists() or not path.is_file():
+                continue
+            paths.append(str(path))
+
+        if not paths:
+            return
+
+        workspace = Path(app.config.cwd).resolve()
+        manager = AttachmentManager(workspace)
+        turn_id = int(time.time() * 1000)
+        temp_turn_id = f"paste_{turn_id}"
+        staged, errors = manager.stage_paths([Path(p) for p in paths], temp_turn_id)
+
+        if errors:
+            for error in errors:
+                app.post_attachment_note(error)
+
+        if not staged:
+            return
+
+        added = app._insert_attachment_refs_into_prompt(paths)
+        if added > 0:
+            noun = "reference" if added == 1 else "references"
+            app.post_attachment_note(
+                f"Inserted {added} attachment {noun} into the composer."
+            )
+
+        event.prevent_default()
+        event.stop()
+
 
 class UserMessageRow(Container):
     BUBBLE_MAX_WIDTH = 92
