@@ -13,11 +13,12 @@ from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolResult
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+import asyncio
 import logging
 import time
 import json
 import re
-from ite.tools.base import Tool
+from ite.tools.base import Tool, ToolKind
 from ite.safety.approval import classify_command_safety
 
 logger = logging.getLogger(__name__)
@@ -326,7 +327,12 @@ class ToolRegistry:
                         return result
 
         try:
-            result = await tool.execute(invocation)
+            if tool.kind in {ToolKind.READ, ToolKind.WRITE} and not name.startswith(
+                "subagent_"
+            ):
+                result = await asyncio.to_thread(asyncio.run, tool.execute(invocation))
+            else:
+                result = await tool.execute(invocation)
         except Exception as e:
             logger.exception(f"Error executing tool {name}")
             await hook_system.trigger_on_error(e)

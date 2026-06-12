@@ -11,6 +11,7 @@ import os
 import re
 import shlex
 import signal
+import ssl
 import subprocess
 import sys
 import time
@@ -264,6 +265,38 @@ LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
 
 CLOUD_NETWORK_ONLINE_PROBE_INTERVAL_SEC = 30.0
 CLOUD_NETWORK_OFFLINE_FAILURE_THRESHOLD = 3
+
+_VOICE_TRANSCRIPTION_MAX_RETRIES = 2
+
+_VOICE_TRANSIENT_ERROR_MARKERS = (
+    "sslv3_alert_bad_record_mac",
+    "ssl/tls alert bad record mac",
+    "ssl: decryption_failed_or_bad_record_mac",
+    "connection reset by peer",
+    "remote end closed connection",
+    "broken pipe",
+    "incomplete chunked read",
+    "peer closed connection",
+    "connection refused",
+    "temporary failure in name resolution",
+    "cannot connect to host",
+)
+
+
+def _is_transient_voice_error(exc: BaseException) -> bool:
+    """Check whether an exception is a transient network/SSL error worth retrying silently."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None:
+        if id(current) in seen:
+            break
+        seen.add(id(current))
+        if isinstance(current, ssl.SSLError):
+            return True
+        current = current.__cause__ or current.__context__
+
+    text = str(exc).lower()
+    return any(marker in text for marker in _VOICE_TRANSIENT_ERROR_MARKERS)
 
 
 class ReupPromptTextArea(TextArea):
@@ -8420,8 +8453,8 @@ class ReupApp(App):
         recorder = VoiceRecorder()
         try:
             await recorder.start()
-        except VoiceRecorderError as exc:
-            self.post_notice("Flow", str(exc), timeout=8)
+        except VoiceRecorderError:
+            self.post_notice("Flow", "An error occurred, please try again.", timeout=8)
             return
 
         self._voice_recorder = recorder
@@ -8443,7 +8476,16 @@ class ReupApp(App):
         audio_path: Path | None = None
         try:
             audio_path = await recorder.stop()
-            result = await transcribe_voice_file(self.config, audio_path)
+            result = None
+            for attempt in range(_VOICE_TRANSCRIPTION_MAX_RETRIES + 1):
+                try:
+                    result = await transcribe_voice_file(self.config, audio_path)
+                    break
+                except Exception as exc:
+                    if not _is_transient_voice_error(exc) or attempt >= _VOICE_TRANSCRIPTION_MAX_RETRIES:
+                        raise
+                    await asyncio.sleep(min(2**attempt, 4))
+            assert result is not None, "transcription result must be set"
             transcript = result.transcript.strip()
             if not transcript:
                 self.post_notice("Flow", "No speech detected.")
@@ -8468,8 +8510,8 @@ class ReupApp(App):
             if isinstance(insert_target, TextArea) and insert_target.id == "prompt":
                 self._sync_command_palette(insert_target.text)
                 self._resize_composer_for_prompt()
-        except Exception as exc:
-            self.post_notice("Flow", str(exc), timeout=8)
+        except Exception:
+            self.post_notice("Flow", "An error occurred, please try again.", timeout=8)
         finally:
             self._voice_busy = False
             self._flow_meta_frame = 0
