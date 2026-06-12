@@ -78,7 +78,7 @@ jobs:
           echo "Built ${{ matrix.target }}"
           ls -lh dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}*
 
-  # ── Create GitHub Release on push to `development` branch ──────
+  # ── Create GitHub Release + deploy manifest ──────────────────
   release:
     if: github.ref == 'refs/heads/development'
     needs: build
@@ -153,3 +153,24 @@ jobs:
             "${ARTIFACTS[@]}"
 
           echo "Release created: https://github.com/ThatSaxyDev/ite-releases/releases/tag/$TAG"
+
+      - name: Deploy manifest to cloud-web
+        env:
+          GH_TOKEN: ${{ secrets.ITE_CLOUD_WEB_PAT }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "Deploying manifest v${VERSION} to ite-cloud-web..."
+
+          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/ThatSaxyDev/ite-cloud-web.git" /tmp/cloud-web
+
+          mkdir -p /tmp/cloud-web/public/releases
+          cp dist/manifest.json /tmp/cloud-web/public/releases/manifest.json
+
+          cd /tmp/cloud-web
+          git config user.name "ite-ci"
+          git config user.email "ci@ite.kiishi.space"
+          git add public/releases/manifest.json
+          git commit -m "release: v${VERSION} manifest" || echo "No changes to commit"
+          git push origin HEAD:bach_write
+
+          echo "Manifest deployed. Live at: https://ite.kiishi.space/releases/manifest.json"
