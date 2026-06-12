@@ -24,21 +24,21 @@ jobs:
           - target: darwin-arm64
             os: macos-latest
             archive_ext: tar.gz
-            shell_name: bash
           - target: darwin-x64
             os: macos-14
             archive_ext: tar.gz
-            shell_name: bash
           - target: linux-x64
             os: ubuntu-latest
             archive_ext: tar.gz
-            shell_name: bash
           - target: win32-x64
             os: windows-latest
             archive_ext: zip
-            shell_name: pwsh
 
     runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
@@ -50,21 +50,19 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        shell: ${{ matrix.shell_name }}
         run: |
           python -m pip install --upgrade pip
           pip install -e .
           pip install pyinstaller
 
       - name: Build runtime
-        shell: ${{ matrix.shell_name }}
         run: |
-          $version = '${{ github.event.inputs.version }}'
-          if ($version -ne '') {
-            python scripts/build_runtime.py --target ${{ matrix.target }} --version $version
-          } else {
+          VERSION='${{ github.event.inputs.version }}'
+          if [ -n "$VERSION" ]; then
+            python scripts/build_runtime.py --target ${{ matrix.target }} --version "$VERSION"
+          else
             python scripts/build_runtime.py --target ${{ matrix.target }}
-          }
+          fi
 
       - name: Upload archive
         uses: actions/upload-artifact@v4
@@ -76,7 +74,6 @@ jobs:
           retention-days: 7
 
       - name: Report
-        shell: ${{ matrix.shell_name }}
         run: |
           echo "Built ${{ matrix.target }}"
           ls -lh dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}*
