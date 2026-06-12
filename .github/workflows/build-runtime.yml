@@ -2,10 +2,7 @@ name: Build iTE Runtime
 
 on:
   push:
-    branches: [main, feat/ui_rework]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+    branches: [development]
   workflow_dispatch:
     inputs:
       version:
@@ -84,9 +81,9 @@ jobs:
           echo "Built ${{ matrix.target }}"
           ls -lh dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}*
 
-  # ── Create GitHub Release on tag push (→ ThatSaxyDev/ite-releases) ──
+  # ── Create GitHub Release on push to `development` branch ──────
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/development'
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -117,11 +114,24 @@ jobs:
           pip install tomli 2>/dev/null || true
           python scripts/build_runtime.py --manifest-only
 
+      - name: Get version
+        id: get_version
+        run: |
+          pip install tomli 2>/dev/null || true
+          VERSION=$(python -c "
+import tomli
+with open('pyproject.toml', 'rb') as f:
+    print(tomli.load(f)['project']['version'])
+")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Tag: v$VERSION"
+
       - name: Create GitHub Release (ite-releases)
         env:
           GH_TOKEN: ${{ secrets.ITE_RELEASES_PAT }}
         run: |
-          TAG="${{ github.ref_name }}"
+          VERSION="${{ steps.get_version.outputs.version }}"
+          TAG="v${VERSION}"
           echo "Creating release $TAG on ThatSaxyDev/ite-releases..."
 
           # Collect artifact files
