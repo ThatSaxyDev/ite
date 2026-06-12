@@ -80,17 +80,41 @@ def current_runtime_version() -> str:
 
 
 def detect_install_method() -> str:
-    """Return the install method: 'installer' if installed via curl install.sh, 'pipx' otherwise.
+    """Return the install method: 'installer', 'pipx', or 'uv'.
     Defaults to 'installer' when resolution fails — the one-shot installer is the safer fallback."""
+
     try:
         import ite
         package_path = Path(ite.__file__).resolve()
-        managed_root = Path.home() / ".ite"
-        if str(package_path).startswith(str(managed_root)):
+        if str(package_path).startswith(str(Path.home() / ".ite")):
             return "installer"
-        return "pipx"
     except Exception:
         return "installer"
+
+    return _detect_pipx_or_uv()
+
+
+def _detect_pipx_or_uv() -> str:
+    import subprocess
+
+    try:
+        import ite
+        package_path = Path(ite.__file__).resolve()
+        if str(package_path).startswith(str(Path.home() / ".local/pipx")):
+            return "pipx"
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["uv", "tool", "list"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and "ite-agent" in result.stdout:
+            return "uv"
+    except Exception:
+        pass
+
+    return "pipx"
 
 
 def _state_path() -> Path:
@@ -170,7 +194,10 @@ def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdate
 
     title = str(payload.get("title") or "Update available").strip() or "Update available"
     message = str(payload.get("message") or "").strip()
-    upgrade = str(payload.get("upgradeCommand") or "pipx upgrade ite-agent").strip()
+    default_upgrade = "pipx upgrade ite-agent"
+    if detect_install_method() == "uv":
+        default_upgrade = "uv tool upgrade ite-agent"
+    upgrade = str(payload.get("upgradeCommand") or default_upgrade).strip()
     installer = str(payload.get("installerCommand") or "curl -fsSL https://ite.kiishi.space/install.sh | bash").strip()
     release_url = str(payload.get("releaseUrl") or "").strip() or None
 

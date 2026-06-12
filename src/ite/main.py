@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +67,36 @@ def _load_runtime_config(
     return config
 
 
+def _run_upgrade() -> None:
+    from ite.update_check import detect_install_method
+
+    method = detect_install_method()
+
+    if method == "uv":
+        cmd = ["uv", "tool", "upgrade", "ite-agent"]
+    elif method == "pipx":
+        cmd = ["pipx", "upgrade", "ite-agent"]
+    elif sys.platform == "win32":
+        cmd = [
+            "powershell",
+            "-Command",
+            "irm https://ite.kiishi.space/install.ps1 | iex",
+        ]
+    else:
+        cmd = [
+            "bash",
+            "-c",
+            "curl -fsSL https://ite.kiishi.space/install.sh | bash",
+        ]
+
+    console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        raise click.ClickException(
+            f"Upgrade exited with code {result.returncode}"
+        )
+
+
 def _run_main_app(
     *,
     workspace_dir: Path,
@@ -112,6 +144,7 @@ def _run_main_app(
     is_flag=True,
     help="Resume the most recent saved session for this workspace on startup.",
 )
+@click.option("--upgrade", is_flag=True, help="Upgrade iTE to the latest version.")
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -120,6 +153,7 @@ def main(
     api_key: str | None,
     base_url: str | None,
     resume_last: bool,
+    upgrade: bool,
 ) -> None:
     workspace_dir = cwd or Path.cwd()
     ctx.ensure_object(dict)
@@ -128,6 +162,9 @@ def main(
     ctx.obj["api_key"] = api_key
     ctx.obj["base_url"] = base_url
     if ctx.invoked_subcommand is None:
+        if upgrade:
+            _run_upgrade()
+            return
         _run_main_app(
             workspace_dir=workspace_dir,
             model=model,

@@ -4006,6 +4006,11 @@ class ReupApp(App):
                 str(getattr(notice, "installer_command", "") or "").strip()
                 or "curl -fsSL https://ite.kiishi.space/install.sh | bash"
             )
+        elif install_method == "uv":
+            command = (
+                str(getattr(notice, "upgrade_command", "") or "").strip()
+                or "uv tool upgrade ite-agent"
+            )
         else:
             command = (
                 str(getattr(notice, "upgrade_command", "") or "").strip()
