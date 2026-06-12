@@ -1,0 +1,145 @@
+name: Build iTE Runtime
+
+on:
+  push:
+    branches: [main, feat/ui_rework]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (default: from pyproject.toml)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  # ── Matrix build across all 4 platforms ──────────────────────
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            os: macos-latest
+            archive_ext: tar.gz
+          - target: darwin-x64
+            os: macos-13
+            archive_ext: tar.gz
+          - target: linux-x64
+            os: ubuntu-latest
+            archive_ext: tar.gz
+          - target: win32-x64
+            os: windows-latest
+            archive_ext: zip
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build runtime
+        run: |
+          VERSION_ARG=""
+          if [ -n "${{ github.event.inputs.version || '' }}" ]; then
+            VERSION_ARG="--version ${{ github.event.inputs.version }}"
+          fi
+          python scripts/build_runtime.py --target ${{ matrix.target }} $VERSION_ARG
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}
+            dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}.sha256
+          retention-days: 7
+
+      - name: Report
+        run: |
+          echo "Built ${{ matrix.target }}"
+          ls -lh dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}*
+
+  # ── Create GitHub Release on tag push (→ ThatSaxyDev/ite-releases) ──
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: false
+
+      - name: Restructure artifacts for manifest
+        run: |
+          mkdir -p dist/runtime
+          for target_dir in artifacts/*/; do
+            target=$(basename "$target_dir")
+            mkdir -p "dist/runtime/${target}"
+            cp -v "${target_dir}"/* "dist/runtime/${target}/"
+          done
+          echo "Artifacts restructured:"
+          find dist/runtime -type f | sort
+
+      - name: Generate manifest
+        run: |
+          pip install tomli 2>/dev/null || true
+          python scripts/build_runtime.py --manifest-only
+
+      - name: Create GitHub Release (ite-releases)
+        env:
+          GH_TOKEN: ${{ secrets.ITE_RELEASES_PAT }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "Creating release $TAG on ThatSaxyDev/ite-releases..."
+
+          # Collect artifact files
+          ARTIFACTS=()
+          for dir in artifacts/*/; do
+            for f in "$dir"*; do
+              [ -f "$f" ] && ARTIFACTS+=("$f")
+            done
+          done
+
+          echo "Uploading ${#ARTIFACTS[@]} files..."
+          gh release create "$TAG" \
+            --repo ThatSaxyDev/ite-releases \
+            --title "$TAG" \
+            --notes "iTE ${TAG} — standalone runtime
+
+          ### One-command install
+
+          \`\`\`bash
+          curl -fsSL https://ite.kiishi.space/install.sh | sh
+          \`\`\`
+
+          ### Artifacts
+
+          Built with PyInstaller. Includes bundled Python + all dependencies.
+          " \
+            "${ARTIFACTS[@]}"
+
+          echo "Release created: https://github.com/ThatSaxyDev/ite-releases/releases/tag/$TAG"
