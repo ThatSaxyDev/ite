@@ -171,7 +171,7 @@ def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdate
     title = str(payload.get("title") or "Update available").strip() or "Update available"
     message = str(payload.get("message") or "").strip()
     upgrade = str(payload.get("upgradeCommand") or "pipx upgrade ite-agent").strip()
-    installer = str(payload.get("installerCommand") or "curl -fsSL https://ite.kiishi.space/install.sh | sh").strip()
+    installer = str(payload.get("installerCommand") or "curl -fsSL https://ite.kiishi.space/install.sh | bash").strip()
     release_url = str(payload.get("releaseUrl") or "").strip() or None
 
     return RuntimeUpdateNotice(
@@ -180,7 +180,7 @@ def _coerce_notice(payload: dict[str, Any], local_version: str) -> RuntimeUpdate
         title=title,
         message=message,
         upgrade_command=upgrade or "pipx upgrade ite-agent",
-        installer_command=installer or "curl -fsSL https://ite.kiishi.space/install.sh | sh",
+        installer_command=installer or "curl -fsSL https://ite.kiishi.space/install.sh | bash",
         release_url=release_url,
         update_required=required,
         current_version=local_version,

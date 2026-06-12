@@ -109,7 +109,7 @@ create_with_gh() {
 ### One-command install
 
 \`\`\`bash
-curl -fsSL https://ite.kiishi.space/install.sh | sh
+curl -fsSL https://ite.kiishi.space/install.sh | bash
 \`\`\`
 
 ### Artifacts

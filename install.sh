@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # iTE One-Shot Installer
-#   curl -fsSL https://ite.kiishi.space/install.sh | sh
+#   curl -fsSL https://ite.kiishi.space/install.sh | bash
 #
 # Detects OS/arch, downloads the correct standalone iTE runtime,
 # verifies the checksum, and installs to ~/.ite/bin/ite.

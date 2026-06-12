@@ -3971,7 +3971,7 @@ class ReupApp(App):
         if install_method == "installer":
             command = (
                 str(getattr(notice, "installer_command", "") or "").strip()
-                or "curl -fsSL https://ite.kiishi.space/install.sh | sh"
+                or "curl -fsSL https://ite.kiishi.space/install.sh | bash"
             )
         else:
             command = (
