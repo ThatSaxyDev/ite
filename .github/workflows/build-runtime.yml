@@ -14,6 +14,9 @@ permissions:
   contents: write
   actions: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   # ── Matrix build across all 4 platforms ──────────────────────
   build:
@@ -161,7 +164,7 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           echo "Deploying manifest v${VERSION} to ite-cloud-web..."
 
-          git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/ThatSaxyDev/ite-cloud-web.git" /tmp/cloud-web
+          git clone --depth 1 --branch bach_write "https://x-access-token:${GH_TOKEN}@github.com/ThatSaxyDev/ite-cloud-web.git" /tmp/cloud-web
 
           mkdir -p /tmp/cloud-web/public/releases
           cp dist/manifest.json /tmp/cloud-web/public/releases/manifest.json
