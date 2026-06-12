@@ -118,11 +118,7 @@ jobs:
         id: get_version
         run: |
           pip install tomli 2>/dev/null || true
-          VERSION=$(python -c "
-import tomli
-with open('pyproject.toml', 'rb') as f:
-    print(tomli.load(f)['project']['version'])
-")
+          VERSION=$(python scripts/build_runtime.py --print-version)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Tag: v$VERSION"
 
@@ -134,7 +130,6 @@ with open('pyproject.toml', 'rb') as f:
           TAG="v${VERSION}"
           echo "Creating release $TAG on ThatSaxyDev/ite-releases..."
 
-          # Collect artifact files
           ARTIFACTS=()
           for dir in artifacts/*/; do
             for f in "$dir"*; do

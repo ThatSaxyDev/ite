@@ -507,6 +507,11 @@ def main() -> None:
         action="store_true",
         help="Check if PyInstaller is installed and exit",
     )
+    parser.add_argument(
+        "--print-version",
+        action="store_true",
+        help="Print the resolved version and exit",
+    )
 
     args = parser.parse_args()
 
@@ -517,6 +522,10 @@ def main() -> None:
         except ImportError:
             print("PyInstaller is NOT installed. Run: pip install pyinstaller")
             sys.exit(1)
+        return
+
+    if args.print_version:
+        print(_get_version(args.version))
         return
 
     version = _get_version(args.version)
