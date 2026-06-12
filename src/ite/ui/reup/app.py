@@ -13245,9 +13245,7 @@ class ReupApp(App):
             header.append("⌛ ", style=f"bold {self._style('primary')}")
             header.append(title_text, style=f"bold {self._style('fg')}")
             header.append("  running", style=self._render_styles()["muted"])
-            if tool_kind == "mcp" and narrative:
-                blocks.insert(0, Text(narrative, style=self._render_styles()["muted"]))
-            card.update(Group(header, *blocks))
+            card.update(header)
         self._tool_widgets[call_id] = card
 
         if existing_card is not None:
