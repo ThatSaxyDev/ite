@@ -12859,7 +12859,13 @@ class ReupApp(App):
             title=previous.plural_stack_title(),
             classes="block tool tool-stack success",
         )
-        await conversation.mount(stack, before=previous)
+        after_widget = siblings[index + 1] if index + 1 < len(siblings) else None
+        await previous.remove()
+        await card.remove()
+        if after_widget is not None:
+            await conversation.mount(stack, before=after_widget)
+        else:
+            await conversation.mount(stack)
         await stack.add_card(previous)
         await stack.add_card(card)
         self._message_count = max(0, self._message_count - 1)
