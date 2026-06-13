@@ -74,23 +74,32 @@ def _run_upgrade() -> None:
 
     if method == "uv":
         cmd = ["uv", "tool", "upgrade", "ite-agent"]
+        console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+        result = subprocess.run(cmd)
     elif method == "pipx":
         cmd = ["pipx", "upgrade", "ite-agent"]
+        console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+        result = subprocess.run(cmd)
     elif sys.platform == "win32":
         cmd = [
             "powershell",
             "-Command",
             "irm https://ite.kiishi.space/install.ps1 | iex",
         ]
+        console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+        result = subprocess.run(cmd)
     else:
-        cmd = [
-            "bash",
-            "-c",
-            "curl -fsSL https://ite.kiishi.space/install.sh | bash",
-        ]
+        console.print(
+            "[dim]Running: curl -fsSL https://ite.kiishi.space/install.sh | bash[/dim]"
+        )
+        curl_proc = subprocess.Popen(
+            ["curl", "-fsSL", "https://ite.kiishi.space/install.sh"],
+            stdout=subprocess.PIPE,
+        )
+        result = subprocess.run(["bash"], stdin=curl_proc.stdout)
+        curl_proc.stdout.close()
+        curl_proc.wait()
 
-    console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
-    result = subprocess.run(cmd)
     if result.returncode != 0:
         raise click.ClickException(
             f"Upgrade exited with code {result.returncode}"
