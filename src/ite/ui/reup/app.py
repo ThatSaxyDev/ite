@@ -3604,6 +3604,21 @@ class ReupApp(App):
         }
         return model in bundled_models
 
+    def _resolve_model_vision_support(self, model_name: str, source_kind: str | None = None) -> bool:
+        """Return whether *model_name* supports vision/image inputs.
+
+        For bundled models, check the capabilities reported by the cloud API.
+        For all others, fall back to the name-based heuristic.
+        """
+        if source_kind == "bundled" and self._bundled_models_cache:
+            for item in self._bundled_models_cache:
+                if str(item.get("model_name") or "").strip() == model_name:
+                    caps = item.get("capabilities")
+                    if isinstance(caps, list) and "image" in caps:
+                        return True
+                    return False
+        return detect_vision_from_model_name(model_name)
+
     def _apply_cloud_auth_status(
         self,
         auth: Any,
@@ -4123,6 +4138,9 @@ class ReupApp(App):
             return
         self.config.model.name = canonical_model
         self.config.model.source_kind = "bundled"
+        self.config.model.supports_vision = self._resolve_model_vision_support(
+            canonical_model, source_kind="bundled"
+        )
         if api_window is not None:
             self.config.model.context_window = api_window
             self.config.model.context_window_source = "bundled_provider_api"
@@ -4824,6 +4842,9 @@ class ReupApp(App):
         self.config.model.context_window = next_context_window
         self.config.model.context_window_source = next_context_window_source
         self.config.model.source_kind = next_source_kind or None
+        self.config.model.supports_vision = self._resolve_model_vision_support(
+            selected, source_kind=next_source_kind
+        )
         await self._reset_active_provider_client()
         self.refresh_header()
 
@@ -7745,6 +7766,9 @@ class ReupApp(App):
             str(result.get("context_window_source") or "").strip() or None
         )
         self.config.model.source_kind = "saved"
+        self.config.model.supports_vision = self._resolve_model_vision_support(
+            result["model_name"], source_kind="saved"
+        )
         self.config.approval = ApprovalPolicy(result["approval"])
         await self._reset_active_provider_client()
         self.refresh_header(refresh_session_tabs=False)
@@ -7772,6 +7796,7 @@ class ReupApp(App):
                 self.config.model.context_window_source
             )
             session_config.model.source_kind = self.config.model.source_kind
+            session_config.model.supports_vision = self.config.model.supports_vision
         if not getattr(self.agent.session, "client", None):
             return
         try:

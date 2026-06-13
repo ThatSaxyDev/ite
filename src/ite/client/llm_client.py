@@ -1252,8 +1252,18 @@ class LLMClient:
             msg: dict[str, Any] = {"role": role}
             content = raw.get("content")
             if role in ("user", "tool") and isinstance(content, list):
-                # Preserve multimodal user/tool content parts.
-                msg["content"] = content
+                # Preserve multimodal user/tool content parts, but strip
+                # image_url entries when the current model lacks vision support
+                # to avoid provider errors (e.g. DeepSeek V4 Pro).
+                if not getattr(self.config.model, "supports_vision", True):
+                    text_parts = [
+                        str(part.get("text", ""))
+                        for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    ]
+                    msg["content"] = "\n".join(text_parts) if text_parts else ""
+                else:
+                    msg["content"] = content
             else:
                 # OpenAI-compatible providers can reject missing/null content.
                 # Keep non-multimodal content consistently string-typed.

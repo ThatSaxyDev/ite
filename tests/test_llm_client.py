@@ -843,6 +843,74 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn("reasoning_content", sanitized[0])
 
+    def test_sanitize_messages_strips_image_url_parts_when_model_lacks_vision(self) -> None:
+        """When config.model.supports_vision is False, image_url entries are
+        removed from multimodel content arrays and text parts are joined."""
+        client = LLMClient(
+            Config(
+                model={"name": "deepseek-v4-pro", "supports_vision": False},
+                api_key="sk-test",
+                base_url="https://api.deepseek.com",
+            )
+        )
+
+        sanitized = client._sanitize_messages(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Describe this image."},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,abc123"},
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_read_img",
+                    "content": [
+                        {"type": "text", "text": '{"dimensions": {"width": 100, "height": 200}}'},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,def456"},
+                        },
+                    ],
+                },
+            ]
+        )
+
+        self.assertEqual(sanitized[0]["content"], "Describe this image.")
+        self.assertIsInstance(sanitized[0]["content"], str)
+        self.assertEqual(
+            sanitized[1]["content"],
+            '{"dimensions": {"width": 100, "height": 200}}',
+        )
+        self.assertIsInstance(sanitized[1]["content"], str)
+
+    def test_sanitize_messages_preserves_multimodal_content_when_vision_supported(self) -> None:
+        """When config.model.supports_vision is True (default), multimodal
+        content arrays pass through unchanged."""
+        client = LLMClient(
+            Config(
+                model={"name": "minimax-m3"},
+                api_key="sk-test",
+                base_url="https://api.minimax.chat/v1",
+            )
+        )
+
+        multimodal: list[dict[str, Any]] = [
+            {"type": "text", "text": "Describe this image."},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        ]
+        sanitized = client._sanitize_messages(
+            [{"role": "user", "content": multimodal}]
+        )
+
+        self.assertEqual(sanitized[0]["content"], multimodal)
+        self.assertIsInstance(sanitized[0]["content"], list)
+        self.assertEqual(len(sanitized[0]["content"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
