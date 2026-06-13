@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version override (default: from pyproject.toml)'
+        description: "Version override (default: from pyproject.toml)"
         required: false
         type: string
 
@@ -15,11 +15,48 @@ permissions:
   actions: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
-  # ── Matrix build across all 4 platforms ──────────────────────
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      already_released: ${{ steps.check.outputs.already_released }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Resolve version
+        id: resolve
+        run: |
+          pip install tomli 2>/dev/null || true
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$VERSION" ]; then
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(python scripts/build_runtime.py --print-version)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+          echo "Resolved version: v$VERSION"
+      - name: Check if already released
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.ITE_RELEASES_PAT }}
+        run: |
+          TAG="v${{ steps.resolve.outputs.version }}"
+          if gh release view "$TAG" --repo ThatSaxyDev/ite-releases &>/dev/null; then
+            echo "already_released=true" >> $GITHUB_OUTPUT
+            echo "⚠️  Release $TAG already exists on ThatSaxyDev/ite-releases — skipping build."
+          else
+            echo "already_released=false" >> $GITHUB_OUTPUT
+            echo "✓ Release $TAG does not exist — proceeding with build."
+          fi
+
   build:
+    needs: check-version
+    if: needs.check-version.outputs.already_released != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -36,28 +73,22 @@ jobs:
           - target: win32-x64
             os: windows-latest
             archive_ext: zip
-
     runs-on: ${{ matrix.os }}
-
     defaults:
       run:
         shell: bash
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e .
           pip install pyinstaller
-
       - name: Build runtime
         run: |
           VERSION='${{ github.event.inputs.version }}'
@@ -66,7 +97,6 @@ jobs:
           else
             python scripts/build_runtime.py --target ${{ matrix.target }}
           fi
-
       - name: Upload archive
         uses: actions/upload-artifact@v4
         with:
@@ -75,29 +105,26 @@ jobs:
             dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}
             dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}.sha256
           retention-days: 7
-
       - name: Report
         run: |
           echo "Built ${{ matrix.target }}"
           ls -lh dist/runtime/${{ matrix.target }}/ite-*.${{ matrix.archive_ext }}*
 
-  # ── Create GitHub Release + deploy manifest ──────────────────
   release:
-    if: github.ref == 'refs/heads/development'
-    needs: build
+    if: |
+      github.ref == 'refs/heads/development' &&
+      needs.check-version.outputs.already_released != 'true'
+    needs: [check-version, build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
+          python-version: "3.11"
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: false
-
       - name: Restructure artifacts for manifest
         run: |
           mkdir -p dist/runtime
@@ -108,12 +135,10 @@ jobs:
           done
           echo "Artifacts restructured:"
           find dist/runtime -type f | sort
-
       - name: Generate manifest
         run: |
           pip install tomli 2>/dev/null || true
           python scripts/build_runtime.py --manifest-only
-
       - name: Get version
         id: get_version
         run: |
@@ -121,7 +146,6 @@ jobs:
           VERSION=$(python scripts/build_runtime.py --print-version)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Tag: v$VERSION"
-
       - name: Create GitHub Release (ite-releases)
         env:
           GH_TOKEN: ${{ secrets.ITE_RELEASES_PAT }}
@@ -156,7 +180,6 @@ jobs:
             "${ARTIFACTS[@]}"
 
           echo "Release created: https://github.com/ThatSaxyDev/ite-releases/releases/tag/$TAG"
-
       - name: Deploy manifest to cloud-web
         env:
           GH_TOKEN: ${{ secrets.ITE_CLOUD_WEB_PAT }}
