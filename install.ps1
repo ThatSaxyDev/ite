@@ -138,19 +138,32 @@ function Install-Artifact {
         # Copy all files
         Copy-Item -Recurse -Force "$($extractedDir.FullName)\*" -Destination $BinDir
 
-        # Verify executable
-        if (-not (Test-Path $ExePath)) {
-            Write-ErrorMsg "Installation failed: executable not found at $ExePath"
+        # PyInstaller COLLECT creates a directory named after the executable.
+        # If $ExePath is a directory, the real binary is nested inside it — flatten it.
+        $realExePath = $ExePath
+        if ((Test-Path $ExePath -PathType Container)) {
+            $nestedExe = Join-Path $ExePath (Split-Path $ExePath -Leaf)
+            if (Test-Path $nestedExe -PathType Leaf) {
+                Get-ChildItem -Path $ExePath | Move-Item -Destination $BinDir -Force
+                Remove-Item -Recurse -Force $ExePath
+                $realExePath = Join-Path $BinDir (Split-Path $ExePath -Leaf)
+            }
+        }
+
+        # Verify executable (must be an actual file, not a directory)
+        if (-not (Test-Path $realExePath -PathType Leaf)) {
+            Write-ErrorMsg "Installation failed: executable not found at $realExePath"
             exit 1
         }
 
         # Version check
         try {
-            $output = & $ExePath --version 2>&1
+            $output = & $realExePath --version 2>&1
             $installedVersion = [regex]::Match($output, '(\d+\.\d+\.\d+)').Groups[1].Value
-            Write-Success "iTE v$installedVersion installed to $ExePath"
+            Write-Success "iTE v$installedVersion installed to $realExePath"
         } catch {
-            Write-Success "iTE installed to $ExePath"
+            Write-ErrorMsg "iTE installed but failed to launch. The binary may be incompatible with this system."
+            exit 1
         }
     } finally {
         Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
@@ -163,8 +176,10 @@ function Add-ToPath {
         return
     }
 
-    $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User") ?? ""
-    $currentMachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine") ?? ""
+    $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if (-not $currentUserPath) { $currentUserPath = "" }
+    $currentMachinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if (-not $currentMachinePath) { $currentMachinePath = "" }
 
     if ($currentUserPath -like "*$BinDir*" -or $currentMachinePath -like "*$BinDir*") {
         return  # Already in PATH
