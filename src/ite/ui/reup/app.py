@@ -5064,7 +5064,9 @@ class ReupApp(App):
         save_theme(selected)
         self.refresh_header()
         self._sync_command_palette(self.query_one("#prompt", TextArea).text)
-        self.post_notice("Theme", f"{old_theme} → selected")
+        self.call_after_refresh(
+            lambda: self.post_notice("Theme", f"{old_theme} → {selected}")
+        )
 
     def action_change_theme(self) -> None:
         """Route Textual's built-in theme action through the Reup theme modal."""
