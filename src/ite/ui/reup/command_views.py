@@ -678,28 +678,32 @@ def build_sandbox_command_renderable(
     primary = _style_token(styles, "primary", "#b8d8ff")
     success = _style_token(styles, "success", "#8fc7a2")
     warning = _style_token(styles, "warning", "#d5b07a")
+    border = _style_token(styles, "border", "#2a2f3a")
 
-    summary = Text()
-    summary.append("filesystem ", style=muted)
-    summary.append(
-        "on",
-        style=f"bold {success}" if enabled else f"bold {warning}",
-    )
-    summary.append("  •  ", style=disabled)
+    status_icon = "🔒" if enabled else "🔓"
+    status_text = "enabled" if enabled else "disabled"
+    status_color = success if enabled else warning
+
+    status_line = Text()
+    status_line.append(f"{status_icon}  ", style="")
+    status_line.append(status_text, style=f"bold {status_color}")
     allowed_path_count = len(allowed_paths)
-    allowed_path_label = (
-        "allowed path" if allowed_path_count == 1 else "allowed paths"
-    )
-    summary.append(str(allowed_path_count), style=f"bold {fg}")
-    summary.append(f" {allowed_path_label}", style=muted)
+    path_label = "allowed path" if allowed_path_count == 1 else "allowed paths"
+    status_line.append("  •  ", style=disabled)
+    status_line.append(str(allowed_path_count), style=f"bold {fg}")
+    status_line.append(f" {path_label}", style=muted)
+
+    divider = Rule(style=border)
 
     blocks: list[object] = [
-        Text("sandbox", style=f"bold {fg}"),
-        summary,
+        Text("filesystem sandbox", style=f"bold {fg}"),
+        status_line,
+        Text(""),
+        divider,
+        Text(""),
     ]
 
-    blocks.append(Text(""))
-    blocks.append(Text("project cwd", style=f"bold {secondary}"))
+    blocks.append(Text("workspace", style=f"bold {secondary}"))
     blocks.append(Text(cwd, style=primary))
 
     if allowed_paths:
@@ -709,17 +713,21 @@ def build_sandbox_command_renderable(
             blocks.append(Text(f"  + {path}", style=primary))
 
     blocks.append(Text(""))
-    blocks.append(Text("commands", style=f"bold {fg}"))
+    blocks.append(divider)
+    blocks.append(Text(""))
 
-    # Use a table for better formatting
+    blocks.append(Text("quick reference", style=f"bold {fg}"))
     commands_table = Table(show_header=False, box=None, padding=(0, 1, 0, 0))
     commands_table.add_column("alias", style=primary, width=16)
     commands_table.add_column("description", style=muted)
-    commands_table.add_row("on|off", "toggle filesystem sandbox")
-    commands_table.add_row("allow <path>", "allow an extra path")
-    commands_table.add_row("remove <path>", "remove an allowed path")
-    commands_table.add_row("clear", "clear all allowed paths")
-    commands_table.add_row("list", "list allowed paths")
+    commands_table.add_row(
+        "off" if enabled else "on",
+        "disable sandbox" if enabled else "enable sandbox",
+    )
+    commands_table.add_row("allow <path>", "grant access to a path")
+    commands_table.add_row("remove <path>", "revoke access to a path")
+    commands_table.add_row("clear", "remove all allowed paths")
+    commands_table.add_row("list", "show allowed paths")
     blocks.append(commands_table)
 
     return Group(*blocks)

@@ -28,11 +28,11 @@ class ReupToolViewsTests(unittest.TestCase):
 
         self.assertEqual(
             one_path.renderables[1].plain,
-            "filesystem on  •  1 allowed path",
+            "🔒  enabled  •  1 allowed path",
         )
         self.assertEqual(
             many_paths.renderables[1].plain,
-            "filesystem on  •  2 allowed paths",
+            "🔒  enabled  •  2 allowed paths",
         )
 
     def test_compact_tool_preview_blocks_uses_first_useful_text_line(self) -> None:
