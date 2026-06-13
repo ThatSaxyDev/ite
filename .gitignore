@@ -45,6 +45,7 @@ logs/
 run/
 
 # Cloud repos (untracked sub-projects)
+ite-releases/
 ite-cloud-api/
 ite-cloud-web/
 ite_remote/
