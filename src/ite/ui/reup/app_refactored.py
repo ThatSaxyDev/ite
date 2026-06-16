@@ -341,44 +341,6 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
     COMMAND_PALETTE_MAX_ROWS = 8
     GIT_POLL_TIMEOUT_SECONDS = 2.0
 
-    # Re-export @on handlers from mixins so Textual's metaclass discovers them.
-    # Textual only looks at cls.__dict__, not MRO, so handlers defined on
-    # CloudMixin/PanelsMixin/etc. (which inherit from object) are invisible.
-    on_aside_toggle_pressed = PanelsMixin.on_aside_toggle_pressed
-    on_change_review_close_pressed = PanelsMixin.on_change_review_close_pressed
-    on_change_review_commit = PanelsMixin.on_change_review_commit
-    on_change_review_discard_all = PanelsMixin.on_change_review_discard_all
-    on_change_review_discard_file = PanelsMixin.on_change_review_discard_file
-    on_change_review_node_highlighted = PanelsMixin.on_change_review_node_highlighted
-    on_change_review_node_selected = PanelsMixin.on_change_review_node_selected
-    on_change_review_stage_all = PanelsMixin.on_change_review_stage_all
-    on_change_review_stage_file = PanelsMixin.on_change_review_stage_file
-    on_change_review_unstage_file = PanelsMixin.on_change_review_unstage_file
-    on_changes_toggle_pressed = PanelsMixin.on_changes_toggle_pressed
-    on_cloud_exit_pressed = CloudMixin.on_cloud_exit_pressed
-    on_cloud_sign_in_pressed = CloudMixin.on_cloud_sign_in_pressed
-    on_cloud_skip_sign_in_pressed = CloudMixin.on_cloud_skip_sign_in_pressed
-    on_command_palette_click = ComposerMixin.on_command_palette_click
-    on_composer_flow_control_click = ComposerMixin.on_composer_flow_control_click
-    on_composer_meta_line_click = ComposerMixin.on_composer_meta_line_click
-    on_composer_send_control_click = ComposerMixin.on_composer_send_control_click
-    on_hooks_toggle_pressed = PanelsMixin.on_hooks_toggle_pressed
-    on_onboarding_continue_pressed = CloudMixin.on_onboarding_continue_pressed
-    on_onboarding_input_submitted = CloudMixin.on_onboarding_input_submitted
-    on_onboarding_role_select_changed = CloudMixin.on_onboarding_role_select_changed
-    on_onboarding_skip_pressed = CloudMixin.on_onboarding_skip_pressed
-    on_onboarding_use_case_select_changed = CloudMixin.on_onboarding_use_case_select_changed
-    on_plan_badge_click = ComposerMixin.on_plan_badge_click
-    on_plan_question_button_pressed = ComposerMixin.on_plan_question_button_pressed
-    on_plan_question_custom_submitted = ComposerMixin.on_plan_question_custom_submitted
-    on_plan_ready_implement = ComposerMixin.on_plan_ready_implement
-    on_plan_ready_keep = ComposerMixin.on_plan_ready_keep
-    on_prompt_changed = ComposerMixin.on_prompt_changed
-    on_session_tab_pressed = TurnMixin.on_session_tab_pressed
-    on_thread_switcher_row_selected = ThreadsMixin.on_thread_switcher_row_selected
-    on_threads_toggle_pressed = PanelsMixin.on_threads_toggle_pressed
-    on_update_required_exit_pressed = CloudMixin.on_update_required_exit_pressed
-
     @staticmethod
     def is_macos_terminal_app() -> bool:
         """True when running inside macOS Terminal.app.
