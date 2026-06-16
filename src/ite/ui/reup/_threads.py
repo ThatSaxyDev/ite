@@ -70,6 +70,7 @@ from .adapters.tui_adapter import ReupTUIAdapter
 from .change_views import change_entry_label, build_change_card_body, build_change_card_payload
 from .model_labels import bundled_model_display_label
 from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
+from .tool_views import render_shell_running_card
 
 
 class ThreadsMixin:

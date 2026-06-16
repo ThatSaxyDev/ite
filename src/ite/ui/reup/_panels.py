@@ -2157,6 +2157,8 @@ class PanelsMixin:
     async def on_hooks_toggle_pressed(self, _event: Button.Pressed) -> None:
         await self._toggle_hooks_panel()
 
+    @on(Button.Pressed, "#changes-toggle")
+
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
         has_content = bool(
             self._change_review_change_set

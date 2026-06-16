@@ -71,6 +71,47 @@ from .change_views import change_entry_label, build_change_card_body, build_chan
 from .model_labels import bundled_model_display_label
 from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
 from ._helpers import _skills_action_title
+from .command_views import (
+    build_mcp_command_renderable,
+    build_memory_command_renderable,
+    build_memory_prompt_command_renderable,
+    build_sandbox_command_renderable,
+    build_stats_command_renderable,
+    build_tools_command_renderable,
+    build_workboard_command_renderable,
+)
+from .tool_views import (
+    compact_tool_preview_blocks,
+    display_path,
+    extract_read_file_code,
+    format_mcp_identity,
+    guess_language,
+    normalize_unified_diff_paths,
+    render_args_table,
+    render_git_log_output,
+    render_grep_output,
+    render_line_numbered_text,
+    render_list_dir_output,
+    render_mcp_start_payload,
+    render_numbered_unified_diff,
+    render_shell_command_line,
+    render_shell_result_payload,
+    render_shell_running_card,
+    render_skills_payload,
+    render_subagent_metrics_payload,
+    render_subagent_payload,
+    render_subagent_runtime_payload,
+    render_terminal_snapshot_payload,
+    render_text_payload,
+    render_todo_payload,
+    shell_session_state,
+    summarize_diff_hunk_ranges,
+    summarize_mcp_success,
+    summarize_subagent_goal,
+    syntax_background_color,
+    todo_start_hint,
+    truncate_for_tool,
+)
 
 
 class StreamingMixin:

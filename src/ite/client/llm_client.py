@@ -70,6 +70,11 @@ class LLMClient:
         return self._client
 
     def _is_cloud_model(self) -> bool:
+        model_name = str(self.config.model_name or "").strip()
+        # :cloud suffix always routes through the cloud API regardless
+        # of any local provider credentials (e.g. Ollama defaults)
+        if model_name.endswith(":cloud"):
+            return True
         if self._has_user_provider_credentials():
             return False
         source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
@@ -79,7 +84,6 @@ class LLMClient:
             return False
         if self._current_model_has_saved_profile():
             return False
-        model_name = str(self.config.model_name or "").strip()
         bundled_names = {
             str(item.get("model_name") or "").strip()
             for item in get_bundled_models(self.config)

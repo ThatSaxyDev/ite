@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import asdict
 from dataclasses import dataclass
 from dataclasses import field
@@ -69,7 +70,9 @@ class SubagentRuntime:
         self.session_id = session_id
         self.tool_registry = tool_registry
         self._runs: dict[str, SubagentRun] = {}
-        self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._threads: dict[str, threading.Thread] = {}
+        self._cancel_events: dict[str, threading.Event] = {}
+        self._completion_events: dict[str, threading.Event] = {}
         self._counter = 0
         self._failure_history: dict[str, list[datetime]] = {}
         self._circuit_open_until: dict[str, datetime] = {}
@@ -121,11 +124,16 @@ class SubagentRuntime:
         bucket = self._metrics_bucket(subagent)
         bucket[key] = int(bucket.get(key) or 0) + amount
 
-    def _drop_finished_task(self, run_id: str) -> None:
-        task = self._tasks.get(run_id)
-        if task is None or not task.done():
+    def _cleanup_thread(self, run_id: str) -> None:
+        self._threads.pop(run_id, None)
+        self._cancel_events.pop(run_id, None)
+        self._completion_events.pop(run_id, None)
+
+    def _drop_finished(self, run_id: str) -> None:
+        thread = self._threads.get(run_id)
+        if thread is None or thread.is_alive():
             return
-        self._tasks.pop(run_id, None)
+        self._cleanup_thread(run_id)
 
     def _prune_failure_history(self, subagent: str, *, now: datetime | None = None) -> list[datetime]:
         current = now or _utcnow()
@@ -364,9 +372,35 @@ class SubagentRuntime:
             finally:
                 self._prune_terminal_runs()
 
-        task = asyncio.create_task(_runner(), name=run_id)
-        task.add_done_callback(lambda _task, rid=run_id: self._drop_finished_task(rid))
-        self._tasks[run_id] = task
+        _cancel_event = threading.Event()
+        _completion_event = threading.Event()
+        self._cancel_events[run_id] = _cancel_event
+
+        def _thread_main() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                main_task = loop.create_task(_runner())
+
+                async def _cancel_watcher() -> None:
+                    await asyncio.to_thread(_cancel_event.wait)
+                    for t in asyncio.all_tasks(loop):
+                        if t is not main_task:
+                            t.cancel()
+                    main_task.cancel()
+
+                watcher_task = loop.create_task(_cancel_watcher())
+                loop.run_until_complete(
+                    asyncio.gather(main_task, watcher_task, return_exceptions=True),
+                )
+            finally:
+                loop.close()
+                _completion_event.set()
+
+        thread = threading.Thread(target=_thread_main, daemon=True, name=run_id)
+        self._threads[run_id] = thread
+        self._completion_events[run_id] = _completion_event
+        thread.start()
         return run, False
 
     def _apply_result(
@@ -478,35 +512,39 @@ class SubagentRuntime:
     ) -> dict[str, Any]:
         selected_ids = run_ids or list(self._runs.keys())
         selected_ids = [run_id for run_id in selected_ids if run_id in self._runs]
-        selected_tasks = {
-            run_id: task
-            for run_id, task in self._tasks.items()
-            if run_id in selected_ids and not task.done()
-        }
 
-        if selected_tasks:
-            done, pending = await asyncio.wait(
-                selected_tasks.values(),
-                timeout=timeout_seconds,
-                return_when=(
-                    asyncio.FIRST_COMPLETED
-                    if return_when == "first_completed"
-                    else asyncio.ALL_COMPLETED
-                ),
-            )
-            done_ids = [
-                run_id
-                for run_id, task in selected_tasks.items()
-                if task in done
-            ]
-            pending_ids = [
-                run_id
-                for run_id, task in selected_tasks.items()
-                if task in pending
-            ]
-        else:
-            done_ids = [run_id for run_id in selected_ids if run_id in self._runs]
-            pending_ids = []
+        completion_events: dict[str, threading.Event] = {}
+        for rid in selected_ids:
+            ev = self._completion_events.get(rid)
+            if ev is not None and not ev.is_set():
+                completion_events[rid] = ev
+
+        if completion_events:
+            if return_when == "first_completed":
+                coros = [
+                    asyncio.to_thread(ev.wait, timeout_seconds)
+                    for ev in completion_events.values()
+                ]
+                await asyncio.wait(
+                    [asyncio.ensure_future(c) for c in coros],
+                    timeout=timeout_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            else:
+                coros = [
+                    asyncio.to_thread(ev.wait, timeout_seconds)
+                    for ev in completion_events.values()
+                ]
+                await asyncio.gather(*coros, return_exceptions=True)
+
+        done_ids = [
+            rid for rid in selected_ids
+            if rid in self._runs and self._runs[rid].status not in {"queued", "running"}
+        ]
+        pending_ids = [
+            rid for rid in selected_ids
+            if rid in self._runs and self._runs[rid].status in {"queued", "running"}
+        ]
 
         runs = [self._runs[run_id].to_dict() for run_id in selected_ids if run_id in self._runs]
         return {
@@ -516,11 +554,11 @@ class SubagentRuntime:
         }
 
     async def cancel(self, *, run_ids: list[str] | None) -> dict[str, Any]:
-        selected_ids = run_ids or list(self._tasks.keys())
+        selected_ids = run_ids or list(self._threads.keys())
         cancelled: list[str] = []
         for run_id in selected_ids:
-            task = self._tasks.get(run_id)
-            if task is None or task.done():
+            thread = self._threads.get(run_id)
+            if thread is None:
                 continue
             run = self._runs.get(run_id)
             if run is not None and run.status in {"queued", "running"}:
@@ -537,20 +575,22 @@ class SubagentRuntime:
                 else:
                     run.duration_ms = 0
                 self._set_activity(run, "Specialist cancelled.")
-            task.cancel()
+            cancel_ev = self._cancel_events.get(run_id)
+            if cancel_ev is not None:
+                cancel_ev.set()
             cancelled.append(run_id)
-        if cancelled:
-            await asyncio.gather(
-                *(self._tasks[run_id] for run_id in cancelled),
-                return_exceptions=True,
-            )
+        for run_id in cancelled:
+            thread = self._threads.get(run_id)
+            if thread is not None and thread.is_alive():
+                await asyncio.to_thread(thread.join, 2.0)
+            self._cleanup_thread(run_id)
         return {
             "cancelled_run_ids": cancelled,
             "runs": [self._runs[run_id].to_dict() for run_id in selected_ids if run_id in self._runs],
         }
 
     async def shutdown(self) -> None:
-        await self.cancel(run_ids=list(self._tasks.keys()))
+        await self.cancel(run_ids=list(self._threads.keys()))
 
     def export_state(self) -> dict[str, Any]:
         terminal_statuses = {"completed", "failed", "timeout", "cancelled"}
@@ -570,7 +610,9 @@ class SubagentRuntime:
             return
         self._restored_from_snapshot = True
         self._runs = {}
-        self._tasks = {}
+        self._threads = {}
+        self._cancel_events = {}
+        self._completion_events = {}
         counter = state.get("counter")
         if isinstance(counter, int) and counter >= 0:
             self._counter = counter
