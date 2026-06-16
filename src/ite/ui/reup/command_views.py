@@ -23,32 +23,47 @@ def _style_token(styles: dict[str, str] | None, key: str, fallback: str) -> str:
     return styles.get(key, fallback)
 
 
-def build_tools_command_renderable(tools: list[Tool]) -> Group:
+def build_tools_command_renderable(
+    tools: list[Tool],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+    warning = _style_token(styles, "warning", "#d5b07a")
+    sub_runtime = _style_token(styles, "sub_runtime", "#b7c8e1")
+    sub_specialist = _style_token(styles, "sub_specialist", "#8fc7a2")
+    custom_col = _style_token(styles, "custom", "#d7deea")
+
     grouped: dict[str, list[Tool]] = defaultdict(list)
     for tool in tools:
         grouped[_tool_section_name(tool)].append(tool)
 
     summary = Text()
-    summary.append("built-in ", style="#8c93a1")
-    summary.append(str(len(grouped.get("Built-in", []))), style="bold #edf1f7")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("verification ", style="#8c93a1")
-    summary.append(str(len(grouped.get("Verification", []))), style="bold #d5b07a")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("runtime ", style="#8c93a1")
-    summary.append(str(len(grouped.get("Subagent Runtime", []))), style="bold #b7c8e1")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("specialists ", style="#8c93a1")
-    summary.append(str(len(grouped.get("Subagent Specialists", []))), style="bold #8fc7a2")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("custom ", style="#8c93a1")
-    summary.append(str(len(grouped.get("Custom", []))), style="bold #d7deea")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("mcp ", style="#8c93a1")
-    summary.append(str(len(grouped.get("MCP", []))), style="bold #b8d8ff")
+    summary.append("built-in ", style=muted)
+    summary.append(str(len(grouped.get("Built-in", []))), style=f"bold {fg}")
+    summary.append("  •  ", style=disabled)
+    summary.append("verification ", style=muted)
+    summary.append(str(len(grouped.get("Verification", []))), style=f"bold {warning}")
+    summary.append("  •  ", style=disabled)
+    summary.append("runtime ", style=muted)
+    summary.append(str(len(grouped.get("Subagent Runtime", []))), style=f"bold {sub_runtime}")
+    summary.append("  •  ", style=disabled)
+    summary.append("specialists ", style=muted)
+    summary.append(str(len(grouped.get("Subagent Specialists", []))), style=f"bold {sub_specialist}")
+    summary.append("  •  ", style=disabled)
+    summary.append("custom ", style=muted)
+    summary.append(str(len(grouped.get("Custom", []))), style=f"bold {custom_col}")
+    summary.append("  •  ", style=disabled)
+    summary.append("mcp ", style=muted)
+    summary.append(str(len(grouped.get("MCP", []))), style=f"bold {primary}")
 
     sections: list[object] = [
-        Text.assemble(("available tools ", "bold #edf1f7"), (str(len(tools)), "bold #b8d8ff")),
+        Text.assemble(("available tools ", f"bold {fg}"), (str(len(tools)), f"bold {primary}")),
         summary,
     ]
     order = [
@@ -64,20 +79,33 @@ def build_tools_command_renderable(tools: list[Tool]) -> Group:
         if not section_tools:
             continue
         sections.append(Text(""))
-        sections.append(_section_header(section_name, len(section_tools)))
+        sections.append(_section_header(section_name, len(section_tools), styles=styles))
         if section_name == "MCP":
-            sections.append(_render_mcp_tool_groups(section_tools))
+            sections.append(_render_mcp_tool_groups(section_tools, styles=styles))
         else:
-            sections.append(_render_tool_table(section_tools))
+            sections.append(_render_tool_table(section_tools, styles=styles))
 
     return Group(*sections)
 
 
-def build_mcp_command_renderable(servers: list[dict[str, object]]) -> Group:
+def build_mcp_command_renderable(
+    servers: list[dict[str, object]],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+    warning = _style_token(styles, "warning", "#d5b07a")
+    error = _style_token(styles, "error", "#d28081")
+
     if not servers:
         return Group(
-            Text("no mcp servers configured", style="bold #edf1f7"),
-            Text("Add servers in .ite/config.toml under [mcp_servers].", style="#8c93a1"),
+            Text("no mcp servers configured", style=f"bold {fg}"),
+            Text("Add servers in .ite/config.toml under [mcp_servers].", style=muted),
         )
 
     connected = sum(1 for item in servers if item.get("status") == "connected")
@@ -85,32 +113,51 @@ def build_mcp_command_renderable(servers: list[dict[str, object]]) -> Group:
     failed = sum(1 for item in servers if item.get("status") == "error")
 
     summary = Text()
-    summary.append("connected ", style="#8c93a1")
-    summary.append(str(connected), style="bold #8fc7a2")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("ready ", style="#8c93a1")
-    summary.append(str(ready), style="bold #b8d8ff")
-    summary.append("  •  ", style="#6f7785")
-    summary.append("failed ", style="#8c93a1")
-    summary.append(str(failed), style="bold #d5b07a" if failed else "bold #edf1f7")
+    summary.append("servers ", style=f"bold {fg}")
+    summary.append(f"{len(servers)} configured", style=secondary)
+    summary.append("  ·  ", style=disabled)
+    summary.append(f"{connected} connected", style=f"bold {success}")
+    summary.append("  ·  ", style=disabled)
+    summary.append(f"{ready} ready", style=f"bold {primary}")
+    if failed:
+        summary.append("  ·  ", style=disabled)
+        summary.append(f"{failed} failed", style=f"bold {warning}")
 
-    blocks: list[object] = [
-        Text.assemble(("configured servers ", "bold #edf1f7"), (str(len(servers)), "bold #b8d8ff")),
-        summary,
-    ]
+    table = Table.grid(expand=True)
+    table.add_column(ratio=5)
+    table.add_column(width=12)
+    table.add_column(width=8)
+    table.add_column(width=6)
+    table.add_column(ratio=6)
 
-    for server in servers:
-        blocks.append(Text(""))
-        blocks.append(_render_mcp_server(server))
+    for server in sorted(servers, key=lambda s: str(s.get("name", ""))):
+        name = str(server.get("name") or "server")
+        status = str(server.get("status") or "unknown")
+        detail = str(server.get("detail") or server.get("last_error") or "").strip()
+        tools = str(server.get("tools", 0))
+        transport = str(server.get("transport") or "remote")
+        mode = "auto" if server.get("auto_connect") else "manual"
 
-    blocks.append(Text(""))
-    blocks.append(
-        Text(
-            "Use /mcp start <server> to connect and /mcp stop <server> to disconnect.",
-            style="#6f7785",
+        title = Text(name, style=f"bold {fg}")
+        detail_text = Text(detail, style=secondary) if detail else None
+        col1 = Group(title, detail_text) if detail_text else title
+
+        status_label = _mcp_status_label(status)
+        status_color = _mcp_status_color(status, styles=styles)
+
+        table.add_row(
+            col1,
+            Text(status_label, style=f"bold {status_color}"),
+            Text(transport, style=muted),
+            Text(mode, style=muted),
+            Text(f"{tools} tools", style=muted),
         )
+
+    hint = Text(
+        "Use /mcp start <server> to connect and /mcp stop <server> to disconnect.",
+        style=disabled,
     )
-    return Group(*blocks)
+    return Group(summary, Text(""), table, Text(""), hint)
 
 
 def build_stats_command_renderable(
@@ -249,6 +296,114 @@ def build_stats_command_renderable(
     )
 
 
+def build_todos_command_renderable(
+    session: Session,
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    state = session.export_todos_state()
+    if not isinstance(state, dict):
+        state = {}
+    planning = state.get("planning", [])
+    execution = state.get("execution", [])
+    if not isinstance(planning, list):
+        planning = []
+    if not isinstance(execution, list):
+        execution = []
+
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+
+    planning_visible = session.show_planning_todos
+    planning_done = sum(1 for e in planning if bool(e.get("completed", False)))
+    exec_done = sum(1 for e in execution if bool(e.get("completed", False)))
+    total_done = planning_done + exec_done
+    total = len(planning) + len(execution)
+
+    summary = Text()
+    summary.append("planning ", style=muted)
+    summary.append(
+        "shown" if planning_visible else "hidden",
+        style=f"bold {primary}" if planning_visible else f"bold {muted}",
+    )
+    summary.append("  •  ", style=disabled)
+    summary.append("execution scope ", style=muted)
+    summary.append(str(len(execution)), style=f"bold {success}")
+    summary.append("  •  ", style=disabled)
+    summary.append("completed ", style=muted)
+    summary.append(f"{total_done}/{total}", style=f"bold {fg}")
+
+    blocks: list[object] = [
+        Text("todos", style=f"bold {fg}"),
+        summary,
+    ]
+
+    if execution:
+        blocks.append(Text(""))
+        blocks.append(_render_todos_scope("execution", execution, styles=styles))
+    if planning and planning_visible:
+        blocks.append(Text(""))
+        blocks.append(_render_todos_scope("planning", planning, styles=styles))
+    elif planning and not planning_visible:
+        blocks.append(Text(""))
+        blocks.append(
+            Text(
+                f"Planning has {len(planning)} items hidden. Use /todos planning on to see them.",
+                style=disabled,
+            )
+        )
+
+    blocks.append(Text(""))
+    blocks.append(
+        Text(
+            "Use /todos planning on|off to toggle.  /todos list planning shows internals.",
+            style=disabled,
+        )
+    )
+    return Group(*blocks)
+
+
+def _render_todos_scope(
+    scope: str,
+    entries: list[dict[str, object]],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    success = _style_token(styles, "success", "#8fc7a2")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+
+    scope_label = "execution" if scope == "execution" else "planning"
+    accent = success if scope == "execution" else primary
+    pending = [e for e in entries if not bool(e.get("completed", False))]
+    done = [e for e in entries if bool(e.get("completed", False))]
+
+    lines: list[object] = [
+        Text.assemble(
+            (scope_label, f"bold {accent}"),
+            ("  "),
+            (f"{len(done)}/{len(entries)} done", muted),
+        ),
+    ]
+    for entry in pending[:8]:
+        content = str(entry.get("content", "")).strip()
+        if content:
+            lines.append(Text.assemble(("○ ", disabled), (content, fg)))
+    if done:
+        lines.append(Text("recently done", style=disabled))
+        for entry in done[:4]:
+            content = str(entry.get("content", "")).strip()
+            if content:
+                lines.append(Text.assemble(("● ", accent), (content, muted)))
+    return Group(*lines)
+
+
 def build_workboard_command_renderable(
     session: Session,
     *,
@@ -310,6 +465,59 @@ def build_workboard_command_renderable(
             if stripped:
                 blocks.append(Text(stripped, style=secondary))
     return Group(*blocks)
+
+
+def build_subagent_command_renderable(
+    subagents: list[object],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    muted = _style_token(styles, "muted", "#8c93a1")
+    disabled = _style_token(styles, "disabled", "#6f7785")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    success = _style_token(styles, "success", "#8fc7a2")
+
+    if not subagents:
+        return Group(
+            Text("no subagents discovered", style=f"bold {fg}"),
+            Text(
+                "Place subagent definitions in .ite/subagents/*.toml or use /subagent create.",
+                style=muted,
+            ),
+        )
+
+    summary = Text()
+    summary.append("subagents ", style=f"bold {fg}")
+    summary.append(str(len(subagents)), style=f"bold {primary}")
+    summary.append("  •  ", style=disabled)
+    summary.append("specialists ", style=muted)
+    summary.append(str(len(subagents)), style=f"bold {success}")
+
+    table = Table.grid(expand=True, padding=(0, 1))
+    table.add_column(ratio=5)
+    table.add_column(ratio=7)
+
+    for sa in sorted(subagents, key=lambda item: getattr(item, "name", "")):
+        name = getattr(sa, "name", "")
+        desc = getattr(sa, "description", "") or ""
+        table.add_row(
+            Text(name, style=f"bold {fg}"),
+            Text(_truncate_tool_desc_str(desc), style=secondary),
+        )
+
+    hint = Text(
+        "/subagent create adds a specialist  •  restart the agent after adding toml files to load them",
+        style=disabled,
+    )
+    return Group(summary, Text(""), table, Text(""), hint)
+
+
+def _truncate_tool_desc_str(desc: str, max_chars: int = 100) -> str:
+    if len(desc) <= max_chars:
+        return desc
+    return desc[: max_chars - 3].rstrip() + "..."
 
 
 def build_memory_command_renderable(
@@ -516,17 +724,31 @@ def _render_episode_lines(records: object) -> Group:
     return Group(*lines)
 
 
-def _section_header(name: str, count: int) -> Text:
+def _section_header(
+    name: str,
+    count: int,
+    *,
+    styles: dict[str, str] | None = None,
+) -> Text:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    section_icon = _style_token(styles, "section_icon", "#7d8591")
     header = Text()
-    header.append(_section_icon(name), style="#7d8591")
+    header.append(_section_icon(name), style=section_icon)
     header.append("  ")
-    header.append(name.lower(), style="bold #edf1f7")
+    header.append(name.lower(), style=f"bold {fg}")
     header.append("  ")
-    header.append(str(count), style="bold #b8d8ff")
+    header.append(str(count), style=f"bold {primary}")
     return header
 
 
-def _render_tool_table(tools: list[Tool]) -> Table:
+def _render_tool_table(
+    tools: list[Tool],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Table:
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
     table = Table.grid(expand=True, padding=(0, 1))
     table.add_column(ratio=5)
     table.add_column(width=9)
@@ -537,15 +759,23 @@ def _render_tool_table(tools: list[Tool]) -> Table:
         access = _tool_access_label(tool)
         risk_label, risk_style = _tool_risk_style(tool)
         table.add_row(
-            Text(tool.name, style="bold #edf1f7"),
+            Text(tool.name, style=f"bold {fg}"),
             _badge(access, _access_style(access)),
             _badge(risk_label, risk_style),
-            Text(_truncate_tool_desc(tool), style="#c9d3e0"),
+            Text(_truncate_tool_desc(tool), style=secondary),
         )
     return table
 
 
-def _render_mcp_tool_groups(tools: list[Tool]) -> Group:
+def _render_mcp_tool_groups(
+    tools: list[Tool],
+    *,
+    styles: dict[str, str] | None = None,
+) -> Group:
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    fg = _style_token(styles, "fg", "#edf1f7")
+    secondary = _style_token(styles, "secondary", "#c9d3e0")
+    disabled = _style_token(styles, "disabled", "#6f7785")
     by_server: dict[str, list[Tool]] = defaultdict(list)
     for tool in tools:
         server, _, _ = tool.name.partition("__")
@@ -557,9 +787,9 @@ def _render_mcp_tool_groups(tools: list[Tool]) -> Group:
             blocks.append(Text(""))
         blocks.append(
             Text.assemble(
-                (server_name, "bold #b8d8ff"),
+                (server_name, f"bold {primary}"),
                 ("  "),
-                (f"{len(by_server[server_name])} tools", "#6f7785"),
+                (f"{len(by_server[server_name])} tools", disabled),
             )
         )
         table = Table.grid(expand=True, padding=(0, 1))
@@ -572,39 +802,13 @@ def _render_mcp_tool_groups(tools: list[Tool]) -> Group:
             access = _tool_access_label(tool)
             risk_label, risk_style = _tool_risk_style(tool)
             table.add_row(
-                Text(display_name, style="bold #edf1f7"),
+                Text(display_name, style=f"bold {fg}"),
                 _badge(access, _access_style(access)),
                 _badge(risk_label, risk_style),
-                Text(_truncate_tool_desc(tool), style="#c9d3e0"),
+                Text(_truncate_tool_desc(tool), style=secondary),
             )
         blocks.append(table)
     return Group(*blocks)
-
-
-def _render_mcp_server(server: dict[str, object]) -> Group:
-    name = str(server.get("name") or "server")
-    status = str(server.get("status") or "unknown")
-    detail = str(server.get("detail") or server.get("last_error") or "").strip()
-    tools = str(server.get("tools", 0))
-    transport = str(server.get("transport") or "remote")
-    mode = "auto" if server.get("auto_connect") else "manual"
-
-    lines: list[object] = [
-        Text.assemble(
-            (name, "bold #edf1f7"),
-            ("  "),
-            _badge(status, _status_style(status)),
-            ("  "),
-            (transport, "#8c93a1"),
-            ("  •  ", "#6f7785"),
-            (mode, "#8c93a1"),
-            ("  •  ", "#6f7785"),
-            (f"{tools} tools", "#8c93a1"),
-        )
-    ]
-    if detail:
-        lines.append(Text(detail, style="#c9d3e0"))
-    return Group(*lines)
 
 
 def _badge(label: str, style: str) -> Text:
@@ -615,14 +819,33 @@ def _access_style(access: str) -> str:
     return "bold #d9ecff on #24384a" if access == "write" else "bold #d6f1e1 on #21372f"
 
 
-def _status_style(status: str) -> str:
+_MCP_STATUS_LABELS: dict[str, str] = {
+    "connected": "connected",
+    "ready": "ready",
+    "error": "error",
+    "connecting": "connecting",
+    "auth_required": "auth needed",
+    "opening_browser": "opening",
+    "waiting_for_callback": "waiting",
+}
+
+
+def _mcp_status_label(status: str) -> str:
+    return _MCP_STATUS_LABELS.get(status, status.replace("_", " "))
+
+
+def _mcp_status_color(status: str, *, styles: dict[str, str] | None = None) -> str:
+    success = _style_token(styles, "success", "#8fc7a2")
+    warning = _style_token(styles, "warning", "#d5b07a")
+    primary = _style_token(styles, "primary", "#b8d8ff")
+    error = _style_token(styles, "error", "#d28081")
     if status == "connected":
-        return "bold #d6f1e1 on #21372f"
+        return success
     if status in {"connecting", "auth_required", "opening_browser", "waiting_for_callback"}:
-        return "bold #fff0d1 on #4c3a20"
+        return warning
     if status == "ready":
-        return "bold #d9ecff on #24384a"
-    return "bold #ffe1d6 on #4c2824"
+        return primary
+    return error
 
 
 def _tool_section_name(tool: Tool) -> str:

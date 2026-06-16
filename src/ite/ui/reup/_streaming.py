@@ -77,6 +77,8 @@ from .command_views import (
     build_memory_prompt_command_renderable,
     build_sandbox_command_renderable,
     build_stats_command_renderable,
+    build_subagent_command_renderable,
+    build_todos_command_renderable,
     build_tools_command_renderable,
     build_workboard_command_renderable,
 )
@@ -1351,31 +1353,62 @@ class StreamingMixin:
             return False
 
         session = self.agent.session
+        styles = self._render_styles()
         body: Any | None = None
+        css_class: str = "command"
         if command == "/tools":
-            body = build_tools_command_renderable(session.tool_registry.get_tools())
+            body = build_tools_command_renderable(
+                session.tool_registry.get_tools(),
+                styles=styles,
+            )
+            css_class = "tools"
         elif command == "/stats":
             body = build_stats_command_renderable(
                 session.get_stats(),
-                styles=self._render_styles(),
+                styles=styles,
             )
+            css_class = "stats"
         elif command == "/workboard":
             body = build_workboard_command_renderable(
                 session,
-                styles=self._render_styles(),
+                styles=styles,
             )
+            css_class = "workboard"
         elif command == "/mcp" and (not args or args[0].lower() == "list"):
-            body = build_mcp_command_renderable(session.mcp_manager.get_all_servers())
+            body = build_mcp_command_renderable(
+                session.mcp_manager.get_all_servers(),
+                styles=styles,
+            )
+            css_class = "mcp"
+        elif command == "/todos":
+            body = build_todos_command_renderable(
+                session,
+                styles=styles,
+            )
+            css_class = "todos"
+        elif command == "/subagent" and (not args or args[0].lower() == "list"):
+            from ite.tools.subagent import SubagentTool
+
+            tools = session.tool_registry.get_tools()
+            subagent_tools = [t for t in tools if isinstance(t, SubagentTool)]
+            subagents = [t.definition for t in subagent_tools]
+            body = build_subagent_command_renderable(
+                subagents,
+                styles=styles,
+            )
+            css_class = "subagents"
         elif command == "/memory":
             manager = MemoryManager(self.config.cwd, session_id=session.session_id)
             if args and args[0].lower() == "prompt":
                 query = " ".join(args[1:]).strip()
                 if query:
+                    css_class = "memory"
                     body = build_memory_prompt_command_renderable(
                         query,
                         manager.debug_prompt_memory(query),
                     )
             else:
+                css_class = "memory"
                 body = build_memory_command_renderable(
                     session_id=session.session_id,
                     workspace=str(self.config.cwd),
@@ -1386,6 +1419,7 @@ class StreamingMixin:
                     episodic=manager.list_episodes()[-5:],
                 )
         elif command == "/sandbox":
+            css_class = "sandbox"
             sandbox_config = self._sandbox_render_config()
             body = build_sandbox_command_renderable(
                 enabled=sandbox_config.sandbox.enabled,
@@ -1397,18 +1431,8 @@ class StreamingMixin:
         if body is None:
             return False
 
-        extra_cls = (
-            "stats"
-            if command == "/stats"
-            else ("sandbox" if command == "/sandbox" else "")
-        )
         self.run_worker(
-            self.add_assistant_card(
-                self._build_command_title_widget(command),
-                body,
-                css_class="command",
-                extra_classes=extra_cls,
-            ),
+            self.add_assistant_card(command, body, css_class=css_class),
             exclusive=False,
         )
         return True

@@ -968,7 +968,7 @@ class TurnMixin:
             if command == "/sandbox"
             else self.config
         )
-        live_stream_command = command in {"/mcp", "/init"} and (
+        live_stream_command = command in {"/init"} and (
             not args or args[0].lower() != "status"
         )
         output = (

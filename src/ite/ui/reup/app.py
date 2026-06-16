@@ -971,6 +971,17 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             build_skills_overview_renderable,
         )
         from ite.ui.reup.change_views import build_change_card_body
+        from ite.ui.reup.command_views import (
+            build_mcp_command_renderable,
+            build_memory_command_renderable,
+            build_memory_prompt_command_renderable,
+            build_stats_command_renderable,
+            build_subagent_command_renderable,
+            build_todos_command_renderable,
+            build_tools_command_renderable,
+            build_workboard_command_renderable,
+        )
+        from ite.memory.manager import MemoryManager
 
         conversation = self.query_one("#conversation", VerticalScroll)
         styles = self._render_styles()
@@ -996,17 +1007,29 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             if child.has_class("skills"):
                 try:
                     body_widget = child.query_one(".card-body", Static)
-                    # Skills cards need session context - skip if no session
                     if not self.agent or not self.agent.session:
                         continue
                     session = self.agent.session
                     active_ids = {
                         skill.identifier for skill in session.get_active_skills()
                     }
-                    # Re-render overview
                     new_body = build_skills_overview_renderable(
                         session.skill_manager.list_skills(),
                         active_ids,
+                        styles=styles,
+                    )
+                    body_widget.update(new_body)
+                except Exception:
+                    pass
+
+            # Re-render tools cards
+            if child.has_class("tools"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    new_body = build_tools_command_renderable(
+                        self.agent.session.tool_registry.get_tools(),
                         styles=styles,
                     )
                     body_widget.update(new_body)
@@ -1039,6 +1062,89 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                         ],
                         cwd=str(sandbox_config.cwd),
                         styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
+                except Exception:
+                    pass
+
+            # Re-render todos cards
+            if child.has_class("todos"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    new_body = build_todos_command_renderable(
+                        self.agent.session,
+                        styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
+                except Exception:
+                    pass
+
+            # Re-render mcp cards
+            if child.has_class("mcp"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    new_body = build_mcp_command_renderable(
+                        self.agent.session.mcp_manager.get_all_servers(),
+                        styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
+                except Exception:
+                    pass
+
+            # Re-render subagents cards
+            if child.has_class("subagents"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    from ite.tools.subagent import SubagentTool
+                    tools = self.agent.session.tool_registry.get_tools()
+                    subagent_tools = [t for t in tools if isinstance(t, SubagentTool)]
+                    subagents = [t.definition for t in subagent_tools]
+                    new_body = build_subagent_command_renderable(
+                        subagents,
+                        styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
+                except Exception:
+                    pass
+
+            # Re-render workboard cards
+            if child.has_class("workboard"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    new_body = build_workboard_command_renderable(
+                        self.agent.session,
+                        styles=styles,
+                    )
+                    await replace_card_body(child, body_widget, new_body)
+                except Exception:
+                    pass
+
+            # Re-render memory cards
+            if child.has_class("memory"):
+                try:
+                    body_widget = child.query_one(".card-body", Static)
+                    if not self.agent or not self.agent.session:
+                        continue
+                    session = self.agent.session
+                    manager = MemoryManager(
+                        self.config.cwd, session_id=session.session_id
+                    )
+                    new_body = build_memory_command_renderable(
+                        session_id=session.session_id,
+                        workspace=str(self.config.cwd),
+                        controls=manager.load_active_controls(),
+                        long_term=manager.list_entries("long_term"),
+                        semantic=manager.list_entries("semantic"),
+                        short_term=manager.list_entries("short_term"),
+                        episodic=manager.list_episodes()[-5:],
                     )
                     await replace_card_body(child, body_widget, new_body)
                 except Exception:
