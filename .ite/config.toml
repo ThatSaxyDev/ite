@@ -80,6 +80,15 @@ command = "npx"
 args = ["-y", "ios-simulator-mcp"]
 startup_timeout_sec = 90
 
+[mcp_servers.firecrawl-mcp]
+enabled = true
+command = "npx"
+args = [
+    "-y",
+    "firecrawl-mcp",
+]
+env = { FIRECRAWL_API_KEY = "${FIRECRAWL_API_KEY}" }
+
 [mcp_servers.aivara]
 enabled = true
 auto_connect = false
