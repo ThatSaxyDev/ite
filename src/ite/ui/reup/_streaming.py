@@ -333,6 +333,7 @@ class StreamingMixin:
         row = UserMessageRow(
             bubble,
             desired_width=desired_width,
+            raw_text=message,
             classes="chat-user-row",
         )
         row.refresh_bubble_width(int(getattr(conversation.size, "width", 0) or 0))
