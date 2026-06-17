@@ -1655,15 +1655,16 @@ class ComposerMixin:
             await self._post_no_model_selected_guidance()
             return
 
-        self.run_worker(
-            self._handle_agent_send_with_intent(
-                message,
-                display_message=display_message or message,
-                suppress_user_echo=suppress_user_echo,
-                session_id=session_id,
-            ),
-            exclusive=False,
+        if not suppress_user_echo:
+            await self.add_user_message(display_message or message)
+
+        coro = self._handle_agent_send_with_intent(
+            message,
+            display_message=display_message or message,
+            suppress_user_echo=suppress_user_echo,
+            session_id=session_id,
         )
+        self.call_after_refresh(self.run_worker, coro, exclusive=False)
 
 
     async def _resolve_active_turn_send(self, payload: dict[str, Any]) -> bool:
@@ -1800,6 +1801,7 @@ class ComposerMixin:
             display_message=display_message or message,
             suppress_user_echo=suppress_user_echo,
             session_id=session_id,
+            add_to_feed=False,
         )
 
 

@@ -1602,6 +1602,7 @@ class TurnMixin:
         display_message: str | None = None,
         suppress_user_echo: bool = False,
         session_id: str | None = None,
+        add_to_feed: bool = True,
     ) -> None:
         rendered_message = display_message or message
         await self.ensure_agent()
@@ -1623,7 +1624,7 @@ class TurnMixin:
             return
         workspace = self._workspace_for_session_id(session_id)
         is_visible_session = self._active_session_id() == session_id
-        if not suppress_user_echo and is_visible_session:
+        if add_to_feed and not suppress_user_echo and is_visible_session:
             await self.add_user_message(rendered_message)
             await self._broadcast_remote_state()
         run_state = self._run_state(session_id)
