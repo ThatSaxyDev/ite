@@ -29,7 +29,7 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
-from ite.agent.session_naming import local_session_title
+
 from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
@@ -977,17 +977,10 @@ class ThreadsMixin:
         if session.turn_count == 0:
             return
 
-        if session.name is None:
-            session.set_auto_name(self._fallback_session_name(session))
-            if refresh_ui:
-                self.refresh_header()
-            if allow_name_generation:
-                self._queue_session_name_refinement(
-                    session,
-                    workspace=workspace,
-                    refresh_ui=refresh_ui,
-                )
-        elif allow_name_generation and session.should_refresh_auto_name():
+        if allow_name_generation and (
+            session.name is None
+            or session.should_refresh_auto_name()
+        ):
             self._queue_session_name_refinement(
                 session,
                 workspace=workspace,
@@ -1010,16 +1003,7 @@ class ThreadsMixin:
         session_id = self._session_id(session)
         if not session_id or session_id in self._session_name_refinements:
             return
-        # Pre-flight: check for stored credentials (disk-only, no network).
-        # Do not call get_cloud_session() here — it makes a sync HTTP call
-        # to /auth/me that would block the Textual event loop for 10 seconds.
-        # The actual token validation happens inside the worker.
         if not has_stored_cloud_auth(self.config):
-            self._apply_local_name_refinement(
-                session,
-                workspace=workspace,
-                refresh_ui=refresh_ui,
-            )
             return
         self._session_name_refinements.add(session_id)
         self.run_worker(
@@ -1030,28 +1014,6 @@ class ThreadsMixin:
             ),
             exclusive=False,
         )
-
-
-    def _apply_local_name_refinement(
-        self,
-        session: Session,
-        *,
-        workspace: Path,
-        refresh_ui: bool,
-    ) -> None:
-        if getattr(session, "name_locked", False):
-            return
-        current = str(session.name or "").strip()
-        refreshed = self._fallback_session_name(session)
-        if refreshed and refreshed != current:
-            session.set_auto_name(refreshed)
-        else:
-            session.mark_auto_name_attempt()
-        snapshot = SessionSnapshot(
-            **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
-        )
-        SessionManager().save_session(snapshot)
-        self._refresh_session_name_ui(session, refresh_ui=refresh_ui)
 
 
     async def _refine_session_name(
@@ -1067,8 +1029,6 @@ class ThreadsMixin:
                 return
             current = str(session.name or "").strip()
             refreshed = (await self._generate_cloud_session_name(session) or "").strip()
-            if not refreshed:
-                refreshed = self._fallback_session_name(session)
             if refreshed and refreshed != current:
                 session.set_auto_name(refreshed)
             else:
@@ -1099,19 +1059,9 @@ class ThreadsMixin:
             self._queue_session_tabs_refresh()
 
 
-    def _fallback_session_name(self, session: Session) -> str:
-        try:
-            context = session.name_generation_context()
-        except Exception:
-            context = {}
-        return local_session_title(context)
-
-
     async def generate_session_name(self, session: Session) -> str:
         cloud_title = await self._generate_cloud_session_name(session)
-        if cloud_title:
-            return cloud_title
-        return self._fallback_session_name(session)
+        return cloud_title or ""
 
 
     async def _generate_cloud_session_name(self, session: Session) -> str | None:

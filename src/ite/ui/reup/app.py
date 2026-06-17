@@ -63,7 +63,7 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
-from ite.agent.session_naming import local_session_title
+
 from ite.attachment_refs import (
     discover_attachable_files,
     extract_at_query,
