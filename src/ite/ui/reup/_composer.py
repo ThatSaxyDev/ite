@@ -1657,6 +1657,8 @@ class ComposerMixin:
 
         if not suppress_user_echo:
             await self.add_user_message(display_message or message)
+            self._is_turn_running = True
+            self._update_composer_send_control()
 
         coro = self._handle_agent_send_with_intent(
             message,
@@ -1790,19 +1792,24 @@ class ComposerMixin:
         suppress_user_echo: bool = False,
         session_id: str | None = None,
     ) -> None:
-        if session_id and session_id != self._active_session_id():
-            assisted = message
-        else:
-            assisted = await self._apply_intent_assist(message)
-        if assisted is None:
-            return
-        await self.run_agent_message(
-            assisted,
-            display_message=display_message or message,
-            suppress_user_echo=suppress_user_echo,
-            session_id=session_id,
-            add_to_feed=False,
-        )
+        try:
+            if session_id and session_id != self._active_session_id():
+                assisted = message
+            else:
+                assisted = await self._apply_intent_assist(message)
+            if assisted is None:
+                return
+            await self.run_agent_message(
+                assisted,
+                display_message=display_message or message,
+                suppress_user_echo=suppress_user_echo,
+                session_id=session_id,
+                add_to_feed=False,
+            )
+        finally:
+            if self._is_turn_running and not suppress_user_echo:
+                self._is_turn_running = False
+                self._update_composer_send_control()
 
 
     async def _present_plan_ready_action_card(self) -> bool:
