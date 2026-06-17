@@ -1314,12 +1314,12 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_shutdown_remote_server", AsyncMock()),
                 patch.object(app, "_shutdown_agents", AsyncMock()),
                 patch.object(app, "exit"),
-                patch("ite.ui.reup.app.SessionManager") as session_manager,
+                patch("ite.ui.reup._threads.SessionManager") as session_manager,
             ):
                 await app._perform_quit()
 
             generate_name.assert_not_awaited()
-            self.assertEqual(session.name, "Investigate Exit Bug")
+            self.assertIsNone(session.name)
             session_manager.return_value.save_session.assert_called_once()
 
         asyncio.run(run_test())

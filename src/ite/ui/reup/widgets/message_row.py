@@ -12,10 +12,26 @@ class UserMessageRow(Container):
     BUBBLE_MIN_WIDTH = 12
     BUBBLE_HORIZONTAL_GUTTER = 10
 
-    def __init__(self, bubble: Static, *, desired_width: int, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        bubble: Static,
+        *,
+        desired_width: int,
+        raw_text: str = "",
+        **kwargs: Any,
+    ) -> None:
         super().__init__(bubble, **kwargs)
         self._bubble = bubble
         self._desired_width = desired_width
+        self._raw_text = raw_text
+        if raw_text:
+            self.tooltip = "Click to copy"
+
+    def on_click(self) -> None:
+        if not self._raw_text:
+            return
+        self.app.copy_to_clipboard(self._raw_text)
+        self.app.notify("Copied to clipboard", timeout=2)
 
     def on_mount(self) -> None:
         self.refresh_bubble_width()

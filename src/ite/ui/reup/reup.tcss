@@ -1501,6 +1501,114 @@ Widget {
     padding: 0;
 }
 
+.block.tools {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.tools .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.tools .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.todos {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.todos .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.todos .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.mcp {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.mcp .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.mcp .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.subagents {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.subagents .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.subagents .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.workboard {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.workboard .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.workboard .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.memory {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.memory .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.memory .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
 .block.change {
     border: round $border;
     background: $surface;
