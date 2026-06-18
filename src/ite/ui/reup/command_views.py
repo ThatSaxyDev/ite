@@ -100,64 +100,118 @@ def build_mcp_command_renderable(
     primary = _style_token(styles, "primary", "#b8d8ff")
     success = _style_token(styles, "success", "#8fc7a2")
     warning = _style_token(styles, "warning", "#d5b07a")
-    error = _style_token(styles, "error", "#d28081")
 
-    if not servers:
-        return Group(
-            Text("no mcp servers configured", style=f"bold {fg}"),
-            Text("Add servers in .ite/config.toml under [mcp_servers].", style=muted),
-        )
-
-    connected = sum(1 for item in servers if item.get("status") == "connected")
-    ready = sum(1 for item in servers if item.get("status") == "ready")
-    failed = sum(1 for item in servers if item.get("status") == "error")
+    connected_count = sum(1 for s in servers if s.get("status") == "connected")
+    ready_count = sum(1 for s in servers if s.get("status") == "ready")
+    error_count = sum(1 for s in servers if s.get("status") == "error")
 
     summary = Text()
     summary.append("servers ", style=f"bold {fg}")
-    summary.append(f"{len(servers)} configured", style=secondary)
+    summary.append(f"{len(servers)} installed", style=secondary)
     summary.append("  ·  ", style=disabled)
-    summary.append(f"{connected} connected", style=f"bold {success}")
+    summary.append(f"{connected_count} connected", style=f"bold {success}")
     summary.append("  ·  ", style=disabled)
-    summary.append(f"{ready} ready", style=f"bold {primary}")
-    if failed:
+    summary.append(f"{ready_count} ready", style=f"bold {primary}")
+    if error_count:
         summary.append("  ·  ", style=disabled)
-        summary.append(f"{failed} failed", style=f"bold {warning}")
+        summary.append(f"{error_count} error", style=f"bold {warning}")
+
+    if not servers:
+        lead = Text("No MCP servers configured.", style=f"bold {fg}")
+        intro = Text(
+            "MCP servers provide tools the agent can call. Define them in config, then connect.",
+            style=secondary,
+        )
+        start_here = Text()
+        start_here.append("Start here: ", style=muted)
+        start_here.append("/mcp start <name>", style=f"bold {primary}")
+        start_here.append("  ·  ", style=disabled)
+        start_here.append("/mcp env set <name> <KEY> <VALUE>", style=f"bold {primary}")
+        config_note = Text(
+            "Add [mcp_servers.<name>] blocks in .ite/config.toml or ~/.ite/config.toml.",
+            style=disabled,
+        )
+        return Group(summary, Text(""), lead, intro, Text(""), start_here, Text(""), config_note)
 
     table = Table.grid(expand=True)
     table.add_column(ratio=5)
-    table.add_column(width=12)
-    table.add_column(width=8)
-    table.add_column(width=6)
+    table.add_column(width=10)
+    table.add_column(width=9)
     table.add_column(ratio=6)
 
-    for server in sorted(servers, key=lambda s: str(s.get("name", ""))):
-        name = str(server.get("name") or "server")
-        status = str(server.get("status") or "unknown")
-        detail = str(server.get("detail") or server.get("last_error") or "").strip()
-        tools = str(server.get("tools", 0))
-        transport = str(server.get("transport") or "remote")
-        mode = "auto" if server.get("auto_connect") else "manual"
-
-        title = Text(name, style=f"bold {fg}")
-        detail_text = Text(detail, style=secondary) if detail else None
-        col1 = Group(title, detail_text) if detail_text else title
-
-        status_label = _mcp_status_label(status)
-        status_color = _mcp_status_color(status, styles=styles)
-
-        table.add_row(
-            col1,
-            Text(status_label, style=f"bold {status_color}"),
-            Text(transport, style=muted),
-            Text(mode, style=muted),
-            Text(f"{tools} tools", style=muted),
-        )
-
-    hint = Text(
-        "Use /mcp start <server> to connect and /mcp stop <server> to disconnect.",
-        style=disabled,
+    ordered = sorted(
+        servers,
+        key=lambda s: (
+            {"connected": 0, "ready": 1, "error": 2}.get(str(s.get("status", "")), 3),
+            str(s.get("name", "")),
+        ),
     )
-    return Group(summary, Text(""), table, Text(""), hint)
+
+    for i, server in enumerate(ordered):
+        name_str = str(server.get("name") or "server")
+        status = str(server.get("status") or "unknown")
+        detail_str = str(server.get("detail") or server.get("last_error") or "").strip()
+        tools = str(server.get("tools", 0))
+        transport = str(server.get("transport") or "")
+
+        meta_bits = [transport] if transport else []
+        if server.get("url"):
+            meta_bits.append(str(server["url"]))
+        if detail_str:
+            meta_bits.append(detail_str)
+        detail = Text(" · ".join(b for b in meta_bits if b), style=muted) if meta_bits else None
+
+        title = Text(name_str, style=f"bold {fg}")
+        col1 = Group(title, detail) if detail else title
+
+        if status == "connected":
+            status_badge = Text("connected", style=f"bold {success}")
+        elif status == "ready":
+            status_badge = Text("ready", style=f"bold {primary}")
+        elif status == "error":
+            status_badge = Text("error", style=f"bold {warning}")
+        else:
+            status_badge = Text(status, style=disabled)
+
+        auto_label = (
+            Text("auto", style=warning) if server.get("auto_connect")
+            else Text("manual", style=muted)
+        )
+        tool_text = Text(f"{tools} tools", style=secondary)
+
+        table.add_row(col1, status_badge, auto_label, tool_text)
+        if i < len(ordered) - 1:
+            table.add_row(Text(""), Text(""), Text(""), Text(""))
+
+    transport_counts: dict[str, int] = {}
+    for s in servers:
+        t = str(s.get("transport") or "")
+        if t:
+            transport_counts[t] = transport_counts.get(t, 0) + 1
+    footer = Text()
+    for i, (t, c) in enumerate(sorted(transport_counts.items())):
+        if i:
+            footer.append("  ·  ", style=disabled)
+        footer.append(f"{c} via ", style=muted)
+        footer.append(t, style=f"bold {secondary}")
+
+    hint = Text()
+    hint.append("/mcp start ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("      connect and register tools", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp stop ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("       disconnect", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp env set ", style=f"bold {primary}")
+    hint.append("<name> <KEY> <VALUE>", style=primary)
+    hint.append("  store API key or token", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp doctor ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("     check for issues", style=muted)
+    return Group(summary, Text(""), table, Text(""), footer, Text(""), hint)
 
 
 def build_stats_command_renderable(

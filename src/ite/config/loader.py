@@ -389,11 +389,6 @@ def load_config(
 
     config_dict = _merge_mcp_secrets_into_config(
         config_dict,
-        _load_mcp_secrets(get_system_secrets_path()),
-    )
-
-    config_dict = _merge_mcp_secrets_into_config(
-        config_dict,
         _load_mcp_secrets(get_workspace_secrets_path(cwd)),
     )
 
@@ -1126,6 +1121,25 @@ def _write_mcp_secrets(path: Path, secrets: dict[str, dict[str, str]]) -> None:
         lines.append("")
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     os.chmod(path, 0o600)
+
+
+_keyring_mcp_secrets_cache: dict[str, dict[str, str]] | None = None
+
+
+def load_mcp_keyring_env_vars(server: str) -> dict[str, str]:
+    """Lazily load keyring secrets for a specific MCP server.
+
+    Reads from the macOS keychain (or equivalent) once and caches for the
+    process lifetime. Called on-demand right before a server connects, not
+    at config-load time, to avoid triggering keychain password prompts on
+    every startup.
+    """
+    global _keyring_mcp_secrets_cache
+    if _keyring_mcp_secrets_cache is None:
+        _keyring_mcp_secrets_cache = _load_global_mcp_secrets_from_keyring(
+            get_system_secrets_path()
+        )
+    return dict(_keyring_mcp_secrets_cache.get(server, {}))
 
 
 def _load_global_mcp_secrets_from_keyring(path: Path) -> dict[str, dict[str, str]]:

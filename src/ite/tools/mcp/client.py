@@ -203,10 +203,6 @@ class MCPClient:
             self.last_error = message
             await self._set_status(MCPServerStatus.ERROR, detail=message)
             raise RuntimeError(message)
-        await self._set_status(
-            MCPServerStatus.CONNECTING,
-            detail="Connecting.",
-        )
         self._tools.clear()
         self.last_error = None
         self.auth_phase = None
@@ -217,7 +213,7 @@ class MCPClient:
             await self._client.__aenter__()
             await self._set_status(
                 MCPServerStatus.CONNECTING,
-                detail="Connected to server transport. Discovering tools.",
+                detail="Discovering tools.",
             )
 
             tool_result = await self._client.list_tools()
@@ -247,7 +243,7 @@ class MCPClient:
 
             await self._set_status(
                 MCPServerStatus.CONNECTED,
-                detail=f"Connected with {len(self._tools)} tool(s).",
+                detail=f"{len(self._tools)} tools",
             )
             self.auth_phase = None
 
