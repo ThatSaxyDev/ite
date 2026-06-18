@@ -1049,6 +1049,56 @@ def remove_mcp_env_var(
     return path
 
 
+def clear_mcp_env_vars(server: str, *, cwd: Path | None = None) -> None:
+    """Remove all env vars for an MCP server from all storage locations."""
+    import keyring as kr
+
+    # Global scope — clear keyring and metadata
+    sys_path = get_system_secrets_path()
+    sys_secrets = _load_mcp_secrets(sys_path)
+    if server in sys_secrets:
+        for key in list(sys_secrets[server]):
+            try:
+                kr.delete_password(_mcp_keyring_service(server), key)
+            except Exception:
+                pass
+        del sys_secrets[server]
+    _write_mcp_secrets(sys_path, sys_secrets)
+
+    # Workspace scope — clear from .ite/secrets.toml
+    if cwd is not None:
+        ws_path = get_workspace_secrets_path(cwd)
+        ws_secrets = _load_mcp_secrets(ws_path)
+        if server in ws_secrets:
+            del ws_secrets[server]
+        _write_mcp_secrets(ws_path, ws_secrets)
+
+    # Strip env vars baked into config TOML files
+    for scope_name, scope_cwd in (
+        ("global", None),
+        ("workspace", cwd),
+    ):
+        try:
+            config_path = _mcp_config_path_for_scope(scope_cwd, scope_name)
+        except ValueError:
+            continue
+        if not config_path.exists():
+            continue
+        cfg = load_config(scope_cwd)
+        if server not in cfg.mcp_servers:
+            continue
+        srv = cfg.mcp_servers[server]
+        if not srv.env:
+            continue
+        srv.env = {}
+        save_mcp_server_config(
+            cwd=scope_cwd,
+            scope=scope_name,
+            server=server,
+            config=srv.model_dump(exclude_defaults=True),
+        )
+
+
 def _mcp_secrets_path_for_scope(cwd: Path | None, scope: str) -> Path:
     normalized = str(scope or "workspace").strip().lower()
     if normalized == "global":
@@ -1124,6 +1174,12 @@ def _write_mcp_secrets(path: Path, secrets: dict[str, dict[str, str]]) -> None:
 
 
 _keyring_mcp_secrets_cache: dict[str, dict[str, str]] | None = None
+
+
+def invalidate_mcp_keyring_cache() -> None:
+    """Clear the cached keyring secrets so next read re-queries the keyring."""
+    global _keyring_mcp_secrets_cache
+    _keyring_mcp_secrets_cache = None
 
 
 def load_mcp_keyring_env_vars(server: str) -> dict[str, str]:

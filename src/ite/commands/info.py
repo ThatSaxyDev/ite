@@ -4,6 +4,9 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.config.loader import (
+    clear_mcp_env_vars,
+    get_data_dir,
+    invalidate_mcp_keyring_cache,
     get_system_secrets_path,
     get_workspace_secrets_path,
     load_config,
@@ -490,6 +493,27 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
         )
         return
 
+    if subcommand == "reset":
+        if len(args) < 2:
+            ctx.console.print("[error]Usage:[/error] [code]/mcp reset <server>[/code]")
+            return
+        name = args[1]
+        try:
+            await mcp_mgr.disconnect_server(name, ctx.agent.session.tool_registry)
+        except Exception:
+            pass
+        token_file = get_data_dir() / "auth" / "mcp_oauth_tokens.json"
+        if token_file.exists():
+            token_file.unlink()
+        clear_mcp_env_vars(name, cwd=ctx.config.cwd)
+        invalidate_mcp_keyring_cache()
+        _reload_mcp_runtime_config(ctx)
+        ctx.console.print(
+            f"[success]Reset MCP server[/success] [cyan]{name}[/cyan]"
+            f" [dim]— credentials and OAuth tokens cleared, use /mcp start {name} to re-authenticate[/dim]"
+        )
+        return
+
     if subcommand == "env":
         await _cmd_mcp_env(ctx, args[1:])
         return
@@ -507,7 +531,7 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
             "[error]Usage:[/error] [code]/mcp[/code], "
             "[code]/mcp start <server>[/code], "
             "[code]/mcp stop <server>[/code], "
-            "[code]/mcp add ...[/code], "
+            "[code]/mcp reset <server>[/code], "
             "[code]/mcp env ...[/code], "
             "[code]/mcp doctor <server>[/code]"
         )
@@ -627,6 +651,10 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
     hint.append("/mcp env set ", style=f"bold {primary}")
     hint.append("<name> <KEY> <VALUE>", style=primary)
     hint.append("  store API key or token", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp reset ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("      clear OAuth tokens", style=muted)
     hint.append("\n", style="")
     hint.append("/mcp doctor ", style=f"bold {primary}")
     hint.append("<name>", style=primary)
