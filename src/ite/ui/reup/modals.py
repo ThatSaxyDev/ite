@@ -639,10 +639,10 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     def _build_commit_messages(self, *, mode: str) -> list[dict[str, str]]:
         system = (
             "You write excellent git commit subjects. "
-            "Return exactly one concise subject line, max 72 characters. "
-            "Prefer conventional commit style like feat(scope):, fix(scope):, refactor(scope):, "
-            "style(scope):, chore(scope): when it fits naturally. "
-            "Summarize the intent and user-visible effect of the change, not the filenames. "
+            "Return exactly one subject line using conventional commit format: type(scope): description. "
+            "Type must be one of feat, fix, refactor, style, chore, docs, test, perf, ci, build. "
+            "Write a descriptive subject that summarizes the intent, key changes, and user-visible effect. "
+            "Include important details so the message stands on its own. "
             "Use an imperative verb. Avoid vague messages like 'update files' or 'misc fixes'. "
             "Do not use quotes, bullets, code fences, or any explanation."
         )

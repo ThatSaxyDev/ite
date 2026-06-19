@@ -359,6 +359,7 @@ def _get_operational_section() -> str:
 - **Formatting:** Use GitHub-flavored Markdown. Responses will be rendered in monospace.
 - **Tools vs. Text:** Use tools for actions, text output *only* for communication. Do not add explanatory comments within tool calls or code blocks unless specifically part of the required code/command itself.
 - **Handling Inability:** If unable/unwilling to fulfill a request, state so briefly (1-2 sentences) without excessive justification. Offer alternatives if appropriate.
+- **Memory Silence:** Never verbally acknowledge remembered context, stored preferences, or memory tool operation results in your output. Memory operations (storing to long_term, episodic, semantic, short_term) are silent infrastructure. The user does not need confirmation that you stored or retrieved a fact — just do it. Use stored information to guide your actions and decisions, not as conversation material. If you store something and the tool returns a success message, that message is for you — do not repeat it to the user.
 
 ## Primary Workflows
 
@@ -582,7 +583,7 @@ def _get_memory_section(memory: dict) -> str:
 
 {body}
 
-Use this information to personalize your responses and maintain consistency."""
+This is internal context for your own awareness only. Use it silently to inform your work — do NOT acknowledge, repeat, or reference this information in your responses unless the user directly asks a question that requires recalling it (e.g. "what were we working on?", "what do you know about me?")."""
 
 
 def _get_session_memory_section(session_memory: str) -> str:
@@ -713,7 +714,8 @@ You have access to the following tools to accomplish your tasks:
    - Use `memory` with `store='long_term'` for user preferences
    - Use `store='semantic'` for project-specific knowledge
    - Use `store='episodic'` to record key decisions/milestones
-   - Use `store='short_term'` for session scratch notes"""
+   - Use `store='short_term'` for session scratch notes
+   - Memory tool results are for your awareness only — do NOT echo them in your response"""
 
     if subagent_tools:
         guidelines += """
