@@ -2031,6 +2031,7 @@ class ComposerMixin:
         )
         await asyncio.sleep(0)
         remote_task: asyncio.Task[dict[str, Any] | None] | None = None
+        telegram_task: asyncio.Task[dict[str, Any] | None] | None = None
         request_id = ""
         if (
             self._remote_server is not None
@@ -2054,14 +2055,36 @@ class ComposerMixin:
                     )
                 )
             )
+        if (
+            self._telegram_service is not None
+            and self._telegram_service.running
+            and self.agent
+            and self.agent.session
+        ):
+            tg_req_id = str(uuid.uuid4()) if not request_id else request_id
+            telegram_task = asyncio.create_task(
+                self._telegram_service.request_plan_question(
+                    dict(
+                        question_number=tg_req_id,
+                        question=question,
+                        options=options,
+                        recommended_index=recommended_index,
+                        allow_free_text=allow_free_text,
+                    )
+                )
+            )
 
         tasks_to_cleanup: list[asyncio.Task[Any]] = [local_task]
         if remote_task is not None:
             tasks_to_cleanup.append(remote_task)
+        if telegram_task is not None:
+            tasks_to_cleanup.append(telegram_task)
         try:
             pending: set[asyncio.Task[Any]] = {local_task}
             if remote_task is not None:
                 pending.add(remote_task)
+            if telegram_task is not None:
+                pending.add(telegram_task)
             winner: asyncio.Task[Any] | None = None
             answer: dict[str, Any] | None = None
             while pending:
@@ -2071,6 +2094,8 @@ class ComposerMixin:
                 for task in done:
                     result = task.result()
                     if task is remote_task and result is None:
+                        continue
+                    if task is telegram_task and result is None:
                         continue
                     winner = task
                     answer = result
@@ -2099,6 +2124,14 @@ class ComposerMixin:
                 await remote_task
                 await self._broadcast_remote_state()
             elif winner is remote_task:
+                await self._resolve_plan_question_choice(
+                    selected_index=selected_index,
+                    selected_option=selected_option,
+                    free_text=free_text,
+                )
+                await local_task
+                await self._broadcast_remote_state()
+            elif winner is telegram_task:
                 await self._resolve_plan_question_choice(
                     selected_index=selected_index,
                     selected_option=selected_option,
