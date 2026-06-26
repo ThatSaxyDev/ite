@@ -11,6 +11,8 @@ import contextlib
 import logging
 from typing import Any
 
+from telegramify_markdown import markdownify as tg_markdownify
+
 from ite.telegram._approval import (
     approval_keyboard,
     plan_question_keyboard,
@@ -190,7 +192,7 @@ class TelegramBotService:
                 ):
                     await self._finalize_streaming_message()
                 elif self._streaming_text.strip():
-                    await self._send_telegram(escape_md(self._streaming_text))
+                    await self._send_telegram(tg_markdownify(self._streaming_text))
                 self._streaming_message_id = None
                 self._streaming_text = ""
                 continue
@@ -613,7 +615,7 @@ class TelegramBotService:
             return None
         try:
             bot = self._get_bot()
-            text = escape_md(self._streaming_text) + "\u258c"
+            text = tg_markdownify(self._streaming_text) + "\u258c"
             msg = await bot.send_message(
                 chat_id=self._chat_id,
                 text=text,
@@ -637,7 +639,7 @@ class TelegramBotService:
             return
         try:
             bot = self._get_bot()
-            text = escape_md(self._streaming_text) + "\u258c"
+            text = tg_markdownify(self._streaming_text) + "\u258c"
             await bot.edit_message_text(
                 chat_id=self._chat_id,
                 message_id=self._streaming_message_id,
@@ -652,7 +654,7 @@ class TelegramBotService:
             return
         try:
             bot = self._get_bot()
-            text = escape_md(self._streaming_text)
+            text = tg_markdownify(self._streaming_text)
             await bot.edit_message_text(
                 chat_id=self._chat_id,
                 message_id=self._streaming_message_id,

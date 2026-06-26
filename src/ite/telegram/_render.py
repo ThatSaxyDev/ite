@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from telegramify_markdown import markdownify as tg_markdownify
+
 from ite.ui.tool_narrative import activity_title, describe_tool_activity
 
 
@@ -57,7 +59,7 @@ def format_agent_event(
         content = str(data.get("content") or "")
         if not content.strip():
             return None
-        return escape_md(truncate(content))
+        return tg_markdownify(truncate(content))
 
     # ── Tool calls — use the same natural‑language helpers as the TUI ──
     if event_type == "tool_call_start":
