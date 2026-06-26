@@ -89,6 +89,16 @@ class TelegramBotService:
         """Called by the TUI when plan‑only phase starts / ends."""
         self._plan_only = plan_only
 
+    async def send_turn_change_summary(self, change_set: Any, *, cwd: Any) -> None:
+        """Send a change summary bubble to Telegram at end of a turn."""
+        if not self._running or self._chat_id is None:
+            return
+        from ite.telegram._render import format_change_summary
+
+        formatted = format_change_summary(change_set, cwd=cwd)
+        if formatted:
+            await self._send_telegram(formatted)
+
     async def start(self, *, bot_token: str) -> None:
         if self._running:
             return

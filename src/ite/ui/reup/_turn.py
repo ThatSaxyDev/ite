@@ -2290,6 +2290,11 @@ class TurnMixin:
             await self._open_change_review_panel(
                 change_set, title="Changed", mode="changed"
             )
+        # Mirror the change card to Telegram
+        if self._telegram_service is not None and self._telegram_service.running:
+            await self._telegram_service.send_turn_change_summary(
+                change_set, cwd=self.config.cwd
+            )
 
 
     async def confirmation_callback(self, confirmation) -> bool:

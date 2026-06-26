@@ -53,7 +53,7 @@ from ite.tools.builtin.shell import send_input_to_shell_run
 from ite.tools.mcp.mcp_tool import MCPTool
 from ite.tools.subagent import SubagentTool
 from ite.ui.reup.markdown_widget import CopyableMarkdown
-from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label
+from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label, tool_icon
 from ite.update_check import check_runtime_update, current_runtime_version, detect_install_method, get_notification_type, mark_update_notice_seen, should_show_update_notice
 from ite.voice import VoiceRecorder, VoiceRecorderError, transcribe_voice_file
 
@@ -1569,43 +1569,7 @@ class StreamingMixin:
         if not success:
             return "❌", f"bold {self._style('error')}"
 
-        icon_by_tool = {
-            "read_file": "📖",
-            "read_json": "🧾",
-            "read_toml": "📘",
-            "read_yaml": "📗",
-            "read_env": "🔐",
-            "write_file": "💾",
-            "edit": "✏️",
-            "edit_json": "🛠️",
-            "write_toml": "🛠️",
-            "write_yaml": "🛠️",
-            "write_env": "🛠️",
-            "apply_patch": "🩹",
-            "list_dir": "📁",
-            "http_request": "🌐",
-            "list_archive": "🗜️",
-            "read_pdf": "📄",
-            "read_image": "🖼️",
-            "glob": "🗂️",
-            "grep": "🔎",
-            "web_search": "🌐",
-            "web_fetch": "📄",
-            "run_tests": "🧪",
-            "run_linter": "🧹",
-            "run_typecheck": "🔤",
-            "git_status": "🌿",
-            "git_diff": "🧬",
-            "git_log": "🕘",
-            "git_branch": "🌱",
-            "git_remote": "🔗",
-            "git_commit": "📦",
-            "git_push": "🚀",
-            "todos": "☑️",
-            "memory": "🧠",
-            "shell": "▫️",
-        }
-        return icon_by_tool.get(name, "✅"), f"bold {self._style('fg')}"
+        return tool_icon(name), f"bold {self._style('fg')}"
 
     @staticmethod
 
