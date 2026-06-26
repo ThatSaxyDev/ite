@@ -1265,6 +1265,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             await self._voice_recorder.cancel()
             self._voice_recorder = None
         await self._shutdown_remote_server()
+        await self._shutdown_telegram_service()
         await self._shutdown_agents()
 
     async def _shutdown_agents(self) -> None:
@@ -1308,6 +1309,17 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             pass
         finally:
             self._remote_server = None
+
+    async def _shutdown_telegram_service(self) -> None:
+        if self._telegram_service is None:
+            return
+        service = self._telegram_service
+        try:
+            await asyncio.wait_for(service.stop(), timeout=3)
+        except Exception:
+            pass
+        finally:
+            self._telegram_service = None
 
 
     def _tick_live_context_meter(self) -> None:

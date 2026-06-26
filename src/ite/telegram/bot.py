@@ -7,6 +7,7 @@ Agent and delegates confirmations/plan questions to this service when active.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -85,19 +86,21 @@ class TelegramBotService:
 
     async def stop(self) -> None:
         self._running = False
-        if self._agent_event_consumer:
-            self._agent_event_consumer.cancel()
+        # Let _consume_agent_events exit naturally via the while loop
+        if self._agent_event_consumer and not self._agent_event_consumer.done():
             try:
-                await self._agent_event_consumer
-            except asyncio.CancelledError:
+                await asyncio.wait_for(self._agent_event_consumer, timeout=3)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
             self._agent_event_consumer = None
-        if self._app_task:
-            self._app_task.cancel()
+        # Let _run_polling exit naturally (while loop checks _running)
+        if self._app_task and not self._app_task.done():
             try:
-                await self._app_task
-            except asyncio.CancelledError:
-                pass
+                await asyncio.wait_for(self._app_task, timeout=5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                self._app_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._app_task
             self._app_task = None
         self._resolve_all_pending(None)
 
@@ -289,20 +292,23 @@ class TelegramBotService:
 
         logger.info("Telegram bot polling started")
         try:
-            async with self._app:
-                await self._app.start()
-                await self._app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-                # Keep alive until cancelled
-                while self._running:
-                    await asyncio.sleep(0.5)
-                await self._app.updater.stop()
-                await self._app.stop()
+            await self._app.initialize()
+            await self._app.start()
+            await self._app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            while self._running:
+                await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("Telegram bot polling crashed")
         finally:
             self._running = False
+            with contextlib.suppress(Exception):
+                await self._app.updater.stop()
+            with contextlib.suppress(Exception):
+                await self._app.stop()
+            with contextlib.suppress(Exception):
+                await self._app.shutdown()
 
     # ── Telegram handlers ───────────────────────────────────────────
 
