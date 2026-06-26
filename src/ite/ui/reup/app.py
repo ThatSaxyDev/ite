@@ -567,6 +567,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
         self._telegram_service: Any = None  # TelegramBotService | None (deferred import)
+        self._suppress_telegram_user_echo: bool = False
         self._remote_port_preference: int = 0
         self._commands_panel: CommandsSidePanel | None = None
         self._change_review_panel: ChangeReviewSidePanel | None = None

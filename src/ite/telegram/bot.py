@@ -99,6 +99,15 @@ class TelegramBotService:
         if formatted:
             await self._send_telegram(formatted)
 
+    async def send_user_message(self, text: str) -> None:
+        """Echo a user message typed in the TUI back to Telegram."""
+        if not self._running or self._chat_id is None:
+            return
+        from telegramify_markdown import markdownify as tg_markdownify
+
+        formatted = tg_markdownify(f"💬 **YOU**\n{text}")
+        await self._send_telegram(formatted)
+
     async def start(self, *, bot_token: str) -> None:
         if self._running:
             return

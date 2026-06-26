@@ -1657,6 +1657,14 @@ class ComposerMixin:
 
         if not suppress_user_echo:
             await self.add_user_message(display_message or message)
+            if (
+                self._telegram_service is not None
+                and self._telegram_service.running
+                and not self._suppress_telegram_user_echo
+            ):
+                await self._telegram_service.send_user_message(
+                    display_message or message
+                )
             self._is_turn_running = True
             self._update_composer_send_control()
 

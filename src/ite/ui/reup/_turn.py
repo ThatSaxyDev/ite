@@ -249,8 +249,12 @@ class TurnMixin:
             clear_composer=False,
         ):
             return
-        payload = self._build_turn_payload(message)
-        await self._dispatch_payload(payload)
+        self._suppress_telegram_user_echo = True
+        try:
+            payload = self._build_turn_payload(message)
+            await self._dispatch_payload(payload)
+        finally:
+            self._suppress_telegram_user_echo = False
 
 
     async def _cancel_remote_turn(self) -> None:
