@@ -29,18 +29,15 @@ logger = logging.getLogger("ite.telegram")
 # Replace with your bot's token from @BotFather.
 _DEFAULT_TELEGRAM_BOT_TOKEN = "8693627145:AAESj90ijegdDbroh72tf4xfG6Ev8KyXD9c"
 
+# Internal tools that users should never see in Telegram.
+_SUPPRESSED_TOOLS = frozenset({"memory", "plan_question"})
+
+# Maximum interval between streaming message edits (seconds).
+_STREAMING_FLUSH_INTERVAL = 0.30
+
 
 class TelegramBotService:
-    """Background service that bridges iTE Agent ↔ Telegram chat.
-
-    The TUI creates one instance and calls:
-      - start(bot_token) → /telegram on
-      - handle_agent_event(...) → streams events to Telegram
-      - request_confirmation(...) → shows inline keyboard, returns Future[bool]
-      - request_plan_question(...) → shows inline keyboard, returns Future[dict]
-      - request_plan_ready(...) → shows inline keyboard, returns Future[bool]
-      - submit_prompt(text) → receives text from Telegram, forwarded to TUI's _submit_prompt
-    """
+    """Background service that bridges iTE Agent ↔ Telegram chat."""
 
     def __init__(
         self,
@@ -56,7 +53,6 @@ class TelegramBotService:
         self._last_turn_id: int | None = None
         self._streaming_message_id: int | None = None
         self._streaming_text: str = ""
-        self._last_edit_time: float = 0.0
 
         # Serialize agent events to prevent concurrent streaming
         self._agent_event_queue: asyncio.Queue[Any] = asyncio.Queue()
@@ -72,28 +68,42 @@ class TelegramBotService:
         self._plan_ready_futures: dict[str, asyncio.Future[bool]] = {}
         self._pq_free_pending: str | None = None
 
+        # Tool message tracking — maps call_id → Telegram message_id + stored args
+        # so we can edit the "in‑progress" bubble in-place on completion.
+        self._tool_message_ids: dict[str, int] = {}
+        self._tool_args: dict[str, dict[str, Any]] = {}
+
+        # Used to suppress tool render during plan‑only phase (set by TUI).
+        self._plan_only: bool = False
+
+        # Reusable Bot instance (lazy, created once per start() cycle).
+        self._bot: Any = None
+
     @property
     def running(self) -> bool:
         return self._running
+
+    def set_plan_only(self, plan_only: bool) -> None:
+        """Called by the TUI when plan‑only phase starts / ends."""
+        self._plan_only = plan_only
 
     async def start(self, *, bot_token: str) -> None:
         if self._running:
             return
         self._bot_token = bot_token
+        self._bot = None  # re‑create on first use
         self._running = True
         self._app_task = asyncio.create_task(self._run_polling())
         self._agent_event_consumer = asyncio.create_task(self._consume_agent_events())
 
     async def stop(self) -> None:
         self._running = False
-        # Let _consume_agent_events exit naturally via the while loop
         if self._agent_event_consumer and not self._agent_event_consumer.done():
             try:
                 await asyncio.wait_for(self._agent_event_consumer, timeout=3)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 pass
             self._agent_event_consumer = None
-        # Let _run_polling exit naturally (while loop checks _running)
         if self._app_task and not self._app_task.done():
             try:
                 await asyncio.wait_for(self._app_task, timeout=5)
@@ -113,65 +123,164 @@ class TelegramBotService:
         self._agent_event_queue.put_nowait((event, session_id, turn_id))
 
     async def _consume_agent_events(self) -> None:
-        """Sequential consumer — processes one event at a time to prevent races."""
-        while self._running:
-            try:
-                item = await asyncio.wait_for(self._agent_event_queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                continue
-            event, session_id, turn_id = item
-            await self._render_agent_event(event, session_id, turn_id)
+        """Sequential consumer with batched streaming edits.
 
-    async def _render_agent_event(
-        self, event: Any, session_id: str, turn_id: int
-    ) -> None:
+        TEXT_DELTA events are accumulated in memory without calling the
+        Telegram API.  The buffer is flushed at most every
+        ``_STREAMING_FLUSH_INTERVAL`` seconds (on queue timeout) and
+        immediately before any non‑text event or TEXT_COMPLETE.
+        """
         from ite.agent.events import AgentEvent, AgentEventType
 
-        event_type = (
-            event.type
-            if isinstance(event, AgentEvent)
-            else getattr(event, "type", None)
-        )
-        data = (
-            event.data
-            if isinstance(event, AgentEvent)
-            else getattr(event, "data", None) or {}
-        )
+        last_flush = 0.0
+        while self._running:
+            try:
+                item = await asyncio.wait_for(
+                    self._agent_event_queue.get(), timeout=0.15
+                )
+            except asyncio.TimeoutError:
+                # Periodic flush while text is being accumulated
+                now = asyncio.get_event_loop().time()
+                if (
+                    self._streaming_text
+                    and self._streaming_message_id is not None
+                    and now - last_flush >= _STREAMING_FLUSH_INTERVAL
+                ):
+                    await self._edit_streaming_message()
+                    last_flush = now
+                continue
+
+            event, session_id, turn_id = item
+            event_type = (
+                event.type
+                if isinstance(event, AgentEvent)
+                else getattr(event, "type", None)
+            )
+            data = (
+                event.data
+                if isinstance(event, AgentEvent)
+                else getattr(event, "data", None) or {}
+            )
+
+            # ── TEXT_DELTA: accumulate, don't block on API ──────────
+            if event_type == AgentEventType.TEXT_DELTA:
+                content = str(data.get("content", ""))
+                self._streaming_text += content
+                if self._streaming_message_id is None:
+                    self._streaming_message_id = (
+                        await self._send_telegram_streaming()
+                    )
+                    last_flush = asyncio.get_event_loop().time()
+                else:
+                    now = asyncio.get_event_loop().time()
+                    if now - last_flush >= _STREAMING_FLUSH_INTERVAL:
+                        await self._edit_streaming_message()
+                        last_flush = now
+                continue
+
+            # ── Flush any pending streaming before processing non‑text ──
+            if self._streaming_text and self._streaming_message_id is not None:
+                await self._edit_streaming_message()
+                last_flush = asyncio.get_event_loop().time()
+
+            if event_type == AgentEventType.TEXT_COMPLETE:
+                if (
+                    self._streaming_message_id is not None
+                    and self._streaming_text.strip()
+                ):
+                    await self._finalize_streaming_message()
+                elif self._streaming_text.strip():
+                    await self._send_telegram(escape_md(self._streaming_text))
+                self._streaming_message_id = None
+                self._streaming_text = ""
+                continue
+
+            if event_type == AgentEventType.AGENT_START:
+                # TUI‑only lifecycle event; never rendered to user.
+                continue
+
+            await self._render_non_streaming_event(event_type, data, turn_id)
+
+    async def _render_non_streaming_event(
+        self,
+        event_type: Any,
+        data: dict[str, Any],
+        turn_id: int,
+    ) -> None:
+        """Handle tool calls, errors, compaction, and other non‑streaming events."""
+        from ite.agent.events import AgentEventType
 
         if format_turn_boundary(self._last_turn_id, turn_id):
-            await self._send_telegram("▬▬▬▬▬▬▬▬▬▬")
+            await self._send_telegram("\u25ac\u25ac\u25ac\u25ac\u25ac\u25ac\u25ac\u25ac\u25ac\u25ac")
             self._streaming_message_id = None
             self._streaming_text = ""
         self._last_turn_id = turn_id
 
-        if event_type == AgentEventType.TEXT_DELTA:
-            content = str(data.get("content", ""))
-            self._streaming_text += content
-            if self._streaming_message_id is not None:
-                await self._edit_streaming_message()
-            else:
-                self._streaming_message_id = await self._send_telegram_streaming()
+        tool_name = str(data.get("name") or "")
+
+        # ── Suppress internal tools ─────────────────────────────────
+        if event_type in (AgentEventType.TOOL_CALL_START, AgentEventType.TOOL_CALL_COMPLETE):
+            if tool_name in _SUPPRESSED_TOOLS:
+                return
+            if tool_name == "todos":
+                # Always suppress todo events on Telegram (TUI‑centric).
+                return
+            if self._plan_only and tool_name not in {"todos", "web_search", "web_fetch"}:
+                return
+
+        # ── TOOL_CALL_START: store args, send bubble ─────────────────
+        if event_type == AgentEventType.TOOL_CALL_START:
+            call_id = str(data.get("call_id") or "")
+            args = data.get("arguments")
+            if isinstance(args, dict):
+                self._tool_args[call_id] = args
+            frame = {
+                "event": {
+                    "type": event_type.value,
+                    "data": data,
+                },
+            }
+            formatted = format_agent_event(frame, stored_args=self._tool_args)
+            if formatted:
+                message_id = await self._send_telegram(formatted)
+                if message_id is not None:
+                    self._tool_message_ids[call_id] = message_id
             return
 
-        if event_type == AgentEventType.TEXT_COMPLETE:
-            if self._streaming_message_id is not None and self._streaming_text.strip():
-                await self._finalize_streaming_message()
-            elif self._streaming_text.strip():
-                await self._send_telegram(escape_md(self._streaming_text))
-            self._streaming_message_id = None
-            self._streaming_text = ""
+        # ── TOOL_CALL_COMPLETE: edit the start bubble in-place ──────
+        if event_type == AgentEventType.TOOL_CALL_COMPLETE:
+            call_id = str(data.get("call_id") or "")
+            frame = {
+                "event": {
+                    "type": event_type.value,
+                    "data": data,
+                },
+            }
+            formatted = format_agent_event(frame, stored_args=self._tool_args)
+            if formatted:
+                message_id = self._tool_message_ids.pop(call_id, None)
+                if message_id is not None:
+                    await self._edit_telegram_message(message_id, formatted)
+                else:
+                    await self._send_telegram(formatted)
+            self._tool_args.pop(call_id, None)
             return
 
-        # Delegate to the shared formatter (treat AgentEvent like a frame)
+        # ── TOOL_CALL_PROGRESS: suppressed (TUI‑only live output) ───
+        if event_type == AgentEventType.TOOL_CALL_PROGRESS:
+            return
+
+        # ── Everything else: errors, compaction, loops ──────────────
+        event_type_str = (
+            event_type.value if hasattr(event_type, "value") else str(event_type)
+        )
         frame = {
             "event": {
-                "type": event_type.value
-                if hasattr(event_type, "value")
-                else str(event_type),
+                "type": event_type_str,
                 "data": data,
             },
         }
-        formatted = format_agent_event(frame)
+        formatted = format_agent_event(frame, stored_args=self._tool_args)
         if formatted:
             await self._send_telegram(formatted)
 
@@ -191,7 +300,7 @@ class TelegramBotService:
         cmd = getattr(confirmation, "command", None)
         diff = getattr(getattr(confirmation, "diff", None), "to_diff", lambda: "")()
 
-        parts = [f"🔐 *Approval needed:* {escape_md(str(tool))}"]
+        parts = [f"\U0001f510 *Approval needed:* {escape_md(str(tool))}"]
         if desc:
             parts.append(escape_md(truncate(str(desc), 2000)))
         if cmd:
@@ -225,7 +334,7 @@ class TelegramBotService:
         recommended_index = payload.get("recommended_index")
         allow_free_text = bool(payload.get("allow_free_text", True))
 
-        parts = [f"📋 *Plan question:*\n{escape_md(truncate(question, 2000))}"]
+        parts = [f"\U0001f4cb *Plan question:*\n{escape_md(truncate(question, 2000))}"]
         await self._send_telegram(
             "\n".join(parts),
             reply_markup=plan_question_keyboard(
@@ -253,9 +362,11 @@ class TelegramBotService:
 
         parts = []
         if plan_text:
-            parts.append(f"📝 *Plan ready*\n{escape_md(truncate(plan_text, 3000))}")
+            parts.append(
+                f"\U0001f4dd *Plan ready*\n{escape_md(truncate(plan_text, 3000))}"
+            )
         else:
-            parts.append(f"📝 *Plan ready* ({question_count} questions answered)")
+            parts.append(f"\U0001f4dd *Plan ready* ({question_count} questions answered)")
         parts.append("_Proceed with implementation?_")
         await self._send_telegram(
             "\n".join(parts), reply_markup=plan_ready_keyboard(request_id)
@@ -315,7 +426,7 @@ class TelegramBotService:
     async def _handle_start(self, update: Any, context: Any) -> None:
         self._chat_id = update.effective_chat.id if update.effective_chat else None
         await update.message.reply_text(
-            "🤖 *iTE Telegram Bot* connected\\.\n\n"
+            "\U0001f916 *iTE Telegram Bot* connected\\.\n\n"
             "Send me a message and I'll forward it to your running iTE session\\.\n\n"
             "_Commands:_\n"
             "/status — current session info\n"
@@ -325,16 +436,16 @@ class TelegramBotService:
 
     async def _handle_status(self, update: Any, context: Any) -> None:
         await update.message.reply_text(
-            "📡 Connected to iTE runtime\n_Send a message to start a turn\\._",
+            "\U0001f4e1 Connected to iTE runtime\n_Send a message to start a turn\\._",
             parse_mode="MarkdownV2",
         )
 
     async def _handle_cancel(self, update: Any, context: Any) -> None:
         if self._on_cancel_turn:
             await self._on_cancel_turn()
-            await update.message.reply_text("⏹ Turn cancelled\\.")
+            await update.message.reply_text("\u23f9 Turn cancelled\\.")
         else:
-            await update.message.reply_text("⚠️ No active session\\.")
+            await update.message.reply_text("\u26a0\ufe0f No active session\\.")
 
     async def _handle_message(self, update: Any, context: Any) -> None:
         if not update.message or not update.message.text:
@@ -362,7 +473,7 @@ class TelegramBotService:
         if self._on_submit_prompt:
             await self._on_submit_prompt(text)
         else:
-            await update.message.reply_text("⚠️ No active iTE session\\.")
+            await update.message.reply_text("\u26a0\ufe0f No active iTE session\\.")
 
     async def _handle_callback(self, update: Any, context: Any) -> None:
         if not update.callback_query:
@@ -377,7 +488,7 @@ class TelegramBotService:
             future = self._approval_futures.get(request_id)
             if future and not future.done():
                 future.set_result(True)
-            await query.edit_message_text("✅ Approved")
+            await query.edit_message_text("\u2705 Approved")
             return
 
         if data.startswith("deny:"):
@@ -385,7 +496,7 @@ class TelegramBotService:
             future = self._approval_futures.get(request_id)
             if future and not future.done():
                 future.set_result(False)
-            await query.edit_message_text("❌ Denied")
+            await query.edit_message_text("\u274c Denied")
             return
 
         # Plan question responses
@@ -407,18 +518,16 @@ class TelegramBotService:
                         }
                     )
                 await query.edit_message_text(
-                    f"✅ Option {selected_index + 1} selected"
+                    f"\u2705 Option {selected_index + 1} selected"
                 )
             return
 
         if data.startswith("pq_free:"):
             request_id = data.removeprefix("pq_free:")
-            # Free-text answers are harder inline — reply with prompt
             future = self._plan_question_futures.get(request_id)
             await query.edit_message_text(
-                "💬 Send your free-text answer as a regular message:"
+                "\U0001f4ac Send your free-text answer as a regular message:"
             )
-            # Store the request_id so the next text message is treated as the answer
             self._pq_free_pending = request_id
             return
 
@@ -428,7 +537,7 @@ class TelegramBotService:
             future = self._plan_ready_futures.get(request_id)
             if future and not future.done():
                 future.set_result(True)
-            await query.edit_message_text("🚀 Implementing plan…")
+            await query.edit_message_text("\U0001f680 Implementing plan\u2026")
             return
 
         if data.startswith("pr_no:"):
@@ -436,10 +545,18 @@ class TelegramBotService:
             future = self._plan_ready_futures.get(request_id)
             if future and not future.done():
                 future.set_result(False)
-            await query.edit_message_text("📝 Continuing to plan…")
+            await query.edit_message_text("\U0001f4dd Continuing to plan\u2026")
             return
 
     # ── Message sending helpers ─────────────────────────────────────
+
+    def _get_bot(self) -> Any:
+        """Return a cached Bot instance, creating one lazily if needed."""
+        if self._bot is None:
+            from telegram import Bot
+
+            self._bot = Bot(token=self._bot_token)
+        return self._bot
 
     async def _send_telegram(
         self,
@@ -450,9 +567,9 @@ class TelegramBotService:
         if self._chat_id is None:
             return None
         try:
-            from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-            bot = Bot(token=self._bot_token)
+            bot = self._get_bot()
             kb = None
             if reply_markup and isinstance(reply_markup, dict):
                 inline_keyboard = reply_markup.get("inline_keyboard", [])
@@ -473,14 +590,30 @@ class TelegramBotService:
             logger.warning("Failed to send Telegram message: %s", e)
             return None
 
+    async def _edit_telegram_message(
+        self, message_id: int, text: str
+    ) -> None:
+        """Edit an existing message in-place (used for tool-completion bubbles)."""
+        if self._chat_id is None:
+            return
+        try:
+            bot = self._get_bot()
+            await bot.edit_message_text(
+                chat_id=self._chat_id,
+                message_id=message_id,
+                text=text,
+                parse_mode="MarkdownV2",
+            )
+        except Exception:
+            # Fallback: send as new message if edit fails
+            await self._send_telegram(text)
+
     async def _send_telegram_streaming(self) -> int | None:
         if self._chat_id is None:
             return None
         try:
-            from telegram import Bot
-
-            bot = Bot(token=self._bot_token)
-            text = escape_md(self._streaming_text) + "▌"
+            bot = self._get_bot()
+            text = escape_md(self._streaming_text) + "\u258c"
             msg = await bot.send_message(
                 chat_id=self._chat_id,
                 text=text,
@@ -489,12 +622,10 @@ class TelegramBotService:
             return msg.message_id
         except Exception:
             try:
-                from telegram import Bot
-
-                bot = Bot(token=self._bot_token)
+                bot = self._get_bot()
                 msg = await bot.send_message(
                     chat_id=self._chat_id,
-                    text=self._streaming_text + "▌",
+                    text=self._streaming_text + "\u258c",
                 )
                 return msg.message_id
             except Exception as e:
@@ -504,22 +635,15 @@ class TelegramBotService:
     async def _edit_streaming_message(self) -> None:
         if self._streaming_message_id is None or self._chat_id is None:
             return
-        # Throttle to ~4 edits/sec to stay under Telegram rate limits
-        now = asyncio.get_event_loop().time()
-        if now - self._last_edit_time < 0.2:
-            return
         try:
-            from telegram import Bot
-
-            bot = Bot(token=self._bot_token)
-            text = escape_md(self._streaming_text) + "▌"
+            bot = self._get_bot()
+            text = escape_md(self._streaming_text) + "\u258c"
             await bot.edit_message_text(
                 chat_id=self._chat_id,
                 message_id=self._streaming_message_id,
                 text=text,
                 parse_mode="MarkdownV2",
             )
-            self._last_edit_time = now
         except Exception:
             pass
 
@@ -527,9 +651,7 @@ class TelegramBotService:
         if self._streaming_message_id is None or self._chat_id is None:
             return
         try:
-            from telegram import Bot
-
-            bot = Bot(token=self._bot_token)
+            bot = self._get_bot()
             text = escape_md(self._streaming_text)
             await bot.edit_message_text(
                 chat_id=self._chat_id,

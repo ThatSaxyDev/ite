@@ -1887,6 +1887,7 @@ class TurnMixin:
             return
         await self._broadcast_remote_agent_event(session_id, turn_id, event)
         if self._telegram_service is not None and self._telegram_service.running:
+            self._telegram_service.set_plan_only(self._is_plan_only_phase())
             self._telegram_service.handle_agent_event(event, session_id, turn_id)
         if session_id != self._active_session_id():
             if event.type == AgentEventType.AGENT_ERROR:
