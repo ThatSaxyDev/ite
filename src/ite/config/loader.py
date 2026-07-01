@@ -391,6 +391,10 @@ def load_config(
         config_dict,
         _load_mcp_secrets(get_workspace_secrets_path(cwd)),
     )
+    config_dict = _merge_mcp_client_credentials_secrets_into_config(
+        config_dict,
+        _load_mcp_client_credentials_secrets(get_workspace_secrets_path(cwd)),
+    )
 
     # Approval policy is global user preference and should be consistent
     # across projects/sessions.
@@ -877,6 +881,11 @@ def save_mcp_server_config(
     config: dict[str, Any],
 ) -> Path:
     normalized = MCPServerConfig(**config).model_dump(exclude_defaults=True)
+    for secret_field in (
+        "client_credentials_client_id",
+        "client_credentials_client_secret",
+    ):
+        normalized.pop(secret_field, None)
     path = _mcp_config_path_for_scope(cwd, scope)
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -961,6 +970,11 @@ def _render_mcp_server_section(server: str, config: dict[str, Any]) -> str:
         "oauth_scopes",
         "oauth_client_name",
         "oauth_callback_port",
+        "client_credentials_url",
+        "client_credentials_client_id",
+        "client_credentials_client_secret",
+        "client_credentials_scope",
+        "client_credentials_refresh_buffer_sec",
     ]
     seen: set[str] = set()
     for key in preferred_order:
@@ -1146,6 +1160,54 @@ def _merge_mcp_secrets_into_config(
         merged_env = dict(server_cfg.get("env", {}) or {})
         merged_env.update(values)
         server_cfg["env"] = merged_env
+        mcp_servers[server] = server_cfg
+    result["mcp_servers"] = mcp_servers
+    return result
+
+
+def _load_mcp_client_credentials_secrets(path: Path) -> dict[str, dict[str, str]]:
+    """Load [mcp_client_credentials.<server>] tables from the secrets file."""
+    if not path.is_file():
+        return {}
+    try:
+        raw = _parse_toml(path)
+    except ConfigError:
+        return {}
+    bucket = raw.get("mcp_client_credentials", {})
+    if not isinstance(bucket, dict):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for server, values in bucket.items():
+        if not isinstance(server, str) or not isinstance(values, dict):
+            continue
+        items: dict[str, str] = {}
+        for key, value in values.items():
+            if isinstance(key, str) and isinstance(value, str):
+                items[key] = value
+        if items:
+            result[server] = items
+    return result
+
+
+def _merge_mcp_client_credentials_secrets_into_config(
+    config_dict: dict[str, Any],
+    secrets: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    """Inject client_credentials client_id/secret from secrets into MCP config."""
+    if not secrets:
+        return config_dict
+    result = config_dict.copy()
+    mcp_servers = dict(result.get("mcp_servers", {}) or {})
+    for server, values in secrets.items():
+        if server not in mcp_servers:
+            continue
+        server_cfg = dict(mcp_servers.get(server, {}) or {})
+        for key, value in values.items():
+            if key in {
+                "client_credentials_client_id",
+                "client_credentials_client_secret",
+            }:
+                server_cfg[key] = value
         mcp_servers[server] = server_cfg
     result["mcp_servers"] = mcp_servers
     return result

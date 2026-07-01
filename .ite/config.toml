@@ -4,6 +4,77 @@ hooks_enabled = false
 context_window = 200000
 temperature = 0.6
 
+[mcp_servers]
+
+[mcp_servers.vercel]
+enabled = true
+url = "https://mcp.vercel.com"
+auth = "oauth"
+oauth_client_name = "iTE MCP Client"
+oauth_callback_port = 3333
+
+[mcp_servers.chrome]
+enabled = true
+command = "npx"
+args = ["-y", "chrome-devtools-mcp@latest", "--autoConnect"]
+startup_timeout_sec = 45
+
+[mcp_servers.ios-simulator]
+enabled = true
+command = "npx"
+args = ["-y", "ios-simulator-mcp"]
+startup_timeout_sec = 90
+
+[mcp_servers.firecrawl-mcp]
+enabled = true
+command = "npx"
+args = ["-y", "firecrawl-mcp"]
+
+[mcp_servers.firecrawl-mcp.env]
+FIRECRAWL_API_KEY = "${FIRECRAWL_API_KEY}"
+
+[mcp_servers.clickup]
+enabled = true
+command = "npx"
+args = ["-y", "mcp-remote", "https://mcp.clickup.com/mcp"]
+startup_timeout_sec = 90
+
+[mcp_servers.aivara]
+enabled = true
+auto_connect = false
+startup_timeout_sec = 45
+url = "https://aivara-tools.up.railway.app/mcp"
+transport = "streamable_http"
+
+[mcp_servers.aivara.context_resolution]
+patientId = ["ListPatients", "SearchPatients"]
+documentId = ["GetDocuments"]
+encounterId = ["GetEncounters"]
+
+[mcp_servers.aivara.headers]
+Content-Type = "application/json"
+Accept = "application/json, text/event-stream"
+x-fhir-server-url = "https://app.promptopinion.ai/api/workspaces/019ce299-a68e-79ce-a4ae-2bd8b4d5a683/fhir"
+X-Aivara-Key = "${AIVARA_MCP_KEY}"
+
+[mcp_servers.paper]
+enabled = true
+auto_connect = false
+startup_timeout_sec = 45
+url = "http://127.0.0.1:29979/mcp"
+
+[mcp_servers.bachs]
+url = "https://docs.bachs.io/mcp"
+auto_connect = true
+
+[mcp_servers.paystack]
+enabled = "true"
+url = "https://mcp.paystack.africa/mcp"
+transport = "streamable_http"
+auth = "client_credentials"
+client_credentials_url = "https://mcp.paystack.africa/oauth/token"
+client_credentials_refresh_buffer_sec = "300"
+
 [[hooks]]
 name = "test_before_tool"
 trigger = "before_tool"
@@ -33,112 +104,3 @@ name = "test_on_error"
 trigger = "on_error"
 command = "python3 ./scripts/hook_logger.py"
 blocking = false
-
-# [sandbox]
-# enabled = true
-# allowed_paths = ["/Library/Frameworks/Python.framework/Versions/3.14"]
-
-
-
-# [mcp_servers.filesystem]
-# enabled = true
-# command = "npx"
-# args = [
-#     "-y",
-#     "@modelcontextprotocol/server-filesystem",
-#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
-#     "/tmp",
-# ]
-
-[mcp_servers.vercel]
-enabled = true
-url = "https://mcp.vercel.com"
-auth = "oauth"
-oauth_client_name = "iTE MCP Client"
-oauth_callback_port = 3333
-
-# [mcp_servers.netlify]
-# enabled = true
-# command = "npx"
-# args = ["-y", "@netlify/mcp"]
-# startup_timeout_sec = 45
-# env = { NETLIFY_PERSONAL_ACCESS_TOKEN = "${NETLIFY_PERSONAL_ACCESS_TOKEN}" }
-
-[mcp_servers.chrome]
-enabled = true
-command = "npx"
-args = [
-    "-y",
-    "chrome-devtools-mcp@latest",
-    "--autoConnect",
-]
-startup_timeout_sec = 45
-
-[mcp_servers.ios-simulator]
-enabled = true
-command = "npx"
-args = ["-y", "ios-simulator-mcp"]
-startup_timeout_sec = 90
-
-[mcp_servers.firecrawl-mcp]
-enabled = true
-command = "npx"
-args = [
-    "-y",
-    "firecrawl-mcp",
-]
-env = { FIRECRAWL_API_KEY = "${FIRECRAWL_API_KEY}" }
-
-[mcp_servers.clickup]
-enabled = true
-command = "npx"
-args = [
-    "-y",
-    "mcp-remote",
-    "https://mcp.clickup.com/mcp",
-]
-startup_timeout_sec = 90
-
-[mcp_servers.aivara]
-enabled = true
-auto_connect = false
-startup_timeout_sec = 45
-context_resolution = { patientId = ["ListPatients", "SearchPatients"], documentId = ["GetDocuments"], encounterId = ["GetEncounters"] }
-url = "https://aivara-tools.up.railway.app/mcp"
-transport = "streamable_http"
-
-[mcp_servers.aivara.headers]
-"Content-Type" = "application/json"
-"Accept" = "application/json, text/event-stream"
-"x-fhir-server-url" = "https://app.promptopinion.ai/api/workspaces/019ce299-a68e-79ce-a4ae-2bd8b4d5a683/fhir"
-"X-Aivara-Key" = "${AIVARA_MCP_KEY}"
-
-[mcp_servers.paper]
-enabled = true
-auto_connect = false
-startup_timeout_sec = 45
-url = "http://127.0.0.1:29979/mcp"
-
-[mcp_servers.bachs]
-url = "https://docs.bachs.io/mcp"
-auto_connect = true
-
-# [mcp_servers.filesystem2]
-# enabled = true
-# command = "np"
-# args = [
-#     "-y",
-#     "@modelcontextprotocol/server-filesystem",
-#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
-#     "/tmp",
-# ]
-
-# [mcp_servers.filesystem3]
-# enabled = true
-# command = "npx"
-# args = [
-#     "-y",
-#     "@modelcontextprotocol/server-filesystem22",
-#     "/Users/kiishidavid/Documents/Dev/Projects/ite",
-#     "/tmp",
-# ]
