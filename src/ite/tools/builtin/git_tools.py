@@ -199,7 +199,7 @@ class GitBranchParams(BaseModel):
 class GitCommitParams(BaseModel):
     message: str = Field(
         ...,
-        description="Commit message to create.",
+        description="Commit message using conventional commit format: type(scope): description. Type must be one of feat, fix, refactor, style, chore, docs, test, perf, ci, build. Scope is optional but recommended. Make the description descriptive — summarize what changed and why. Include key details so the message stands on its own. Example: feat(auth): add token refresh support with automatic retry on 401 responses.",
     )
     include_unstaged: bool = Field(
         False,

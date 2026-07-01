@@ -566,6 +566,8 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._sigint_handled: bool = False
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
+        self._telegram_service: Any = None  # TelegramBotService | None (deferred import)
+        self._suppress_telegram_user_echo: bool = False
         self._remote_port_preference: int = 0
         self._commands_panel: CommandsSidePanel | None = None
         self._change_review_panel: ChangeReviewSidePanel | None = None
@@ -643,6 +645,9 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                                 with Horizontal(id="signed-out-actions"):
                                     yield Button(
                                         "Sign in", id="cloud-sign-in", variant="primary"
+                                    )
+                                    yield Button(
+                                        "Skip", id="cloud-skip-sign-in", variant="default"
                                     )
                                     yield Button(
                                         "Exit", id="cloud-exit", variant="default"
@@ -1261,6 +1266,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             await self._voice_recorder.cancel()
             self._voice_recorder = None
         await self._shutdown_remote_server()
+        await self._shutdown_telegram_service()
         await self._shutdown_agents()
 
     async def _shutdown_agents(self) -> None:
@@ -1304,6 +1310,17 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             pass
         finally:
             self._remote_server = None
+
+    async def _shutdown_telegram_service(self) -> None:
+        if self._telegram_service is None:
+            return
+        service = self._telegram_service
+        try:
+            await asyncio.wait_for(service.stop(), timeout=3)
+        except Exception:
+            pass
+        finally:
+            self._telegram_service = None
 
 
     def _tick_live_context_meter(self) -> None:

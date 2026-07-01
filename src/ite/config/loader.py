@@ -389,12 +389,11 @@ def load_config(
 
     config_dict = _merge_mcp_secrets_into_config(
         config_dict,
-        _load_mcp_secrets(get_system_secrets_path()),
-    )
-
-    config_dict = _merge_mcp_secrets_into_config(
-        config_dict,
         _load_mcp_secrets(get_workspace_secrets_path(cwd)),
+    )
+    config_dict = _merge_mcp_client_credentials_secrets_into_config(
+        config_dict,
+        _load_mcp_client_credentials_secrets(get_workspace_secrets_path(cwd)),
     )
 
     # Approval policy is global user preference and should be consistent
@@ -882,6 +881,11 @@ def save_mcp_server_config(
     config: dict[str, Any],
 ) -> Path:
     normalized = MCPServerConfig(**config).model_dump(exclude_defaults=True)
+    for secret_field in (
+        "client_credentials_client_id",
+        "client_credentials_client_secret",
+    ):
+        normalized.pop(secret_field, None)
     path = _mcp_config_path_for_scope(cwd, scope)
     path.parent.mkdir(parents=True, exist_ok=True)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -966,6 +970,11 @@ def _render_mcp_server_section(server: str, config: dict[str, Any]) -> str:
         "oauth_scopes",
         "oauth_client_name",
         "oauth_callback_port",
+        "client_credentials_url",
+        "client_credentials_client_id",
+        "client_credentials_client_secret",
+        "client_credentials_scope",
+        "client_credentials_refresh_buffer_sec",
     ]
     seen: set[str] = set()
     for key in preferred_order:
@@ -1054,6 +1063,56 @@ def remove_mcp_env_var(
     return path
 
 
+def clear_mcp_env_vars(server: str, *, cwd: Path | None = None) -> None:
+    """Remove all env vars for an MCP server from all storage locations."""
+    import keyring as kr
+
+    # Global scope — clear keyring and metadata
+    sys_path = get_system_secrets_path()
+    sys_secrets = _load_mcp_secrets(sys_path)
+    if server in sys_secrets:
+        for key in list(sys_secrets[server]):
+            try:
+                kr.delete_password(_mcp_keyring_service(server), key)
+            except Exception:
+                pass
+        del sys_secrets[server]
+    _write_mcp_secrets(sys_path, sys_secrets)
+
+    # Workspace scope — clear from .ite/secrets.toml
+    if cwd is not None:
+        ws_path = get_workspace_secrets_path(cwd)
+        ws_secrets = _load_mcp_secrets(ws_path)
+        if server in ws_secrets:
+            del ws_secrets[server]
+        _write_mcp_secrets(ws_path, ws_secrets)
+
+    # Strip env vars baked into config TOML files
+    for scope_name, scope_cwd in (
+        ("global", None),
+        ("workspace", cwd),
+    ):
+        try:
+            config_path = _mcp_config_path_for_scope(scope_cwd, scope_name)
+        except ValueError:
+            continue
+        if not config_path.exists():
+            continue
+        cfg = load_config(scope_cwd)
+        if server not in cfg.mcp_servers:
+            continue
+        srv = cfg.mcp_servers[server]
+        if not srv.env:
+            continue
+        srv.env = {}
+        save_mcp_server_config(
+            cwd=scope_cwd,
+            scope=scope_name,
+            server=server,
+            config=srv.model_dump(exclude_defaults=True),
+        )
+
+
 def _mcp_secrets_path_for_scope(cwd: Path | None, scope: str) -> Path:
     normalized = str(scope or "workspace").strip().lower()
     if normalized == "global":
@@ -1106,6 +1165,54 @@ def _merge_mcp_secrets_into_config(
     return result
 
 
+def _load_mcp_client_credentials_secrets(path: Path) -> dict[str, dict[str, str]]:
+    """Load [mcp_client_credentials.<server>] tables from the secrets file."""
+    if not path.is_file():
+        return {}
+    try:
+        raw = _parse_toml(path)
+    except ConfigError:
+        return {}
+    bucket = raw.get("mcp_client_credentials", {})
+    if not isinstance(bucket, dict):
+        return {}
+    result: dict[str, dict[str, str]] = {}
+    for server, values in bucket.items():
+        if not isinstance(server, str) or not isinstance(values, dict):
+            continue
+        items: dict[str, str] = {}
+        for key, value in values.items():
+            if isinstance(key, str) and isinstance(value, str):
+                items[key] = value
+        if items:
+            result[server] = items
+    return result
+
+
+def _merge_mcp_client_credentials_secrets_into_config(
+    config_dict: dict[str, Any],
+    secrets: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    """Inject client_credentials client_id/secret from secrets into MCP config."""
+    if not secrets:
+        return config_dict
+    result = config_dict.copy()
+    mcp_servers = dict(result.get("mcp_servers", {}) or {})
+    for server, values in secrets.items():
+        if server not in mcp_servers:
+            continue
+        server_cfg = dict(mcp_servers.get(server, {}) or {})
+        for key, value in values.items():
+            if key in {
+                "client_credentials_client_id",
+                "client_credentials_client_secret",
+            }:
+                server_cfg[key] = value
+        mcp_servers[server] = server_cfg
+    result["mcp_servers"] = mcp_servers
+    return result
+
+
 def _write_mcp_secrets(path: Path, secrets: dict[str, dict[str, str]]) -> None:
     if path == get_system_secrets_path():
         _write_global_mcp_secret_metadata(path, secrets)
@@ -1126,6 +1233,31 @@ def _write_mcp_secrets(path: Path, secrets: dict[str, dict[str, str]]) -> None:
         lines.append("")
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
     os.chmod(path, 0o600)
+
+
+_keyring_mcp_secrets_cache: dict[str, dict[str, str]] | None = None
+
+
+def invalidate_mcp_keyring_cache() -> None:
+    """Clear the cached keyring secrets so next read re-queries the keyring."""
+    global _keyring_mcp_secrets_cache
+    _keyring_mcp_secrets_cache = None
+
+
+def load_mcp_keyring_env_vars(server: str) -> dict[str, str]:
+    """Lazily load keyring secrets for a specific MCP server.
+
+    Reads from the macOS keychain (or equivalent) once and caches for the
+    process lifetime. Called on-demand right before a server connects, not
+    at config-load time, to avoid triggering keychain password prompts on
+    every startup.
+    """
+    global _keyring_mcp_secrets_cache
+    if _keyring_mcp_secrets_cache is None:
+        _keyring_mcp_secrets_cache = _load_global_mcp_secrets_from_keyring(
+            get_system_secrets_path()
+        )
+    return dict(_keyring_mcp_secrets_cache.get(server, {}))
 
 
 def _load_global_mcp_secrets_from_keyring(path: Path) -> dict[str, dict[str, str]]:

@@ -4,6 +4,58 @@ from typing import Any
 import re
 
 
+TOOL_ICONS: dict[str, str] = {
+    "read_file": "\U0001f4d6",
+    "read_json": "\U0001f9fe",
+    "read_toml": "\U0001f4d8",
+    "read_yaml": "\U0001f4d7",
+    "read_env": "\U0001f510",
+    "write_file": "\U0001f4be",
+    "edit": "\u270f\ufe0f",
+    "edit_json": "\U0001f6e0\ufe0f",
+    "write_toml": "\U0001f6e0\ufe0f",
+    "write_yaml": "\U0001f6e0\ufe0f",
+    "write_env": "\U0001f6e0\ufe0f",
+    "apply_patch": "\U0001fa79",
+    "list_dir": "\U0001f4c1",
+    "http_request": "\U0001f310",
+    "list_archive": "\U0001f5dc\ufe0f",
+    "read_pdf": "\U0001f4c4",
+    "read_image": "\U0001f5bc\ufe0f",
+    "glob": "\U0001f5c2\ufe0f",
+    "grep": "\U0001f50e",
+    "web_search": "\U0001f310",
+    "web_fetch": "\U0001f4c4",
+    "run_tests": "\U0001f9ea",
+    "run_linter": "\U0001f9f9",
+    "run_typecheck": "\U0001f524",
+    "git_status": "\U0001f33f",
+    "git_diff": "\U0001f9ec",
+    "git_log": "\U0001f558",
+    "git_branch": "\U0001f331",
+    "git_remote": "\U0001f517",
+    "git_commit": "\U0001f4e6",
+    "git_push": "\U0001f680",
+    "todos": "\u2611\ufe0f",
+    "memory": "\U0001f9e0",
+    "shell": "\u25ab\ufe0f",
+    "shell_start": "\u25ab\ufe0f",
+    "shell_poll": "\u25ab\ufe0f",
+    "shell_send": "\u25ab\ufe0f",
+    "shell_stop": "\u25ab\ufe0f",
+}
+
+
+def tool_icon(name: str, *, success: bool | None = None) -> str:
+    """Return the emoji for a tool, shared between TUI and Telegram.
+
+    Returns ``"✅"`` if no match is found (or ``"❌"`` for explicit failure).
+    """
+    if success is False:
+        return "\u274c"
+    return TOOL_ICONS.get(name, "\u2705")
+
+
 def is_policy_redirect(metadata: dict[str, Any] | None) -> bool:
     metadata = metadata or {}
     return bool(metadata.get("policy_blocked") and metadata.get("redirect_to"))

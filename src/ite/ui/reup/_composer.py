@@ -1655,15 +1655,26 @@ class ComposerMixin:
             await self._post_no_model_selected_guidance()
             return
 
-        self.run_worker(
-            self._handle_agent_send_with_intent(
-                message,
-                display_message=display_message or message,
-                suppress_user_echo=suppress_user_echo,
-                session_id=session_id,
-            ),
-            exclusive=False,
+        if not suppress_user_echo:
+            await self.add_user_message(display_message or message)
+            if (
+                self._telegram_service is not None
+                and self._telegram_service.running
+                and not self._suppress_telegram_user_echo
+            ):
+                await self._telegram_service.send_user_message(
+                    display_message or message
+                )
+            self._is_turn_running = True
+            self._update_composer_send_control()
+
+        coro = self._handle_agent_send_with_intent(
+            message,
+            display_message=display_message or message,
+            suppress_user_echo=suppress_user_echo,
+            session_id=session_id,
         )
+        self.call_after_refresh(self.run_worker, coro, exclusive=False)
 
 
     async def _resolve_active_turn_send(self, payload: dict[str, Any]) -> bool:
@@ -1789,18 +1800,24 @@ class ComposerMixin:
         suppress_user_echo: bool = False,
         session_id: str | None = None,
     ) -> None:
-        if session_id and session_id != self._active_session_id():
-            assisted = message
-        else:
-            assisted = await self._apply_intent_assist(message)
-        if assisted is None:
-            return
-        await self.run_agent_message(
-            assisted,
-            display_message=display_message or message,
-            suppress_user_echo=suppress_user_echo,
-            session_id=session_id,
-        )
+        try:
+            if session_id and session_id != self._active_session_id():
+                assisted = message
+            else:
+                assisted = await self._apply_intent_assist(message)
+            if assisted is None:
+                return
+            await self.run_agent_message(
+                assisted,
+                display_message=display_message or message,
+                suppress_user_echo=suppress_user_echo,
+                session_id=session_id,
+                add_to_feed=False,
+            )
+        finally:
+            if self._is_turn_running and not suppress_user_echo:
+                self._is_turn_running = False
+                self._update_composer_send_control()
 
 
     async def _present_plan_ready_action_card(self) -> bool:
@@ -2022,6 +2039,7 @@ class ComposerMixin:
         )
         await asyncio.sleep(0)
         remote_task: asyncio.Task[dict[str, Any] | None] | None = None
+        telegram_task: asyncio.Task[dict[str, Any] | None] | None = None
         request_id = ""
         if (
             self._remote_server is not None
@@ -2045,14 +2063,36 @@ class ComposerMixin:
                     )
                 )
             )
+        if (
+            self._telegram_service is not None
+            and self._telegram_service.running
+            and self.agent
+            and self.agent.session
+        ):
+            tg_req_id = str(uuid.uuid4()) if not request_id else request_id
+            telegram_task = asyncio.create_task(
+                self._telegram_service.request_plan_question(
+                    dict(
+                        question_number=tg_req_id,
+                        question=question,
+                        options=options,
+                        recommended_index=recommended_index,
+                        allow_free_text=allow_free_text,
+                    )
+                )
+            )
 
         tasks_to_cleanup: list[asyncio.Task[Any]] = [local_task]
         if remote_task is not None:
             tasks_to_cleanup.append(remote_task)
+        if telegram_task is not None:
+            tasks_to_cleanup.append(telegram_task)
         try:
             pending: set[asyncio.Task[Any]] = {local_task}
             if remote_task is not None:
                 pending.add(remote_task)
+            if telegram_task is not None:
+                pending.add(telegram_task)
             winner: asyncio.Task[Any] | None = None
             answer: dict[str, Any] | None = None
             while pending:
@@ -2062,6 +2102,8 @@ class ComposerMixin:
                 for task in done:
                     result = task.result()
                     if task is remote_task and result is None:
+                        continue
+                    if task is telegram_task and result is None:
                         continue
                     winner = task
                     answer = result
@@ -2090,6 +2132,14 @@ class ComposerMixin:
                 await remote_task
                 await self._broadcast_remote_state()
             elif winner is remote_task:
+                await self._resolve_plan_question_choice(
+                    selected_index=selected_index,
+                    selected_option=selected_option,
+                    free_text=free_text,
+                )
+                await local_task
+                await self._broadcast_remote_state()
+            elif winner is telegram_task:
                 await self._resolve_plan_question_choice(
                     selected_index=selected_index,
                     selected_option=selected_option,

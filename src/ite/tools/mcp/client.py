@@ -20,6 +20,10 @@ from ite.config.loader import get_data_dir
 from fastmcp import Client
 import logging
 from ite.tools.mcp.oauth import build_oauth_provider
+from ite.tools.mcp.client_credentials import (
+    build_client_credentials_auth,
+    client_credentials_http_client_factory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,18 +164,29 @@ class MCPClient:
                 log_file=self._prepare_stdio_log_file(),
             )
         if transport == "sse":
-            return SSETransport(
-                url=self.config.url,
-                headers=self.config.headers or None,
-                auth=auth,
-                sse_read_timeout=self.config.sse_read_timeout_sec,
-            )
+            sse_kwargs: dict[str, Any] = {
+                "url": self.config.url,
+                "headers": self.config.headers or None,
+                "auth": auth,
+                "sse_read_timeout": self.config.sse_read_timeout_sec,
+            }
+            if self.config.auth == "client_credentials":
+                sse_kwargs["httpx_client_factory"] = client_credentials_http_client_factory(
+                    self.config
+                )
+                sse_kwargs.pop("auth", None)
+            return SSETransport(**sse_kwargs)
         if transport == "streamable_http":
             kwargs: dict[str, Any] = {
                 "url": self.config.url,
                 "headers": self.config.headers or None,
                 "auth": auth,
             }
+            if self.config.auth == "client_credentials":
+                kwargs["httpx_client_factory"] = client_credentials_http_client_factory(
+                    self.config
+                )
+                kwargs.pop("auth", None)
             return StreamableHttpTransport(**kwargs)
         if transport == "ws":
             if WSTransport is None:
@@ -190,6 +205,8 @@ class MCPClient:
                 str(self.config.url),
                 progress_reporter=self._oauth_progress,
             )
+        if self.config.auth == "client_credentials":
+            return build_client_credentials_auth(self.config)
         return self.config.auth
 
     async def connect(self, status_callback: MCPStatusCallback = None) -> None:
@@ -203,10 +220,6 @@ class MCPClient:
             self.last_error = message
             await self._set_status(MCPServerStatus.ERROR, detail=message)
             raise RuntimeError(message)
-        await self._set_status(
-            MCPServerStatus.CONNECTING,
-            detail="Connecting.",
-        )
         self._tools.clear()
         self.last_error = None
         self.auth_phase = None
@@ -217,7 +230,7 @@ class MCPClient:
             await self._client.__aenter__()
             await self._set_status(
                 MCPServerStatus.CONNECTING,
-                detail="Connected to server transport. Discovering tools.",
+                detail="Discovering tools.",
             )
 
             tool_result = await self._client.list_tools()
@@ -247,7 +260,7 @@ class MCPClient:
 
             await self._set_status(
                 MCPServerStatus.CONNECTED,
-                detail=f"Connected with {len(self._tools)} tool(s).",
+                detail=f"{len(self._tools)} tools",
             )
             self.auth_phase = None
 

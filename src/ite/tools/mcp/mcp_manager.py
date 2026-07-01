@@ -5,6 +5,7 @@ from ite.tools.registry import ToolRegistry
 import asyncio
 from ite.tools.mcp.client import MCPClient
 from ite.config.config import Config
+from ite.config.loader import load_mcp_keyring_env_vars
 from rich.text import Text
 from rich.table import Table
 from rich.panel import Panel
@@ -128,6 +129,9 @@ class MCPManager:
             if client.config.auth == "oauth"
             else client.config.startup_timeout_sec
         )
+        keyring_env = load_mcp_keyring_env_vars(client.name)
+        if keyring_env:
+            client.config.env.update(keyring_env)
         try:
             await asyncio.wait_for(
                 client.connect(status_callback=status_callback),

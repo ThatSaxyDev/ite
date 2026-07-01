@@ -249,8 +249,12 @@ class TurnMixin:
             clear_composer=False,
         ):
             return
-        payload = self._build_turn_payload(message)
-        await self._dispatch_payload(payload)
+        self._suppress_telegram_user_echo = True
+        try:
+            payload = self._build_turn_payload(message)
+            await self._dispatch_payload(payload)
+        finally:
+            self._suppress_telegram_user_echo = False
 
 
     async def _cancel_remote_turn(self) -> None:
@@ -434,6 +438,57 @@ class TurnMixin:
         self.post_system(
             "Remote",
             "Usage: /remote\n/remote on [port]\n/remote on [port] --local\n/remote status\n/remote code\n/remote devices\n/remote revoke <device-id-prefix>\n/remote revoke-all\n/remote off",
+            is_error=True,
+        )
+
+
+    async def _run_telegram_command_native(self, args: list[str]) -> None:
+        action = args[0].lower() if args else ""
+
+        if action in {"on", "start"}:
+            try:
+                from ite.telegram.bot import TelegramBotService, _DEFAULT_TELEGRAM_BOT_TOKEN
+            except ImportError:
+                self.post_system(
+                    "Telegram",
+                    "python-telegram-bot is not installed. Run: pip install python-telegram-bot[job-queue]",
+                    is_error=True,
+                )
+                return
+
+            if (
+                self._telegram_service is not None
+                and self._telegram_service.running
+            ):
+                self.post_system(
+                    "Telegram",
+                    "Telegram bot is already running. Use /telegram off to stop.",
+                )
+                return
+
+            self._telegram_service = TelegramBotService(
+                on_submit_prompt=self._submit_remote_prompt,
+                on_cancel_turn=self._cancel_remote_turn,
+            )
+            await self._telegram_service.start(bot_token=_DEFAULT_TELEGRAM_BOT_TOKEN)
+            self.post_system(
+                "Telegram",
+                "Telegram bot polling started. Send /start to your bot on Telegram.",
+            )
+            return
+
+        if action in {"off", "stop"}:
+            if self._telegram_service is None or not self._telegram_service.running:
+                self.post_system("Telegram", "Telegram bot is not running.")
+                return
+            await self._telegram_service.stop()
+            self._telegram_service = None
+            self.post_system("Telegram", "Telegram bot stopped.")
+            return
+
+        self.post_system(
+            "Telegram",
+            "Usage: /telegram on\n/telegram off",
             is_error=True,
         )
 
@@ -865,6 +920,10 @@ class TurnMixin:
             await self._run_remote_command_native(args)
             return
 
+        if command == "/telegram":
+            await self._run_telegram_command_native(args)
+            return
+
         if command in {"/voice", "/flow"}:
             if args and args[0].strip().lower() == "setup":
                 self.run_worker(self._run_voice_command_native(args), exclusive=False)
@@ -968,7 +1027,10 @@ class TurnMixin:
             if command == "/sandbox"
             else self.config
         )
-        live_stream_command = command in {"/init"} and (
+        live_stream_command = command in {"/init"} or (
+            command == "/mcp" and args and args[0].lower() == "start"
+        )
+        live_stream_command = live_stream_command and (
             not args or args[0].lower() != "status"
         )
         output = (
@@ -1602,6 +1664,7 @@ class TurnMixin:
         display_message: str | None = None,
         suppress_user_echo: bool = False,
         session_id: str | None = None,
+        add_to_feed: bool = True,
     ) -> None:
         rendered_message = display_message or message
         await self.ensure_agent()
@@ -1623,7 +1686,7 @@ class TurnMixin:
             return
         workspace = self._workspace_for_session_id(session_id)
         is_visible_session = self._active_session_id() == session_id
-        if not suppress_user_echo and is_visible_session:
+        if add_to_feed and not suppress_user_echo and is_visible_session:
             await self.add_user_message(rendered_message)
             await self._broadcast_remote_state()
         run_state = self._run_state(session_id)
@@ -1827,6 +1890,9 @@ class TurnMixin:
         if turn_id != run_state.active_turn_id:
             return
         await self._broadcast_remote_agent_event(session_id, turn_id, event)
+        if self._telegram_service is not None and self._telegram_service.running:
+            self._telegram_service.set_plan_only(self._is_plan_only_phase())
+            self._telegram_service.handle_agent_event(event, session_id, turn_id)
         if session_id != self._active_session_id():
             if event.type == AgentEventType.AGENT_ERROR:
                 run_state.turn_had_error = True
@@ -2228,6 +2294,11 @@ class TurnMixin:
             await self._open_change_review_panel(
                 change_set, title="Changed", mode="changed"
             )
+        # Mirror the change card to Telegram
+        if self._telegram_service is not None and self._telegram_service.running:
+            await self._telegram_service.send_turn_change_summary(
+                change_set, cwd=self.config.cwd
+            )
 
 
     async def confirmation_callback(self, confirmation) -> bool:
@@ -2245,6 +2316,7 @@ class TurnMixin:
         )
 
         remote_server = self._remote_server
+        telegram_service = self._telegram_service
         should_request_remote = (
             remote_server is not None
             and remote_server.is_running
@@ -2252,46 +2324,71 @@ class TurnMixin:
             and self.agent
             and self.agent.session
         )
-        if not should_request_remote:
+        should_request_telegram = (
+            telegram_service is not None
+            and telegram_service.running
+            and self.agent
+            and self.agent.session
+        )
+
+        if not should_request_remote and not should_request_telegram:
             approved = await self._open_modal(modal)
             return bool(approved)
 
         request_id = uuid.uuid4().hex
-        remote_task = asyncio.create_task(
-            remote_server.request_approval(
-                serialize_approval_request(
-                    request_id=request_id,
-                    tool_name=str(confirmation.tool_name or "tool"),
-                    description=str(confirmation.description or ""),
-                    command=confirmation.command,
-                    diff=confirmation.diff.to_diff() if confirmation.diff else None,
-                    session_id=self._active_session_id()
-                    or self.agent.session.session_id,
+        tasks: list[asyncio.Task[Any]] = [asyncio.create_task(self._open_modal(modal))]
+
+        remote_task = None
+        if should_request_remote:
+            remote_task = asyncio.create_task(
+                remote_server.request_approval(
+                    serialize_approval_request(
+                        request_id=request_id,
+                        tool_name=str(confirmation.tool_name or "tool"),
+                        description=str(confirmation.description or ""),
+                        command=confirmation.command,
+                        diff=confirmation.diff.to_diff() if confirmation.diff else None,
+                        session_id=self._active_session_id()
+                        or self.agent.session.session_id,
+                    )
                 )
             )
-        )
-        local_task = asyncio.create_task(self._open_modal(modal))
+            tasks.append(remote_task)
+
+        telegram_task = None
+        if should_request_telegram:
+            async def _telegram_approval():
+                try:
+                    return await telegram_service.request_confirmation(confirmation)
+                except Exception:
+                    return None
+            telegram_task = asyncio.create_task(_telegram_approval())
+            tasks.append(telegram_task)
 
         try:
             done, _pending = await asyncio.wait(
-                {remote_task, local_task},
+                {*tasks},
                 return_when=asyncio.FIRST_COMPLETED,
             )
+            local_task = tasks[0]
             if local_task in done:
                 approved = bool(local_task.result())
-                await remote_server.resolve_approval_request(request_id, approved)
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(remote_task, timeout=0.5)
+                if remote_task:
+                    await remote_server.resolve_approval_request(request_id, approved)
+                    with contextlib.suppress(asyncio.TimeoutError):
+                        await asyncio.wait_for(remote_task, timeout=0.5)
                 await self._broadcast_remote_state()
                 return approved
 
-            remote_result = remote_task.result()
-            if remote_result is None:
+            # A remote (Telegram or ite_remote) responded first
+            winner = next(iter(done))
+            result = winner.result()
+            if result is None:
                 approved = bool(await local_task)
                 await self._broadcast_remote_state()
                 return approved
 
-            approved = bool(remote_result)
+            approved = bool(result)
             if not local_task.done():
                 modal.dismiss(approved)
                 with contextlib.suppress(asyncio.TimeoutError):
@@ -2299,11 +2396,11 @@ class TurnMixin:
             await self._broadcast_remote_state()
             return approved
         except Exception:
-            if not local_task.done():
-                return bool(await local_task)
+            if not tasks[0].done():
+                return bool(await tasks[0])
             raise
         finally:
-            for task in (remote_task, local_task):
+            for task in tasks:
                 if not task.done():
                     task.cancel()
 

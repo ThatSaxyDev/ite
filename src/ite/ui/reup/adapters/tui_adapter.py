@@ -150,6 +150,13 @@ class ReupTUIAdapter:
             self._spinner_handle = None
             self._spinner_lines = []
 
+    def append_line(self, command: str, message: str) -> None:
+        """Append a completed line to a streaming command card."""
+        self._app.run_worker(
+            self._app._append_command_result_card(command, message),
+            exclusive=False,
+        )
+
     def post_success_card(self, title: str, message: str, details: str = "") -> None:
         """Post a professional success notification card."""
         from rich.text import Text

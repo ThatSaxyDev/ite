@@ -66,6 +66,13 @@ class MCPServerConfig(BaseModel):
     oauth_client_name: str = "iTE MCP Client"
     oauth_callback_port: int | None = None
 
+    # Client credentials auth (OAuth 2.0 client_credentials grant)
+    client_credentials_url: str | None = None
+    client_credentials_client_id: str | None = None
+    client_credentials_client_secret: str | None = None
+    client_credentials_scope: str = ""
+    client_credentials_refresh_buffer_sec: int = 300
+
     _ENV_VAR_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
         r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))"
     )
@@ -158,6 +165,26 @@ class MCPServerConfig(BaseModel):
         ):
             raise ValueError(
                 "OAuth-specific MCP settings require auth = 'oauth'"
+            )
+
+        client_credentials_fields_set = any(
+            getattr(self, field) not in (None, "")
+            for field in (
+                "client_credentials_url",
+                "client_credentials_client_id",
+                "client_credentials_client_secret",
+                "client_credentials_scope",
+            )
+        ) or self.client_credentials_refresh_buffer_sec != 300
+
+        if client_credentials_fields_set and self.auth != "client_credentials":
+            raise ValueError(
+                "client_credentials_* MCP settings require auth = 'client_credentials'"
+            )
+
+        if self.auth == "client_credentials" and not self.client_credentials_url:
+            raise ValueError(
+                "auth = 'client_credentials' requires client_credentials_url"
             )
 
         return self

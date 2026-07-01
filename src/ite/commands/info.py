@@ -1,9 +1,12 @@
 """Info commands: /stats, /tools, /mcp, /workboard, /memory."""
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.config.loader import (
+    clear_mcp_env_vars,
+    get_data_dir,
+    invalidate_mcp_keyring_cache,
     get_system_secrets_path,
     get_workspace_secrets_path,
     load_config,
@@ -450,6 +453,8 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
         name = args[1]
         seen_updates: set[tuple[str, str | None]] = set()
 
+        ctx.tui.start_spinner("/mcp", f"Starting {name}...")
+
         async def _status_update(payload: dict[str, str | None]) -> None:
             status = payload.get("status")
             detail = payload.get("detail")
@@ -459,21 +464,17 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
             seen_updates.add(key)
             line = _format_mcp_status_line(name, str(status or ""), detail)
             if line:
-                ctx.console.print(line)
+                ctx.tui.append_line("/mcp", line.plain)
 
         try:
-            tool_count = await mcp_mgr.connect_server(
+            await mcp_mgr.connect_server(
                 name,
                 ctx.agent.session.tool_registry,
                 status_callback=_status_update,
             )
         except Exception as exc:
-            ctx.console.print(f"[error]Failed to start MCP server '{name}':[/error] {exc}")
-            return
-        ctx.console.print(
-            f"[success]Started MCP server[/success] [cyan]{name}[/cyan] "
-            f"[dim]({tool_count} tools registered)[/dim]"
-        )
+            ctx.tui.append_line("/mcp", f"Failed: {exc}")
+        ctx.tui.stop_spinner()
         return
 
     if subcommand == "stop":
@@ -489,6 +490,27 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
         ctx.console.print(
             f"[success]Stopped MCP server[/success] [cyan]{name}[/cyan] "
             f"[dim]({removed} tools removed)[/dim]"
+        )
+        return
+
+    if subcommand == "reset":
+        if len(args) < 2:
+            ctx.console.print("[error]Usage:[/error] [code]/mcp reset <server>[/code]")
+            return
+        name = args[1]
+        try:
+            await mcp_mgr.disconnect_server(name, ctx.agent.session.tool_registry)
+        except Exception:
+            pass
+        token_file = get_data_dir() / "auth" / "mcp_oauth_tokens.json"
+        if token_file.exists():
+            token_file.unlink()
+        clear_mcp_env_vars(name, cwd=ctx.config.cwd)
+        invalidate_mcp_keyring_cache()
+        _reload_mcp_runtime_config(ctx)
+        ctx.console.print(
+            f"[success]Reset MCP server[/success] [cyan]{name}[/cyan]"
+            f" [dim]— credentials and OAuth tokens cleared, use /mcp start {name} to re-authenticate[/dim]"
         )
         return
 
@@ -509,83 +531,136 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
             "[error]Usage:[/error] [code]/mcp[/code], "
             "[code]/mcp start <server>[/code], "
             "[code]/mcp stop <server>[/code], "
-            "[code]/mcp add ...[/code], "
+            "[code]/mcp reset <server>[/code], "
             "[code]/mcp env ...[/code], "
             "[code]/mcp doctor <server>[/code]"
         )
         return
 
     servers = mcp_mgr.get_all_servers()
-    title = Text.assemble(
-        ("🔌 ", ""), (f"MCP Servers ({len(servers)})", "bold bright_white")
-    )
+
+    # --- color tokens (match /skills palette) ---
+    fg = "#edf1f7"
+    secondary = "#d7deea"
+    muted = "#8c93a1"
+    primary = "#b7c8e1"
+    success = "#8fc7a2"
+    warning = "#d5b07a"
+    disabled = "#6f7785"
+
+    connected_count = sum(1 for s in servers if s["status"] == "connected")
+    ready_count = sum(1 for s in servers if s["status"] == "ready")
+    error_count = sum(1 for s in servers if s["status"] == "error")
+
+    summary = Text()
+    summary.append("servers ", style=f"bold {fg}")
+    summary.append(f"{len(servers)} installed", style=secondary)
+    summary.append("  ·  ", style=disabled)
+    summary.append(f"{connected_count} connected", style=f"bold {success}")
+    summary.append("  ·  ", style=disabled)
+    summary.append(f"{ready_count} ready", style=f"bold {primary}")
+    if error_count:
+        summary.append("  ·  ", style=disabled)
+        summary.append(f"{error_count} error", style=f"bold {warning}")
+
     if not servers:
         ctx.console.print()
-        ctx.console.print(
-            Panel(
-                Text.assemble(
-                    ("No MCP servers configured", "dim"),
-                    ("\n\n", ""),
-                    ("Add servers in ", "code"),
-                    (".ite/config.toml", "green bold"),
-                    (" under ", "code"),
-                    ("[mcp_servers]", "green bold"),
-                ),
-                title=title,
-                title_align="left",
-                border_style="cyan",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
+        lead = Text("No MCP servers configured.", style=f"bold {fg}")
+        intro = Text(
+            "MCP servers provide tools the agent can call. Define them in config, then connect.",
+            style=secondary,
         )
-    else:
-        mcp_table = Table.grid(padding=(0, 2))
-        mcp_table.add_column(style="cyan bold", min_width=16)
-        mcp_table.add_column(min_width=12)
-        mcp_table.add_column(min_width=10)
-        mcp_table.add_column(style="code")
-        mcp_table.add_column(style="dim")
-        for server in servers:
-            is_connected = server["status"] == "connected"
-            is_ready = server["status"] == "ready"
-            status_style = (
-                "green bold"
-                if is_connected
-                else "yellow"
-                if is_ready
-                else "red bold"
-            )
-            mcp_table.add_row(
-                Text(server["name"], style="cyan bold"),
-                Text(f"● {server['status']}", style=status_style),
-                Text(
-                    "auto-start" if server.get("auto_connect") else "manual",
-                    style="code",
-                ),
-                Text(f"[{server['tools']} tools]", style="code"),
-                Text(
-                    str(server.get("detail") or server.get("last_error") or ""),
-                    style="dim",
-                ),
-            )
-        ctx.console.print()
-        ctx.console.print(
-            Panel(
-                Group(
-                    mcp_table,
-                    Text(
-                        "\nUse /mcp start <server> to connect a configured MCP server, "
-                        "/mcp stop <server> to disconnect it.",
-                        style="dim",
-                    ),
-                ),
-                title=title,
-                title_align="left",
-                border_style="cyan",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
+        start_here = Text()
+        start_here.append("Start here: ", style=muted)
+        start_here.append("/mcp start <name>", style=f"bold {primary}")
+        start_here.append("  ·  ", style=disabled)
+        start_here.append("/mcp env set <name> <KEY> <VALUE>", style=f"bold {primary}")
+        config_note = Text(
+            "Add [mcp_servers.<name>] blocks in .ite/config.toml or ~/.ite/config.toml.",
+            style=disabled,
         )
+        ctx.console.print(Group(summary, Text(""), lead, intro, Text(""), start_here, Text(""), config_note))
+        return
+
+    table = Table.grid(expand=True)
+    table.add_column(ratio=5)
+    table.add_column(width=10)
+    table.add_column(width=9)
+    table.add_column(ratio=6)
+
+    ordered = sorted(
+        servers,
+        key=lambda s: (
+            {"connected": 0, "ready": 1, "error": 2}.get(s["status"], 3),
+            s["name"],
+        ),
+    )
+
+    for i, server in enumerate(ordered):
+        status = server["status"]
+        name = Text(server["name"], style=f"bold {fg}")
+
+        # detail sub-line (transport, url, error info)
+        meta_bits = [server.get("transport", "")]
+        if server.get("url"):
+            meta_bits.append(server["url"])
+        detail_str = str(server.get("detail") or server.get("last_error") or "")
+        if detail_str:
+            meta_bits.append(detail_str)
+        detail = Text(" · ".join(b for b in meta_bits if b), style=muted)
+
+        if status == "connected":
+            status_badge = Text("connected", style=f"bold {success}")
+        elif status == "ready":
+            status_badge = Text("ready", style=f"bold {primary}")
+        elif status == "error":
+            status_badge = Text("error", style=f"bold {warning}")
+        else:
+            status_badge = Text(status, style=disabled)
+
+        auto_label = Text("auto", style=warning) if server.get("auto_connect") else Text("manual", style=muted)
+        tool_text = Text(f"{server['tools']} tools", style=secondary)
+
+        table.add_row(
+            Group(name, detail) if meta_bits else name,
+            status_badge,
+            auto_label,
+            tool_text,
+        )
+        if i < len(ordered) - 1:
+            table.add_row(Text(""), Text(""), Text(""), Text(""))
+
+    transport_counts = Counter(s.get("transport", "") for s in servers)
+    footer = Text()
+    for i, (t, c) in enumerate(sorted(transport_counts.items())):
+        if t:
+            if i:
+                footer.append("  ·  ", style=disabled)
+            footer.append(f"{c} via ", style=muted)
+            footer.append(t, style=f"bold {secondary}")
+
+    hint = Text()
+    hint.append("/mcp start ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("      connect and register tools", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp stop ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("       disconnect", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp env set ", style=f"bold {primary}")
+    hint.append("<name> <KEY> <VALUE>", style=primary)
+    hint.append("  store API key or token", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp reset ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("      clear OAuth tokens", style=muted)
+    hint.append("\n", style="")
+    hint.append("/mcp doctor ", style=f"bold {primary}")
+    hint.append("<name>", style=primary)
+    hint.append("     check for issues", style=muted)
+    ctx.console.print()
+    ctx.console.print(Group(summary, Text(""), table, Text(""), footer, Text(""), hint))
 
 
 async def _cmd_mcp_env(ctx: CommandContext, args: list[str]) -> None:

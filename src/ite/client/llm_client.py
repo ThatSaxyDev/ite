@@ -96,6 +96,12 @@ class LLMClient:
             and str(self.config.api_key or "").strip()
         )
 
+    def _is_minimax(self) -> bool:
+        """Detect MiniMax BYOK models so we can enable reasoning_split."""
+        model_name = str(getattr(self.config, "model_name", "") or "").strip().lower()
+        base_url = str(getattr(self.config, "base_url", "") or "").strip().lower()
+        return "minimax" in model_name or "minimax" in base_url
+
     def _current_model_has_saved_profile(self) -> bool:
         source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
         if source_kind == "bundled":
@@ -976,6 +982,14 @@ class LLMClient:
         if tools:
             kwargs["tools"] = self._build_tools(tools)
             kwargs["tool_choice"] = "auto"
+
+        # MiniMax API requires reasoning_split to separate reasoning
+        # content from regular output. Without this, reasoning is
+        # dumped inline into the chat feed.
+        if self._is_minimax():
+            if "extra_body" not in kwargs:
+                kwargs["extra_body"] = {}
+            kwargs["extra_body"]["reasoning_split"] = True
 
         for attempt in range(self._max_retries + 1):
             try:

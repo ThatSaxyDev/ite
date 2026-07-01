@@ -187,7 +187,7 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           echo "Deploying manifest v${VERSION} to ite-cloud-web..."
 
-          git clone --depth 1 --branch bach_write "https://x-access-token:${GH_TOKEN}@github.com/ThatSaxyDev/ite-cloud-web.git" /tmp/cloud-web
+          git clone --depth 1 --branch revert/render "https://x-access-token:${GH_TOKEN}@github.com/ThatSaxyDev/ite-cloud-web.git" /tmp/cloud-web
 
           mkdir -p /tmp/cloud-web/public/releases
           cp dist/manifest.json /tmp/cloud-web/public/releases/manifest.json
@@ -197,6 +197,6 @@ jobs:
           git config user.email "ci@ite.kiishi.space"
           git add public/releases/manifest.json
           git commit -m "release: v${VERSION} manifest" || echo "No changes to commit"
-          git push origin HEAD:bach_write
+          git push origin HEAD:revert/render
 
           echo "Manifest deployed. Live at: https://ite.kiishi.space/releases/manifest.json"

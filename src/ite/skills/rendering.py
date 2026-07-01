@@ -128,7 +128,7 @@ def build_skills_overview_renderable(
             skill.identifier,
         ),
     )
-    for skill in ordered:
+    for i, skill in enumerate(ordered):
         state = skill_state(skill, active_ids)
         title = Text(skill.identifier, style=f"bold {fg}")
         if skill.name != skill.identifier:
@@ -149,6 +149,8 @@ def build_skills_overview_renderable(
             Text("invoke", style=success) if skill.user_invocable else Text("assist", style=muted),
             description,
         )
+        if i < len(ordered) - 1:
+            table.add_row(Text(""), Text(""), Text(""), Text(""))
 
     source_counts = Counter(_format_source_label(skill.source, author=skill.author) for skill in skills)
     footer = Text("roots ", style=disabled)
