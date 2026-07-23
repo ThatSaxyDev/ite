@@ -17,7 +17,7 @@ class EditParams(BaseModel):
     )
     old_string: str = Field(
         "",
-        description="The exact text to find and replace. Must match exactly including all whitespace and indentation. For new files, leave this empty.",
+        description="The exact text to find and replace. Must match exactly including all whitespace and indentation. For new files, leave this empty. Can be a line-range like '55-64' to reference lines by number.",
         validation_alias=AliasChoices(
             "old_string",
             "old",
@@ -56,6 +56,21 @@ class EditTool(Tool):
     kind = ToolKind.WRITE
     schema = EditParams
 
+    def _maybe_resolve_line_range(
+        self, old_string: str, file_content: str
+    ) -> str:
+        optimizer = getattr(self.config, "tool_optimizer", None)
+        if not (optimizer and optimizer.enabled and optimizer.line_range_edit):
+            return old_string
+
+        if old_string in file_content:
+            return old_string
+
+        from ite.tools.optimizer import resolve_line_range
+
+        resolved = resolve_line_range(old_string, file_content)
+        return resolved if resolved is not None else old_string
+
     async def get_confirmation(
         self,
         invocation: ToolInvocation,
@@ -82,11 +97,14 @@ class EditTool(Tool):
             )
 
         old_content = path.read_text(encoding="utf-8")
+        old_string = self._maybe_resolve_line_range(
+            params.old_string, old_content
+        )
 
         if params.replace_all:
-            new_content = old_content.replace(params.old_string, params.new_string)
+            new_content = old_content.replace(old_string, params.new_string)
         else:
-            new_content = old_content.replace(params.old_string, params.new_string, 1)
+            new_content = old_content.replace(old_string, params.new_string, 1)
 
         diff = FileDiff(
             path=path,
@@ -146,16 +164,19 @@ class EditTool(Tool):
             )
 
         old_content = path.read_text(encoding="utf-8")
+        old_string = self._maybe_resolve_line_range(
+            params.old_string, old_content
+        )
 
-        if not params.old_string:
+        if not old_string:
             return ToolResult.error_result(
                 "old_string is empty but file exists. Provide old_string to edit, or use write_file to overwrite"
             )
 
-        occurrence_count = old_content.count(params.old_string)
+        occurrence_count = old_content.count(old_string)
 
         if occurrence_count == 0:
-            return self._no_match_error(params.old_string, old_content, path)
+            return self._no_match_error(old_string, old_content, path)
 
         if occurrence_count > 1 and not params.replace_all:
             return ToolResult.error_result(
@@ -171,10 +192,10 @@ class EditTool(Tool):
             )
 
         if params.replace_all:
-            new_content = old_content.replace(params.old_string, params.new_string)
+            new_content = old_content.replace(old_string, params.new_string)
             replace_count = occurrence_count
         else:
-            new_content = old_content.replace(params.old_string, params.new_string, 1)
+            new_content = old_content.replace(old_string, params.new_string, 1)
             replace_count = 1
 
         if new_content == old_content:

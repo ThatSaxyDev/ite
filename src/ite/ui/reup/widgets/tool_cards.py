@@ -251,7 +251,7 @@ class ToolCardStack(Vertical):
         header = Text()
         header.append("▾ " if self.expanded else "▸ ", style="bold")
         header.append_text(self._title.copy())
-        header.append(f"  {count} calls", style="dim")
+        header.append(f"  ({count})", style="dim")
         self._header.update(header)
         self._body.display = self.expanded
 

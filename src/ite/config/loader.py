@@ -47,9 +47,12 @@ DEFAULT_PROJECT_CONFIG = """# Workspace-level ITE config
 # Hooks are disabled by default for fast/safe baseline behavior.
 hooks_enabled = false
 #
-# Example:
-# [model]
-# name = "gpt-4o-mini"
+# Token optimizations to reduce API cost (safe, leave on)
+[tool_optimizer]
+enabled = true
+compact_descriptions = true
+compact_read_output = true
+line_range_edit = true
 """
 
 DEFAULT_SECURITY_SUBAGENT = """name = "security_auditor"
@@ -383,6 +386,9 @@ def load_config(
         try:
             project_config_dict = _parse_toml(project_path)
             project_config_dict = _remove_persisted_cloud_api_url(project_config_dict)
+            project_config_dict = _ensure_tool_optimizer_section(
+                project_path, project_config_dict
+            )
             config_dict = _merge_dicts(config_dict, project_config_dict)
         except ConfigError:
             logger.warning(f"Skipping invalid project config: {project_path}")
@@ -817,6 +823,35 @@ def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     config_path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     os.chmod(config_path, 0o600)
     return config_path
+
+
+TOOL_OPTIMIZER_DEFAULT_TABLE = """[tool_optimizer]
+enabled = true
+compact_descriptions = true
+compact_read_output = true
+line_range_edit = true"""
+
+
+def _ensure_tool_optimizer_section(
+    config_path: Path, config_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Inject tool_optimizer defaults into an existing project config if missing."""
+    if "tool_optimizer" in config_dict and isinstance(
+        config_dict["tool_optimizer"], dict
+    ):
+        return config_dict
+
+    original = config_path.read_text(encoding="utf-8")
+    appended = original.rstrip("\n") + "\n\n" + TOOL_OPTIMIZER_DEFAULT_TABLE + "\n"
+    config_path.write_text(appended, encoding="utf-8")
+
+    config_dict["tool_optimizer"] = {
+        "enabled": True,
+        "compact_descriptions": True,
+        "compact_read_output": True,
+        "line_range_edit": True,
+    }
+    return config_dict
 
 
 def save_workspace_hooks_enabled(cwd: Path, enabled: bool) -> Path:

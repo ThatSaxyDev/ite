@@ -254,12 +254,20 @@ class Tool(abc.ABC):
         )
 
     def to_openai_schema(self) -> dict[str, Any]:
+        from ite.tools.optimizer import compact_description
+
         schema = self.schema
+        description = self.description
+
+        optimizer = getattr(self.config, "tool_optimizer", None)
+        if optimizer and optimizer.enabled and optimizer.compact_descriptions:
+            description = compact_description(description)
+
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             json_schema = model_json_schema(schema, mode="serialization")
             return {
                 "name": self.name,
-                "description": self.description,
+                "description": description,
                 "parameters": {
                     "type": "object",
                     "properties": json_schema.get("properties", {}),
@@ -270,7 +278,7 @@ class Tool(abc.ABC):
         if isinstance(schema, dict):
             result = {
                 "name": self.name,
-                "description": self.description,
+                "description": description,
             }
 
             if "parameters" in schema:
