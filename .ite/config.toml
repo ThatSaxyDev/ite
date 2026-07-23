@@ -104,3 +104,9 @@ name = "test_on_error"
 trigger = "on_error"
 command = "python3 ./scripts/hook_logger.py"
 blocking = false
+
+[tool_optimizer]
+enabled = true
+compact_descriptions = true
+compact_read_output = true
+line_range_edit = true

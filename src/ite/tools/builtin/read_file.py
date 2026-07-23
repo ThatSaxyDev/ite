@@ -102,8 +102,12 @@ class ReadFileTool(Tool):
 
             formatted_lines = []
 
+            optimizer = getattr(self.config, "tool_optimizer", None)
+            compact = optimizer and optimizer.enabled and optimizer.compact_read_output
+            prefix_width = 4 if compact else 6
+
             for i, line in enumerate(selected_lines, start=start_idx + 1):
-                formatted_lines.append(f"{i:6}|{line}")
+                formatted_lines.append(f"{i:{prefix_width}}|{line}")
 
             output = "\n".join(formatted_lines)
 
@@ -122,9 +126,12 @@ class ReadFileTool(Tool):
 
             metadata_lines = []
             if start_idx > 0 or end_idx < total_lines:
-                metadata_lines.append(
-                    f"Showing lines {start_idx + 1} to {end_idx} of {total_lines}"
-                )
+                if compact:
+                    metadata_lines.append(f"# {start_idx + 1}-{end_idx}/{total_lines}")
+                else:
+                    metadata_lines.append(
+                        f"Showing lines {start_idx + 1} to {end_idx} of {total_lines}"
+                    )
 
             if metadata_lines:
                 header = " | ".join(metadata_lines) + "\n\n"

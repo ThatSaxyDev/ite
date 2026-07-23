@@ -262,6 +262,13 @@ class VoiceConfig(BaseModel):
         return self
 
 
+class ToolOptimizerConfig(BaseModel):
+    enabled: bool = True
+    compact_descriptions: bool = True
+    compact_read_output: bool = True
+    line_range_edit: bool = True
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
@@ -270,6 +277,9 @@ class Config(BaseModel):
     )
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    tool_optimizer: ToolOptimizerConfig = Field(
+        default_factory=ToolOptimizerConfig
+    )
     hooks_enabled: bool = False
     hooks: list[HookConfig] = Field(default_factory=list)
     approval: ApprovalPolicy = ApprovalPolicy.AUTO
