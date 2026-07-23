@@ -144,7 +144,13 @@ function Install-Artifact {
         if ((Test-Path $ExePath -PathType Container)) {
             $nestedExe = Join-Path $ExePath (Split-Path $ExePath -Leaf)
             if (Test-Path $nestedExe -PathType Leaf) {
-                Get-ChildItem -Path $ExePath | Move-Item -Destination $BinDir -Force
+                Get-ChildItem -Path $ExePath | ForEach-Object {
+                    $destPath = Join-Path $BinDir $_.Name
+                    if (Test-Path $destPath) {
+                        Remove-Item -Recurse -Force $destPath
+                    }
+                    Move-Item -Path $_.FullName -Destination $BinDir -Force
+                }
                 Remove-Item -Recurse -Force $ExePath
                 $realExePath = Join-Path $BinDir (Split-Path $ExePath -Leaf)
             }
