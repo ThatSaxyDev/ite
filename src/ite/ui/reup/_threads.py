@@ -206,6 +206,7 @@ class ThreadsMixin:
                 "sandbox": self.config.sandbox.model_copy(deep=True),
                 "debug": self.config.debug,
                 "resume_last_session": self.config.resume_last_session,
+                "preset": self.config.preset,
             },
             deep=False,
         )

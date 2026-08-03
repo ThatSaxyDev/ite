@@ -50,6 +50,7 @@ def _load_runtime_config(
     model: str | None,
     api_key: str | None,
     base_url: str | None,
+    preset: str | None = None,
 ) -> Config:
     ensure_workspace_layout(workspace_dir)
     try:
@@ -64,6 +65,8 @@ def _load_runtime_config(
         config.base_url = base_url
     if model:
         config.model.name = model
+    if preset:
+        config.preset = preset
     return config
 
 
@@ -113,12 +116,14 @@ def _run_main_app(
     api_key: str | None,
     base_url: str | None,
     resume_last: bool,
+    preset: str | None = None,
 ) -> None:
     config = _load_runtime_config(
         workspace_dir=workspace_dir,
         model=model,
         api_key=api_key,
         base_url=base_url,
+        preset=preset,
     )
     if resume_last:
         config.resume_last_session = True
@@ -154,6 +159,11 @@ def _run_main_app(
     help="Resume the most recent saved session for this workspace on startup.",
 )
 @click.option("--upgrade", is_flag=True, help="Upgrade iTE to the latest version.")
+@click.option(
+    "--preset",
+    type=click.Choice(["betting"]),
+    help="Load a named agent preset (e.g. betting for sports analysis).",
+)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -163,6 +173,7 @@ def main(
     base_url: str | None,
     resume_last: bool,
     upgrade: bool,
+    preset: str | None,
 ) -> None:
     workspace_dir = cwd or Path.cwd()
     ctx.ensure_object(dict)
@@ -170,6 +181,7 @@ def main(
     ctx.obj["model"] = model
     ctx.obj["api_key"] = api_key
     ctx.obj["base_url"] = base_url
+    ctx.obj["preset"] = preset
     if ctx.invoked_subcommand is None:
         if upgrade:
             _run_upgrade()
@@ -180,6 +192,7 @@ def main(
             api_key=api_key,
             base_url=base_url,
             resume_last=resume_last,
+            preset=preset,
         )
 
 

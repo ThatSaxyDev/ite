@@ -42,7 +42,7 @@ def build_system_prompt_layers(
     parts = []
 
     # Identity and role
-    parts.append(_get_identity_section())
+    parts.append(_get_identity_section(config))
     # Environment
     parts.append(_get_environment_section(config))
 
@@ -93,7 +93,7 @@ def get_base_system_prompt(
     skill_context: dict | None = None,
 ) -> str:
     parts = [
-        _get_identity_section(),
+        _get_identity_section(config),
         _get_environment_section(config),
     ]
     if tools:
@@ -126,8 +126,11 @@ def get_session_memory_prompt(session_memory: str | None) -> str:
     return _get_session_memory_section(session_memory or "")
 
 
-def _get_identity_section() -> str:
-    """Generate the identity section."""
+def _get_identity_section(config: Config | None = None) -> str:
+    """Generate the identity section, customized per preset."""
+    if config is not None and config.preset == "betting":
+        return _get_betting_identity()
+
     return """# Identity
 
 You are an AI coding agent, a terminal-based coding assistant. You are expected to be precise, safe and helpful.
@@ -139,6 +142,37 @@ Your capabilities:
 - Depending on configuration, you can request that function calls be escalated to the user for approval before running
 
 You are pair programming with the user to help them accomplish their goals. You should be proactive, thorough and focused on delivering high-quality results."""
+
+
+def _get_betting_identity() -> str:
+    """Generate the betting analyst identity."""
+    return """# Identity
+
+You are a professional sports betting analyst AI. Your role is to provide
+data-driven, analytical betting insights and predictions. You are expected
+to be rigorous, evidence-based, and honest about uncertainty.
+
+Your capabilities:
+- Fetch current betting odds across major sportsbooks
+- Analyze historical head-to-head matchups with statistical depth
+- Review injury reports and assess their impact on game outcomes
+- Generate model-based predictions with confidence levels
+- Research team/player form, trends, and situational factors
+- Identify value bets where odds diverge from your analysis
+
+You are an analytical partner helping users make informed betting decisions.
+Always ground your analysis in data; never recommend bets without backing
+evidence. State confidence levels explicitly. Flag when you're speculating
+versus when you have strong data.
+
+Key principles:
+- **Data first**: Every prediction must cite specific stats, trends, or models
+- **Honest uncertainty**: "I don't have enough data" is better than a bad pick
+- **Value focus**: Identify where the market may be mispricing outcomes
+- **Risk awareness**: Always mention what could go wrong with any prediction
+- **No gambling advice**: You provide analysis, not financial advice. Users
+  make their own decisions. Always include responsible gambling reminders
+  when discussing specific bets."""
 
 
 def _get_environment_section(config: Config) -> str:

@@ -9,6 +9,7 @@ from ite.tools.subagent import get_default_subagent_definitions
 from ite.tools.subagent_loader import discover_subagents
 from ite.config.config import Config
 from ite.tools.builtin import get_all_builtin_tools
+from ite.tools.betting import get_betting_tools
 from ite.tools.base import ToolInvocation
 from ite.tools.base import ToolResult
 from pathlib import Path
@@ -638,8 +639,11 @@ class ToolRegistry:
 def create_default_registry(config: Config) -> ToolRegistry:
     registry = ToolRegistry(config)
 
-    for tool_class in get_all_builtin_tools():
-        registry.register(tool_class(config))
+    if config.preset == "betting":
+        _register_betting_tools(registry, config)
+    else:
+        for tool_class in get_all_builtin_tools():
+            registry.register(tool_class(config))
 
     refresh_subagent_tools(
         registry,
@@ -649,6 +653,33 @@ def create_default_registry(config: Config) -> ToolRegistry:
     )
 
     return registry
+
+
+def _register_betting_tools(registry: ToolRegistry, config: Config) -> None:
+    """Register betting-specific tools plus essential utilities."""
+    from ite.tools.builtin.web_search import WebSearchTool
+    from ite.tools.builtin.web_fetch import WebFetchTool
+    from ite.tools.builtin.memory import MemoryTool
+    from ite.tools.builtin.todo import TodosTool
+    from ite.tools.builtin.plan_question import PlanQuestionTool
+    from ite.tools.builtin.skills import SkillsTool
+    from ite.tools.builtin.http_tools import HttpRequestTool
+
+    _ESSENTIAL_TOOLS = [
+        WebSearchTool,
+        WebFetchTool,
+        HttpRequestTool,
+        MemoryTool,
+        TodosTool,
+        PlanQuestionTool,
+        SkillsTool,
+    ]
+
+    for tool_class in get_betting_tools():
+        registry.register(tool_class(config))
+
+    for tool_class in _ESSENTIAL_TOOLS:
+        registry.register(tool_class(config))
 
 
 def refresh_subagent_tools(

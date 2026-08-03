@@ -296,6 +296,7 @@ class Config(BaseModel):
 
     developer_instructions: str | None = None
     user_instructions: str | None = None
+    preset: str | None = None
 
     debug: bool = False
 
