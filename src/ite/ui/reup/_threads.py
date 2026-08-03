@@ -463,13 +463,29 @@ class ThreadsMixin:
             if panel is None or not panel.is_mounted:
                 panel = ThreadSwitcherSidePanel(
                     threads=threads,
+                    email=self._cloud_user_email or "",
+                    image=self._cloud_user_image,
                     id="thread-switcher-panel",
                 )
                 await self.screen.mount(panel)
                 self._thread_switcher_panel = panel
             else:
                 await panel.refresh_threads(threads)
+                panel.refresh_account_info(
+                    self._cloud_user_email or "",
+                    self._cloud_user_image,
+                )
             self._apply_thread_switcher_button_state()
+
+
+    def _refresh_thread_switcher_account(self) -> None:
+        panel = self._thread_switcher_panel
+        if panel is None or not panel.is_mounted:
+            return
+        panel.refresh_account_info(
+            self._cloud_user_email or "",
+            self._cloud_user_image,
+        )
 
 
     async def _hide_thread_switcher_panel(self, *, remember: bool = True) -> None:
@@ -563,6 +579,8 @@ class ThreadsMixin:
         self._usage_remaining_percent = None
         self._account_plan_is_pro = False
         self._account_plan_unavailable = False
+        self._cloud_user_email = None
+        self._cloud_user_image = None
         if refresh:
             self.refresh_header()
 

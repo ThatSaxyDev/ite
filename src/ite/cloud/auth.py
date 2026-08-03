@@ -121,6 +121,7 @@ class BundledModelsResult:
 class CloudEntitlementsResult:
     entitlements: dict[str, Any]
     auth: CloudAuthStatus
+    user: dict[str, Any] | None = None
 
 
 def _cloud_session_path() -> Path:
@@ -917,6 +918,7 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
 
     entitlements = payload.get("entitlements")
     normalized_entitlements = entitlements if isinstance(entitlements, dict) else {}
+    user = payload.get("user") if isinstance(payload.get("user"), dict) else None
     try:
         _save_cloud_entitlements_cache(session, normalized_entitlements)
     except Exception:
@@ -924,6 +926,7 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
     return CloudEntitlementsResult(
         entitlements=normalized_entitlements,
         auth=auth,
+        user=user,
     )
 
 

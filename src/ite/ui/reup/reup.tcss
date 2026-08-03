@@ -1061,7 +1061,7 @@ Widget {
     height: 1fr;
     background: $surface;
     border-right: vkey $foreground 30%;
-    padding: 0 1;
+    padding: 0 1 1 1;
     padding-left: 1;
     layout: vertical;
 }
@@ -1162,6 +1162,34 @@ Widget {
     background: transparent;
     color: $text-warning;
     text-style: bold;
+}
+
+#thread-switcher-panel .thread-switcher-account {
+    width: 1fr;
+    height: 3;
+    border-top: solid $foreground 15%;
+    padding-top: 1;
+    margin: 0 1;
+    display: none;
+}
+
+#thread-switcher-panel .thread-switcher-account-icon {
+    width: 3;
+    height: 2;
+    content-align: center middle;
+    background: $primary;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#thread-switcher-panel .thread-switcher-account-email {
+    width: 1fr;
+    height: 2;
+    padding-left: 1;
+    content-align: left middle;
+    color: $foreground;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .aside-thread {

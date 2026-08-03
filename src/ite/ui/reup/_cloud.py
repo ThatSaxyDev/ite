@@ -483,6 +483,7 @@ class CloudMixin:
         state = str(getattr(result.auth, "state", "") or "")
         if state == CloudSessionState.NO_ENTITLEMENT:
             self._set_account_plan_badge_state(False)
+            self._set_cloud_user_profile(result.user)
             return
         if state == CloudSessionState.NETWORK_ERROR:
             if (
@@ -503,6 +504,21 @@ class CloudMixin:
             or entitlements.get("bundledInference")
         )
         self._set_account_plan_badge_state(pro)
+        self._set_cloud_user_profile(result.user)
+
+
+    def _set_cloud_user_profile(self, user: dict[str, Any] | None) -> None:
+        email = ""
+        image: str | None = None
+        if isinstance(user, dict):
+            email = str(user.get("email") or "").strip()
+            raw_image = user.get("image")
+            image = str(raw_image) if raw_image else None
+        if email == self._cloud_user_email and image == self._cloud_user_image:
+            return
+        self._cloud_user_email = email or None
+        self._cloud_user_image = image
+        self._refresh_thread_switcher_account()
 
 
     def _prefetch_cloud_caches(self) -> None:
@@ -887,6 +903,8 @@ class CloudMixin:
             self._usage_remaining_percent = None
             self._account_plan_is_pro = False
             self._account_plan_unavailable = False
+            self._cloud_user_email = None
+            self._cloud_user_image = None
         else:
             self._cloud_signed_out_status_message = ""
             self._cloud_network_watch_enabled = False

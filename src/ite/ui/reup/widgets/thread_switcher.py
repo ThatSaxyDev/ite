@@ -42,6 +42,8 @@ class ThreadSwitcherSidePanel(Widget):
         self,
         *,
         threads: list[tuple[str, str, str, str]],
+        email: str = "",
+        image: str | None = None,
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
@@ -49,6 +51,8 @@ class ThreadSwitcherSidePanel(Widget):
         self._threads = threads
         self._row_widgets: dict[str, ThreadSwitcherRow] = {}
         self._row_snapshot: tuple[tuple[str, str, str], ...] = ()
+        self._account_email = email
+        self._account_image = image
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="thread-switcher-header"):
@@ -64,9 +68,35 @@ class ThreadSwitcherSidePanel(Widget):
             classes="thread-switcher-new-chat",
         )
         yield VerticalScroll(id="thread-switcher-list", classes="thread-switcher-list")
+        with Horizontal(id="thread-switcher-account-footer", classes="thread-switcher-account"):
+            yield Static("", id="thread-switcher-account-icon", classes="thread-switcher-account-icon")
+            yield Static("", id="thread-switcher-account-email", classes="thread-switcher-account-email")
 
     async def on_mount(self) -> None:
         await self.refresh_threads(self._threads)
+        self._update_account_footer()
+
+    def refresh_account_info(self, email: str, image: str | None) -> None:
+        self._account_email = email
+        self._account_image = image
+        if self.is_mounted:
+            self._update_account_footer()
+
+    def _update_account_footer(self) -> None:
+        try:
+            footer = self.query_one("#thread-switcher-account-footer", Horizontal)
+            icon = self.query_one("#thread-switcher-account-icon", Static)
+            email_label = self.query_one("#thread-switcher-account-email", Static)
+        except Exception:
+            return
+        email = (self._account_email or "").strip()
+        if not email:
+            footer.display = False
+            return
+        footer.display = True
+        initial = email[0].upper()
+        icon.update(initial)
+        email_label.update(self._ellipsize(email, self.MAX_LABEL_CELLS))
 
     async def refresh_threads(self, threads: list[tuple[str, str, str, str]]) -> None:
         self._threads = threads
