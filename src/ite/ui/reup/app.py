@@ -480,6 +480,8 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._bundled_access_denied: bool = False
         self._account_plan_is_pro: bool | None = None
         self._account_plan_unavailable: bool = False
+        self._cloud_user_email: str | None = None
+        self._cloud_user_image: str | None = None
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = False
