@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import random
 import re
 
 
@@ -877,6 +878,151 @@ def describe_tool_activity(
     return f"Tool `{name}` failed."
 
 
+_GERUNDS: tuple[str, ...] = (
+    "Accomplishing",
+    "Actioning",
+    "Actualizing",
+    "Baking",
+    "Booping",
+    "Brewing",
+    "Calculating",
+    "Cerebrating",
+    "Channelling",
+    "Churning",
+    "Clauding",
+    "Coalescing",
+    "Cogitating",
+    "Combobulating",
+    "Concocting",
+    "Considering",
+    "Contemplating",
+    "Cooking",
+    "Crafting",
+    "Creating",
+    "Crunching",
+    "Deciphering",
+    "Deliberating",
+    "Determining",
+    "Discombobulating",
+    "Doing",
+    "Effecting",
+    "Elucidating",
+    "Enchanting",
+    "Envisioning",
+    "Finagling",
+    "Flibbergibbeting",
+    "Forging",
+    "Forming",
+    "Frolicking",
+    "Generating",
+    "Germinating",
+    "Hatching",
+    "Herding",
+    "Honking",
+    "Ideating",
+    "Imagining",
+    "Incubating",
+    "Inferring",
+    "Manifesting",
+    "Marinating",
+    "Meandering",
+    "Moseying",
+    "Mulling",
+    "Mustering",
+    "Musing",
+    "Noodling",
+    "Percolating",
+    "Perusing",
+    "Philosophising",
+    "Pontificating",
+    "Pondering",
+    "Processing",
+    "Puttering",
+    "Puzzling",
+    "Reticulating",
+    "Ruminating",
+    "Scheming",
+    "Schlepping",
+    "Shimmying",
+    "Simmering",
+    "Smooshing",
+    "Spelunking",
+    "Spinning",
+    "Stewing",
+    "Sussing",
+    "Synthesizing",
+    "Thinking",
+    "Tinkering",
+    "Transmuting",
+    "Unfurling",
+    "Unravelling",
+    "Vibing",
+    "Wandering",
+    "Whirring",
+    "Wibbling",
+    "Working",
+    "Wrangling",
+    "Doodling",
+    "Absconding",
+    "Bamboozling",
+    "Befuddling",
+    "Blorping",
+    "Blooming",
+    "Buffering",
+    "Bumbling",
+    "Compiling",
+    "Dawdling",
+    "Deploying",
+    "Distilling",
+    "Embedding",
+    "Faffing",
+    "Fermenting",
+    "Flummoxing",
+    "Galumphing",
+    "Garnishing",
+    "Glorpifying",
+    "Goobling",
+    "Hallucinating",
+    "Inferencing",
+    "Infusing",
+    "Jiggling",
+    "Kerfuffling",
+    "Kerplunking",
+    "Kibitzing",
+    "Kneading",
+    "Kvetching",
+    "Noodging",
+    "Photosynthesizing",
+    "Plonking",
+    "Pollinating",
+    "Prompting",
+    "Putzing",
+    "Querying",
+    "Refactoring",
+    "Ripening",
+    "Sautéing",
+    "Scromping",
+    "Shenaniganing",
+    "Skedaddling",
+    "Sprouting",
+    "Squelching",
+    "Threading",
+    "Tokening",
+    "Tomfoolering",
+    "Vectoring",
+    "Whisking",
+    "Whittling",
+    "Wobbling",
+    "Zonking",
+    "Brainmaxxing",
+    "Blobbing",
+)
+
+
+def _random_gerund() -> str:
+    return random.choice(_GERUNDS)
+
+
 def progress_label(
     *,
     tool_name: str | None = None,
@@ -888,10 +1034,10 @@ def progress_label(
     args = arguments or {}
     md = metadata or {}
     if not tool_name:
-        return "Planning" if plan_mode else "Thinking"
+        return "Planning" if plan_mode else _random_gerund()
 
     name = tool_name
-    label = "Working"
+    label = _random_gerund()
     if name == "list_dir":
         label = "Exploring workspace"
     elif name == "grep":
@@ -978,7 +1124,7 @@ def progress_label(
         label = "Delegating to specialist"
 
     if phase == "post_tool":
-        return "Planning next step" if plan_mode else "Reviewing results"
+        return "Planning next step" if plan_mode else _random_gerund()
 
     return label
 
