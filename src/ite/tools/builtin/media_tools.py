@@ -42,6 +42,17 @@ class ReadImageParams(BaseModel):
     )
 
 
+class ReadDocumentParams(BaseModel):
+    path: str = Field(
+        ...,
+        description=(
+            "Path to the document file to convert to Markdown. Supports Word (.docx), "
+            "Excel (.xlsx), PowerPoint (.pptx), OpenDocument (.odt/.ods/.odp), RTF, EPUB, "
+            "CSV, and PDF."
+        ),
+    )
+
+
 def _module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
 
@@ -72,6 +83,22 @@ def _load_pytesseract():
     import pytesseract
 
     return pytesseract
+
+
+def _load_pdf_inspector():
+    if not _module_available("pdf_inspector"):
+        return None
+    import pdf_inspector
+
+    return pdf_inspector
+
+
+def _load_anydoc():
+    if not _module_available("anydoc"):
+        return None
+    import anydoc
+
+    return anydoc
 
 
 def _resize_image_if_needed(image, max_dimension: int = 1024):
@@ -266,6 +293,81 @@ class ReadPdfTool(Tool):
         if not path.is_file():
             return ToolResult.error_result(f"Path is not a file: {path}")
 
+        inspector = _load_pdf_inspector()
+        if inspector is not None:
+            try:
+                return self._execute_with_inspector(path, params, inspector)
+            except Exception:
+                pass
+
+        return self._execute_with_pypdf(path, params)
+
+    def _execute_with_inspector(
+        self,
+        path: Path,
+        params: ReadPdfParams,
+        inspector: Any,
+    ) -> ToolResult:
+        classification = inspector.classify_pdf(str(path))
+        page_count = int(getattr(classification, "page_count", 0) or 0)
+        pdf_type = str(getattr(classification, "pdf_type", "") or "").strip()
+
+        if page_count == 0:
+            return ToolResult.success_result(
+                "PDF contains no pages.",
+                metadata={"path": str(path), "page_count": 0, "pages": [], "engine": "pdf_inspector"},
+            )
+
+        try:
+            selected = _normalize_page_numbers(page_count, params.pages, params.max_pages)
+        except ValueError as exc:
+            return ToolResult.error_result(
+                str(exc),
+                metadata={"path": str(path), "page_count": page_count, "engine": "pdf_inspector"},
+            )
+
+        extraction = inspector.extract_pages_markdown(str(path), pages=[page - 1 for page in selected])
+        extracted_pages = list(getattr(extraction, "pages", []) or [])
+
+        page_entries: list[dict[str, Any]] = []
+        output_lines: list[str] = []
+        for item in extracted_pages:
+            page_number = int(getattr(item, "page", 0) or 0) + 1
+            markdown = str(getattr(item, "markdown", "") or "").strip()
+            needs_ocr = bool(getattr(item, "needs_ocr", False))
+            page_entries.append(
+                {
+                    "page": page_number,
+                    "text_length": len(markdown),
+                    "has_text": bool(markdown),
+                    "needs_ocr": needs_ocr,
+                }
+            )
+            output_lines.append(f"--- Page {page_number} ---")
+            output_lines.append(markdown or "[No extractable text]")
+            output_lines.append("")
+
+        output, truncated = _truncate_text("\n".join(output_lines).rstrip())
+        metadata = {
+            "path": str(path),
+            "page_count": page_count,
+            "pages": page_entries,
+            "selected_pages": selected,
+            "pdf_type": pdf_type,
+            "engine": "pdf_inspector",
+            "confidence": float(getattr(classification, "confidence", 0.0) or 0.0),
+            "pages_needing_ocr": [int(p) for p in list(getattr(extraction, "pages_needing_ocr", []) or [])],
+            "pages_with_tables": [int(p) for p in list(getattr(extraction, "pages_with_tables", []) or [])],
+            "pages_with_columns": [int(p) for p in list(getattr(extraction, "pages_with_columns", []) or [])],
+            "is_complex_layout": bool(getattr(extraction, "is_complex", False)),
+        }
+        return ToolResult.success_result(
+            output or "[No extractable text]",
+            truncated=truncated,
+            metadata=metadata,
+        )
+
+    def _execute_with_pypdf(self, path: Path, params: ReadPdfParams) -> ToolResult:
         try:
             PdfReader = _load_pdf_reader()
             reader = PdfReader(str(path))
@@ -318,6 +420,7 @@ class ReadPdfTool(Tool):
             "selected_pages": selected_pages,
             "metadata": _json_safe(dict(getattr(reader, "metadata", {}) or {})),
             "text_extraction_quality": "text" if total_chars > 0 else "none",
+            "engine": "pypdf",
         }
         return ToolResult.success_result(output or "[No extractable text]", truncated=truncated, metadata=metadata)
 
@@ -457,4 +560,54 @@ class ReadImageTool(Tool):
             truncated=truncated,
             metadata=metadata,
             content_parts=content_parts,
+        )
+
+
+class ReadDocumentTool(Tool):
+    name = "read_document"
+    description = (
+        "Convert a document file (Word, Excel, PowerPoint, OpenDocument, RTF, EPUB, CSV, or PDF) "
+        "to Markdown text."
+    )
+    kind = ToolKind.READ
+    schema = ReadDocumentParams
+
+    async def execute(self, invocation: ToolInvocation) -> ToolResult:
+        params = ReadDocumentParams(**invocation.params)
+        path = resolve_path(invocation.cwd, params.path)
+
+        sandbox_error = self._sandbox_check(path, invocation.cwd)
+        if sandbox_error:
+            return sandbox_error
+        if not path.exists():
+            return ToolResult.error_result(f"File not found: {path}")
+        if not path.is_file():
+            return ToolResult.error_result(f"Path is not a file: {path}")
+
+        anydoc = _load_anydoc()
+        if anydoc is None:
+            return ToolResult.error_result(
+                "Document conversion is unavailable. Install `firecrawl-anydoc` to use read_document.",
+                metadata={"path": str(path), "recoverable": True},
+            )
+
+        try:
+            markdown = anydoc.to_markdown(str(path)) or ""
+        except Exception as exc:
+            return ToolResult.error_result(
+                f"Failed to convert document: {exc}",
+                metadata={"path": str(path), "parse_error": True},
+            )
+
+        output, truncated = _truncate_text(markdown.strip())
+        metadata = {
+            "path": str(path),
+            "format": path.suffix.lstrip(".").lower(),
+            "text_length": len(markdown),
+            "engine": "anydoc",
+        }
+        return ToolResult.success_result(
+            output or "[No extractable content]",
+            truncated=truncated,
+            metadata=metadata,
         )

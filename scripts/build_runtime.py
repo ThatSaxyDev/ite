@@ -85,6 +85,9 @@ HIDDEN_IMPORTS: list[str] = [
     "bs4",
     "bs4.builder._html5lib",
     "bs4.builder._lxml",
+    # Rust/PyO3 document parsing (lazy-imported in media_tools)
+    "pdf_inspector",
+    "anydoc",
     # PIL plugins for image processing
     "PIL.Image",
     "PIL.ImageDraw",

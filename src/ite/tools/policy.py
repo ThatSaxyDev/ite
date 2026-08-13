@@ -120,6 +120,33 @@ class ToolSelectionPolicy:
                     ),
                     redirect_to="read_pdf",
                 )
+            if path.endswith(
+                (
+                    ".docx",
+                    ".doc",
+                    ".docm",
+                    ".xlsx",
+                    ".xls",
+                    ".xlsm",
+                    ".csv",
+                    ".pptx",
+                    ".ppt",
+                    ".pptm",
+                    ".odt",
+                    ".ods",
+                    ".odp",
+                    ".rtf",
+                    ".epub",
+                )
+            ) and offset in (None, "", 1) and limit in (None, ""):
+                return PolicyDecision(
+                    allowed=False,
+                    reason=(
+                        "Document inspection should use `read_document` instead of `read_file` "
+                        "unless exact raw bytes are required."
+                    ),
+                    redirect_to="read_document",
+                )
             if path.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")) and offset in (None, "", 1) and limit in (None, ""):
                 return PolicyDecision(
                     allowed=False,

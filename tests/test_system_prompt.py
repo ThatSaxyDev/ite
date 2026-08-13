@@ -70,7 +70,7 @@ class SystemPromptTests(unittest.TestCase):
         self.assertIn("Prefer `read_toml` / `write_toml` for `pyproject.toml`", prompt)
         self.assertIn("Prefer `read_yaml` / `write_yaml` for CI workflows", prompt)
         self.assertIn("Prefer `read_env` / `write_env` for environment variable files", prompt)
-        self.assertIn("Prefer `read_pdf` for PDFs and `read_image` for screenshots", prompt)
+        self.assertIn("Prefer `read_pdf` for PDFs, `read_document` for office documents", prompt)
         self.assertIn("Use `read_file` instead of the structured readers only when exact file text", prompt)
 
     def test_system_prompt_requires_parallel_subagent_fan_out_before_wait(self) -> None:

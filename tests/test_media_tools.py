@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from ite.config.config import Config
 from ite.tools.base import ToolInvocation
+from ite.tools.builtin.media_tools import ReadDocumentTool
 from ite.tools.builtin.media_tools import ReadImageTool
 from ite.tools.builtin.media_tools import ReadPdfTool
 from ite.tools.registry import create_default_registry
@@ -26,7 +27,9 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             reader.metadata = {"/Title": "Demo"}
 
             tool = ReadPdfTool(Config(cwd=cwd, api_key="test"))
-            with patch("ite.tools.builtin.media_tools._load_pdf_reader", return_value=lambda _: reader):
+            with patch("ite.tools.builtin.media_tools._load_pdf_reader", return_value=lambda _: reader), patch(
+                "ite.tools.builtin.media_tools._load_pdf_inspector", return_value=None
+            ):
                 result = await tool.execute(
                     ToolInvocation(params={"path": "sample.pdf", "pages": [2]}, cwd=cwd)
                 )
@@ -43,7 +46,9 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             pdf_path.write_bytes(b"%PDF-1.4")
 
             tool = ReadPdfTool(Config(cwd=cwd, api_key="test"))
-            with patch("ite.tools.builtin.media_tools._load_pdf_reader", side_effect=RuntimeError("missing pypdf")):
+            with patch("ite.tools.builtin.media_tools._load_pdf_reader", side_effect=RuntimeError("missing pypdf")), patch(
+                "ite.tools.builtin.media_tools._load_pdf_inspector", return_value=None
+            ):
                 result = await tool.execute(ToolInvocation(params={"path": "sample.pdf"}, cwd=cwd))
 
             self.assertFalse(result.success)
@@ -220,13 +225,88 @@ class MediaToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.success, msg=result.error)
             self.assertIsInstance(result.metadata["info"]["icc_profile"], str)
 
+    async def test_read_pdf_uses_pdf_inspector_when_available(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            pdf_path = cwd / "sample.pdf"
+            pdf_path.write_bytes(b"%PDF-1.4")
+
+            classification = Mock()
+            classification.page_count = 2
+            classification.pdf_type = "text_based"
+            classification.confidence = 0.95
+
+            page1 = Mock()
+            page1.page = 0
+            page1.markdown = "# Page one"
+            page1.needs_ocr = False
+            page2 = Mock()
+            page2.page = 1
+            page2.markdown = "# Page two"
+            page2.needs_ocr = False
+
+            extraction = Mock()
+            extraction.pages = [page1, page2]
+            extraction.pages_needing_ocr = []
+            extraction.pages_with_tables = []
+            extraction.pages_with_columns = []
+            extraction.is_complex = False
+
+            inspector = Mock()
+            inspector.classify_pdf.return_value = classification
+            inspector.extract_pages_markdown.return_value = extraction
+
+            tool = ReadPdfTool(Config(cwd=cwd, api_key="test"))
+            with patch("ite.tools.builtin.media_tools._load_pdf_inspector", return_value=inspector):
+                result = await tool.execute(
+                    ToolInvocation(params={"path": "sample.pdf", "pages": [2]}, cwd=cwd)
+                )
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertEqual(result.metadata.get("pdf_type"), "text_based")
+            self.assertEqual(result.metadata.get("engine"), "pdf_inspector")
+            self.assertIn("# Page two", result.output)
+            inspector.extract_pages_markdown.assert_called_once_with(str(pdf_path.resolve()), pages=[1])
+
+    async def test_read_document_converts_to_markdown(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            doc_path = cwd / "report.docx"
+            doc_path.write_bytes(b"fake")
+
+            anydoc = Mock()
+            anydoc.to_markdown.return_value = "# Report\n\nHello."
+
+            tool = ReadDocumentTool(Config(cwd=cwd, api_key="test"))
+            with patch("ite.tools.builtin.media_tools._load_anydoc", return_value=anydoc):
+                result = await tool.execute(ToolInvocation(params={"path": "report.docx"}, cwd=cwd))
+
+            self.assertTrue(result.success, msg=result.error)
+            self.assertIn("# Report", result.output)
+            self.assertEqual(result.metadata.get("format"), "docx")
+            anydoc.to_markdown.assert_called_once_with(str(doc_path.resolve()))
+
+    async def test_read_document_reports_missing_dependency_cleanly(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            doc_path = cwd / "report.docx"
+            doc_path.write_bytes(b"fake")
+
+            tool = ReadDocumentTool(Config(cwd=cwd, api_key="test"))
+            with patch("ite.tools.builtin.media_tools._load_anydoc", return_value=None):
+                result = await tool.execute(ToolInvocation(params={"path": "report.docx"}, cwd=cwd))
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("recoverable"))
+            self.assertIn("firecrawl-anydoc", result.error or "")
+
     async def test_media_tools_are_registered(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
             registry = create_default_registry(Config(cwd=cwd, api_key="test"))
             tool_names = {tool.name for tool in registry.get_tools()}
 
-            self.assertTrue({"read_pdf", "read_image"}.issubset(tool_names))
+            self.assertTrue({"read_pdf", "read_image", "read_document"}.issubset(tool_names))
 
 
 if __name__ == "__main__":

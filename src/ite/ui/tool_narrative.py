@@ -22,6 +22,7 @@ TOOL_ICONS: dict[str, str] = {
     "http_request": "\U0001f310",
     "list_archive": "\U0001f5dc\ufe0f",
     "read_pdf": "\U0001f4c4",
+    "read_document": "\U0001f4d1",
     "read_image": "\U0001f5bc\ufe0f",
     "glob": "\U0001f5c2\ufe0f",
     "grep": "\U0001f50e",
@@ -138,6 +139,8 @@ def activity_title(
         return "Inspecting archive" if running else ("Archive contents ready" if done else "Archive inspection failed")
     if name == "read_pdf":
         return "Reading PDF" if running else ("PDF loaded" if done else "PDF read failed")
+    if name == "read_document":
+        return "Reading document" if running else ("Document loaded" if done else "Document read failed")
     if name == "read_image":
         return "Reading image" if running else ("Image loaded" if done else "Image read failed")
     if name == "todos":
@@ -629,6 +632,14 @@ def describe_tool_activity(
             return "Processed PDF successfully."
         return f"Failed to read PDF {path}."
 
+    if name == "read_document":
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Reading document {path}."
+        if success:
+            return f"Converted document {path} to Markdown."
+        return f"Failed to read document {path}."
+
     if name == "read_image":
         path = _path(args, metadata)
         if stage == "start":
@@ -1077,6 +1088,8 @@ def progress_label(
         label = "Inspecting archive"
     elif name == "read_pdf":
         label = "Reading PDF"
+    elif name == "read_document":
+        label = "Reading document"
     elif name == "read_image":
         label = "Reading image"
     elif name == "todos":

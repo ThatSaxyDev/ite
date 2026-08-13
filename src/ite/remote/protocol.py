@@ -19,6 +19,7 @@ _REMOTE_SUPPRESSED_TOOL_ERRORS: dict[str, set[str]] = {
     "read_yaml": {"Parameter 'path': Field required"},
     "read_env": {"Parameter 'path': Field required"},
     "read_pdf": {"Parameter 'path': Field required"},
+    "read_document": {"Parameter 'path': Field required"},
     "read_image": {"Parameter 'path': Field required"},
     "grep": {"Parameter 'pattern': Field required"},
     "write_file": {

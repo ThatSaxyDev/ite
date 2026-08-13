@@ -561,6 +561,21 @@ wheels = [
 ]
 
 [[package]]
+name = "firecrawl-anydoc"
+version = "0.1.8"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/58/94bdc78509da5d2bec4761cfc6e79061d35562d4397b504aec59e29b548b/firecrawl_anydoc-0.1.8.tar.gz", hash = "sha256:342289a9e7fcc46a312919547b475827f202f6824c2acf05e334fc1ed386e77e", size = 197922, upload-time = "2026-08-10T23:39:54.336Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/61/abd70c4215e2804c8dad88c2abe8685fa84f4d2496ce7fc17d7f7a1cc21d/firecrawl_anydoc-0.1.8-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:8a7218553f691f112a2d71f2c08c3ef87de3ce4d15fa82ffa782f493a307a284", size = 3447457, upload-time = "2026-08-10T23:39:39.832Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/c1/ab54eb4ca0a131017941964219fbf80873059b4261b046f8dda1bdeb858c/firecrawl_anydoc-0.1.8-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:8920b0d303ae5ad34bc5e580b25043eaf107df73e4f8f2f02282bfad7f19845a", size = 3273654, upload-time = "2026-08-10T23:39:42.596Z" },
+    { url = "https://files.pythonhosted.org/packages/af/10/9216bb6e65d027aac7c4c856ad921684337c105f69db77703059afd1ec1e/firecrawl_anydoc-0.1.8-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:cfe87061151cb42dd52960eb84f4ec6249a220131e61b498bba1248b86ef51cc", size = 3313860, upload-time = "2026-08-10T23:39:44.664Z" },
+    { url = "https://files.pythonhosted.org/packages/b8/23/0d4fb73798b6554a63f38468e62ce13f1d411ef3dd879efc4c89f535ee44/firecrawl_anydoc-0.1.8-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d3ba80a81f1831b5cdfcc14678e3ed13078587710fb3f5556f193dbcaa901070", size = 3540091, upload-time = "2026-08-10T23:39:46.642Z" },
+    { url = "https://files.pythonhosted.org/packages/17/f6/438c158410c0f696dbb29e4f0b83cbb6cd89511792fd97917aaa4f2cc76e/firecrawl_anydoc-0.1.8-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:07e4b9444cc979f2eb35289c8d28d738474209824a29d07081af25cd6a65bf9b", size = 3492643, upload-time = "2026-08-10T23:39:48.579Z" },
+    { url = "https://files.pythonhosted.org/packages/85/ba/bd6b8502093ddcc8fe170fdc20a37009dc5e7a6ae55551ede69a9639ecf8/firecrawl_anydoc-0.1.8-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:4b7d79b8f7c158a67232982dc1883c07114d95f69d7aedc902d0b113a5546b16", size = 3780576, upload-time = "2026-08-10T23:39:50.458Z" },
+    { url = "https://files.pythonhosted.org/packages/df/91/743986265ae347f0380a21d60378155575f4d724465c77c7e4781923df57/firecrawl_anydoc-0.1.8-cp310-abi3-win_amd64.whl", hash = "sha256:bf755eb80439f0a1540b298648919f19751c16f942a7376ee68dea5318e3f2a3", size = 3632712, upload-time = "2026-08-10T23:39:52.561Z" },
+]
+
+[[package]]
 name = "griffelib"
 version = "2.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -656,7 +671,7 @@ wheels = [
 
 [[package]]
 name = "ite-agent"
-version = "0.1.33"
+version = "0.1.37"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -665,9 +680,11 @@ dependencies = [
     { name = "cryptography" },
     { name = "ddgs" },
     { name = "fastmcp" },
+    { name = "firecrawl-anydoc" },
     { name = "html2text" },
     { name = "lxml" },
     { name = "openai" },
+    { name = "pdf-inspector" },
     { name = "pillow" },
     { name = "platformdirs" },
     { name = "pydantic" },
@@ -698,10 +715,12 @@ requires-dist = [
     { name = "cryptography", specifier = ">=46.0.0" },
     { name = "ddgs" },
     { name = "fastmcp" },
+    { name = "firecrawl-anydoc" },
     { name = "html2text" },
     { name = "lxml" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "openai" },
+    { name = "pdf-inspector" },
     { name = "pillow" },
     { name = "platformdirs" },
     { name = "pydantic" },
@@ -1335,6 +1354,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5a/82/42f767fc1c1143d6fd36efb827202a2d997a375e160a71eb2888a925aac1/pathspec-1.1.1.tar.gz", hash = "sha256:17db5ecd524104a120e173814c90367a96a98d07c45b2e10c2f3919fff91bf5a", size = 135180, upload-time = "2026-04-27T01:46:08.907Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/d9/7fb5aa316bc299258e68c73ba3bddbc499654a07f151cba08f6153988714/pathspec-1.1.1-py3-none-any.whl", hash = "sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189", size = 57328, upload-time = "2026-04-27T01:46:07.06Z" },
+]
+
+[[package]]
+name = "pdf-inspector"
+version = "1.14.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/7d/29ac7865f4c7332d28638d08b73aa6b7bf2f1325c383094bb6717a1a816d/pdf_inspector-1.14.1.tar.gz", hash = "sha256:e9d0fc1669ca77950d28488c8450d1aa28018e839ea260308d87253dfb8bec03", size = 1559937, upload-time = "2026-08-11T21:22:53.948Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/47/7ddacbcac7a04ec60014e2a03b943c4643a8bd794ed67588f5ebadfbeb15/pdf_inspector-1.14.1-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:b2159efa28f132df0442129a9b3eaf70c3f9915eb8202efcaaf759d85a01993f", size = 2855526, upload-time = "2026-08-11T21:22:44.66Z" },
+    { url = "https://files.pythonhosted.org/packages/98/24/00594b8ae250c0b8a87631a86067896416920879c43c8cdcdfeb50586d49/pdf_inspector-1.14.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:54cb32691640e5684832d21fbb58d2b30c068cbc055e0157da37774c1e8b9218", size = 2767918, upload-time = "2026-08-11T21:22:46.768Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/36/5b332c80858407fb19b34e6f18f6c99022d04324caf98b8aaf4547044871/pdf_inspector-1.14.1-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:501b8a6ffcd2c16ea74d71b9d7d70503c945c7d38c81151121790fd278021f0b", size = 2942959, upload-time = "2026-08-11T21:22:48.771Z" },
+    { url = "https://files.pythonhosted.org/packages/37/cc/589c355fed7b50098ddb9d09116c81d966c7b4ff78741183e600c1b4de6f/pdf_inspector-1.14.1-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:62e761a32ffd9c2b0c803dbefa2b0ad6f98bc26a75847571d99c3f7a65a7cea3", size = 3044612, upload-time = "2026-08-11T21:22:50.571Z" },
+    { url = "https://files.pythonhosted.org/packages/24/7c/4c84916a97cfd85d2e72dc3aaf6988cd19aff6e050d6a1b79d20f97e4566/pdf_inspector-1.14.1-cp38-abi3-win_amd64.whl", hash = "sha256:d4a2455c316e15eac745c3836f72b641e1c33207afb84c250abff2843209e527", size = 2690743, upload-time = "2026-08-11T21:22:52.407Z" },
 ]
 
 [[package]]
