@@ -61,6 +61,10 @@ class CompactToolCard(Static):
         self._full_blocks: list[Any] = []
         self.stack_key = ""
         self._stack_child_mode = False
+        self.dedupe_key = ""
+        self.tool_name = ""
+        self.path_key = ""
+        self.title_text = ""
 
     def set_tool_content(
         self,
@@ -83,6 +87,12 @@ class CompactToolCard(Static):
         self._stack_child_mode = enabled
         if self.has_completed_content:
             self._refresh_content()
+
+    def refresh_header(self, header: Text, *, expanded: bool | None = None) -> None:
+        self._header = header
+        if expanded is not None:
+            self.expanded = expanded
+        self._refresh_content()
 
     def action_toggle_expanded(self) -> None:
         if not self.has_completed_content:
@@ -258,3 +268,12 @@ class ToolCardStack(Vertical):
     def refresh_title(self, title: Text) -> None:
         self._title = title
         self._refresh_content()
+
+    def has_child_with_dedupe_key(self, dedupe_key: str) -> bool:
+        if not dedupe_key:
+            return False
+        return any(
+            isinstance(child, CompactToolCard)
+            and getattr(child, "dedupe_key", "") == dedupe_key
+            for child in self._body.children
+        )

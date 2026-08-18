@@ -119,6 +119,13 @@ from .tool_views import (
 class StreamingMixin:
     """Extracted mixin for _streaming."""
 
+    _PDF_TYPE_LABELS = {
+        "text_based": "text layer",
+        "scanned": "scanned",
+        "image_based": "image-based",
+        "mixed": "mixed",
+    }
+
 
     def get_tool_kind(self, tool_name: str) -> str | None:
         if not self.agent or not self.agent.session:
@@ -1882,6 +1889,9 @@ class StreamingMixin:
         if isinstance(previous, ToolCardStack):
             if previous.stack_key != card.stack_key:
                 return
+            if previous.has_child_with_dedupe_key(card.dedupe_key):
+                await self._drop_duplicate_card(card)
+                return
             await previous.add_card(card)
             self._message_count = max(0, self._message_count - 1)
             return
@@ -1889,6 +1899,9 @@ class StreamingMixin:
         if not isinstance(previous, CompactToolCard):
             return
         if previous.stack_key != card.stack_key or not previous.has_completed_content:
+            return
+        if card.dedupe_key and previous.dedupe_key == card.dedupe_key:
+            await self._drop_duplicate_card(card)
             return
 
         stack = ToolCardStack(
@@ -1906,6 +1919,51 @@ class StreamingMixin:
         await stack.add_card(previous)
         await stack.add_card(card)
         self._message_count = max(0, self._message_count - 1)
+
+    async def _drop_duplicate_card(self, card: CompactToolCard) -> None:
+        try:
+            await card.remove()
+        except Exception:
+            pass
+        self._message_count = max(0, self._message_count - 1)
+
+    @staticmethod
+    def _read_dedupe_key(name: str, normalized_path: str, md: dict[str, Any]) -> str:
+        if name == "read_pdf":
+            selected = md.get("selected_pages")
+            if isinstance(selected, list) and selected:
+                pages = ",".join(str(int(p)) for p in selected)
+            else:
+                pages = "all"
+            return f"read_pdf:{normalized_path}:{pages}"
+        return f"{name}:{normalized_path}"
+
+    async def _demote_recovered_read_failures(
+        self,
+        name: str,
+        path_key: str,
+    ) -> None:
+        if not path_key:
+            return
+        conversation = self.query_one("#conversation", VerticalScroll)
+        for child in conversation.children:
+            if not isinstance(child, CompactToolCard):
+                continue
+            if not child.has_class("error"):
+                continue
+            if getattr(child, "tool_name", "") != name:
+                continue
+            if getattr(child, "path_key", "") != path_key:
+                continue
+            self._demote_card_to_retried(child)
+
+    def _demote_card_to_retried(self, card: CompactToolCard) -> None:
+        header = Text()
+        header.append("↻  ", style=f"bold {self._style('muted')}")
+        header.append(card.title_text or "Read retried", style=f"bold {self._style('muted')}")
+        header.append("  retried", style=self._style("muted"))
+        card.remove_class("error")
+        card.refresh_header(header, expanded=False)
 
 
     def _render_wait_subagent_running_card(
@@ -2627,7 +2685,7 @@ class StreamingMixin:
                     summary_parts.append(f"{page_count} pages")
                 pdf_type = str(md.get("pdf_type") or "").strip()
                 if pdf_type:
-                    summary_parts.append(pdf_type)
+                    summary_parts.append(self._PDF_TYPE_LABELS.get(pdf_type, pdf_type))
                 else:
                     quality = str(md.get("text_extraction_quality") or "").strip()
                     if quality:
@@ -3020,6 +3078,12 @@ class StreamingMixin:
             default_expanded = not success or recoverable
             expanded = card.expanded if card.has_completed_content else default_expanded
             card.stack_key = f"{tool_kind or 'builtin'}:{name}:{title_text}"
+            card.tool_name = name
+            card.title_text = title_text
+            if name in {"read_pdf", "read_document", "read_image"} and primary_path:
+                normalized_path = os.path.normpath(primary_path)
+                card.path_key = normalized_path
+                card.dedupe_key = self._read_dedupe_key(name, normalized_path, md)
             card.set_tool_content(
                 header=header,
                 compact_blocks=compact_tool_preview_blocks(
@@ -3038,6 +3102,7 @@ class StreamingMixin:
             card.add_class("error")
 
         if isinstance(card, CompactToolCard) and success and not recoverable:
+            await self._demote_recovered_read_failures(name, card.path_key)
             await self._stack_completed_tool_card(card)
 
         if pin_after_update:
