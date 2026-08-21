@@ -915,6 +915,26 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app.config.model.name, "deepseek-v4-pro")
 
+    def test_bundled_stealth_model_displays_as_stealthy_alpha(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={"name": "stealth/ox-alpha", "source_kind": "bundled"},
+            )
+        )
+        app._bundled_models_cache = [
+            {
+                "model_name": "stealth/ox-alpha",
+                "label": "Stealthy Alpha",
+                "available": True,
+            }
+        ]
+
+        with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            self.assertEqual(app._model_display_name(), "Stealthy Alpha")
+
     def test_saved_deepseek_v4_model_does_not_display_as_bundled_cortex(self) -> None:
         app = ReupApp(
             Config(
