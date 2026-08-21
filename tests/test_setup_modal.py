@@ -599,6 +599,55 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_fetch_openrouter_models_requires_tools_and_prioritizes_ox_alpha(self) -> None:
+        modal = SetupModal(Config())
+
+        with patch(
+            "ite.ui.reup.modals.httpx.AsyncClient",
+            return_value=_FakeAsyncClient(
+                [
+                    _FakeResponse(200, {"data": {"label": "my-key"}}),
+                    _FakeResponse(
+                        200,
+                        {
+                            "data": [
+                                {
+                                    "id": "stealth/ox-alpha",
+                                    "context_length": 1048576,
+                                    "pricing": {"prompt": "0", "completion": "0"},
+                                    "supported_parameters": ["tools", "tool_choice"],
+                                },
+                                {
+                                    "id": "google/gemma-4-31b-it",
+                                    "context_length": 131072,
+                                    "pricing": {"prompt": "0", "completion": "0"},
+                                    "supported_parameters": ["temperature"],
+                                },
+                                {
+                                    "id": "arcee-ai/trinity-large-preview:free",
+                                    "context_length": 65536,
+                                    "supported_parameters": ["tools"],
+                                },
+                            ]
+                        },
+                    ),
+                ]
+            ),
+        ):
+            models, error = await modal._fetch_openrouter_models(api_key="key")
+
+        self.assertIsNone(error)
+        self.assertEqual(
+            models,
+            [
+                {"model_name": "stealth/ox-alpha", "context_window": 1048576},
+                {
+                    "model_name": "arcee-ai/trinity-large-preview:free",
+                    "context_window": 65536,
+                },
+            ],
+        )
+
     async def test_fetch_openrouter_models_rejects_invalid_key_before_loading_models(self) -> None:
         modal = SetupModal(Config())
 

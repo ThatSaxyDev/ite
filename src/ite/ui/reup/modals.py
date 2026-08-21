@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import re
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Literal
@@ -50,6 +51,7 @@ SETUP_PROVIDER_OLLAMA = "ollama"
 SETUP_PROVIDER_OPENROUTER = "openrouter"
 SETUP_PROVIDER_GENERIC = "generic"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+OPENROUTER_PREFERRED_MODEL = "stealth/ox-alpha"
 SETUP_MODEL_OTHER = "__other__"
 SETUP_MODEL_SELECT = "__select__"
 RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
@@ -67,6 +69,46 @@ HIDDEN_TEXTUAL_THEMES = {
     "textual_ansi_dark",
     "textual_ansi_light",
 }
+
+
+def _openrouter_price_is_zero(value: Any) -> bool:
+    """Return whether an OpenRouter pricing value represents a free rate."""
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        return Decimal(str(value).strip()) == 0
+    except (InvalidOperation, ValueError):
+        return False
+
+
+def _is_free_openrouter_model(item: dict[str, Any], model_name: str) -> bool:
+    """Recognize both legacy ``:free`` IDs and zero-priced preview models."""
+    if model_name.endswith(":free"):
+        return True
+    pricing = item.get("pricing")
+    if not isinstance(pricing, dict):
+        return False
+    return _openrouter_price_is_zero(pricing.get("prompt")) and _openrouter_price_is_zero(
+        pricing.get("completion")
+    )
+
+
+def _supports_openrouter_agentic_tools(item: dict[str, Any]) -> bool:
+    """Require tool support when OpenRouter provides capability metadata.
+
+    The models endpoint is queried with ``supported_parameters=tools``. Some
+    compatible responses omit ``supported_parameters`` entirely, so a missing
+    field is treated as already filtered by the endpoint. When the field is
+    present, enforce it locally as a safeguard against non-agentic models.
+    """
+    supported_parameters = item.get("supported_parameters")
+    if supported_parameters is None:
+        return True
+    if not isinstance(supported_parameters, list):
+        return False
+    return "tools" in {
+        str(parameter).strip().lower() for parameter in supported_parameters
+    }
 
 
 def is_hidden_textual_theme(name: str) -> bool:
@@ -2813,7 +2855,11 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             if not isinstance(item, dict):
                 continue
             metadata = parse_openrouter_model_metadata(item)
-            if metadata is None or not metadata.model_name.endswith(":free"):
+            if (
+                metadata is None
+                or not _is_free_openrouter_model(item, metadata.model_name)
+                or not _supports_openrouter_agentic_tools(item)
+            ):
                 continue
             models.append(
                 {
@@ -2821,7 +2867,12 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     "context_window": metadata.context_window,
                 }
             )
-        models.sort(key=lambda item: str(item.get("model_name") or ""))
+        models.sort(
+            key=lambda item: (
+                str(item.get("model_name") or "").strip() != OPENROUTER_PREFERRED_MODEL,
+                str(item.get("model_name") or ""),
+            )
+        )
         if not models:
             return [], "No free, tool-capable OpenRouter models were returned for this account."
         return models, None

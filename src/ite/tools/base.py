@@ -268,11 +268,11 @@ class Tool(abc.ABC):
             return {
                 "name": self.name,
                 "description": description,
-                "parameters": {
-                    "type": "object",
-                    "properties": json_schema.get("properties", {}),
-                    "required": json_schema.get("required", []),
-                },
+                # Preserve the complete Pydantic schema. In particular, nested
+                # models are represented using $ref entries backed by $defs.
+                # Dropping $defs leaves dangling references that llama-server
+                # cannot convert to its tool-call grammar.
+                "parameters": json_schema,
             }
 
         if isinstance(schema, dict):
