@@ -121,7 +121,7 @@ async def cmd_usage(ctx: CommandContext, args: list[str]) -> None:
         quota = quotas.get(key) or {}
         used = int(quota.get("usedUsdCents") or 0)
         cap = max(1, int(quota.get("capUsdCents") or 1))
-        remaining = max(0, min(100, round(((cap - used) / cap) * 100)))
+        remaining = max(0, min(100, int(((cap - used) / cap) * 100)))
         table.add_row(
             Text(f"{label} Cap", style="muted"),
             Text(f"{cap / 100:.2f} USD", style="bold cyan"),

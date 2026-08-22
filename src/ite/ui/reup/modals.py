@@ -1491,7 +1491,7 @@ class UsageSummaryModal(ModalScreen[None]):
     @staticmethod
     def _remaining_percent(used: float, cap: float) -> int:
         cap = max(1.0, cap)
-        return max(0, min(100, round(((cap - used) / cap) * 100)))
+        return max(0, min(100, int(((cap - used) / cap) * 100)))
 
     def _window_fallback_reset(self, label: str) -> datetime:
         now = datetime.now().astimezone()
