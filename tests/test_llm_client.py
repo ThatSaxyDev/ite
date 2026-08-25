@@ -10,6 +10,7 @@ from ite.client.response import StreamEventType
 from ite.client.response import TextDelta
 from ite.client.llm_client import LLMClient
 from ite.config.config import Config
+from ite.model_metadata import detect_vision_from_model_name
 
 
 class _FakeResponse:
@@ -842,6 +843,14 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertNotIn("reasoning_content", sanitized[0])
+
+    def test_deepseek_v4_models_detect_as_vision_capable(self) -> None:
+        """Cortex (DeepSeek V4 Pro) routes images through DeepSeek's vision
+        model, so its names must resolve as vision-capable on the client."""
+        self.assertTrue(detect_vision_from_model_name("deepseek-v4-pro"))
+        self.assertTrue(detect_vision_from_model_name("deepseek/deepseek-v4-pro"))
+        self.assertTrue(detect_vision_from_model_name("deepseek-v4-flash-vision-exp"))
+        self.assertFalse(detect_vision_from_model_name("kimi-k2.5"))
 
     def test_sanitize_messages_strips_image_url_parts_when_model_lacks_vision(self) -> None:
         """When config.model.supports_vision is False, image_url entries are
