@@ -330,9 +330,7 @@ class StreamingMixin:
         return max(12, min(max_width, content_width + 2))
 
 
-    async def add_user_message(
-        self, message: str, images: list[str] | None = None
-    ) -> None:
+    async def add_user_message(self, message: str) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
         bubble = Static(
             self._render_user_message(message),
@@ -343,7 +341,6 @@ class StreamingMixin:
             bubble,
             desired_width=desired_width,
             raw_text=message,
-            images=images,
             classes="chat-user-row",
         )
         row.refresh_bubble_width(int(getattr(conversation.size, "width", 0) or 0))

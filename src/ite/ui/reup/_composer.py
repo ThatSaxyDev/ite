@@ -60,7 +60,6 @@ from ite.voice import VoiceRecorder, VoiceRecorderError, transcribe_voice_file
 from .adapters.registry import StreamingCommandOutput, build_command_context
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
-from .widgets.image_preview import is_image_path
 from .widgets.state import SessionRunState, ShellSessionCardState
 from .widgets.side_panels import CommandsSidePanel, HooksSidePanel, ChangeReviewSidePanel
 from .widgets.thread_switcher import ThreadSwitcherRow, ThreadSwitcherSidePanel
@@ -1657,10 +1656,7 @@ class ComposerMixin:
             return
 
         if not suppress_user_echo:
-            image_paths = [path for path in attachments if is_image_path(path)]
-            await self.add_user_message(
-                display_message or message, images=image_paths
-            )
+            await self.add_user_message(display_message or message)
             if (
                 self._telegram_service is not None
                 and self._telegram_service.running
