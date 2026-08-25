@@ -1274,6 +1274,14 @@ Widget {
     content-align: right middle;
 }
 
+.chat-image-preview {
+    width: auto;
+    height: auto;
+    margin-right: 2;
+    margin-bottom: 1;
+    padding: 0;
+}
+
 .chat-loading-indicator {
     width: 100%;
     color: $foreground-muted;

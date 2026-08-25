@@ -3160,6 +3160,34 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertTrue(handled)
         insert_refs.assert_called_once_with([str(sample)])
 
+    def test_attach_picker_stages_outside_workspace_paths(self) -> None:
+        app = self._app()
+        with TemporaryDirectory() as other:
+            outside = Path(other) / "photo.png"
+            outside.write_text("x", encoding="utf-8")
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(pending_attachment_paths=[])
+            )
+
+            async def scenario() -> None:
+                with (
+                    patch.object(app, "ensure_agent", new=AsyncMock()),
+                    patch.object(
+                        app, "_open_modal", new=AsyncMock(return_value=[str(outside)])
+                    ),
+                    patch.object(
+                        app, "_insert_attachment_refs_into_prompt", return_value=1
+                    ) as insert_refs,
+                ):
+                    await app._open_attach_picker_from_meta()
+                insert_refs.assert_called_once_with([str(outside)])
+
+            asyncio.run(scenario())
+
+        self.assertEqual(
+            app.agent.session.pending_attachment_paths, [str(outside)]
+        )
+
     def test_attachment_palette_selection_clears_palette(self) -> None:
         app = self._app()
 

@@ -6,6 +6,8 @@ from textual import events
 from textual.containers import Container
 from textual.widgets import Static
 
+from .image_preview import render_image_halfblock
+
 
 class UserMessageRow(Container):
     BUBBLE_MAX_WIDTH = 92
@@ -18,14 +20,28 @@ class UserMessageRow(Container):
         *,
         desired_width: int,
         raw_text: str = "",
+        images: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(bubble, **kwargs)
+        children: list[Static] = []
+        for path in images or []:
+            preview = self._image_preview(path)
+            if preview is not None:
+                children.append(preview)
+        children.append(bubble)
+        super().__init__(*children, **kwargs)
         self._bubble = bubble
         self._desired_width = desired_width
         self._raw_text = raw_text
         if raw_text:
             self.tooltip = "Click to copy"
+
+    @staticmethod
+    def _image_preview(path: str) -> Static | None:
+        text = render_image_halfblock(path)
+        if text is None:
+            return None
+        return Static(text, classes="chat-image-preview")
 
     def on_click(self) -> None:
         if not self._raw_text:

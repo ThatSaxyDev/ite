@@ -819,9 +819,14 @@ class PanelsMixin:
         selected = await self._open_modal(AttachPickerModal(cwd, []))
         if selected is None:
             return
-        self._insert_attachment_refs_into_prompt(
-            list(selected)[:MAX_ATTACHMENTS]
-        )
+        paths = list(selected)[:MAX_ATTACHMENTS]
+        if self.agent.session:
+            pending = list(self.agent.session.pending_attachment_paths)
+            for path in paths:
+                if path not in pending:
+                    pending.append(path)
+            self.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
+        self._insert_attachment_refs_into_prompt(paths)
 
 
     def _consume_dropped_path_text(self, message: str) -> bool:

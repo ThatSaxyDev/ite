@@ -25,7 +25,6 @@ _VISION_MODEL_PATTERNS = (
     "llava",
     "bakllava",
     "cogvlm",
-    "deepseek-v4",
     "qwen-vl",
     "qwen2-vl",
     "qwen2.5-vl",
