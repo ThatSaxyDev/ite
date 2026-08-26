@@ -316,6 +316,25 @@ class ToolRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.metadata.get("policy_blocked"))
             self.assertEqual(result.metadata.get("redirect_to"), "read_image")
 
+    async def test_read_file_office_document_is_redirected_to_read_document(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            cwd = Path(td)
+            (cwd / "report.docx").write_bytes(b"fake")
+            config = Config(cwd=cwd, api_key="test")
+            registry = create_default_registry(config)
+            hook_system = HookSystem(config)
+
+            result = await registry.invoke(
+                "read_file",
+                {"path": "report.docx"},
+                cwd,
+                hook_system,
+            )
+
+            self.assertFalse(result.success)
+            self.assertTrue(result.metadata.get("policy_blocked"))
+            self.assertEqual(result.metadata.get("redirect_to"), "read_document")
+
     async def test_read_file_json_with_line_window_is_still_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)

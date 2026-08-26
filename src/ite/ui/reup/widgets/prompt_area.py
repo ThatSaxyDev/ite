@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import shlex
-from pathlib import Path
-
 from textual import events
 from textual.message import Message
 from textual.widgets import TextArea
 
+from ite.attachment_refs import parse_dropped_file_paths
 from ite.attachments import MAX_ATTACHMENTS
-
-_MAX_PATH_LENGTH = 255  # macOS filename component limit — guard against paste-as-path
 
 
 class ReupPromptTextArea(TextArea):
@@ -45,57 +41,35 @@ class ReupPromptTextArea(TextArea):
             return
 
     async def on_paste(self, event: events.Paste) -> None:
-        """Handle paste events to intercept file paths and stage them as attachments.
+        """Intercept terminal drag-and-drop deliveries sent as bracketed paste.
 
-        When a user drags a file into the terminal (or pastes a file path),
-        the terminal may send the file path as text in the paste event.
-        We detect valid file paths, stage them, and insert attachment refs.
+        Terminals deliver dropped files as pasted text in assorted formats
+        (bare/quoted/escaped paths, ``file://`` URIs, newline batches). When
+        the payload is purely path-like we stage the valid files as
+        attachments and swallow the text; anything containing prose falls
+        through so normal clipboard pastes keep working.
         """
-        app = self.app
-        raw = (event.text or "").strip()
-        if not raw:
+        result = parse_dropped_file_paths(event.text or "")
+        if result.path_like_count == 0 or result.prose_count > 0:
             return
-
-        candidates: list[str]
-        if "\n" in raw:
-            candidates = [
-                line.strip().strip('"').strip("'")
-                for line in raw.splitlines()
-                if line.strip()
-            ]
-        else:
-            try:
-                candidates = shlex.split(raw)
-            except ValueError:
-                candidates = [raw.strip().strip('"').strip("'")]
-
-        if not candidates or len(candidates) > MAX_ATTACHMENTS:
-            return
-
-        paths: list[str] = []
-        for candidate in candidates:
-            if not any(
-                sep in candidate for sep in ("/", "\\")
-            ) and not candidate.startswith("~"):
-                continue
-            if len(candidate) > _MAX_PATH_LENGTH:
-                continue
-            path = Path(candidate).expanduser()
-            if not path.exists() or not path.is_file():
-                continue
-            paths.append(str(path))
-
-        if not paths:
-            return
-
-        if app.agent and app.agent.session:
-            pending = list(app.agent.session.pending_attachment_paths)
-            for p in paths:
-                if p not in pending:
-                    pending.append(p)
-            app.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
-
-        app._insert_attachment_refs_into_prompt(paths)
 
         event.prevent_default()
         event.stop()
+
+        app = self.app
+        session = getattr(getattr(app, "agent", None), "session", None)
+        if session is not None and result.paths:
+            pending = list(session.pending_attachment_paths)
+            for path in result.paths:
+                if path not in pending:
+                    pending.append(path)
+            session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
+
+        insert = getattr(app, "_insert_attachment_refs_into_prompt", None)
+        if result.paths and callable(insert):
+            insert(result.paths)
+
+        note = getattr(app, "post_attachment_note", None)
+        for error in result.errors:
+            if callable(note):
+                note(error)

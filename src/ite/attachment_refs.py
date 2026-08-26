@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import os
 from pathlib import Path
 import re
+import shlex
+from urllib.parse import unquote
 
 from ite.attachments import IMAGE_EXTS, MAX_ATTACHMENTS, PDF_EXTS, TEXT_EXTS
 
@@ -311,3 +313,178 @@ def resolve_inline_attachment_refs(
         refs=refs,
         errors=[],
     )
+
+
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_FILE_URI_RE = re.compile(r"^file://([^/]*)/(.*)$", re.IGNORECASE)
+_BACKSLASH_ESCAPE_RE = re.compile(r"\\(.)")
+
+
+@dataclass(frozen=True)
+class DroppedFilePaths:
+    """Parsed result for text that may contain dropped or pasted file paths.
+
+    Terminals deliver drag-and-dropped files as text (bracketed paste or
+    typed keystrokes) in a variety of formats: bare paths, quoted paths,
+    backslash-escaped paths, ``file://`` URIs, and Windows drive-letter
+    paths. This result separates validated files from rejected candidates.
+    """
+
+    paths: list[str]
+    errors: list[str]
+    path_like_count: int
+    prose_count: int
+
+
+def _is_path_like_candidate(candidate: str) -> bool:
+    lowered = candidate.lower()
+    return (
+        candidate.startswith("/")
+        or candidate.startswith("~")
+        or lowered.startswith("file://")
+        or bool(_WINDOWS_DRIVE_RE.match(candidate))
+    )
+
+
+def _path_exists(candidate: str) -> bool:
+    try:
+        return Path(candidate).expanduser().exists()
+    except OSError:
+        return False
+
+
+def _all_existing_paths(tokens: list[str]) -> bool:
+    return all(
+        _is_path_like_candidate(token) and _path_exists(token) for token in tokens
+    )
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    while len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        value = value[1:-1].strip()
+    return value
+
+
+def parse_dropped_file_paths(text: str) -> DroppedFilePaths:
+    """Parse text that may hold one or more dropped/pasted file paths.
+
+    Handles the formats terminals emit on drag-and-drop: bare absolute
+    paths, single/double-quoted paths, POSIX backslash escapes, newline
+    separated batches, ``file://`` URIs with percent-encoding, and Windows
+    drive-letter paths. Returns only candidates that exist on disk as
+    regular files; path-like but unresolvable candidates are reported as
+    errors, and prose tokens are counted so callers can leave mixed content
+    untouched.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return DroppedFilePaths([], [], 0, 0)
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    windows_style = any(
+        _WINDOWS_DRIVE_RE.search(line)
+        or _WINDOWS_DRIVE_RE.search(_strip_wrapping_quotes(line))
+        for line in lines
+    )
+
+    candidates: list[str] = []
+    if windows_style:
+        for line in lines:
+            quoted = re.findall(r'"([^"]+)"|\'([^\']+)\'', line)
+            if quoted:
+                candidates.extend(first or second for first, second in quoted)
+            else:
+                candidates.append(_strip_wrapping_quotes(line))
+    else:
+        for line in lines:
+            stripped = _strip_wrapping_quotes(line)
+            if stripped.lower().startswith("file://"):
+                # Keep the whole line intact: terminals emit URIs whose
+                # spaces may be literal rather than percent-encoded.
+                candidates.append(stripped)
+                continue
+            try:
+                tokens = shlex.split(stripped)
+            except ValueError:
+                candidates.append(stripped)
+                continue
+            if len(tokens) > 1 and not _all_existing_paths(tokens):
+                # Terminals sometimes insert raw unescaped paths with
+                # literal spaces; shlex tears those apart. Prefer the whole
+                # line when it resolves as a single path.
+                if _is_path_like_candidate(stripped) and _path_exists(stripped):
+                    candidates.append(stripped)
+                    continue
+            candidates.extend(tokens)
+
+    seen: set[str] = set()
+    paths: list[str] = []
+    errors: list[str] = []
+    path_like_count = 0
+    prose_count = 0
+
+    for candidate in candidates:
+        token = (candidate or "").strip()
+        if not token:
+            continue
+
+        normalized = token
+        uri_match = _FILE_URI_RE.match(token)
+        if uri_match:
+            host, uri_path = uri_match.group(1), f"/{uri_match.group(2)}"
+            if host.lower() not in ("", "localhost"):
+                errors.append(f"Cannot attach a file on a remote host: {token}")
+                path_like_count += 1
+                continue
+            normalized = unquote(uri_path).strip()
+
+        variants = [normalized]
+        if token != normalized:
+            variants.append(token)
+        if "%" in normalized and not uri_match and not _WINDOWS_DRIVE_RE.match(normalized):
+            decoded = unquote(normalized)
+            if decoded != normalized:
+                variants.append(decoded)
+        if "\\" in normalized and not _WINDOWS_DRIVE_RE.match(normalized) and not uri_match:
+            unescaped = _BACKSLASH_ESCAPE_RE.sub(r"\1", normalized)
+            if unescaped != normalized:
+                variants.append(unescaped)
+
+        probe = variants[0]
+        if not (_is_path_like_candidate(probe) or _is_path_like_candidate(token)):
+            prose_count += 1
+            continue
+        path_like_count += 1
+
+        matched: Path | None = None
+        error: str | None = None
+        for variant in dict.fromkeys(variants):
+            expanded = Path(variant).expanduser()
+            if not expanded.exists():
+                error = f"File not found: {expanded.name or variant}"
+                continue
+            if not expanded.is_file():
+                kind = "directory" if expanded.is_dir() else "file"
+                error = f"Cannot attach {kind}: {expanded.name}"
+                break
+            matched = expanded
+            break
+        if matched is None:
+            errors.append(error or f"File not found: {token}")
+            continue
+
+        key = str(matched)
+        if key not in seen:
+            seen.add(key)
+            paths.append(key)
+
+    if len(paths) > MAX_ATTACHMENTS:
+        overflow = paths[MAX_ATTACHMENTS:]
+        del paths[MAX_ATTACHMENTS:]
+        names = ", ".join(Path(p).name for p in overflow[:3])
+        more = "" if len(overflow) <= 3 else f" (+{len(overflow) - 3} more)"
+        errors.append(
+            f"Only {MAX_ATTACHMENTS} attachments allowed; skipped: {names}{more}"
+        )
+
+    return DroppedFilePaths(paths, errors, path_like_count, prose_count)

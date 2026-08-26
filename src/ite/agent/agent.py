@@ -1049,6 +1049,7 @@ class Agent:
             "read_yaml",
             "read_env",
             "read_pdf",
+            "read_document",
             "read_image",
             "grep",
             "edit",
@@ -1068,6 +1069,7 @@ class Agent:
             "read_yaml": {"Parameter 'path': Field required"},
             "read_env": {"Parameter 'path': Field required"},
             "read_pdf": {"Parameter 'path': Field required"},
+            "read_document": {"Parameter 'path': Field required"},
             "read_image": {"Parameter 'path': Field required"},
             "grep": {"Parameter 'pattern': Field required"},
             "edit": {

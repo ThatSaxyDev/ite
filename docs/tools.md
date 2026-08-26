@@ -25,7 +25,8 @@ iTE includes a comprehensive set of built-in tools for reading, writing, searchi
 | `read_toml` | Read and parse TOML files |
 | `read_yaml` | Read and parse YAML files |
 | `read_env` | Read .env files |
-| `read_pdf` | Extract text from PDF documents |
+| `read_pdf` | Extract PDF text as Markdown with layout, table, and scanned-page detection |
+| `read_document` | Convert Word, Excel, PowerPoint, OpenDocument, RTF, EPUB, CSV to Markdown |
 | `read_image` | Read image metadata and extract text with OCR |
 
 ### Directory & Search

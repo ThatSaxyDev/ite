@@ -915,6 +915,26 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(app.config.model.name, "deepseek-v4-pro")
 
+    def test_bundled_stealth_model_displays_as_stealthy_alpha(self) -> None:
+        app = ReupApp(
+            Config(
+                cwd=self.cwd,
+                api_key="",
+                base_url="",
+                model={"name": "stealth/ox-alpha", "source_kind": "bundled"},
+            )
+        )
+        app._bundled_models_cache = [
+            {
+                "model_name": "stealth/ox-alpha",
+                "label": "Stealthy Alpha",
+                "available": True,
+            }
+        ]
+
+        with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
+            self.assertEqual(app._model_display_name(), "Stealthy Alpha")
+
     def test_saved_deepseek_v4_model_does_not_display_as_bundled_cortex(self) -> None:
         app = ReupApp(
             Config(
@@ -3139,6 +3159,94 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertTrue(handled)
         insert_refs.assert_called_once_with([str(sample)])
+
+    def test_attach_picker_stages_outside_workspace_paths(self) -> None:
+        app = self._app()
+        with TemporaryDirectory() as other:
+            outside = Path(other) / "photo.png"
+            outside.write_text("x", encoding="utf-8")
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(pending_attachment_paths=[])
+            )
+
+            async def scenario() -> None:
+                with (
+                    patch.object(app, "ensure_agent", new=AsyncMock()),
+                    patch.object(
+                        app, "_open_modal", new=AsyncMock(return_value=[str(outside)])
+                    ),
+                    patch.object(
+                        app, "_insert_attachment_refs_into_prompt", return_value=1
+                    ) as insert_refs,
+                ):
+                    await app._open_attach_picker_from_meta()
+                insert_refs.assert_called_once_with([str(outside)])
+
+            asyncio.run(scenario())
+
+        self.assertEqual(
+            app.agent.session.pending_attachment_paths, [str(outside)]
+        )
+
+    def test_dispatch_payload_treats_existing_path_as_attachment_not_command(
+        self,
+    ) -> None:
+        app = self._app()
+        with TemporaryDirectory() as other:
+            dropped = Path(other) / "Screenshot 2026-08-25 at 10.03.45.png"
+            dropped.write_bytes(b"x")
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(pending_attachment_paths=[])
+            )
+
+            async def scenario() -> None:
+                with (
+                    patch.object(
+                        app, "_has_selected_model", return_value=False
+                    ),
+                    patch.object(app, "_restore_payload_to_composer"),
+                    patch.object(
+                        app, "_post_no_model_selected_guidance", new=AsyncMock()
+                    ),
+                    patch.object(app, "run_command", new=AsyncMock()) as run_command,
+                ):
+                    await app._dispatch_payload({"message": f"file://{dropped}"})
+                return run_command
+
+            run_command = asyncio.run(scenario())
+
+            run_command.assert_not_awaited()
+            self.assertEqual(
+                app.agent.session.pending_attachment_paths, [str(dropped)]
+            )
+
+    def test_dispatch_payload_routes_unknown_slash_text_to_command(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
+
+        async def scenario() -> None:
+            with patch.object(app, "run_command", new=AsyncMock()) as run_command:
+                await app._dispatch_payload({"message": "/definitely/not/a/command"})
+            return run_command
+
+        run_command = asyncio.run(scenario())
+        run_command.assert_awaited_once_with("/definitely/not/a/command")
+
+    def test_dispatch_payload_still_runs_known_commands(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
+
+        async def scenario() -> None:
+            with patch.object(app, "run_command", new=AsyncMock()) as run_command:
+                await app._dispatch_payload({"message": "/help"})
+            return run_command
+
+        run_command = asyncio.run(scenario())
+        run_command.assert_awaited_once_with("/help")
 
     def test_attachment_palette_selection_clears_palette(self) -> None:
         app = self._app()

@@ -22,6 +22,7 @@ TOOL_ICONS: dict[str, str] = {
     "http_request": "\U0001f310",
     "list_archive": "\U0001f5dc\ufe0f",
     "read_pdf": "\U0001f4c4",
+    "read_document": "\U0001f4d1",
     "read_image": "\U0001f5bc\ufe0f",
     "glob": "\U0001f5c2\ufe0f",
     "grep": "\U0001f50e",
@@ -138,6 +139,8 @@ def activity_title(
         return "Inspecting archive" if running else ("Archive contents ready" if done else "Archive inspection failed")
     if name == "read_pdf":
         return "Reading PDF" if running else ("PDF loaded" if done else "PDF read failed")
+    if name == "read_document":
+        return "Reading document" if running else ("Document loaded" if done else "Document read failed")
     if name == "read_image":
         return "Reading image" if running else ("Image loaded" if done else "Image read failed")
     if name == "todos":
@@ -629,6 +632,14 @@ def describe_tool_activity(
             return "Processed PDF successfully."
         return f"Failed to read PDF {path}."
 
+    if name == "read_document":
+        path = _path(args, metadata)
+        if stage == "start":
+            return f"Reading document {path}."
+        if success:
+            return f"Converted document {path} to Markdown."
+        return f"Failed to read document {path}."
+
     if name == "read_image":
         path = _path(args, metadata)
         if stage == "start":
@@ -878,149 +889,71 @@ def describe_tool_activity(
     return f"Tool `{name}` failed."
 
 
-_GERUNDS: tuple[str, ...] = (
-    "Accomplishing",
-    "Actioning",
-    "Actualizing",
-    "Baking",
-    "Booping",
+# Generic status labels deliberately follow the rhythm of a turn.  The first
+# label should signal investigation, while the brief gap after a tool call can
+# signal that the agent is bringing the result together.  Tool-specific labels
+# bypass these lists entirely.
+_STARTING_GERUNDS: tuple[str, ...] = (
     "Brewing",
     "Calculating",
     "Cerebrating",
-    "Channelling",
-    "Churning",
-    "Clauding",
-    "Coalescing",
     "Cogitating",
-    "Combobulating",
-    "Concocting",
     "Considering",
     "Contemplating",
-    "Cooking",
-    "Crafting",
-    "Creating",
-    "Crunching",
     "Deciphering",
     "Deliberating",
-    "Determining",
-    "Discombobulating",
-    "Doing",
-    "Effecting",
-    "Elucidating",
-    "Enchanting",
-    "Envisioning",
-    "Finagling",
-    "Flibbergibbeting",
-    "Forging",
-    "Forming",
-    "Frolicking",
-    "Generating",
-    "Germinating",
-    "Hatching",
-    "Herding",
-    "Honking",
+    "Exploring",
     "Ideating",
     "Imagining",
-    "Incubating",
     "Inferring",
-    "Manifesting",
-    "Marinating",
-    "Meandering",
-    "Moseying",
+    "Investigating",
     "Mulling",
-    "Mustering",
     "Musing",
     "Noodling",
     "Percolating",
     "Perusing",
-    "Philosophising",
-    "Pontificating",
     "Pondering",
     "Processing",
-    "Puttering",
     "Puzzling",
-    "Reticulating",
     "Ruminating",
     "Scheming",
-    "Schlepping",
-    "Shimmying",
-    "Simmering",
-    "Smooshing",
     "Spelunking",
-    "Spinning",
-    "Stewing",
     "Sussing",
-    "Synthesizing",
     "Thinking",
     "Tinkering",
-    "Transmuting",
-    "Unfurling",
-    "Unravelling",
-    "Vibing",
     "Wandering",
     "Whirring",
-    "Wibbling",
     "Working",
     "Wrangling",
-    "Doodling",
-    "Absconding",
-    "Bamboozling",
-    "Befuddling",
-    "Blorping",
-    "Blooming",
-    "Buffering",
-    "Bumbling",
-    "Compiling",
-    "Dawdling",
-    "Deploying",
+)
+
+_WRAPPING_GERUNDS: tuple[str, ...] = (
+    "Accomplishing",
+    "Actualizing",
+    "Coalescing",
+    "Crafting",
+    "Creating",
+    "Determining",
     "Distilling",
-    "Embedding",
-    "Faffing",
-    "Fermenting",
-    "Flummoxing",
-    "Galumphing",
-    "Garnishing",
-    "Glorpifying",
-    "Goobling",
-    "Hallucinating",
-    "Inferencing",
-    "Infusing",
-    "Jiggling",
-    "Kerfuffling",
-    "Kerplunking",
-    "Kibitzing",
-    "Kneading",
-    "Kvetching",
-    "Noodging",
-    "Photosynthesizing",
-    "Plonking",
-    "Pollinating",
-    "Prompting",
-    "Putzing",
-    "Querying",
-    "Refactoring",
-    "Ripening",
-    "Sautéing",
-    "Scromping",
-    "Shenaniganing",
-    "Skedaddling",
-    "Sprouting",
-    "Squelching",
-    "Threading",
-    "Tokening",
-    "Tomfoolering",
-    "Vectoring",
-    "Whisking",
+    "Effecting",
+    "Elucidating",
+    "Forging",
+    "Forming",
+    "Generating",
+    "Manifesting",
+    "Refining",
+    "Shaping",
+    "Synthesizing",
+    "Unfurling",
+    "Unravelling",
     "Whittling",
-    "Wobbling",
-    "Zonking",
-    "Brainmaxxing",
-    "Blobbing",
 )
 
 
-def _random_gerund() -> str:
-    return random.choice(_GERUNDS)
+def _random_gerund(*, phase: str = "starting") -> str:
+    """Return a generic status appropriate to the current part of a turn."""
+    labels = _WRAPPING_GERUNDS if phase == "wrapping" else _STARTING_GERUNDS
+    return random.choice(labels)
 
 
 def progress_label(
@@ -1077,6 +1010,8 @@ def progress_label(
         label = "Inspecting archive"
     elif name == "read_pdf":
         label = "Reading PDF"
+    elif name == "read_document":
+        label = "Reading document"
     elif name == "read_image":
         label = "Reading image"
     elif name == "todos":
@@ -1124,7 +1059,7 @@ def progress_label(
         label = "Delegating to specialist"
 
     if phase == "post_tool":
-        return "Planning next step" if plan_mode else _random_gerund()
+        return "Planning next step" if plan_mode else _random_gerund(phase="wrapping")
 
     return label
 

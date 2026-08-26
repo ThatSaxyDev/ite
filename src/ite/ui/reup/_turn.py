@@ -1705,7 +1705,12 @@ class TurnMixin:
             getattr(active_agent.session, "pending_attachment_paths", [])
         )
         model_name = str(getattr(active_agent.session.config, "model_name", "") or "").strip()
-        supports_vision = detect_vision_from_model_name(model_name) if model_name else True
+        session_model = getattr(active_agent.session.config, "model", None)
+        supports_vision = (
+            bool(getattr(session_model, "supports_vision", True))
+            if session_model is not None
+            else (detect_vision_from_model_name(model_name) if model_name else True)
+        )
         run_state.active_turn_id += 1
         turn_id = run_state.active_turn_id
         try:

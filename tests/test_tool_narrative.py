@@ -2,9 +2,20 @@ import unittest
 
 from ite.ui.tool_narrative import describe_tool_activity
 from ite.ui.tool_narrative import activity_title
+from ite.ui.tool_narrative import progress_label
+from ite.ui.tool_narrative import _STARTING_GERUNDS
+from ite.ui.tool_narrative import _WRAPPING_GERUNDS
 
 
 class ToolNarrativeTests(unittest.TestCase):
+    def test_generic_progress_labels_match_the_turn_phase(self) -> None:
+        initial = progress_label()
+        after_tool = progress_label(tool_name="read_file", phase="post_tool")
+
+        self.assertIn(initial, _STARTING_GERUNDS)
+        self.assertIn(after_tool, _WRAPPING_GERUNDS)
+        self.assertTrue(set(_STARTING_GERUNDS).isdisjoint(_WRAPPING_GERUNDS))
+
     def test_plan_question_has_specific_narrative(self) -> None:
         text = describe_tool_activity(
             "plan_question",

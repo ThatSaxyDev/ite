@@ -10,6 +10,7 @@ from ite.client.response import StreamEventType
 from ite.client.response import TextDelta
 from ite.client.llm_client import LLMClient
 from ite.config.config import Config
+from ite.model_metadata import detect_vision_from_model_name
 
 
 class _FakeResponse:
@@ -842,6 +843,16 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertNotIn("reasoning_content", sanitized[0])
+
+    def test_deepseek_v4_pro_is_not_detected_as_vision_capable(self) -> None:
+        """deepseek-v4-pro is text-only when called directly (BYOK), so its
+        names must NOT resolve as vision-capable on the client. Bundled Cortex
+        image routing is driven by cloud capabilities, not the name heuristic."""
+        self.assertFalse(detect_vision_from_model_name("deepseek-v4-pro"))
+        self.assertFalse(detect_vision_from_model_name("deepseek/deepseek-v4-pro"))
+        self.assertFalse(detect_vision_from_model_name("kimi-k2.5"))
+        self.assertTrue(detect_vision_from_model_name("gpt-4o"))
+        self.assertTrue(detect_vision_from_model_name("claude-3-5-sonnet"))
 
     def test_sanitize_messages_strips_image_url_parts_when_model_lacks_vision(self) -> None:
         """When config.model.supports_vision is False, image_url entries are

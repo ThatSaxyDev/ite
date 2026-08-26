@@ -30,7 +30,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
-from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
+from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, parse_dropped_file_paths, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
@@ -1646,7 +1646,19 @@ class ComposerMixin:
             return
         message = normalized
 
-        if message.startswith("/"):
+        # A message that parses as one or more existing file paths (e.g. a
+        # drag-and-dropped "/Users/..." path or a "file://..." URI delivered
+        # by the terminal) is an attachment, never a slash command.
+        drop = parse_dropped_file_paths(message)
+        is_drop_payload = bool(drop.paths) and drop.prose_count == 0
+        if is_drop_payload:
+            attachments = list(
+                dict.fromkeys([*attachments, *drop.paths])
+            )[:MAX_ATTACHMENTS]
+            if self.agent and self.agent.session:
+                self.agent.session.pending_attachment_paths = list(attachments)
+
+        if message.startswith("/") and not is_drop_payload:
             await self.run_command(message)
             return  # Command handlers may open modals; prevent fallthrough to agent send
 

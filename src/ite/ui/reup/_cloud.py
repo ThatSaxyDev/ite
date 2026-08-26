@@ -446,7 +446,7 @@ class CloudMixin:
         five_hour = quotas.get("fiveHour") or {}
         used = float(five_hour.get("usedUsdCents") or 0)
         cap = max(1.0, float(five_hour.get("capUsdCents") or 1))
-        return max(0, min(100, round(((cap - used) / cap) * 100)))
+        return max(0, min(100, int(((cap - used) / cap) * 100)))
 
 
     async def _refresh_usage_modal(self, modal: UsageSummaryModal) -> None:
@@ -1625,4 +1625,3 @@ class CloudMixin:
             await self.agent.session.client.close()
         except Exception:
             pass
-
