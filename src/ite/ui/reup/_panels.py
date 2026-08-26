@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio, contextlib, difflib, hashlib, inspect, io, json, os, re, shlex, signal, ssl
+import asyncio, contextlib, difflib, hashlib, inspect, io, json, os, re, signal, ssl
 import subprocess, sys, time, uuid, webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -30,7 +30,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
-from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
+from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, parse_dropped_file_paths, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
@@ -832,45 +832,21 @@ class PanelsMixin:
     def _consume_dropped_path_text(self, message: str) -> bool:
         if not self.agent:
             return False
-        raw = (message or "").strip()
-        if not raw:
+        result = parse_dropped_file_paths(message)
+        if result.path_like_count == 0 or result.prose_count > 0:
             return False
 
-        candidates: list[str]
-        if "\n" in raw:
-            candidates = [
-                line.strip().strip('"').strip("'")
-                for line in raw.splitlines()
-                if line.strip()
-            ]
-        else:
-            try:
-                candidates = shlex.split(raw)
-            except ValueError:
-                candidates = [raw.strip().strip('"').strip("'")]
-
-        if not candidates or len(candidates) > MAX_ATTACHMENTS:
-            return False
-
-        paths: list[str] = []
-        for candidate in candidates:
-            if not any(
-                sep in candidate for sep in ("/", "\\")
-            ) and not candidate.startswith("~"):
-                return False
-            path = Path(candidate).expanduser()
-            if not path.exists() or not path.is_file():
-                return False
-            paths.append(str(path))
-
-        if self.agent and self.agent.session:
+        if result.paths and self.agent.session:
             pending = list(self.agent.session.pending_attachment_paths)
-            for p in paths:
-                if p not in pending:
-                    pending.append(p)
+            for path in result.paths:
+                if path not in pending:
+                    pending.append(path)
             self.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
 
-        self._insert_attachment_refs_into_prompt(paths[:MAX_ATTACHMENTS])
+        if result.paths:
+            self._insert_attachment_refs_into_prompt(result.paths)
+        for error in result.errors:
+            self.post_attachment_note(error)
         return True
 
 
