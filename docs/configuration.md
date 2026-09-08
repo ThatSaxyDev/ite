@@ -26,6 +26,15 @@ For access to many models through a single endpoint:
 | API Key    | Your OpenRouter key               |
 | Model      | `openai/gpt-4o` or provider/model |
 
+#### Sign in with OpenRouter (one click)
+
+In `/setup`, pick **OpenRouter** and click **Sign in with OpenRouter**. iTE opens your browser, you approve the connection, and the resulting key is filled in and verified automatically. No copy-paste required.
+
+- If your machine can't open a browser (SSH session, container, CI), iTE detects this and shows a code field instead. Approve the connection in your browser, paste the code iTE asks for, and iTE finishes the exchange.
+- The key is stored in `~/.ite/secrets.toml` under `[openrouter]`. Your `config.toml` only contains the base URL and model name.
+
+Manual paste still works — paste any OpenRouter key into the API key field and click **Load** as before.
+
 ### OpenAI
 
 For OpenAI models:

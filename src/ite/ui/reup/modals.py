@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import re
+import socket
 from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,6 +18,7 @@ from rich.text import Text
 from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.theme import BUILTIN_THEMES
 from textual.widgets import (
@@ -31,6 +33,7 @@ from textual.widgets import (
 from textual.widgets.directory_tree import DirEntry
 
 from ite.attachments import MAX_ATTACHMENTS
+from ite.auth import openrouter_pkce
 from ite.client.llm_client import LLMClient
 from ite.config.config import (
     DEFAULT_API_KEY,
@@ -40,6 +43,7 @@ from ite.config.config import (
     FIXED_PROVIDER_CONTEXT_WINDOW,
     Config,
 )
+from ite.config.loader import save_openrouter_oauth_secret
 from ite.git.branches import BranchInfo, is_valid_branch_name
 from ite.model_metadata import (
     format_context_window_label,
@@ -2264,6 +2268,9 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self._validating = False
         self._openrouter_models: list[str] = []
         self._openrouter_context_windows: dict[str, int] = {}
+        self._openrouter_headless: bool = False
+        self._openrouter_signin_in_flight: bool = False
+        self._pending_pkce: openrouter_pkce.PKCEPair | None = None
         inferred_provider = self._infer_provider()
         current_model = str(self._config.model_name or DEFAULT_MODEL_NAME).strip()
         self._provider_selected_model: dict[str, str] = {
@@ -2498,6 +2505,28 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     variant="default",
                     classes="setup-eye",
                 )
+            yield Button(
+                "✨  Sign in with OpenRouter",
+                id="setup-openrouter-signin",
+                variant="success",
+                classes="setup-openrouter-signin",
+            )
+            yield Static(
+                "Or paste an OpenRouter API key above.",
+                id="setup-openrouter-signin-help",
+                classes="setup-help",
+            )
+            yield Static(
+                "",
+                id="openrouter-auth-code-label",
+                classes="setup-label",
+            )
+            yield Input(
+                value="",
+                placeholder="Paste the authorization code…",
+                password=True,
+                id="openrouter-auth-code",
+            )
             yield Static("Model", classes="setup-label", id="setup-model-label")
             with Horizontal(classes="setup-model-row", id="setup-model-select-row"):
                 yield Select(
@@ -2569,6 +2598,15 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#setup-model-help", Static).update(model_help)
         self.query_one("#setup-status", Static).update("")
         self.query_one("#setup-error", Static).update("")
+        # Reset transient OAuth state when the user switches providers so
+        # a stale headless code from a previous OpenRouter session does
+        # not leak into the new one.
+        self._openrouter_headless = False
+        auth_code_input = self._safe_query_one(
+            "#openrouter-auth-code", Input
+        )
+        if auth_code_input is not None:
+            auth_code_input.value = ""
         self._apply_provider_visibility(provider)
         self._update_model_help_text(provider)
         if provider == SETUP_PROVIDER_OPENROUTER and api_key.strip():
@@ -2583,6 +2621,45 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
     @on(Button.Pressed, "#setup-load-models")
     def on_load_models_pressed(self, _event: Button.Pressed) -> None:
         self.run_worker(self._load_openrouter_models(), exclusive=False)
+
+    @on(Button.Pressed, "#setup-openrouter-signin")
+    def on_openrouter_signin_pressed(self, _event: Button.Pressed) -> None:
+        if self._validating or self._openrouter_signin_in_flight:
+            return
+        self._openrouter_headless = not openrouter_pkce.can_bind_localhost_callback()
+        self._apply_provider_visibility(
+            str(
+                self.query_one("#setup-provider", Select).value
+                or SETUP_PROVIDER_OPENROUTER
+            )
+        )
+        if self._openrouter_headless:
+            auth_label = self._safe_query_one(
+                "#openrouter-auth-code-label", Static
+            )
+            if auth_label is not None:
+                auth_label.update(
+                    "Paste the code shown in your browser after approving the connection."
+                )
+        self.run_worker(
+            self._openrouter_pkce_signin(headless=self._openrouter_headless),
+            exclusive=True,
+        )
+
+    @on(Input.Submitted, "#openrouter-auth-code")
+    def on_openrouter_auth_code_submitted(
+        self, event: Input.Submitted
+    ) -> None:
+        if self._validating or self._openrouter_signin_in_flight:
+            return
+        code = str(event.value or "").strip()
+        if not code:
+            self._set_error("Paste the authorization code from your browser.")
+            return
+        self.run_worker(
+            self._openrouter_pkce_signin(headless=True, pasted_code=code),
+            exclusive=True,
+        )
 
     @on(Select.Changed, "#setup-model-select")
     def on_model_select_changed(self, event: Select.Changed) -> None:
@@ -2612,6 +2689,19 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
     def _set_status(self, message: str) -> None:
         self.query_one("#setup-status", Static).update(message)
 
+    def _safe_query_one(self, selector: str, widget_type: type):
+        """Look up a widget by id, returning ``None`` when not present.
+
+        Some unit tests patch ``query_one`` with hand-rolled dictionaries
+        that don't include every optional widget this modal owns (e.g. the
+        OpenRouter sign-in button added in a later release). Treat missing
+        widgets as no-ops so those tests keep passing without rewriting.
+        """
+        try:
+            return self.query_one(selector, widget_type)
+        except (NoMatches, KeyError):
+            return None
+
     def _set_validating(self, busy: bool) -> None:
         self._validating = busy
         self.query_one("#continue", Button).disabled = busy
@@ -2623,6 +2713,12 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#setup-model-input", Input).disabled = busy
         self.query_one("#setup-toggle-api-key", Button).disabled = busy
         self.query_one("#setup-load-models", Button).disabled = busy
+        signin = self._safe_query_one("#setup-openrouter-signin", Button)
+        if signin is not None:
+            signin.disabled = busy
+        auth_code = self._safe_query_one("#openrouter-auth-code", Input)
+        if auth_code is not None:
+            auth_code.disabled = busy
 
     def _apply_provider_visibility(self, provider: str) -> None:
         show_base_url = provider == SETUP_PROVIDER_GENERIC
@@ -2632,14 +2728,27 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         )
         show_load_models = provider == SETUP_PROVIDER_OPENROUTER
         show_model_label = provider == SETUP_PROVIDER_GENERIC or show_model_select
-        self.query_one("#setup-base-url-label", Static).display = show_base_url
-        self.query_one("#setup-base-url", Input).display = show_base_url
-        self.query_one("#setup-base-url-help", Static).display = True
-        self.query_one("#setup-api-key-label", Static).display = show_api_key
-        self.query_one("#setup-api-key-row", Horizontal).display = show_api_key
-        self.query_one("#setup-model-label", Static).display = show_model_label
-        self.query_one("#setup-model-select-row", Horizontal).display = show_model_select
-        self.query_one("#setup-load-models", Button).display = show_load_models
+        show_openrouter_signin = provider == SETUP_PROVIDER_OPENROUTER
+        show_openrouter_auth_code = (
+            provider == SETUP_PROVIDER_OPENROUTER and self._openrouter_headless
+        )
+        for selector, widget_type, visible in (
+            ("#setup-base-url-label", Static, show_base_url),
+            ("#setup-base-url", Input, show_base_url),
+            ("#setup-base-url-help", Static, True),
+            ("#setup-api-key-label", Static, show_api_key),
+            ("#setup-api-key-row", Horizontal, show_api_key),
+            ("#setup-model-label", Static, show_model_label),
+            ("#setup-model-select-row", Horizontal, show_model_select),
+            ("#setup-load-models", Button, show_load_models),
+            ("#setup-openrouter-signin", Button, show_openrouter_signin),
+            ("#setup-openrouter-signin-help", Static, show_openrouter_signin),
+            ("#openrouter-auth-code-label", Static, show_openrouter_auth_code),
+            ("#openrouter-auth-code", Input, show_openrouter_auth_code),
+        ):
+            widget = self._safe_query_one(selector, widget_type)
+            if widget is not None:
+                widget.display = visible
         if provider == SETUP_PROVIDER_OLLAMA:
             self._set_model_options(list(RECOMMENDED_OLLAMA_MODELS), preserve_current=True)
         elif provider == SETUP_PROVIDER_OPENROUTER:
@@ -2883,6 +2992,101 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             self._set_status(
                 f"API key verified. Loaded {len(self._openrouter_models)} available models."
             )
+
+    async def _openrouter_pkce_signin(
+        self, *, headless: bool, pasted_code: str | None = None
+    ) -> None:
+        """Run the PKCE flow and populate the modal's API key input.
+
+        On success, the key is written into ``#setup-api-key`` (so the
+        existing model-load worker picks it up) and persisted to
+        ``secrets.toml``. The user must still hit Continue to save the
+        rest of the setup.
+        """
+        if self._validating or self._openrouter_signin_in_flight:
+            return
+        self._openrouter_signin_in_flight = True
+        self._set_error("")
+        key_label = f"iTE CLI ({socket.gethostname()})"
+        api_key: str | None = None
+        try:
+            self._set_validating(True)
+            if headless and not pasted_code:
+                # First click on a headless system: generate a fresh
+                # PKCE pair so OpenRouter accepts the code, open the
+                # browser with the matching challenge, and stash the
+                # verifier so the next call (from the auth-code
+                # Input.Submitted handler) can complete the exchange.
+                pkce = openrouter_pkce.generate_pkce_pair()
+                self._pending_pkce = pkce
+                self._set_status(
+                    "Opening browser for OpenRouter sign-in. "
+                    "Paste the authorization code here when it appears."
+                )
+                auth_url = openrouter_pkce.build_auth_url(
+                    code_challenge=pkce.code_challenge,
+                    key_label=key_label,
+                    callback_url=None,
+                )
+                openrouter_pkce.open_browser(auth_url)
+                return
+            self._set_status(
+                "Opening browser for OpenRouter sign-in…"
+                if not headless
+                else "Exchanging authorization code…"
+            )
+            if headless and pasted_code:
+                pending = getattr(self, "_pending_pkce", None)
+                if pending is None:
+                    raise openrouter_pkce.OpenRouterAuthError(
+                        "Lost the pending sign-in. Click the button again."
+                    )
+                api_key = openrouter_pkce.exchange_code(
+                    code=pasted_code, code_verifier=pending.code_verifier
+                )
+            else:
+                # Localhost path: run on the modal's own event loop so
+                # the callback server shares it. Wrapping in
+                # ``asyncio.to_thread`` and then ``asyncio.run`` inside
+                # would deadlock on macOS/Python 3.11.
+                api_key = await openrouter_pkce.run_localhost_pkce_flow_async(
+                    key_label=key_label,
+                )
+        except openrouter_pkce.OpenRouterAuthError as exc:
+            self._set_status("")
+            self._set_error(str(exc))
+            self._pending_pkce = None
+            return
+        except Exception as exc:  # noqa: BLE001 - surface any unexpected failure
+            self._set_status("")
+            self._set_error(f"OpenRouter sign-in failed: {exc}")
+            self._pending_pkce = None
+            return
+        finally:
+            self._set_validating(False)
+            self._openrouter_signin_in_flight = False
+            if api_key is None and not headless:
+                # No success and no error handler caught it: clear the
+                # "Opening browser…" status so the modal doesn't look
+                # frozen. (In normal exit paths the error or success
+                # message overwrites this; this is a belt-and-braces
+                # clear.)
+                self._set_status("")
+
+        try:
+            save_openrouter_oauth_secret(api_key=api_key, key_label=key_label)
+        except Exception as exc:  # noqa: BLE001
+            # Persistence failed but the key is still usable in this session.
+            # We surface the warning so the user can decide to re-run.
+            self._set_error(
+                f"OpenRouter verified, but the secret could not be saved: {exc}"
+            )
+            return
+        self.query_one("#setup-api-key", Input).value = api_key
+        self.query_one("#setup-api-key", Input).password = False
+        self._pending_pkce = None
+        self._set_status("OpenRouter key received. Loading available models…")
+        await self._load_openrouter_models_for_setup()
 
     async def _load_openrouter_models_for_setup(self) -> bool:
         provider = (
