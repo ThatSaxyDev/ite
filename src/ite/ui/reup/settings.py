@@ -26,8 +26,8 @@ class SettingsPanel(Widget):
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-content", classes="settings-content-shell"):
             with Horizontal(classes="settings-header"):
-                yield Static("Settings", classes="settings-title")
                 yield Button("Back to chat", id="settings-back", variant="default")
+                yield Static("Settings", classes="settings-title")
             with Container(classes="settings-heatmap-panel"):
                 yield Static(
                     "Loading iTE activity…",

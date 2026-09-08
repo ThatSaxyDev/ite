@@ -2973,6 +2973,7 @@ ActivityModal .usage-summary-body {
     width: 1fr;
     color: $text-primary;
     text-style: bold;
+    content-align: right middle;
 }
 
 #settings-panel .settings-heatmap-panel {
