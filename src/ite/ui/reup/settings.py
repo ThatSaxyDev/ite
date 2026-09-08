@@ -86,11 +86,23 @@ class SettingsPanel(Widget):
         return dict(counts)
 
     @staticmethod
+    def _start_sunday(today: date) -> date:
+        # Anchor the window to the month 11 months back so the header
+        # begins on a clean month boundary (Oct last year when viewing in Sep).
+        month_start = date(today.year, today.month, 1)
+        total = month_start.year * 12 + (month_start.month - 1) - 11
+        year, month_index = divmod(total, 12)
+        start_month = date(year, month_index + 1, 1)
+        days_to_sunday = (6 - start_month.weekday()) % 7
+        return start_month + timedelta(days=days_to_sunday)
+
+    @staticmethod
     def _week_sundays(today: date) -> list[date]:
         days_since_sunday = (today.weekday() + 1) % 7
         current_sunday = today - timedelta(days=days_since_sunday)
-        start = current_sunday - timedelta(weeks=WEEK_COUNT - 1)
-        return [start + timedelta(weeks=index) for index in range(WEEK_COUNT)]
+        start = SettingsPanel._start_sunday(today)
+        weeks = (current_sunday - start).days // 7 + 1
+        return [start + timedelta(weeks=index) for index in range(weeks)]
 
     @staticmethod
     def _level(count: int) -> int:
@@ -107,7 +119,7 @@ class SettingsPanel(Widget):
     @staticmethod
     def _month_header(sundays: list[date]) -> str:
         label_width = 4
-        buffer = [" "] * (label_width + len(sundays) * CELL_STRIDE)
+        buffer = [" "] * (label_width + (len(sundays) + 1) * CELL_STRIDE)
         previous_month: int | None = None
         for index, sunday in enumerate(sundays):
             if sunday.month == previous_month:
