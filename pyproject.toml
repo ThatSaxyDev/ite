@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ite-agent"
-version = "0.1.39"
+version = "0.1.40"
 description = "Your AI coding agent for your terminal"
 readme = "README.md"
 requires-python = ">=3.11"
