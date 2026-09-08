@@ -968,7 +968,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         api_key_label = SimpleNamespace(display=True)
         api_key_row = SimpleNamespace(display=True)
         signin = SimpleNamespace(display=True)
-        signin_help = SimpleNamespace(display=True)
         connected_label = SimpleNamespace(
             display=False, update=lambda _x: None
         )
@@ -1001,7 +1000,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             "#setup-model-select-row": SimpleNamespace(display=False),
             "#setup-load-models": SimpleNamespace(display=False),
             "#setup-openrouter-signin": signin,
-            "#setup-openrouter-signin-help": signin_help,
             "#openrouter-connected-label": connected_label,
             "#openrouter-actions": actions,
         }
@@ -1019,7 +1017,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(api_key_label.display)
         self.assertFalse(api_key_row.display)
         self.assertFalse(signin.display)
-        self.assertFalse(signin_help.display)
         # ...while the connected status and key-management row stay visible.
         self.assertTrue(connected_label.display)
         self.assertTrue(actions.display)
@@ -1044,7 +1041,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         api_key_label = SimpleNamespace(display=True)
         api_key_row = SimpleNamespace(display=True)
         signin = SimpleNamespace(display=True)
-        signin_help = SimpleNamespace(display=True)
         auth_label = SimpleNamespace(display=True)
         auth_code = SimpleNamespace(display=True)
 
@@ -1056,7 +1052,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             "#setup-api-key-label": api_key_label,
             "#setup-api-key-row": api_key_row,
             "#setup-openrouter-signin": signin,
-            "#setup-openrouter-signin-help": signin_help,
             "#openrouter-auth-code-label": auth_label,
             "#openrouter-auth-code": auth_code,
         }
@@ -1077,7 +1072,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(api_key_label.display)
         self.assertFalse(api_key_row.display)
         self.assertFalse(signin.display)
-        self.assertFalse(signin_help.display)
 
     def async_value(self, value):
         async def _coro():

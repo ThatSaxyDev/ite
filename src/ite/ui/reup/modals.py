@@ -2521,11 +2521,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 classes="setup-openrouter-signin",
             )
             yield Static(
-                "Or paste an OpenRouter API key above.",
-                id="setup-openrouter-signin-help",
-                classes="setup-help",
-            )
-            yield Static(
                 "",
                 id="openrouter-auth-code-label",
                 classes="setup-label",
@@ -2837,7 +2832,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#setup-model-select-row", Horizontal, show_model_select),
             ("#setup-load-models", Button, show_load_models),
             ("#setup-openrouter-signin", Button, show_openrouter_signin),
-            ("#setup-openrouter-signin-help", Static, show_openrouter_signin),
             ("#openrouter-auth-code-label", Static, show_openrouter_auth_code),
             ("#openrouter-auth-code", Input, show_openrouter_auth_code),
             ("#openrouter-connected-label", Static, show_openrouter_connected),
@@ -2877,7 +2871,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#setup-api-key-label", Static),
             ("#setup-api-key-row", Horizontal),
             ("#setup-openrouter-signin", Button),
-            ("#setup-openrouter-signin-help", Static),
             ("#openrouter-auth-code-label", Static),
             ("#openrouter-auth-code", Input),
         ):
@@ -2893,7 +2886,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#setup-api-key-label", Static),
             ("#setup-api-key-row", Horizontal),
             ("#setup-openrouter-signin", Button),
-            ("#setup-openrouter-signin-help", Static),
         ):
             widget = self._safe_query_one(selector, widget_type)
             if widget is not None:
