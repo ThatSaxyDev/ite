@@ -2513,7 +2513,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 )
             yield Static("or", id="setup-openrouter-or", classes="setup-or")
             yield Button(
-                "✨  Sign in with OpenRouter",
+                "Sign in with OpenRouter",
                 id="setup-openrouter-signin",
                 variant="success",
                 classes="setup-openrouter-signin",
