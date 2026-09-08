@@ -2350,8 +2350,8 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             )
         if provider == SETUP_PROVIDER_OPENROUTER:
             return (
-                "Use your own OpenRouter key with iTE.",
-                "Enter your OpenRouter API key. iTE will verify it before saving this setup.",
+                "",
+                "Enter your OpenRouter key. iTE will verify it",
                 "Enter the exact model id OpenRouter expects.",
             )
         return (
@@ -2461,7 +2461,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 if model_name in RECOMMENDED_OLLAMA_MODELS
                 else RECOMMENDED_OLLAMA_MODELS[0]
             )
-        elif provider == SETUP_PROVIDER_OPENROUTER:
+        if provider == SETUP_PROVIDER_OPENROUTER:
             model_options = [("Select a model", SETUP_MODEL_SELECT)]
             model_value = SETUP_MODEL_SELECT
         else:
@@ -2827,7 +2827,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 widget.display = visible
         if provider == SETUP_PROVIDER_OLLAMA:
             self._set_model_options(list(RECOMMENDED_OLLAMA_MODELS), preserve_current=True)
-        elif provider == SETUP_PROVIDER_OPENROUTER:
+        if provider == SETUP_PROVIDER_OPENROUTER:
             self._set_model_options(self._openrouter_models, preserve_current=True)
         self.query_one("#setup-model-input", Input).display = provider == SETUP_PROVIDER_GENERIC
         if provider == SETUP_PROVIDER_GENERIC:
@@ -2905,7 +2905,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 target = manual_value
             elif current_value == SETUP_MODEL_OTHER and manual_value:
                 target = SETUP_MODEL_OTHER
-            elif provider == SETUP_PROVIDER_OPENROUTER:
+            if provider == SETUP_PROVIDER_OPENROUTER:
                 target = SETUP_MODEL_SELECT
             elif models:
                 target = models[0]
@@ -3315,7 +3315,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             # Ollama profile.
             base_url = DEFAULT_BASE_URL
             api_key = DEFAULT_API_KEY
-        elif provider == SETUP_PROVIDER_OPENROUTER:
+        if provider == SETUP_PROVIDER_OPENROUTER:
             base_url = base_url or OPENROUTER_BASE_URL
 
         if not base_url:
