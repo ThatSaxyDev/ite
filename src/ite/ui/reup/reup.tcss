@@ -2983,6 +2983,12 @@ SetupModal Select {
     margin-bottom: 1;
 }
 
+.setup-openrouter-actions {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
 SetupModal #setup-api-key {
     width: 1fr;
     margin-bottom: 0;

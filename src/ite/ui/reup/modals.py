@@ -3125,7 +3125,18 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     key_label=key_label,
                     callback_url=None,
                 )
-                openrouter_pkce.open_browser(auth_url)
+                if not openrouter_pkce.open_browser(auth_url):
+                    # No browser could be launched (sandboxed / headless / SSH
+                    # env) — surface the URL so the user can open it manually
+                    # and paste the resulting code into the field below.
+                    self._set_status(
+                        f"Open this URL in a browser to sign in to OpenRouter: {auth_url}"
+                    )
+                else:
+                    self._set_status(
+                        "Opening browser for OpenRouter sign-in. "
+                        "Paste the authorization code here when it appears."
+                    )
                 return
             self._set_status(
                 "Opening browser for OpenRouter sign-in…"

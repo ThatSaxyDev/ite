@@ -682,7 +682,9 @@ class ThreadsMixin:
         Clears the OAuth secret, the ``api_key`` in the system config, and the
         saved-provider profile — the profile is what the /models picker lists
         OpenRouter models from, so removing it keeps signed-out models out of
-        the picker.
+        the picker. The persisted model name is also cleared (written as "") so
+        the last-used OpenRouter model isn't kept as the selected model after
+        sign-out even though its (now-removed) profile is no longer in the list.
         """
         model_name = str(result.get("model_name") or "").strip()
         try:
@@ -692,10 +694,13 @@ class ThreadsMixin:
             # Persist the removal only when the active provider is actually
             # OpenRouter; never clobber an Ollama/custom config by accident.
             if "openrouter.ai" in str(self.config.base_url or "").lower():
+                # Pass an empty model_name: do NOT persist the stale
+                # OpenRouter model as the selected one, otherwise it would
+                # survive as a selection with no matching profile in /models.
                 save_system_config(
                     api_key="",
                     base_url=str(self.config.base_url or ""),
-                    model_name=str(self.config.model_name or ""),
+                    model_name="",
                     context_window=int(
                         self.config.model.context_window or DEFAULT_CONTEXT_WINDOW
                     ),
@@ -711,9 +716,9 @@ class ThreadsMixin:
             return
 
         self.config.api_key = ""
-        # If the current model belonged to the removed OpenRouter profile,
-        # clear it so no OpenRouter model lingers as the active selection.
-        if model_name and self.config.model.name == model_name:
+        # Any model held under an OpenRouter base_url is necessarily an
+        # OpenRouter model, so drop it entirely once signed out.
+        if "openrouter.ai" in str(self.config.base_url or "").lower():
             self.config.model.name = ""
             self.config.model.source_kind = ""
         await self._reset_active_provider_client()

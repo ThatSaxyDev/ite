@@ -18,8 +18,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import os
 import secrets
 import socket
+import subprocess
+import sys
 import webbrowser
 from dataclasses import dataclass
 
@@ -278,8 +281,96 @@ async def wait_for_localhost_callback_code(
         await server.wait_closed()
 
 
+def _arc_is_default_browser() -> bool:
+    """Return ``True`` when Arc is the macOS default handler for http(s).
+
+    Arc routes external ``open`` calls into a floating "Little Arc" window,
+    which does not reliably render Clerk-gated auth pages (OpenRouter's
+    ``/auth`` now redirects signed-out users into Clerk's ``/sign-up`` app).
+    When Arc is the default browser we open in its main window instead.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "defaults",
+                "read",
+                "com.apple.LaunchServices/com.apple.launchservices.secure",
+                "LSHandlers",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0 and "company.thebrowser.browser" in result.stdout
+
+
+def _apple_script_quote(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _open_in_arc_main_window(url: str) -> bool:
+    """Open ``url`` as a new tab in Arc's front window, not Little Arc."""
+    script = (
+        'tell application "Arc"\n'
+        "activate\n"
+        "if (count of windows) is 0 then make new window\n"
+        'tell front window to make new tab with properties '
+        f'{{URL:"{_apple_script_quote(url)}"}}\n'
+        "end tell"
+    )
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def open_browser(url: str) -> bool:
     """Open ``url`` in the user's default browser. Returns whether it worked."""
+    if sys.platform == "darwin":
+        # Arc opens external ``open`` calls in Little Arc, which fails to
+        # render OpenRouter's Clerk auth page; open in the main window instead.
+        if _arc_is_default_browser() and _open_in_arc_main_window(url):
+            return True
+        # On macOS the stdlib ``webbrowser`` controller can launch a browser
+        # window *without* navigating to the URL (sandboxing, or the
+        # ``MacOSXOSAScript`` controller dropping the argument). Launching via
+        # ``open`` takes the URL as a single argv element with no shell, so it's
+        # the most reliable way to guarantee the website actually loads.
+        try:
+            if subprocess.run(
+                ["open", url], check=False, stdout=subprocess.DEVNULL
+            ).returncode == 0:
+                return True
+        except OSError:
+            pass
+        # Fall back to the stdlib controller.
+        try:
+            if webbrowser.open(url):
+                return True
+        except webbrowser.Error:
+            pass
+    elif sys.platform.startswith("linux") and (
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    ):
+        try:
+            if subprocess.run(
+                ["xdg-open", url], check=False, stdout=subprocess.DEVNULL
+            ).returncode == 0:
+                return True
+        except OSError:
+            pass
+    # Last resort: the stdlib controller (covers Windows and any platform
+    # without a dedicated handler above).
     try:
         return bool(webbrowser.open(url))
     except webbrowser.Error:
