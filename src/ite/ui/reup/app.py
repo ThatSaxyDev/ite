@@ -310,6 +310,7 @@ from ._composer import ComposerMixin
 from ._threads import ThreadsMixin
 from ._turn import TurnMixin
 from ._streaming import StreamingMixin
+from .settings import SettingsPanel
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
 from .widgets.state import SessionRunState, ShellSessionCardState
@@ -375,6 +376,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
     on_plan_ready_keep = ComposerMixin.on_plan_ready_keep
     on_prompt_changed = ComposerMixin.on_prompt_changed
     on_session_tab_pressed = TurnMixin.on_session_tab_pressed
+    on_thread_switcher_open_settings = ThreadsMixin.on_thread_switcher_open_settings
     on_thread_switcher_row_selected = ThreadsMixin.on_thread_switcher_row_selected
     on_threads_toggle_pressed = PanelsMixin.on_threads_toggle_pressed
     on_update_required_exit_pressed = CloudMixin.on_update_required_exit_pressed
@@ -485,6 +487,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._usage_summary_cache: dict[str, Any] | None = None
         self._activity_cache: dict[str, Any] | None = None
         self._startup_active: bool = False
+        self._settings_active: bool = False
         self._startup_phase_text: str = "Preparing your workspace"
         self._startup_error_text: str | None = None
         self._onboarding_active: bool = False
@@ -736,6 +739,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                     yield Static("", id="command-palette")
                     yield Static("", id="composer-gap")
                     yield Static("", id="composer-meta-line")
+            yield SettingsPanel(id="settings-panel")
         yield Footer()
 
     def copy_to_clipboard(self, text: str) -> None:

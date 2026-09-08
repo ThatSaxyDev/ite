@@ -38,6 +38,12 @@ class ThreadSwitcherSidePanel(Widget):
     ALLOW_MAXIMIZE = False
     MAX_LABEL_CELLS = 24
 
+    class OpenSettings(Message):
+        """Posted when the user opens the settings screen."""
+
+        def __init__(self) -> None:
+            super().__init__()
+
     def __init__(
         self,
         *,
@@ -56,7 +62,11 @@ class ThreadSwitcherSidePanel(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="thread-switcher-header"):
-            yield Static("Threads", classes="thread-switcher-title")
+            yield Button(
+                "Settings",
+                id="thread-switcher-settings",
+                classes="thread-switcher-title",
+            )
             yield Button(
                 "Close",
                 id="thread-switcher-close",
@@ -183,6 +193,10 @@ class ThreadSwitcherSidePanel(Widget):
         if event.button.id == "thread-switcher-close":
             event.stop()
             self.app.run_worker(self.app._hide_thread_switcher_panel(), exclusive=False)
+            return
+        if event.button.id == "thread-switcher-settings":
+            event.stop()
+            self.post_message(self.OpenSettings())
             return
         if event.button.id == "thread-switcher-new-chat":
             event.stop()

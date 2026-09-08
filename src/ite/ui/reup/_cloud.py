@@ -958,6 +958,7 @@ class CloudMixin:
         update_required = self.query_one("#update-required-state", Container)
         onboarding = self.query_one("#onboarding-state", Container)
         session_switch = self.query_one("#session-switch-state", Container)
+        settings_panel = self.query_one("#settings-panel", Widget)
         composer = self.query_one("#composer", Horizontal)
         topbar = self.query_one("#topbar", Horizontal)
         chat_body = self.query_one("#chat-body", Horizontal)
@@ -985,6 +986,15 @@ class CloudMixin:
             and (not in_onboarding)
             and self._session_switching
         )
+        in_settings = (
+            (not in_startup)
+            and (not in_required_update)
+            and (not in_signed_out)
+            and (not in_onboarding)
+            and (not in_bootstrap)
+            and (not in_session_switch)
+            and self._settings_active
+        )
         in_chat = (
             (not in_startup)
             and (not in_required_update)
@@ -992,6 +1002,7 @@ class CloudMixin:
             and (not in_onboarding)
             and (not in_bootstrap)
             and (not in_session_switch)
+            and (not in_settings)
         )
         if in_signed_out or in_bootstrap:
             self.clear_notifications()
@@ -1001,13 +1012,14 @@ class CloudMixin:
         signed_out.display = in_signed_out
         onboarding.display = in_onboarding
         session_switch.display = in_session_switch
+        settings_panel.display = in_settings
         conversation.display = in_chat
         empty.display = False if not in_chat else empty.display
         composer.display = in_chat or in_session_switch
         topbar.display = in_chat or in_session_switch
         session_tabs.display = False
-        footer.display = in_chat
-        header.display = in_chat or in_session_switch
+        footer.display = in_chat or in_settings
+        header.display = in_chat or in_session_switch or in_settings
         chat_body.styles.padding = (
             (0, 0, 0, 0)
             if (
@@ -1017,6 +1029,7 @@ class CloudMixin:
                 or in_onboarding
                 or in_bootstrap
                 or in_session_switch
+                or in_settings
             )
             else (0, 2, 0, 2)
         )

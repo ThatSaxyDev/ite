@@ -509,6 +509,24 @@ class ThreadsMixin:
         await self._sync_thread_switcher_panel(force_open=True)
 
 
+    @on(ThreadSwitcherSidePanel.OpenSettings)
+    async def on_thread_switcher_open_settings(
+        self, event: ThreadSwitcherSidePanel.OpenSettings
+    ) -> None:
+        event.stop()
+        await self._hide_thread_switcher_panel()
+        self.set_settings_active(True)
+
+
+    def set_settings_active(self, enabled: bool) -> None:
+        self._settings_active = enabled
+        self._apply_shell_surface()
+
+
+    async def _open_settings_screen(self) -> None:
+        self.set_settings_active(True)
+
+
     def refresh_header(self, *, refresh_session_tabs: bool = True) -> None:
         current_workspace_key = str(Path(self.config.cwd).resolve())
         if (

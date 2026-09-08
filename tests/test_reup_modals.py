@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from textual.app import App
+from textual.app import ComposeResult
 from textual.widgets import Button
 from textual.widgets import DataTable
 from textual.widgets import Input
@@ -18,6 +19,7 @@ from ite.ui.reup.modals import ModelPickerModal
 from ite.ui.reup.modals import ThemePickerModal
 from ite.ui.reup.modals import VoiceSetupModal
 from ite.ui.reup.modals import is_hidden_textual_theme
+from ite.ui.reup.settings import SettingsScreen
 
 
 class AttachPickerModalTests(unittest.TestCase):
@@ -372,6 +374,66 @@ class CommitModalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(message, "chore(lib): update usage")
         self.assertEqual(modal._last_ai_error, "boom")
+
+
+class SettingsScreenApp(App[None]):
+    def __init__(self, config: Config) -> None:
+        super().__init__()
+        self._config = config
+    def compose(self) -> ComposeResult:
+        yield SettingsScreen(self._config)
+
+
+class SettingsScreenTests(unittest.IsolatedAsyncioTestCase):
+    def _events(self, count: int) -> list[dict[str, object]]:
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        return [
+            {
+                "eventType": "usage.request_succeeded",
+                "createdAt": (now - timedelta(days=index % 10)).isoformat(),
+                "metadata": {},
+            }
+            for index in range(count)
+        ]
+
+    async def test_heatmap_renders_cells_and_summary(self) -> None:
+        payload = {"ok": True, "events": self._events(25), "analytics": {}}
+        with patch("ite.ui.reup.settings.get_activity", return_value=payload):
+            app = SettingsScreenApp(Config())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.pause()
+
+                heatmap = app.screen.query_one("#settings-heatmap")
+                cells = list(heatmap.query("Static"))
+                self.assertGreater(len(cells), 100)
+                future = [cell for cell in cells if "heat-future" in cell.classes]
+                self.assertGreater(len(future), 0)
+
+                summary = app.screen.query_one("#settings-activity-summary", Static)
+                self.assertIn("events", str(summary.content))
+
+    async def test_empty_activity_shows_placeholder(self) -> None:
+        payload = {"ok": True, "events": [], "analytics": {}}
+        with patch("ite.ui.reup.settings.get_activity", return_value=payload):
+            app = SettingsScreenApp(Config())
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.pause()
+
+                status = app.screen.query_one("#settings-activity-status", Static)
+                self.assertIn("No iTE activity", str(status.content))
+
+
+class SettingsRoutingTests(unittest.TestCase):
+    def test_reup_app_reexports_settings_handler(self) -> None:
+        self.assertTrue(hasattr(ReupApp, "on_thread_switcher_open_settings"))
+        self.assertIn(
+            "on_thread_switcher_open_settings",
+            ReupApp.__dict__,
+        )
 
 
 if __name__ == "__main__":
