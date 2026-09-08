@@ -190,6 +190,33 @@ class HeadlessFlowTests(unittest.TestCase):
         self.assertIn("malformed", str(ctx.exception))
 
 
+class KeyLinksTests(unittest.TestCase):
+    def test_key_links_use_lowercase_sha256_hex_digest(self) -> None:
+        settings_url, logs_url = pkce.openrouter_key_links(
+            api_key="sk-or-v1-abc123"
+        )
+        digest = hashlib.sha256(b"sk-or-v1-abc123").hexdigest()
+        self.assertEqual(settings_url, f"https://openrouter.ai/keys/{digest}")
+        self.assertEqual(
+            logs_url, f"https://openrouter.ai/logs?api_key_hash={digest}"
+        )
+        self.assertEqual(digest, digest.lower())
+
+    def test_open_key_page_opens_settings_url(self) -> None:
+        opened: list[str] = []
+
+        def _open(url: str) -> bool:
+            opened.append(url)
+            return True
+
+        ok = pkce.open_openrouter_key_page(
+            api_key="sk-or-v1-abc", open_browser_fn=_open
+        )
+        self.assertTrue(ok)
+        self.assertEqual(len(opened), 1)
+        self.assertIn("https://openrouter.ai/keys/", opened[0])
+
+
 class TopLevelEntryTests(unittest.TestCase):
     def test_force_headless_skips_probe(self) -> None:
         with patch.object(

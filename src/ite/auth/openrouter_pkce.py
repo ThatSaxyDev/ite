@@ -475,3 +475,26 @@ def _percent_decode(value: str) -> str:
     from urllib.parse import unquote
 
     return unquote(value)
+
+
+def openrouter_key_links(*, api_key: str) -> tuple[str, str]:
+    """Return ``(settings_url, logs_url)`` deep-links for an OpenRouter key.
+
+    OpenRouter keys are addressed by the lowercase SHA-256 hex digest of the
+    key string. The pages only resolve for the signed-in owner of the key
+    (a 404 is returned otherwise), so they are a safe way to let the user
+    inspect and revoke the exact key iTE is using without leaking it.
+
+    Per https://openrouter.ai/docs/api-reference/overview/auth
+    """
+    digest = hashlib.sha256(str(api_key).encode("utf-8")).hexdigest()
+    return (
+        f"https://openrouter.ai/keys/{digest}",
+        f"https://openrouter.ai/logs?api_key_hash={digest}",
+    )
+
+
+def open_openrouter_key_page(*, api_key: str, open_browser_fn=open_browser) -> bool:
+    """Open the OpenRouter keys page for ``api_key`` in the user's browser."""
+    settings_url, _ = openrouter_key_links(api_key=api_key)
+    return open_browser_fn(settings_url)

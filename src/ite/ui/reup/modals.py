@@ -43,7 +43,10 @@ from ite.config.config import (
     FIXED_PROVIDER_CONTEXT_WINDOW,
     Config,
 )
-from ite.config.loader import save_openrouter_oauth_secret
+from ite.config.loader import (
+    clear_openrouter_oauth_secret,
+    save_openrouter_oauth_secret,
+)
 from ite.git.branches import BranchInfo, is_valid_branch_name
 from ite.model_metadata import (
     format_context_window_label,
@@ -2270,6 +2273,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self._openrouter_context_windows: dict[str, int] = {}
         self._openrouter_headless: bool = False
         self._openrouter_signin_in_flight: bool = False
+        self._openrouter_signed_in: bool = False
         self._pending_pkce: openrouter_pkce.PKCEPair | None = None
         inferred_provider = self._infer_provider()
         current_model = str(self._config.model_name or DEFAULT_MODEL_NAME).strip()
@@ -2527,6 +2531,24 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 password=True,
                 id="openrouter-auth-code",
             )
+            yield Static(
+                "",
+                id="openrouter-connected-label",
+                classes="setup-help",
+            )
+            with Horizontal(
+                classes="setup-openrouter-actions", id="openrouter-actions"
+            ):
+                yield Button(
+                    "View / revoke key on OpenRouter",
+                    id="openrouter-manage",
+                    variant="default",
+                )
+                yield Button(
+                    "Sign out",
+                    id="openrouter-signout",
+                    variant="error",
+                )
             yield Static("Model", classes="setup-label", id="setup-model-label")
             with Horizontal(classes="setup-model-row", id="setup-model-select-row"):
                 yield Select(
@@ -2661,6 +2683,51 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             exclusive=True,
         )
 
+    @on(Button.Pressed, "#openrouter-manage")
+    def on_openrouter_manage_pressed(self, _event: Button.Pressed) -> None:
+        api_key = str(self._resolve_setup_api_key(
+            SETUP_PROVIDER_OPENROUTER,
+            self.query_one("#setup-api-key", Input).value,
+        ) or "").strip()
+        if not api_key:
+            self._set_error(
+                "No OpenRouter key to manage yet. Sign in or paste a key first."
+            )
+            return
+        settings_url, _ = openrouter_pkce.openrouter_key_links(api_key=api_key)
+        if openrouter_pkce.open_browser(settings_url):
+            self._set_status(
+                "Opened the OpenRouter page for this key. "
+                "You can confirm the account and revoke the key there."
+            )
+        else:
+            self._set_status(f"Open this page in your browser to manage the key: {settings_url}")
+
+    @on(Button.Pressed, "#openrouter-signout")
+    def on_openrouter_signout_pressed(self, _event: Button.Pressed) -> None:
+        # Clear the OAuth-derived secret so this device stops using it.
+        try:
+            clear_openrouter_oauth_secret()
+        except Exception as exc:  # noqa: BLE001
+            self._set_error(f"Could not remove the saved OpenRouter key: {exc}")
+            return
+        self.query_one("#setup-api-key", Input).value = ""
+        self._openrouter_signed_in = False
+        self._openrouter_headless = False
+        connected_label = self._safe_query_one(
+            "#openrouter-connected-label", Static
+        )
+        if connected_label is not None:
+            connected_label.display = False
+        actions = self._safe_query_one("#openrouter-actions", Horizontal)
+        if actions is not None:
+            actions.display = False
+        self._set_status(
+            "Signed out of OpenRouter on this device. "
+            "The key still exists on your OpenRouter account — "
+            "use \"View / revoke key\" to revoke it if you want."
+        )
+
     @on(Select.Changed, "#setup-model-select")
     def on_model_select_changed(self, event: Select.Changed) -> None:
         provider = (
@@ -2719,6 +2786,12 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         auth_code = self._safe_query_one("#openrouter-auth-code", Input)
         if auth_code is not None:
             auth_code.disabled = busy
+        manage = self._safe_query_one("#openrouter-manage", Button)
+        if manage is not None:
+            manage.disabled = busy
+        signout = self._safe_query_one("#openrouter-signout", Button)
+        if signout is not None:
+            signout.disabled = busy
 
     def _apply_provider_visibility(self, provider: str) -> None:
         show_base_url = provider == SETUP_PROVIDER_GENERIC
@@ -2731,6 +2804,9 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         show_openrouter_signin = provider == SETUP_PROVIDER_OPENROUTER
         show_openrouter_auth_code = (
             provider == SETUP_PROVIDER_OPENROUTER and self._openrouter_headless
+        )
+        show_openrouter_connected = (
+            provider == SETUP_PROVIDER_OPENROUTER and self._openrouter_signed_in
         )
         for selector, widget_type, visible in (
             ("#setup-base-url-label", Static, show_base_url),
@@ -2745,6 +2821,8 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#setup-openrouter-signin-help", Static, show_openrouter_signin),
             ("#openrouter-auth-code-label", Static, show_openrouter_auth_code),
             ("#openrouter-auth-code", Input, show_openrouter_auth_code),
+            ("#openrouter-connected-label", Static, show_openrouter_connected),
+            ("#openrouter-actions", Horizontal, show_openrouter_connected),
         ):
             widget = self._safe_query_one(selector, widget_type)
             if widget is not None:
@@ -3085,7 +3163,24 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#setup-api-key", Input).value = api_key
         self.query_one("#setup-api-key", Input).password = False
         self._pending_pkce = None
-        self._set_status("OpenRouter key received. Loading available models…")
+        # Mark the device as connected so the "View / revoke" and "Sign out"
+        # row appears, giving the user visible confirmation the sign-in
+        # completed and a way to revoke or forget the key.
+        self._openrouter_signed_in = True
+        settings_url, _ = openrouter_pkce.openrouter_key_links(api_key=api_key)
+        connected_label = self._safe_query_one(
+            "#openrouter-connected-label", Static
+        )
+        if connected_label is not None:
+            connected_label.update(
+                "Connected to OpenRouter. Manage or revoke the key at "
+                f"{settings_url}"
+            )
+            connected_label.display = True
+        actions = self._safe_query_one("#openrouter-actions", Horizontal)
+        if actions is not None:
+            actions.display = True
+        self._set_status("Signed in with OpenRouter ✓. Loading available models…")
         await self._load_openrouter_models_for_setup()
 
     async def _load_openrouter_models_for_setup(self) -> bool:
