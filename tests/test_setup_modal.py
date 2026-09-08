@@ -950,20 +950,23 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(api_key_input.password)
         save_secret.assert_called_once()
 
-    def test_existing_key_is_marked_connected_for_revoke(self) -> None:
-        """A returning user with an already-pasted key must get revoke/remove.
+    def test_existing_key_is_marked_connected(self) -> None:
+        """A returning user with an already-saved key sees 'Connected to OpenRouter'.
 
         Regression: `_openrouter_signed_in` used to only flip on after a fresh
         in-session OAuth round-trip, so a returning pasted-key user never saw
-        the "View / revoke key" + "Sign out" row and could not remove their
-        existing OpenRouter key. ``on_mount`` calls ``_openrouter_set_connected``
+        the connected status. ``on_mount`` calls ``_openrouter_set_connected``
         for that scenario.
         """
         modal = SetupModal(Config())
         modal._openrouter_signed_in = False
 
-        connected_label = SimpleNamespace(display=False, update=lambda _x: None)
+        connected_label = SimpleNamespace(
+            display=False, update=lambda _x: None
+        )
         actions = SimpleNamespace(display=False)
+        provider_copy = SimpleNamespace(display=True)
+        base_url_help = SimpleNamespace(display=True)
         api_key_label = SimpleNamespace(display=True)
         api_key_row = SimpleNamespace(display=True)
         signin = SimpleNamespace(display=True)
@@ -974,6 +977,8 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         stubs = {
             "#openrouter-connected-label": connected_label,
             "#openrouter-actions": actions,
+            "#setup-provider-copy": provider_copy,
+            "#setup-base-url-help": base_url_help,
             "#setup-api-key-label": api_key_label,
             "#setup-api-key-row": api_key_row,
             "#setup-openrouter-signin": signin,
@@ -988,13 +993,17 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(modal, "query_one", side_effect=fake_query):
             modal._openrouter_set_connected("sk-or-v1-pasted-before")
 
-        # The connected row is now visible so the user can revoke / remove.
+        # The connected status and key-management buttons are shown...
         self.assertTrue(modal._openrouter_signed_in)
         self.assertTrue(connected_label.display)
         self.assertTrue(actions.display)
-        # And the now-redundant key field / sign-in controls are hidden.
+        # ...and every other pre-sign-in text/control is hidden.
+        self.assertFalse(provider_copy.display)
+        self.assertFalse(base_url_help.display)
         self.assertFalse(api_key_label.display)
+        self.assertFalse(api_key_row.display)
         self.assertFalse(signin.display)
+        self.assertFalse(signin_help.display)
 
     def async_value(self, value):
         async def _coro():

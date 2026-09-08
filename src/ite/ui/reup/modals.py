@@ -2488,6 +2488,11 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 id="setup-provider",
             )
             yield Static(provider_copy, id="setup-provider-copy", classes="setup-help")
+            yield Static(
+                "Connected to OpenRouter",
+                id="openrouter-connected-label",
+                classes="setup-label",
+            )
             yield Static("Base URL", classes="setup-label", id="setup-base-url-label")
             yield Input(
                 value=base_url,
@@ -2530,11 +2535,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 placeholder="Paste the authorization code…",
                 password=True,
                 id="openrouter-auth-code",
-            )
-            yield Static(
-                "",
-                id="openrouter-connected-label",
-                classes="setup-help",
             )
             with Horizontal(
                 classes="setup-openrouter-actions", id="openrouter-actions"
@@ -2739,7 +2739,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self._set_status(
             "Signed out of OpenRouter on this device. "
             "The key still exists on your OpenRouter account — "
-            "use \"View / revoke key\" to revoke it if you want."
+            "open the key page on openrouter.ai to revoke it if you want."
         )
 
     @on(Select.Changed, "#setup-model-select")
@@ -2872,6 +2872,8 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         collapses the empty space they would otherwise leave in the modal.
         """
         for selector, widget_type in (
+            ("#setup-provider-copy", Static),
+            ("#setup-base-url-help", Static),
             ("#setup-api-key-label", Static),
             ("#setup-api-key-row", Horizontal),
             ("#setup-openrouter-signin", Button),
@@ -2886,6 +2888,8 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
     def _openrouter_show_pre_signin_controls(self) -> None:
         """Restore the API-key field and sign-in controls after sign-out."""
         for selector, widget_type in (
+            ("#setup-provider-copy", Static),
+            ("#setup-base-url-help", Static),
             ("#setup-api-key-label", Static),
             ("#setup-api-key-row", Horizontal),
             ("#setup-openrouter-signin", Button),
@@ -3222,22 +3226,21 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         await self._load_openrouter_models_for_setup()
 
     def _openrouter_set_connected(self, api_key: str) -> None:
-        """Show the connected / revoke row and hide the pre-sign-in controls.
+        """Show the bold "Connected to OpenRouter" status under the provider.
 
         Used both after a fresh OAuth round-trip and when a returning user
-        opens setup with an already-saved (e.g. pasted) OpenRouter key, so the
-        revoke/remove actions are always available for the current key.
+        opens setup with an already-saved (e.g. pasted) OpenRouter key. Every
+        pre-sign-in text/control (help lines, the API-key field, the sign-in
+        button) is hidden — only the connected status and the key-management
+        buttons remain.
         """
+        del api_key  # kept for parity with the sign-in path / future use
         self._openrouter_signed_in = True
-        settings_url, _ = openrouter_pkce.openrouter_key_links(api_key=api_key)
         connected_label = self._safe_query_one(
             "#openrouter-connected-label", Static
         )
         if connected_label is not None:
-            connected_label.update(
-                "Connected to OpenRouter. Manage or revoke the key at "
-                f"{settings_url}"
-            )
+            connected_label.update("Connected to OpenRouter")
             connected_label.display = True
         actions = self._safe_query_one("#openrouter-actions", Horizontal)
         if actions is not None:
