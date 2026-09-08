@@ -2830,7 +2830,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         for selector, widget_type, visible in (
             ("#setup-base-url-label", Static, show_base_url),
             ("#setup-base-url", Input, show_base_url),
-            ("#setup-base-url-help", Static, True),
+            ("#setup-base-url-help", Static, not signed_in_openrouter),
             ("#setup-api-key-label", Static, show_api_key),
             ("#setup-api-key-row", Horizontal, show_api_key),
             ("#setup-model-label", Static, show_model_label),

@@ -950,6 +950,80 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(api_key_input.password)
         save_secret.assert_called_once()
 
+    def test_apply_provider_visibility_hides_help_once_connected(self) -> None:
+        """The "Enter your OpenRouter API key…" help must not reappear.
+
+        Regression: `_apply_provider_visibility` used to force
+        ``#setup-base-url-help`` always-visible, and it re-runs after the
+        model list loads — so the help text leaked back in after the key was
+        verified, undoing the connected-state cleanup.
+        """
+        from textual.widgets import Button, Input, Static
+
+        modal = SetupModal(Config())
+        modal._openrouter_signed_in = True
+
+        base_url_help = SimpleNamespace(display=True)
+        provider_copy = SimpleNamespace(display=True)
+        api_key_label = SimpleNamespace(display=True)
+        api_key_row = SimpleNamespace(display=True)
+        signin = SimpleNamespace(display=True)
+        signin_help = SimpleNamespace(display=True)
+        connected_label = SimpleNamespace(
+            display=False, update=lambda _x: None
+        )
+        actions = SimpleNamespace(display=False)
+
+        class _FakeSelect:
+            def __init__(self) -> None:
+                self.value = SETUP_MODEL_SELECT
+                self.options: list | None = None
+
+            def set_options(self, options) -> None:
+                self.options = options
+
+        model_select = _FakeSelect()
+        model_input = SimpleNamespace(display=False, value="")
+        model_help = SimpleNamespace(display=True)
+
+        stubs = {
+            "#setup-provider": SimpleNamespace(value="openrouter"),
+            "#setup-model-select": model_select,
+            "#setup-model-input": model_input,
+            "#setup-model-help": model_help,
+            "#setup-base-url-label": SimpleNamespace(display=False),
+            "#setup-base-url": SimpleNamespace(display=False),
+            "#setup-base-url-help": base_url_help,
+            "#setup-provider-copy": provider_copy,
+            "#setup-api-key-label": api_key_label,
+            "#setup-api-key-row": api_key_row,
+            "#setup-model-label": SimpleNamespace(display=False),
+            "#setup-model-select-row": SimpleNamespace(display=False),
+            "#setup-load-models": SimpleNamespace(display=False),
+            "#setup-openrouter-signin": signin,
+            "#setup-openrouter-signin-help": signin_help,
+            "#openrouter-connected-label": connected_label,
+            "#openrouter-actions": actions,
+        }
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, _cls, *_a: stubs[selector],
+        ):
+            # Simulate the post-model-load re-apply that used to leak the help.
+            modal._apply_provider_visibility("openrouter")
+
+        # Every pre-sign-in text/control stays hidden...
+        self.assertFalse(base_url_help.display)
+        self.assertFalse(api_key_label.display)
+        self.assertFalse(api_key_row.display)
+        self.assertFalse(signin.display)
+        self.assertFalse(signin_help.display)
+        # ...while the connected status and key-management row stay visible.
+        self.assertTrue(connected_label.display)
+        self.assertTrue(actions.display)
+
     def test_existing_key_is_marked_connected(self) -> None:
         """A returning user with an already-saved key sees 'Connected to OpenRouter'.
 
