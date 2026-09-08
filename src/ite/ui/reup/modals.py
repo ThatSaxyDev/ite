@@ -2511,6 +2511,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     variant="default",
                     classes="setup-eye",
                 )
+            yield Static("or", id="setup-openrouter-or", classes="setup-or")
             yield Button(
                 "✨  Sign in with OpenRouter",
                 id="setup-openrouter-signin",
@@ -2815,6 +2816,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#setup-model-select-row", Horizontal, show_model_select),
             ("#setup-load-models", Button, show_load_models),
             ("#setup-openrouter-signin", Button, show_openrouter_signin),
+            ("#setup-openrouter-or", Static, show_openrouter_signin),
             ("#openrouter-auth-code-label", Static, show_openrouter_auth_code),
             ("#openrouter-auth-code", Input, show_openrouter_auth_code),
             ("#openrouter-connected-label", Static, show_openrouter_connected),
@@ -2854,6 +2856,7 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#setup-api-key-label", Static),
             ("#setup-api-key-row", Horizontal),
             ("#setup-openrouter-signin", Button),
+            ("#setup-openrouter-or", Static),
             ("#openrouter-auth-code-label", Static),
             ("#openrouter-auth-code", Input),
         ):
