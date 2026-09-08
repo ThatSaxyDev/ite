@@ -43,10 +43,7 @@ from ite.config.config import (
     FIXED_PROVIDER_CONTEXT_WINDOW,
     Config,
 )
-from ite.config.loader import (
-    clear_openrouter_oauth_secret,
-    save_openrouter_oauth_secret,
-)
+from ite.config.loader import save_openrouter_oauth_secret
 from ite.git.branches import BranchInfo, is_valid_branch_name
 from ite.model_metadata import (
     format_context_window_label,
@@ -2711,30 +2708,16 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
 
     @on(Button.Pressed, "#openrouter-signout")
     def on_openrouter_signout_pressed(self, _event: Button.Pressed) -> None:
-        # Clear the OAuth-derived secret so this device stops using it.
-        try:
-            clear_openrouter_oauth_secret()
-        except Exception as exc:  # noqa: BLE001
-            self._set_error(f"Could not remove the saved OpenRouter key: {exc}")
-            return
-        self.query_one("#setup-api-key", Input).value = ""
-        self._openrouter_signed_in = False
-        self._openrouter_headless = False
-        connected_label = self._safe_query_one(
-            "#openrouter-connected-label", Static
-        )
-        if connected_label is not None:
-            connected_label.display = False
-        actions = self._safe_query_one("#openrouter-actions", Horizontal)
-        if actions is not None:
-            actions.display = False
-        # Bring back the API-key field and the sign-in controls now that the
-        # device is back in the unconnected state.
-        self._openrouter_show_pre_signin_controls()
-        self._set_status(
-            "Signed out of OpenRouter on this device. "
-            "The key still exists on your OpenRouter account — "
-            "open the key page on openrouter.ai to revoke it if you want."
+        # Dismiss with a sign-out action so the app removes the key from
+        # every place it is persisted (OAuth secret, config.toml api_key,
+        # and the saved-provider profile that feeds the /models picker).
+        # Clearing only the modal's local state would leave the saved key
+        # intact and the next open would show "Connected" again.
+        self.dismiss(
+            {
+                "action": "openrouter_signout",
+                "model_name": str(self._config.model_name or "").strip(),
+            }
         )
 
     @on(Select.Changed, "#setup-model-select")
@@ -2877,19 +2860,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             widget = self._safe_query_one(selector, widget_type)
             if widget is not None:
                 widget.display = False
-
-    def _openrouter_show_pre_signin_controls(self) -> None:
-        """Restore the API-key field and sign-in controls after sign-out."""
-        for selector, widget_type in (
-            ("#setup-provider-copy", Static),
-            ("#setup-base-url-help", Static),
-            ("#setup-api-key-label", Static),
-            ("#setup-api-key-row", Horizontal),
-            ("#setup-openrouter-signin", Button),
-        ):
-            widget = self._safe_query_one(selector, widget_type)
-            if widget is not None:
-                widget.display = True
 
     def _capture_provider_model_state(self, provider: str) -> None:
         manual_value = self.query_one("#setup-model-input", Input).value.strip()
