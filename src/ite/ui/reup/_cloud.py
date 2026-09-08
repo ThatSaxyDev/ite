@@ -959,6 +959,7 @@ class CloudMixin:
         onboarding = self.query_one("#onboarding-state", Container)
         session_switch = self.query_one("#session-switch-state", Container)
         settings_panel = self.query_one("#settings-panel", Widget)
+        chat_panel = self.query_one("#chat-panel", Container)
         composer = self.query_one("#composer", Horizontal)
         topbar = self.query_one("#topbar", Horizontal)
         chat_body = self.query_one("#chat-body", Horizontal)
@@ -1013,6 +1014,7 @@ class CloudMixin:
         onboarding.display = in_onboarding
         session_switch.display = in_session_switch
         settings_panel.display = in_settings
+        chat_panel.display = in_chat or in_session_switch
         conversation.display = in_chat
         empty.display = False if not in_chat else empty.display
         composer.display = in_chat or in_session_switch

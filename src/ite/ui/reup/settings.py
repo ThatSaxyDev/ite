@@ -7,7 +7,7 @@ from typing import Any
 
 from textual import on
 from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.containers import Container, Horizontal, HorizontalScroll, Vertical
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
@@ -16,34 +16,26 @@ from ite.cloud import get_activity
 WEEK_COUNT = 52
 DAY_LABELS = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 LABELED_WEEKDAYS = (1, 3, 5)
-# Each cell occupies 1 column plus a 1-column gap on its trailing edge.
-CELL_STRIDE = 2
+# Each cell occupies 2 columns plus a 1-column gap on its trailing edge.
+CELL_STRIDE = 3
 
 
 class SettingsPanel(Widget):
     """In-shell settings view that replaces the chat feed and composer."""
 
     def compose(self) -> ComposeResult:
-        with VerticalScroll(id="settings-content", classes="settings-content-shell"):
-            yield Static("Settings", classes="settings-title")
-            yield Static(
-                "iTE activity — how active this account has been over the last year.",
-                classes="settings-subtitle",
-            )
+        with Vertical(id="settings-content", classes="settings-content-shell"):
+            with Horizontal(classes="settings-header"):
+                yield Static("Settings", classes="settings-title")
+                yield Button("Back to chat", id="settings-back", variant="default")
             with Container(classes="settings-heatmap-panel"):
                 yield Static(
                     "Loading iTE activity…",
                     id="settings-activity-status",
                     classes="settings-activity-status",
                 )
-                yield Vertical(id="settings-heatmap", classes="settings-heatmap")
-                yield Static(
-                    "",
-                    id="settings-activity-summary",
-                    classes="settings-activity-summary",
-                )
-            with Horizontal(classes="settings-actions"):
-                yield Button("Back to chat", id="settings-back", variant="default")
+                with HorizontalScroll(classes="heatmap-scroller"):
+                    yield Vertical(id="settings-heatmap", classes="settings-heatmap")
 
     def on_mount(self) -> None:
         self.run_worker(self._load_activity(), exclusive=True)
@@ -67,7 +59,6 @@ class SettingsPanel(Widget):
         status.display = False
         counts = self._count_events(events)
         await self._render_heatmap(counts)
-        self._render_summary(counts)
 
     @staticmethod
     def _count_events(events: list[dict[str, Any]]) -> dict[date, int]:
@@ -183,14 +174,3 @@ class SettingsPanel(Widget):
             return "heat-cell heat-future"
         return f"heat-cell heat-l{cls._level(counts.get(cell_date, 0))}"
 
-    def _render_summary(self, counts: dict[date, int]) -> None:
-        summary = self.query_one("#settings-activity-summary", Static)
-        total = sum(counts.values())
-        active_days = sum(1 for count in counts.values() if count > 0)
-        if total == 0:
-            summary.update("No iTE activity recorded yet.")
-            return
-        busiest = max(counts, key=lambda day: counts[day])
-        summary.update(
-            f"{total} events · {active_days} active days · busiest {busiest.strftime('%b %-d')}"
-        )

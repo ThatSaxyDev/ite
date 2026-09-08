@@ -2957,21 +2957,22 @@ ActivityModal .usage-summary-body {
 }
 
 #settings-panel .settings-content-shell {
-    height: 1fr;
+    height: auto;
     width: 1fr;
+}
+
+#settings-panel .settings-header {
+    height: auto;
+    align-vertical: middle;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 #settings-panel .settings-title {
     height: auto;
+    width: 1fr;
     color: $text-primary;
     text-style: bold;
-    margin-top: 1;
-}
-
-#settings-panel .settings-subtitle {
-    height: auto;
-    color: $foreground-muted;
-    margin-bottom: 1;
 }
 
 #settings-panel .settings-heatmap-panel {
@@ -2989,14 +2990,18 @@ ActivityModal .usage-summary-body {
     content-align: center middle;
 }
 
-#settings-panel .settings-activity-summary {
-    margin-top: 1;
-    color: $foreground;
+#settings-panel #settings-heatmap {
+    width: auto;
+    height: auto;
+    margin-top: 0;
 }
 
-#settings-panel #settings-heatmap {
-    height: auto;
-    margin-top: 1;
+#settings-panel .heatmap-scroller {
+    width: 1fr;
+    height: 17;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-size-horizontal: 1;
 }
 
 #settings-panel .heat-month-header {
@@ -3005,6 +3010,7 @@ ActivityModal .usage-summary-body {
 }
 
 #settings-panel .heat-grid {
+    width: auto;
     height: auto;
     margin-top: 0;
 }
@@ -3029,12 +3035,13 @@ ActivityModal .usage-summary-body {
 }
 
 #settings-panel .heat-row {
+    width: auto;
     height: 1;
     margin-bottom: 1;
 }
 
 #settings-panel .heat-cell {
-    width: 1;
+    width: 2;
     height: 1;
     margin-right: 1;
     border: none;
