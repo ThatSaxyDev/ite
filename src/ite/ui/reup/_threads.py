@@ -598,6 +598,7 @@ class ThreadsMixin:
         self._account_plan_is_pro = False
         self._account_plan_unavailable = False
         self._cloud_user_email = None
+        self._cloud_user_name = None
         self._cloud_user_image = None
         if refresh:
             self.refresh_header()

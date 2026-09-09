@@ -509,14 +509,22 @@ class CloudMixin:
 
     def _set_cloud_user_profile(self, user: dict[str, Any] | None) -> None:
         email = ""
+        name: str | None = None
         image: str | None = None
         if isinstance(user, dict):
             email = str(user.get("email") or "").strip()
+            raw_name = user.get("name")
+            name = str(raw_name).strip() if raw_name else None
             raw_image = user.get("image")
             image = str(raw_image) if raw_image else None
-        if email == self._cloud_user_email and image == self._cloud_user_image:
+        if (
+            email == self._cloud_user_email
+            and name == self._cloud_user_name
+            and image == self._cloud_user_image
+        ):
             return
         self._cloud_user_email = email or None
+        self._cloud_user_name = name or None
         self._cloud_user_image = image
         self._refresh_thread_switcher_account()
 
@@ -904,6 +912,7 @@ class CloudMixin:
             self._account_plan_is_pro = False
             self._account_plan_unavailable = False
             self._cloud_user_email = None
+            self._cloud_user_name = None
             self._cloud_user_image = None
         else:
             self._cloud_signed_out_status_message = ""

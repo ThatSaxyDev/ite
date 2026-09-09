@@ -152,11 +152,10 @@ class SettingsPanel(Widget):
                     with Vertical(classes="settings-plan-text"):
                         self._plan_name = Static("—", classes="settings-plan-name")
                         yield self._plan_name
-                        self._plan_tier = Static("—", classes="settings-plan-tier")
-                        yield self._plan_tier
-                    yield Button(
+                    self._plan_action = Button(
                         "Upgrade", id="settings-plan-action", variant="default"
                     )
+                    yield self._plan_action
 
             # Usage stats
             with Horizontal(classes="settings-stats-row"):
@@ -335,40 +334,57 @@ class SettingsPanel(Widget):
 
     async def _load_account(self) -> None:
         """Load cloud account profile, plan state, and usage limits."""
+        app = self.app
         entitlements_result = None
-        try:
-            entitlements_result = await asyncio.to_thread(
-                get_cloud_entitlements_result, self.app.config
-            )
-        except Exception:
-            entitlements_result = None
 
-        user = getattr(entitlements_result, "user", None) or {}
-        entitlements = getattr(entitlements_result, "entitlements", None) or {}
-        pro = bool(
-            entitlements.get("proAccess")
-            or entitlements.get("remoteCompanion")
-            or entitlements.get("bundledInference")
-        )
-        if isinstance(user, dict):
-            self._apply_account_profile(user)
+        # Prefer the app's cached cloud user state (populated during startup).
+        email = getattr(app, "_cloud_user_email", None)
+        name = getattr(app, "_cloud_user_name", None)
+        if email or name:
+            self._apply_account_profile(
+                {"name": name or "", "email": email or ""}
+            )
         else:
-            self._apply_local_profile()
-        self._apply_plan_state(pro)
+            try:
+                entitlements_result = await asyncio.to_thread(
+                    get_cloud_entitlements_result, app.config
+                )
+            except Exception:
+                entitlements_result = None
+            user = (
+                getattr(entitlements_result, "user", None)
+                if entitlements_result
+                else None
+            )
+            if isinstance(user, dict) and (user.get("email") or user.get("name")):
+                self._apply_account_profile(user)
+            else:
+                self._apply_local_profile()
+
+        # Plan state: prefer the app's cached flag, fall back to entitlements.
+        pro = getattr(app, "_account_plan_is_pro", None)
+        if pro is None:
+            entitlements = (
+                getattr(entitlements_result, "entitlements", None)
+                if entitlements_result
+                else None
+            ) or {}
+            pro = bool(
+                entitlements.get("proAccess")
+                or entitlements.get("remoteCompanion")
+                or entitlements.get("bundledInference")
+            )
+        self._apply_plan_state(bool(pro))
 
         summary = None
         try:
-            summary = await asyncio.to_thread(get_usage_summary, self.app.config)
+            summary = await asyncio.to_thread(get_usage_summary, app.config)
         except Exception:
             summary = None
         self._apply_usage_summary(summary)
 
     def _apply_account_profile(self, user: dict[str, object]) -> None:
-        name = str(
-            user.get("name")
-            or user.get("username")
-            or ""
-        ).strip()
+        name = str(user.get("name") or "").strip()
         email = str(user.get("email") or "").strip()
         if not name:
             name = email.split("@")[0] if email else "Local user"
@@ -387,10 +403,10 @@ class SettingsPanel(Widget):
     def _apply_plan_state(self, pro: bool) -> None:
         if pro:
             self._plan_name.update("Pro plan")
-            self._plan_tier.update("Pro")
+            self._plan_action.display = False
         else:
             self._plan_name.update("Free plan")
-            self._plan_tier.update("Free")
+            self._plan_action.display = True
 
     def _apply_usage_summary(self, summary: dict[str, object] | None) -> None:
         if not isinstance(summary, dict):

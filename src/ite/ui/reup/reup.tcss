@@ -3025,7 +3025,7 @@ ActivityModal .usage-summary-body {
 #settings-panel .settings-account {
     height: auto;
     align-vertical: middle;
-    align-horizontal: center;
+    align-horizontal: left;
     padding: 1 0 1 0;
     margin-bottom: 1;
 }
@@ -3033,7 +3033,7 @@ ActivityModal .usage-summary-body {
 #settings-panel .settings-account-row {
     height: auto;
     align-vertical: middle;
-    align-horizontal: center;
+    align-horizontal: left;
 }
 
 #settings-panel .settings-avatar {
@@ -3051,11 +3051,13 @@ ActivityModal .usage-summary-body {
 #settings-panel .settings-account-meta {
     height: auto;
     width: auto;
+    min-width: 1fr;
     align-vertical: middle;
 }
 
 #settings-panel .settings-account-name {
     height: auto;
+    width: auto;
     color: $text-primary;
     text-style: bold;
     content-align: left middle;
@@ -3063,6 +3065,7 @@ ActivityModal .usage-summary-body {
 
 #settings-panel .settings-account-handle {
     height: auto;
+    width: auto;
     color: $foreground-muted;
     content-align: left middle;
 }
@@ -3137,11 +3140,6 @@ ActivityModal .usage-summary-body {
     height: auto;
     color: $text-primary;
     text-style: bold;
-}
-
-#settings-panel .settings-plan-tier {
-    height: auto;
-    color: $foreground-muted;
 }
 
 #settings-panel #settings-plan-action {
