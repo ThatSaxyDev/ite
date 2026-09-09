@@ -893,7 +893,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertEqual(options[0]["model_name"], "deepseek-v4-pro")
         self.assertEqual(current_entry_id, "")
 
-    def test_bundled_deepseek_v4_model_displays_as_cortex(self) -> None:
+    def test_bundled_deepseek_v4_model_displays_real_name(self) -> None:
         app = ReupApp(
             Config(
                 cwd=self.cwd,
@@ -911,11 +911,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
         ]
 
         with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
-            self.assertEqual(app._model_display_name(), "cortex")
+            self.assertEqual(app._model_display_name(), "DeepSeek V4 Pro")
 
         self.assertEqual(app.config.model.name, "deepseek-v4-pro")
 
-    def test_bundled_stealth_model_displays_as_stealthy_alpha(self) -> None:
+    def test_bundled_stealth_model_displays_real_name(self) -> None:
         app = ReupApp(
             Config(
                 cwd=self.cwd,
@@ -927,15 +927,15 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._bundled_models_cache = [
             {
                 "model_name": "stealth/ox-alpha",
-                "label": "Stealthy Alpha",
+                "label": "Stealth OX Alpha",
                 "available": True,
             }
         ]
 
         with patch("ite.ui.reup.app.load_saved_custom_provider", return_value={}):
-            self.assertEqual(app._model_display_name(), "Stealthy Alpha")
+            self.assertEqual(app._model_display_name(), "Stealth OX Alpha")
 
-    def test_saved_deepseek_v4_model_does_not_display_as_bundled_cortex(self) -> None:
+    def test_saved_deepseek_v4_model_does_not_display_as_bundled(self) -> None:
         app = ReupApp(
             Config(
                 cwd=self.cwd,
@@ -970,7 +970,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         ):
             self.assertEqual(app._model_display_name(), "deepseek-v4-pro")
 
-    def test_model_options_mask_bundled_deepseek_v4_label_only(self) -> None:
+    def test_model_options_use_real_bundled_deepseek_v4_label(self) -> None:
         app = ReupApp(
             Config(
                 cwd=self.cwd,
@@ -994,16 +994,18 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
 
         self.assertEqual(options[0]["model_name"], "deepseek-v4-pro")
-        self.assertEqual(options[0]["label"], "cortex")
+        self.assertEqual(options[0]["label"], "DeepSeek V4 Pro")
         self.assertEqual(current_entry_id, "bundled:deepseek-v4-pro")
 
-    def test_usage_summary_masks_deepseek_v4_model_label(self) -> None:
-        self.assertEqual(ActivityModal._model_label("deepseek-v4-pro"), "cortex")
+    def test_usage_summary_shows_real_deepseek_v4_model_label(self) -> None:
+        self.assertEqual(
+            ActivityModal._model_label("deepseek-v4-pro"), "DeepSeek V4 Pro"
+        )
         self.assertEqual(
             ActivityModal._detail_for(
                 {"metadata": {"model": "deepseek-v4-pro", "window": "five_hour"}}
             ),
-            "cortex · five_hour",
+            "DeepSeek V4 Pro · five_hour",
         )
 
     def test_open_model_picker_opens_empty_state_without_agent_when_no_model_selected(

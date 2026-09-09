@@ -846,7 +846,7 @@ class LLMClientTests(unittest.IsolatedAsyncioTestCase):
 
     def test_deepseek_v4_pro_is_not_detected_as_vision_capable(self) -> None:
         """deepseek-v4-pro is text-only when called directly (BYOK), so its
-        names must NOT resolve as vision-capable on the client. Bundled Cortex
+        names must NOT resolve as vision-capable on the client. Bundled DeepSeek V4 Pro
         image routing is driven by cloud capabilities, not the name heuristic."""
         self.assertFalse(detect_vision_from_model_name("deepseek-v4-pro"))
         self.assertFalse(detect_vision_from_model_name("deepseek/deepseek-v4-pro"))
