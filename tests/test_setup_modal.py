@@ -115,7 +115,7 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         ):
             modal._update_model_help_text("openrouter")
 
-        self.assertIn("Context window: 128K (resolved from OpenRouter)", model_help.renderable)
+        self.assertIn("Context window: 131K (resolved from OpenRouter)", model_help.renderable)
 
     def test_update_model_help_text_hides_context_window_for_ollama_model(self) -> None:
         modal = SetupModal(
@@ -793,30 +793,55 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("not available on this provider", message or "")
         self.assertIsNone(context_window)
 
-    def test_apply_provider_visibility_shows_signin_for_openrouter(self) -> None:
-        from textual.widgets import Button, Input, Static
-
-        modal = SetupModal(Config())
-        signin = SimpleNamespace(display=False)
-        signin_help = SimpleNamespace(display=False)
-        auth_label = SimpleNamespace(display=False)
-        auth_code = SimpleNamespace(display=False)
-        # Provide stubs for every selector _apply_provider_visibility looks
-        # up so the loop completes without KeyError or NoMatches.
-        stubs = {
+    def _openrouter_visibility_stubs(
+        self,
+        provider: str,
+        *,
+        signin: SimpleNamespace,
+        or_separator: SimpleNamespace,
+        auth_label: SimpleNamespace,
+        auth_code: SimpleNamespace,
+        connected_label: SimpleNamespace,
+        actions: SimpleNamespace,
+    ) -> dict[str, SimpleNamespace]:
+        return {
+            "#setup-provider": SimpleNamespace(value=provider),
             "#setup-base-url-label": SimpleNamespace(display=False),
             "#setup-base-url": SimpleNamespace(display=False),
             "#setup-base-url-help": SimpleNamespace(display=False),
             "#setup-api-key-label": SimpleNamespace(display=False),
             "#setup-api-key-row": SimpleNamespace(display=False),
             "#setup-model-label": SimpleNamespace(display=False),
+            "#setup-model-select": SimpleNamespace(value="", set_options=lambda _opts: None),
             "#setup-model-select-row": SimpleNamespace(display=False),
+            "#setup-model-input": SimpleNamespace(display=False, value=""),
+            "#setup-model-help": SimpleNamespace(display=False),
             "#setup-load-models": SimpleNamespace(display=False),
             "#setup-openrouter-signin": signin,
-            "#setup-openrouter-signin-help": signin_help,
+            "#setup-openrouter-or": or_separator,
             "#openrouter-auth-code-label": auth_label,
             "#openrouter-auth-code": auth_code,
+            "#openrouter-connected-label": connected_label,
+            "#openrouter-actions": actions,
         }
+
+    def test_apply_provider_visibility_shows_signin_for_openrouter(self) -> None:
+        modal = SetupModal(Config())
+        signin = SimpleNamespace(display=False)
+        or_separator = SimpleNamespace(display=False)
+        auth_label = SimpleNamespace(display=False)
+        auth_code = SimpleNamespace(display=False)
+        connected_label = SimpleNamespace(display=False)
+        actions = SimpleNamespace(display=False)
+        stubs = self._openrouter_visibility_stubs(
+            "openrouter",
+            signin=signin,
+            or_separator=or_separator,
+            auth_label=auth_label,
+            auth_code=auth_code,
+            connected_label=connected_label,
+            actions=actions,
+        )
 
         with patch.object(
             modal,
@@ -826,30 +851,29 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             modal._apply_provider_visibility("openrouter")
 
         self.assertTrue(signin.display)
-        self.assertTrue(signin_help.display)
+        self.assertTrue(or_separator.display)
         self.assertFalse(auth_label.display)
         self.assertFalse(auth_code.display)
+        self.assertFalse(connected_label.display)
+        self.assertFalse(actions.display)
 
     def test_apply_provider_visibility_hides_signin_for_ollama(self) -> None:
         modal = SetupModal(Config())
         signin = SimpleNamespace(display=True)
-        signin_help = SimpleNamespace(display=True)
+        or_separator = SimpleNamespace(display=True)
         auth_label = SimpleNamespace(display=True)
         auth_code = SimpleNamespace(display=True)
-        stubs = {
-            "#setup-base-url-label": SimpleNamespace(display=True),
-            "#setup-base-url": SimpleNamespace(display=True),
-            "#setup-base-url-help": SimpleNamespace(display=True),
-            "#setup-api-key-label": SimpleNamespace(display=True),
-            "#setup-api-key-row": SimpleNamespace(display=True),
-            "#setup-model-label": SimpleNamespace(display=True),
-            "#setup-model-select-row": SimpleNamespace(display=True),
-            "#setup-load-models": SimpleNamespace(display=True),
-            "#setup-openrouter-signin": signin,
-            "#setup-openrouter-signin-help": signin_help,
-            "#openrouter-auth-code-label": auth_label,
-            "#openrouter-auth-code": auth_code,
-        }
+        connected_label = SimpleNamespace(display=True)
+        actions = SimpleNamespace(display=True)
+        stubs = self._openrouter_visibility_stubs(
+            "ollama",
+            signin=signin,
+            or_separator=or_separator,
+            auth_label=auth_label,
+            auth_code=auth_code,
+            connected_label=connected_label,
+            actions=actions,
+        )
 
         with patch.object(
             modal,
@@ -859,31 +883,30 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             modal._apply_provider_visibility("ollama")
 
         self.assertFalse(signin.display)
-        self.assertFalse(signin_help.display)
+        self.assertFalse(or_separator.display)
         self.assertFalse(auth_label.display)
         self.assertFalse(auth_code.display)
+        self.assertFalse(connected_label.display)
+        self.assertFalse(actions.display)
 
     def test_headless_flag_reveals_auth_code_input(self) -> None:
         modal = SetupModal(Config())
         modal._openrouter_headless = True
         signin = SimpleNamespace(display=False)
-        signin_help = SimpleNamespace(display=False)
+        or_separator = SimpleNamespace(display=False)
         auth_label = SimpleNamespace(display=False)
         auth_code = SimpleNamespace(display=False)
-        stubs = {
-            "#setup-base-url-label": SimpleNamespace(display=False),
-            "#setup-base-url": SimpleNamespace(display=False),
-            "#setup-base-url-help": SimpleNamespace(display=False),
-            "#setup-api-key-label": SimpleNamespace(display=False),
-            "#setup-api-key-row": SimpleNamespace(display=False),
-            "#setup-model-label": SimpleNamespace(display=False),
-            "#setup-model-select-row": SimpleNamespace(display=False),
-            "#setup-load-models": SimpleNamespace(display=False),
-            "#setup-openrouter-signin": signin,
-            "#setup-openrouter-signin-help": signin_help,
-            "#openrouter-auth-code-label": auth_label,
-            "#openrouter-auth-code": auth_code,
-        }
+        connected_label = SimpleNamespace(display=False)
+        actions = SimpleNamespace(display=False)
+        stubs = self._openrouter_visibility_stubs(
+            "openrouter",
+            signin=signin,
+            or_separator=or_separator,
+            auth_label=auth_label,
+            auth_code=auth_code,
+            connected_label=connected_label,
+            actions=actions,
+        )
 
         with patch.object(
             modal,
@@ -893,9 +916,11 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
             modal._apply_provider_visibility("openrouter")
 
         self.assertTrue(signin.display)
-        self.assertTrue(signin_help.display)
+        self.assertTrue(or_separator.display)
         self.assertTrue(auth_label.display)
         self.assertTrue(auth_code.display)
+        self.assertFalse(connected_label.display)
+        self.assertFalse(actions.display)
 
     async def test_pkce_signin_populates_api_key_and_saves_secret(self) -> None:
         modal = SetupModal(Config())
