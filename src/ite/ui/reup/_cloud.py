@@ -1023,7 +1023,7 @@ class CloudMixin:
         onboarding.display = in_onboarding
         session_switch.display = in_session_switch
         settings_panel.display = in_settings
-        chat_panel.display = in_chat or in_session_switch
+        chat_panel.display = not in_settings
         conversation.display = in_chat
         empty.display = False if not in_chat else empty.display
         composer.display = in_chat or in_session_switch

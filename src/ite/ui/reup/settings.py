@@ -100,6 +100,16 @@ class SettingsInfoRow(Horizontal):
         self.post_message(self.Pressed(self._field))
 
 
+class UsageLimitCard(Container):
+    """The usage-limits card. Clicking anywhere on it opens the usage modal."""
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        opener = getattr(self.app, "_open_usage_modal_from_meta", None)
+        if callable(opener):
+            self.app.run_worker(opener(), exclusive=False)
+
+
 class SettingsPanel(Widget):
     """In-shell settings view that replaces the chat feed and composer."""
 
@@ -127,7 +137,7 @@ class SettingsPanel(Widget):
 
             # Usage limits
             yield Static("Usage limits", classes="settings-section-title")
-            with Container(
+            with UsageLimitCard(
                 classes="settings-usage-card", id="settings-usage-card"
             ):
                 with Horizontal(classes="settings-usage-head"):
@@ -238,6 +248,7 @@ class SettingsPanel(Widget):
         # or approval can change while the panel is hidden. Refresh on open.
         self._populate_context()
         self.run_worker(self._load_account(), exclusive=False)
+        self.run_worker(self._load_activity(), exclusive=True)
 
     @on(Button.Pressed, "#settings-back")
     def on_back_pressed(self, _event: Button.Pressed) -> None:
@@ -259,13 +270,6 @@ class SettingsPanel(Widget):
         flow = getattr(self.app, "_run_cloud_logout_flow", None)
         if callable(flow):
             self.app.run_worker(flow(), exclusive=False)
-
-    @on(events.Click, "#settings-usage-card")
-    def _on_usage_card_clicked(self, event: events.Click) -> None:
-        event.stop()
-        opener = getattr(self.app, "_open_usage_modal_from_meta", None)
-        if callable(opener):
-            self.app.run_worker(opener(), exclusive=False)
 
     @on(SettingsInfoRow.Pressed)
     def _on_info_row_pressed(self, message: SettingsInfoRow.Pressed) -> None:

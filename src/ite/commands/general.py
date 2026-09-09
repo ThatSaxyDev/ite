@@ -184,6 +184,14 @@ async def cmd_refresh(ctx: CommandContext, args: list[str]) -> None:
     )
 
 
+async def cmd_settings(ctx: CommandContext, args: list[str]) -> None:
+    open_settings = getattr(ctx.tui, "_open_settings_screen", None)
+    if callable(open_settings):
+        await open_settings()
+        return
+    ctx.console.print("[dim]Settings are only available in the full iTE UI.[/dim]")
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(
         Command(
@@ -247,6 +255,13 @@ def register(registry: CommandRegistry) -> None:
             name="/setup",
             description="Re-run provider setup wizard",
             handler=cmd_setup,
+        )
+    )
+    registry.register(
+        Command(
+            name="/settings",
+            description="Open the settings screen",
+            handler=cmd_settings,
         )
     )
 

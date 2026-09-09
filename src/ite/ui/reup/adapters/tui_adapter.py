@@ -92,6 +92,9 @@ class ReupTUIAdapter:
     async def _close_current_thread(self) -> None:
         await self._app.close_current_thread()
 
+    async def _open_settings_screen(self) -> None:
+        await self._app._open_settings_screen()
+
     def start_spinner(self, command: str, message: str = "Thinking") -> None:
         """Show streaming command card like /mcp start - fixed title with spinner."""
         self._spinner_handle = command  # Use command as handle (/init, /mcp, etc.)

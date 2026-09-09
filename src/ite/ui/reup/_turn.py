@@ -989,6 +989,10 @@ class TurnMixin:
             await self._open_usage_modal_from_meta()
             return
 
+        if command == "/settings":
+            await self._open_settings_screen()
+            return
+
         if command == "/activity":
             await self._open_activity_modal_from_meta()
             return
