@@ -3000,12 +3000,18 @@ ActivityModal .usage-summary-body {
     width: 1fr;
     color: $text-primary;
     text-style: bold;
-    content-align: right middle;
+    content-align: center middle;
+}
+
+#settings-panel .settings-header-spacer {
+    width: 16;
+    height: auto;
 }
 
 #settings-panel .settings-content-shell {
     overflow-y: auto;
     overflow-x: hidden;
+    height: 100%;
 }
 
 #settings-panel .settings-section-title {
@@ -3096,25 +3102,18 @@ ActivityModal .usage-summary-body {
     content-align: right middle;
 }
 
-#settings-panel .settings-usage-card ProgressBar {
+#settings-panel .settings-usage-bar {
     height: 1;
     width: 1fr;
     margin-top: 1;
 }
 
-#settings-panel .settings-usage-card ProgressBar Bar {
-    width: 1fr;
-    height: 1;
+#settings-panel .settings-usage-card:hover {
+    border: solid $accent;
 }
 
-#settings-panel .settings-usage-card ProgressBar Bar > .bar--bar {
-    color: $primary;
-    background: $primary;
-}
-
-#settings-panel .settings-usage-card ProgressBar Bar > .bar--complete {
-    color: $primary;
-    background: $primary;
+#settings-panel .settings-usage-card:focus {
+    border: solid $accent;
 }
 
 #settings-panel .settings-plan-card {
@@ -3122,6 +3121,11 @@ ActivityModal .usage-summary-body {
     padding: 1 1;
     background: $surface-darken-1;
     border: solid $border;
+}
+
+#settings-panel .settings-plan-row {
+    height: auto;
+    align-vertical: middle;
 }
 
 #settings-panel .settings-plan-text {

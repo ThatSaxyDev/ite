@@ -14,8 +14,9 @@ from textual.containers import (
     VerticalScroll,
 )
 from textual.message import Message
+from rich.text import Text
 from textual.widget import Widget
-from textual.widgets import Button, ProgressBar, Static
+from textual.widgets import Button, Static
 
 from ite.cloud import (
     get_activity,
@@ -109,6 +110,7 @@ class SettingsPanel(Widget):
             with Horizontal(classes="settings-header"):
                 yield Button("Back to chat", id="settings-back", variant="default")
                 yield Static("Settings", classes="settings-title")
+                yield Static("", classes="settings-header-spacer")
 
             # Account profile
             with Container(classes="settings-account"):
@@ -125,11 +127,13 @@ class SettingsPanel(Widget):
 
             # Usage limits
             yield Static("Usage limits", classes="settings-section-title")
-            with Container(classes="settings-usage-card"):
+            with Container(
+                classes="settings-usage-card", id="settings-usage-card"
+            ):
                 with Horizontal(classes="settings-usage-head"):
                     with Vertical(classes="settings-usage-text"):
                         yield Static(
-                            "Weekly usage limit",
+                            "5-hour usage limit",
                             classes="settings-usage-label",
                         )
                         self._usage_reset = Static(
@@ -138,21 +142,21 @@ class SettingsPanel(Widget):
                         yield self._usage_reset
                     self._usage_pct = Static("…", classes="settings-usage-pct")
                     yield self._usage_pct
-                self._usage_bar = ProgressBar(total=100, show_percentage=False)
-                self._usage_bar.update(progress=0, total=100)
+                self._usage_bar = Static("", classes="settings-usage-bar")
                 yield self._usage_bar
 
             # Your plan
             yield Static("Your plan", classes="settings-section-title")
             with Container(classes="settings-plan-card"):
-                with Vertical(classes="settings-plan-text"):
-                    self._plan_name = Static("—", classes="settings-plan-name")
-                    yield self._plan_name
-                    self._plan_tier = Static("—", classes="settings-plan-tier")
-                    yield self._plan_tier
-                yield Button(
-                    "Upgrade", id="settings-plan-action", variant="default"
-                )
+                with Horizontal(classes="settings-plan-row"):
+                    with Vertical(classes="settings-plan-text"):
+                        self._plan_name = Static("—", classes="settings-plan-name")
+                        yield self._plan_name
+                        self._plan_tier = Static("—", classes="settings-plan-tier")
+                        yield self._plan_tier
+                    yield Button(
+                        "Upgrade", id="settings-plan-action", variant="default"
+                    )
 
             # Usage stats
             with Horizontal(classes="settings-stats-row"):
@@ -218,7 +222,7 @@ class SettingsPanel(Widget):
             with Container(classes="settings-signout-card"):
                 with Horizontal(classes="settings-signout-row"):
                     yield Static(
-                        "Basecode keeps your tasks in your account.",
+                        "Sign out of iTE Cloud. Your sessions stay on this device.",
                         classes="settings-signout-copy",
                     )
                     yield Button(
@@ -256,6 +260,13 @@ class SettingsPanel(Widget):
         flow = getattr(self.app, "_run_cloud_logout_flow", None)
         if callable(flow):
             self.app.run_worker(flow(), exclusive=False)
+
+    @on(events.Click, "#settings-usage-card")
+    def _on_usage_card_clicked(self, event: events.Click) -> None:
+        event.stop()
+        opener = getattr(self.app, "_open_usage_modal_from_meta", None)
+        if callable(opener):
+            self.app.run_worker(opener(), exclusive=False)
 
     @on(SettingsInfoRow.Pressed)
     def _on_info_row_pressed(self, message: SettingsInfoRow.Pressed) -> None:
@@ -356,19 +367,15 @@ class SettingsPanel(Widget):
         name = str(
             user.get("name")
             or user.get("username")
-            or user.get("handle")
             or ""
         ).strip()
         email = str(user.get("email") or "").strip()
         if not name:
             name = email.split("@")[0] if email else "Local user"
-        handle = str(user.get("handle") or "").strip()
-        if not handle:
-            handle = email.split("@")[0] if email else "local"
         initial = name[:1].upper() or "?"
         self._account_avatar.update(initial)
         self._account_name.update(name)
-        self._account_handle.update(f"@{handle}")
+        self._account_handle.update(email or "@local")
 
     def _apply_local_profile(self) -> None:
         self._account_avatar.update(
@@ -388,24 +395,54 @@ class SettingsPanel(Widget):
     def _apply_usage_summary(self, summary: dict[str, object] | None) -> None:
         if not isinstance(summary, dict):
             self._usage_pct.update("—")
-            self._usage_bar.update(progress=0, total=100)
+            self._usage_bar.update("")
             self._usage_reset.update("Resets soon")
             return
         quotas = summary.get("quotas") or {}
         if not isinstance(quotas, dict):
             quotas = {}
-        weekly = quotas.get("sevenDay") or {}
-        if not isinstance(weekly, dict):
-            weekly = {}
-        used = float(weekly.get("usedUsdCents") or 0)
-        cap = max(1.0, float(weekly.get("capUsdCents") or 1))
+        five_hour = quotas.get("fiveHour") or {}
+        if not isinstance(five_hour, dict):
+            five_hour = {}
+        used = float(five_hour.get("usedUsdCents") or 0)
+        cap = max(1.0, float(five_hour.get("capUsdCents") or 1))
         remaining = max(0, min(100, int(((cap - used) / cap) * 100)))
         self._usage_pct.update(f"{remaining}% left")
-        self._usage_bar.update(progress=remaining, total=100)
+        self._usage_bar.update(self._build_usage_bar(remaining))
         reset_raw = str(
-            weekly.get("fullWindowClearAt") or weekly.get("nextResetAt") or ""
+            five_hour.get("fullWindowClearAt") or five_hour.get("nextResetAt") or ""
         )
         self._usage_reset.update(self._format_reset(reset_raw))
+
+    def _build_usage_bar(self, remaining_percent: int) -> Text:
+        """Render the usage bar the same way the usage summary modal does."""
+        from ite.ui.reup.app import ReupApp
+
+        app = self.app
+        styles = {}
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+        filled_color = styles.get("success", "#8AD4A1")
+        empty_color = styles.get("disabled", "#3a3a3f")
+        bar_width = self._usage_bar_width()
+        used_percent = max(0, min(100, 100 - remaining_percent))
+        filled = max(0, min(bar_width, round((used_percent / 100) * bar_width)))
+        empty = max(0, bar_width - filled)
+        line = Text()
+        if filled:
+            line.append("█" * filled, style=f"bold {filled_color}")
+        if empty:
+            line.append("█" * empty, style=empty_color)
+        return line
+
+    def _usage_bar_width(self) -> int:
+        try:
+            w = self._usage_bar.size.width
+            if w > 0:
+                return w
+        except Exception:
+            pass
+        return 92
 
     @staticmethod
     def _format_reset(value: str) -> str:
