@@ -1616,6 +1616,9 @@ class CloudMixin:
             if exit_on_cancel and self.config.needs_setup:
                 self.exit()
             return False
+        if str(result.get("action") or "").strip().lower() == "openrouter_signout":
+            await self._apply_openrouter_signout(result)
+            return True
         await self._apply_setup_result(result)
         return True
 

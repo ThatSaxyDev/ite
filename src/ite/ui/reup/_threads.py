@@ -38,7 +38,7 @@ from ite.cloud.services import generate_cloud_session_title
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import DEFAULT_CONTEXT_WINDOW, ApprovalPolicy, Config
-from ite.config.loader import get_workspace_agents_recommendation, load_config, load_saved_custom_provider, load_theme, remove_saved_custom_provider, save_cloud_settings, save_global_approval_mode, save_onboarding_settings, save_saved_custom_provider, save_system_config, save_theme, save_voice_settings
+from ite.config.loader import clear_openrouter_oauth_secret, get_workspace_agents_recommendation, load_config, load_saved_custom_provider, load_theme, remove_saved_custom_provider, save_cloud_settings, save_global_approval_mode, save_onboarding_settings, save_saved_custom_provider, save_system_config, save_theme, save_voice_settings
 from ite.git.branches import checkout_branch, create_and_checkout, current_branch, is_git_repo, list_local_branches
 from ite.git.remotes import upsert_remote
 from ite.git.working_tree import commit_changes, discard_all, discard_path, git_outbound_state, outbound_commit_subjects, push_current_branch, stage_all, stage_path, unstage_all, unstage_path, working_tree_change_set
@@ -693,6 +693,58 @@ class ThreadsMixin:
         await self._reset_active_provider_client()
         self.refresh_header(refresh_session_tabs=False)
         self.post_notice("Setup complete", "Credentials saved and applied.")
+
+    async def _apply_openrouter_signout(self, result: dict[str, Any]) -> None:
+        """Remove the OpenRouter key everywhere it is persisted.
+
+        Clears the OAuth secret, the ``api_key`` in the system config, and the
+        saved-provider profile — the profile is what the /models picker lists
+        OpenRouter models from, so removing it keeps signed-out models out of
+        the picker. The persisted model name is also cleared (written as "") so
+        the last-used OpenRouter model isn't kept as the selected model after
+        sign-out even though its (now-removed) profile is no longer in the list.
+        """
+        model_name = str(result.get("model_name") or "").strip()
+        try:
+            clear_openrouter_oauth_secret()
+            if model_name:
+                remove_saved_custom_provider(model_name=model_name)
+            # Persist the removal only when the active provider is actually
+            # OpenRouter; never clobber an Ollama/custom config by accident.
+            if "openrouter.ai" in str(self.config.base_url or "").lower():
+                # Pass an empty model_name: do NOT persist the stale
+                # OpenRouter model as the selected one, otherwise it would
+                # survive as a selection with no matching profile in /models.
+                save_system_config(
+                    api_key="",
+                    base_url=str(self.config.base_url or ""),
+                    model_name="",
+                    context_window=int(
+                        self.config.model.context_window or DEFAULT_CONTEXT_WINDOW
+                    ),
+                    context_window_source=str(
+                        self.config.model.context_window_source or ""
+                    ).strip() or None,
+                    source_kind="saved",
+                )
+        except Exception as exc:  # noqa: BLE001 - surface any persistence failure
+            self.post_system(
+                "Sign out failed", str(exc), is_error=True
+            )
+            return
+
+        self.config.api_key = ""
+        # Any model held under an OpenRouter base_url is necessarily an
+        # OpenRouter model, so drop it entirely once signed out.
+        if "openrouter.ai" in str(self.config.base_url or "").lower():
+            self.config.model.name = ""
+            self.config.model.source_kind = ""
+        await self._reset_active_provider_client()
+        self.refresh_header(refresh_session_tabs=False)
+        self.post_notice(
+            "Signed out of OpenRouter",
+            "The key was removed from this device.",
+        )
 
 
     def _tick_top_indicator(self) -> None:

@@ -13,7 +13,6 @@ from ite.config.config import (
 )
 from ite.ui.reup.modals import (
     RECOMMENDED_OLLAMA_MODELS,
-    OPENROUTER_DEBUG_API_KEY,
     SETUP_PROVIDER_OLLAMA,
     SETUP_MODEL_OTHER,
     SETUP_MODEL_SELECT,
@@ -660,118 +659,6 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(models, [])
         self.assertIn("rejected this API key", error or "")
 
-    async def test_load_openrouter_models_for_setup_resolves_debug_api_key_alias(self) -> None:
-        modal = SetupModal(Config())
-        provider_select = SimpleNamespace(value="openrouter")
-        api_key_input = SimpleNamespace(value="slethware")
-        model_select = SimpleNamespace(value="", set_options=lambda _opts: None)
-        model_input = SimpleNamespace(value="", display=False, focus=lambda: None)
-        model_help = SimpleNamespace(display=False, update=lambda _value: None)
-        continue_button = SimpleNamespace(disabled=False)
-        cancel_button = SimpleNamespace(disabled=False)
-        base_url_input = SimpleNamespace(disabled=False)
-        toggle_button = SimpleNamespace(disabled=False)
-        load_button = SimpleNamespace(disabled=False)
-        provider_widget = SimpleNamespace(disabled=False)
-        status = SimpleNamespace(update=lambda _value: None)
-        error = SimpleNamespace(update=lambda _value: None)
-        model_label = SimpleNamespace(display=False)
-        model_select_row = SimpleNamespace(display=False)
-        api_key_label = SimpleNamespace(display=False)
-        api_key_row = SimpleNamespace(display=False)
-        base_url_label = SimpleNamespace(display=False)
-        base_url_help = SimpleNamespace(display=True)
-
-        with (
-            patch.object(
-                modal,
-                "query_one",
-                side_effect=lambda selector, *_args: {
-                    "#setup-provider": provider_select,
-                    "#setup-api-key": api_key_input,
-                    "#setup-model-select": model_select,
-                    "#setup-model-input": model_input,
-                    "#setup-model-help": model_help,
-                    "#continue": continue_button,
-                    "#cancel": cancel_button,
-                    "#setup-base-url": base_url_input,
-                    "#setup-toggle-api-key": toggle_button,
-                    "#setup-load-models": load_button,
-                    "#setup-status": status,
-                    "#setup-error": error,
-                    "#setup-model-label": model_label,
-                    "#setup-model-select-row": model_select_row,
-                    "#setup-api-key-label": api_key_label,
-                    "#setup-api-key-row": api_key_row,
-                    "#setup-base-url-label": base_url_label,
-                    "#setup-base-url-help": base_url_help,
-                }[selector],
-            ),
-            patch.object(
-                modal,
-                "_fetch_openrouter_models",
-                return_value=(
-                    [{"model_name": "google/gemma-4-31b-it:free", "context_window": 131072}],
-                    None,
-                ),
-            ) as fetch_models,
-        ):
-            loaded = await modal._load_openrouter_models_for_setup()
-
-        self.assertTrue(loaded)
-        fetch_models.assert_awaited_once_with(api_key=OPENROUTER_DEBUG_API_KEY)
-
-    async def test_submit_async_resolves_openrouter_debug_api_key_alias(self) -> None:
-        modal = SetupModal(Config())
-        modal._openrouter_models = ["google/gemma-4-31b-it:free"]
-        modal._openrouter_context_windows = {"google/gemma-4-31b-it:free": 131072}
-        provider_select = SimpleNamespace(value="openrouter", disabled=False)
-        base_url_input = SimpleNamespace(value="", disabled=False)
-        api_key_input = SimpleNamespace(value="slethware", disabled=False)
-        model_select = SimpleNamespace(value="google/gemma-4-31b-it:free", disabled=False)
-        model_input = SimpleNamespace(value="", disabled=False)
-        continue_button = SimpleNamespace(disabled=False)
-        cancel_button = SimpleNamespace(disabled=False)
-        toggle_button = SimpleNamespace(disabled=False)
-        load_button = SimpleNamespace(disabled=False)
-        status = SimpleNamespace(renderable="", update=lambda value: setattr(status, "renderable", value))
-        error = SimpleNamespace(renderable="", update=lambda value: setattr(error, "renderable", value))
-
-        with (
-            patch.object(
-                modal,
-                "query_one",
-                side_effect=lambda selector, *_args: {
-                    "#setup-provider": provider_select,
-                    "#setup-base-url": base_url_input,
-                    "#setup-api-key": api_key_input,
-                    "#setup-model-select": model_select,
-                    "#setup-model-input": model_input,
-                    "#continue": continue_button,
-                    "#cancel": cancel_button,
-                    "#setup-toggle-api-key": toggle_button,
-                    "#setup-load-models": load_button,
-                    "#setup-status": status,
-                    "#setup-error": error,
-                }[selector],
-            ),
-            patch.object(
-                modal,
-                "_validate_provider_connection",
-                return_value=(None, 131072),
-            ) as validate_connection,
-            patch.object(modal, "dismiss") as dismiss,
-        ):
-            await modal._submit_async()
-
-        validate_connection.assert_awaited_once_with(
-            provider="openrouter",
-            base_url="https://openrouter.ai/api/v1",
-            api_key=OPENROUTER_DEBUG_API_KEY,
-            model_name="google/gemma-4-31b-it:free",
-        )
-        dismiss.assert_called_once()
-
     async def test_submit_async_forces_canonical_ollama_credentials(self) -> None:
         modal = SetupModal(Config())
         provider_select = SimpleNamespace(value="ollama", disabled=False)
@@ -905,6 +792,292 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("not available on this provider", message or "")
         self.assertIsNone(context_window)
+
+    def test_apply_provider_visibility_shows_signin_for_openrouter(self) -> None:
+        from textual.widgets import Button, Input, Static
+
+        modal = SetupModal(Config())
+        signin = SimpleNamespace(display=False)
+        signin_help = SimpleNamespace(display=False)
+        auth_label = SimpleNamespace(display=False)
+        auth_code = SimpleNamespace(display=False)
+        # Provide stubs for every selector _apply_provider_visibility looks
+        # up so the loop completes without KeyError or NoMatches.
+        stubs = {
+            "#setup-base-url-label": SimpleNamespace(display=False),
+            "#setup-base-url": SimpleNamespace(display=False),
+            "#setup-base-url-help": SimpleNamespace(display=False),
+            "#setup-api-key-label": SimpleNamespace(display=False),
+            "#setup-api-key-row": SimpleNamespace(display=False),
+            "#setup-model-label": SimpleNamespace(display=False),
+            "#setup-model-select-row": SimpleNamespace(display=False),
+            "#setup-load-models": SimpleNamespace(display=False),
+            "#setup-openrouter-signin": signin,
+            "#setup-openrouter-signin-help": signin_help,
+            "#openrouter-auth-code-label": auth_label,
+            "#openrouter-auth-code": auth_code,
+        }
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, _cls, *_a: stubs[selector],
+        ):
+            modal._apply_provider_visibility("openrouter")
+
+        self.assertTrue(signin.display)
+        self.assertTrue(signin_help.display)
+        self.assertFalse(auth_label.display)
+        self.assertFalse(auth_code.display)
+
+    def test_apply_provider_visibility_hides_signin_for_ollama(self) -> None:
+        modal = SetupModal(Config())
+        signin = SimpleNamespace(display=True)
+        signin_help = SimpleNamespace(display=True)
+        auth_label = SimpleNamespace(display=True)
+        auth_code = SimpleNamespace(display=True)
+        stubs = {
+            "#setup-base-url-label": SimpleNamespace(display=True),
+            "#setup-base-url": SimpleNamespace(display=True),
+            "#setup-base-url-help": SimpleNamespace(display=True),
+            "#setup-api-key-label": SimpleNamespace(display=True),
+            "#setup-api-key-row": SimpleNamespace(display=True),
+            "#setup-model-label": SimpleNamespace(display=True),
+            "#setup-model-select-row": SimpleNamespace(display=True),
+            "#setup-load-models": SimpleNamespace(display=True),
+            "#setup-openrouter-signin": signin,
+            "#setup-openrouter-signin-help": signin_help,
+            "#openrouter-auth-code-label": auth_label,
+            "#openrouter-auth-code": auth_code,
+        }
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, _cls, *_a: stubs[selector],
+        ):
+            modal._apply_provider_visibility("ollama")
+
+        self.assertFalse(signin.display)
+        self.assertFalse(signin_help.display)
+        self.assertFalse(auth_label.display)
+        self.assertFalse(auth_code.display)
+
+    def test_headless_flag_reveals_auth_code_input(self) -> None:
+        modal = SetupModal(Config())
+        modal._openrouter_headless = True
+        signin = SimpleNamespace(display=False)
+        signin_help = SimpleNamespace(display=False)
+        auth_label = SimpleNamespace(display=False)
+        auth_code = SimpleNamespace(display=False)
+        stubs = {
+            "#setup-base-url-label": SimpleNamespace(display=False),
+            "#setup-base-url": SimpleNamespace(display=False),
+            "#setup-base-url-help": SimpleNamespace(display=False),
+            "#setup-api-key-label": SimpleNamespace(display=False),
+            "#setup-api-key-row": SimpleNamespace(display=False),
+            "#setup-model-label": SimpleNamespace(display=False),
+            "#setup-model-select-row": SimpleNamespace(display=False),
+            "#setup-load-models": SimpleNamespace(display=False),
+            "#setup-openrouter-signin": signin,
+            "#setup-openrouter-signin-help": signin_help,
+            "#openrouter-auth-code-label": auth_label,
+            "#openrouter-auth-code": auth_code,
+        }
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, _cls, *_a: stubs[selector],
+        ):
+            modal._apply_provider_visibility("openrouter")
+
+        self.assertTrue(signin.display)
+        self.assertTrue(signin_help.display)
+        self.assertTrue(auth_label.display)
+        self.assertTrue(auth_code.display)
+
+    async def test_pkce_signin_populates_api_key_and_saves_secret(self) -> None:
+        modal = SetupModal(Config())
+        modal._openrouter_signin_in_flight = False
+        modal._validating = False
+
+        api_key_input = SimpleNamespace(value="", password=True)
+        status = SimpleNamespace(renderable="")
+        error = SimpleNamespace(renderable="")
+
+        def _set_status(_msg: str) -> None:
+            pass
+
+        def _set_error(_msg: str) -> None:
+            pass
+
+        def _set_validating(_busy: bool) -> None:
+            pass
+
+        async def _fake_flow(**_kwargs):
+            return "sk-or-v1-from-pkce"
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, *_a: {
+                "#setup-provider": SimpleNamespace(value="openrouter"),
+                "#setup-api-key": api_key_input,
+                "#setup-status": status,
+                "#setup-error": error,
+                "#setup-model-select": SimpleNamespace(value=SETUP_MODEL_SELECT),
+                "#setup-model-input": SimpleNamespace(value=""),
+            }[selector],
+        ), patch.object(
+            modal, "_set_status", side_effect=_set_status
+        ), patch.object(
+            modal, "_set_error", side_effect=_set_error
+        ), patch.object(
+            modal, "_set_validating", side_effect=_set_validating
+        ), patch.object(
+            modal, "_load_openrouter_models_for_setup",
+            return_value=self.async_value(True),
+        ), patch(
+            "ite.ui.reup.modals.save_openrouter_oauth_secret"
+        ) as save_secret, patch(
+            "ite.auth.openrouter_pkce.run_localhost_pkce_flow_async",
+            side_effect=_fake_flow,
+        ):
+            await modal._openrouter_pkce_signin(headless=False)
+
+        self.assertEqual(api_key_input.value, "sk-or-v1-from-pkce")
+        self.assertFalse(api_key_input.password)
+        save_secret.assert_called_once()
+
+    def test_apply_provider_visibility_hides_help_once_connected(self) -> None:
+        """The "Enter your OpenRouter API key…" help must not reappear.
+
+        Regression: `_apply_provider_visibility` used to force
+        ``#setup-base-url-help`` always-visible, and it re-runs after the
+        model list loads — so the help text leaked back in after the key was
+        verified, undoing the connected-state cleanup.
+        """
+        from textual.widgets import Button, Input, Static
+
+        modal = SetupModal(Config())
+        modal._openrouter_signed_in = True
+
+        base_url_help = SimpleNamespace(display=True)
+        provider_copy = SimpleNamespace(display=True)
+        api_key_label = SimpleNamespace(display=True)
+        api_key_row = SimpleNamespace(display=True)
+        signin = SimpleNamespace(display=True)
+        connected_label = SimpleNamespace(
+            display=False, update=lambda _x: None
+        )
+        actions = SimpleNamespace(display=False)
+
+        class _FakeSelect:
+            def __init__(self) -> None:
+                self.value = SETUP_MODEL_SELECT
+                self.options: list | None = None
+
+            def set_options(self, options) -> None:
+                self.options = options
+
+        model_select = _FakeSelect()
+        model_input = SimpleNamespace(display=False, value="")
+        model_help = SimpleNamespace(display=True)
+
+        stubs = {
+            "#setup-provider": SimpleNamespace(value="openrouter"),
+            "#setup-model-select": model_select,
+            "#setup-model-input": model_input,
+            "#setup-model-help": model_help,
+            "#setup-base-url-label": SimpleNamespace(display=False),
+            "#setup-base-url": SimpleNamespace(display=False),
+            "#setup-base-url-help": base_url_help,
+            "#setup-provider-copy": provider_copy,
+            "#setup-api-key-label": api_key_label,
+            "#setup-api-key-row": api_key_row,
+            "#setup-model-label": SimpleNamespace(display=False),
+            "#setup-model-select-row": SimpleNamespace(display=False),
+            "#setup-load-models": SimpleNamespace(display=False),
+            "#setup-openrouter-signin": signin,
+            "#openrouter-connected-label": connected_label,
+            "#openrouter-actions": actions,
+        }
+
+        with patch.object(
+            modal,
+            "query_one",
+            side_effect=lambda selector, _cls, *_a: stubs[selector],
+        ):
+            # Simulate the post-model-load re-apply that used to leak the help.
+            modal._apply_provider_visibility("openrouter")
+
+        # Every pre-sign-in text/control stays hidden...
+        self.assertFalse(base_url_help.display)
+        self.assertFalse(api_key_label.display)
+        self.assertFalse(api_key_row.display)
+        self.assertFalse(signin.display)
+        # ...while the connected status and key-management row stay visible.
+        self.assertTrue(connected_label.display)
+        self.assertTrue(actions.display)
+
+    def test_existing_key_is_marked_connected(self) -> None:
+        """A returning user with an already-saved key sees 'Connected to OpenRouter'.
+
+        Regression: `_openrouter_signed_in` used to only flip on after a fresh
+        in-session OAuth round-trip, so a returning pasted-key user never saw
+        the connected status. ``on_mount`` calls ``_openrouter_set_connected``
+        for that scenario.
+        """
+        modal = SetupModal(Config())
+        modal._openrouter_signed_in = False
+
+        connected_label = SimpleNamespace(
+            display=False, update=lambda _x: None
+        )
+        actions = SimpleNamespace(display=False)
+        provider_copy = SimpleNamespace(display=True)
+        base_url_help = SimpleNamespace(display=True)
+        api_key_label = SimpleNamespace(display=True)
+        api_key_row = SimpleNamespace(display=True)
+        signin = SimpleNamespace(display=True)
+        auth_label = SimpleNamespace(display=True)
+        auth_code = SimpleNamespace(display=True)
+
+        stubs = {
+            "#openrouter-connected-label": connected_label,
+            "#openrouter-actions": actions,
+            "#setup-provider-copy": provider_copy,
+            "#setup-base-url-help": base_url_help,
+            "#setup-api-key-label": api_key_label,
+            "#setup-api-key-row": api_key_row,
+            "#setup-openrouter-signin": signin,
+            "#openrouter-auth-code-label": auth_label,
+            "#openrouter-auth-code": auth_code,
+        }
+
+        def fake_query(selector, *_a):
+            return stubs[selector]
+
+        with patch.object(modal, "query_one", side_effect=fake_query):
+            modal._openrouter_set_connected("sk-or-v1-pasted-before")
+
+        # The connected status and key-management buttons are shown...
+        self.assertTrue(modal._openrouter_signed_in)
+        self.assertTrue(connected_label.display)
+        self.assertTrue(actions.display)
+        # ...and every other pre-sign-in text/control is hidden.
+        self.assertFalse(provider_copy.display)
+        self.assertFalse(base_url_help.display)
+        self.assertFalse(api_key_label.display)
+        self.assertFalse(api_key_row.display)
+        self.assertFalse(signin.display)
+
+    def async_value(self, value):
+        async def _coro():
+            return value
+
+        return _coro()
 
 
 if __name__ == "__main__":
