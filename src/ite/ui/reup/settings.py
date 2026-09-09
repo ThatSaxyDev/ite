@@ -128,7 +128,7 @@ class SettingsPanel(Widget):
             return 1
         if tokens < 1_000_000:
             return 2
-        if tokens < 10_000_000:
+        if tokens < 25_000_000:
             return 3
         return 4
 
