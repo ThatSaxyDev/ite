@@ -156,14 +156,20 @@ class SettingsPanel(Widget):
         self._info_model.update_value(config.model_name)
 
         # Provider — best-effort friendly name from base_url.
-        provider = "local"
-        base_url = str(config.base_url or "").strip().lower()
-        if "openrouter.ai" in base_url:
-            provider = "OpenRouter"
-        elif "localhost:11434" in base_url or "127.0.0.1:11434" in base_url:
-            provider = "Ollama"
-        elif base_url:
-            provider = base_url
+        source_kind = (
+            str(getattr(config.model, "source_kind", "") or "").strip().lower()
+        )
+        if source_kind == "bundled":
+            provider = "iTE"
+        else:
+            provider = "local"
+            base_url = str(config.base_url or "").strip().lower()
+            if "openrouter.ai" in base_url:
+                provider = "OpenRouter"
+            elif "localhost:11434" in base_url or "127.0.0.1:11434" in base_url:
+                provider = "Ollama"
+            elif base_url:
+                provider = base_url
         self._info_provider.update_value(provider)
 
         # CWD
