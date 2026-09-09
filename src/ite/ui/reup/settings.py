@@ -330,6 +330,16 @@ class SettingsPanel(Widget):
         self.run_worker(self._load_account(), exclusive=False)
         self.run_worker(self._load_activity(), exclusive=True)
 
+    def on_resize(self, _event: events.Resize) -> None:
+        """Re-render the usage bar so it always fills the card width."""
+        remaining = getattr(self, "_usage_remaining", None)
+        if remaining is None:
+            return
+        bar = getattr(self, "_usage_bar", None)
+        if bar is None:
+            return
+        bar.update(self._build_usage_bar(remaining))
+
     @on(Button.Pressed, "#settings-back")
     def on_back_pressed(self, _event: Button.Pressed) -> None:
         self.app.set_settings_active(False)
@@ -566,6 +576,7 @@ class SettingsPanel(Widget):
 
     def _apply_usage_summary(self, summary: dict[str, object] | None) -> None:
         if not isinstance(summary, dict):
+            self._usage_remaining = None
             self._usage_pct.update("—")
             self._usage_bar.update("")
             self._usage_reset.update("Resets soon")
@@ -579,6 +590,7 @@ class SettingsPanel(Widget):
         used = float(five_hour.get("usedUsdCents") or 0)
         cap = max(1.0, float(five_hour.get("capUsdCents") or 1))
         remaining = max(0, min(100, int(((cap - used) / cap) * 100)))
+        self._usage_remaining = remaining
         self._usage_pct.update(f"{remaining}% left")
         self._usage_bar.update(self._build_usage_bar(remaining))
         reset_raw = str(
