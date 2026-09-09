@@ -3070,6 +3070,13 @@ ActivityModal .usage-summary-body {
     content-align: left middle;
 }
 
+#settings-panel #settings-sign-in {
+    width: 16;
+    min-width: 16;
+    margin-left: 1;
+    display: none;
+}
+
 #settings-panel .settings-usage-card {
     height: auto;
     padding: 1 1;
@@ -3180,6 +3187,23 @@ ActivityModal .usage-summary-body {
     content-align: center middle;
 }
 
+#settings-panel #settings-activity-locked {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: $surface-darken-1;
+    border: solid $border;
+    display: none;
+}
+
+#settings-panel .settings-activity-locked-copy {
+    height: auto;
+    width: 1fr;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
 #settings-panel .settings-signout-card {
     height: auto;
     padding: 1 1;
@@ -3270,6 +3294,16 @@ ActivityModal .usage-summary-body {
 #settings-panel .settings-info-clickable:focus .settings-info-value {
     color: $text-primary;
     text-style: bold;
+}
+
+#settings-panel .settings-info-multiline {
+    height: auto;
+    min-height: 1;
+}
+
+#settings-panel .settings-info-multiline .settings-info-value {
+    height: auto;
+    text-overflow: clip;
 }
 
 #settings-panel .settings-heatmap-panel {

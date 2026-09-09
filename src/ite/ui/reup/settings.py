@@ -24,6 +24,9 @@ from ite.cloud import (
     get_cloud_entitlements_result,
     get_usage_summary,
 )
+from ite.skills.manager import SkillManager
+from ite.skills.trust import SkillTrustManager
+from ite.tools.registry import create_default_registry, refresh_subagent_tools
 
 WEEK_COUNT = 52
 DAY_LABELS = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
@@ -78,10 +81,13 @@ class SettingsInfoRow(Horizontal):
         value: str,
         *,
         field: str | None = None,
+        multiline: bool = False,
     ) -> None:
         classes = "settings-info-row"
         if field is not None:
             classes += " settings-info-clickable"
+        if multiline:
+            classes += " settings-info-multiline"
         super().__init__(classes=classes)
         self._label = label
         self._field = field
@@ -169,9 +175,17 @@ class SettingsPanel(Widget):
                             "", classes="settings-account-handle"
                         )
                         yield self._account_handle
+                    self._account_action = Button(
+                        "Sign in", id="settings-sign-in", variant="primary"
+                    )
+                    yield self._account_action
 
             # Usage limits
-            yield Static("Usage limits", classes="settings-section-title")
+            yield Static(
+                "Usage limits",
+                id="settings-usage-title",
+                classes="settings-section-title",
+            )
             with UsageLimitCard(
                 classes="settings-usage-card", id="settings-usage-card"
             ):
@@ -191,8 +205,12 @@ class SettingsPanel(Widget):
                 yield self._usage_bar
 
             # Your plan
-            yield Static("Your plan", classes="settings-section-title")
-            with Container(classes="settings-plan-card"):
+            yield Static(
+                "Your plan",
+                id="settings-plan-title",
+                classes="settings-section-title",
+            )
+            with Container(classes="settings-plan-card", id="settings-plan-card"):
                 with Horizontal(classes="settings-plan-row"):
                     with Vertical(classes="settings-plan-text"):
                         self._plan_name = Static("—", classes="settings-plan-name")
@@ -203,7 +221,9 @@ class SettingsPanel(Widget):
                     yield self._plan_action
 
             # Usage stats
-            with Horizontal(classes="settings-stats-row"):
+            with Horizontal(
+                classes="settings-stats-row", id="settings-stats-row"
+            ):
                 self._stat_lifetime = Vertical(
                     classes="settings-stat-card settings-stat-lifetime"
                 )
@@ -228,6 +248,15 @@ class SettingsPanel(Widget):
                 ):
                     yield stat
 
+            # Activity locked behind Pro (hidden for Pro users)
+            with Container(
+                id="settings-activity-locked", classes="settings-activity-locked"
+            ):
+                yield Static(
+                    "Unlock streaks and activity tracker by subscribing for the Pro plan.",
+                    classes="settings-activity-locked-copy",
+                )
+
             # Session / user configuration (kept)
             with Vertical(classes="settings-info"):
                 self._info_model = SettingsInfoRow("model", "…", field="model")
@@ -238,9 +267,9 @@ class SettingsPanel(Widget):
                 self._info_approval = SettingsInfoRow(
                     "approval", "…", field="approval"
                 )
-                self._info_tools = SettingsInfoRow("tools", "…")
-                self._info_agents = SettingsInfoRow("agents", "…")
-                self._info_skills = SettingsInfoRow("skills", "…")
+                self._info_tools = SettingsInfoRow("tools", "…", multiline=True)
+                self._info_agents = SettingsInfoRow("agents", "…", multiline=True)
+                self._info_skills = SettingsInfoRow("skills", "…", multiline=True)
                 yield self._info_model
                 yield self._info_provider
                 yield self._info_cwd
@@ -250,8 +279,14 @@ class SettingsPanel(Widget):
                 yield self._info_skills
 
             # Token activity
-            yield Static("Token activity", classes="settings-section-title")
-            with Container(classes="settings-heatmap-panel"):
+            yield Static(
+                "Token activity",
+                id="settings-activity-title",
+                classes="settings-section-title",
+            )
+            with Container(
+                classes="settings-heatmap-panel", id="settings-activity-panel"
+            ):
                 yield Static(
                     "Loading iTE activity…",
                     id="settings-activity-status",
@@ -262,8 +297,14 @@ class SettingsPanel(Widget):
                 yield Horizontal(classes="heat-legend")
 
             # Sign out
-            yield Static("Sign out", classes="settings-section-title")
-            with Container(classes="settings-signout-card"):
+            yield Static(
+                "Sign out",
+                id="settings-signout-title",
+                classes="settings-section-title",
+            )
+            with Container(
+                classes="settings-signout-card", id="settings-signout-card"
+            ):
                 with Horizontal(classes="settings-signout-row"):
                     yield Static(
                         "Sign out of iTE Cloud. Your sessions stay on this device.",
@@ -277,6 +318,7 @@ class SettingsPanel(Widget):
             yield SettingsFooter(classes="settings-footer")
 
     def on_mount(self) -> None:
+        self._account_action.display = False
         self._populate_context()
         self.run_worker(self._load_activity(), exclusive=True)
         self.run_worker(self._load_account(), exclusive=False)
@@ -302,6 +344,13 @@ class SettingsPanel(Widget):
                 "Pricing",
                 "Open https://ite.kiishi.space/pricing to start iTE Pro.",
             )
+
+    @on(Button.Pressed, "#settings-sign-in")
+    def _on_sign_in_pressed(self, _event: Button.Pressed) -> None:
+        self.app.set_settings_active(False)
+        flow = getattr(self.app, "_run_cloud_login_flow", None)
+        if callable(flow):
+            self.app.run_worker(flow(), exclusive=False)
 
     @on(Button.Pressed, "#settings-signout")
     def _on_signout_pressed(self, _event: Button.Pressed) -> None:
@@ -347,61 +396,103 @@ class SettingsPanel(Widget):
         # Approval
         self._info_approval.update_value(config.approval.value)
 
-        # Tools / agents / skills — best-effort from the live session.
+        # Tools / agents / skills — always populated, with a live-session
+        # preference and a config-only fallback when no session exists yet.
+        tool_names, agent_names, skill_names = self._collect_capabilities()
+        self._info_tools.update_value(self._format_capability_list(tool_names))
+        self._info_agents.update_value(self._format_capability_list(agent_names))
+        self._info_skills.update_value(self._format_capability_list(skill_names))
+
+    def _collect_capabilities(self) -> tuple[list[str], list[str], list[str]]:
+        """Return (tools, agents, skills) names, preferring the live session."""
         agent = getattr(self.app, "agent", None)
-        if agent is not None and agent.session is not None:
-            session = agent.session
+        session = getattr(agent, "session", None)
+        if session is not None:
+            try:
+                tools = session.tool_registry.get_tools()
+            except Exception:
+                tools = []
+            else:
+                return (
+                    [t.name for t in tools],
+                    [
+                        t.name.removeprefix("subagent_")
+                        for t in tools
+                        if t.name.startswith("subagent_")
+                    ],
+                    [s["name"] for s in session.list_available_skills()],
+                )
 
-            tools = session.tool_registry.get_tools()
-            self._info_tools.update_value(
-                ", ".join(t.name for t in tools[:3])
-                + (f" +{len(tools) - 3} more" if len(tools) > 3 else "")
+        config = self.app.config
+        try:
+            registry = create_default_registry(config)
+            refresh_subagent_tools(registry, config, log_errors=False)
+            tools = registry.get_tools()
+        except Exception:
+            tools = []
+        try:
+            skill_manager = SkillManager(
+                config.cwd, trust_manager=SkillTrustManager()
             )
-
-            agent_names = [
+            skill_manager.discover()
+            skills = [s["name"] for s in skill_manager.summaries()]
+        except Exception:
+            skills = []
+        return (
+            [t.name for t in tools],
+            [
                 t.name.removeprefix("subagent_")
                 for t in tools
                 if t.name.startswith("subagent_")
-            ]
-            self._info_agents.update_value(
-                ", ".join(agent_names[:3])
-                + (f" +{len(agent_names) - 3} more" if len(agent_names) > 3 else "")
-            )
+            ],
+            skills,
+        )
 
-            skills = session.list_available_skills()
-            self._info_skills.update_value(
-                ", ".join(s["name"] for s in skills[:3])
-                + (f" +{len(skills) - 3} more" if len(skills) > 3 else "")
-            )
+    @staticmethod
+    def _format_capability_list(names: list[str]) -> str:
+        if not names:
+            return "—"
+        shown = names[:20]
+        suffix = f" +{len(names) - len(shown)} more" if len(names) > len(shown) else ""
+        return ", ".join(shown) + suffix
 
     async def _load_account(self) -> None:
         """Load cloud account profile, plan state, and usage limits."""
         app = self.app
+        signed_out = bool(getattr(app, "_cloud_signed_out", True))
         entitlements_result = None
+        user: dict[str, object] | None = None
 
         # Prefer the app's cached cloud user state (populated during startup).
         email = getattr(app, "_cloud_user_email", None)
         name = getattr(app, "_cloud_user_name", None)
         if email or name:
-            self._apply_account_profile(
-                {"name": name or "", "email": email or ""}
-            )
-        else:
+            user = {"name": name or "", "email": email or ""}
+        elif not signed_out:
             try:
                 entitlements_result = await asyncio.to_thread(
                     get_cloud_entitlements_result, app.config
                 )
             except Exception:
                 entitlements_result = None
-            user = (
+            candidate = (
                 getattr(entitlements_result, "user", None)
                 if entitlements_result
                 else None
             )
-            if isinstance(user, dict) and (user.get("email") or user.get("name")):
-                self._apply_account_profile(user)
-            else:
-                self._apply_local_profile()
+            if isinstance(candidate, dict) and (
+                candidate.get("email") or candidate.get("name")
+            ):
+                user = candidate
+
+        if user is not None:
+            self._apply_account_profile(user)
+        elif signed_out:
+            self._apply_signed_out_profile()
+            self._apply_usage_summary(None)
+            return
+        else:
+            self._apply_account_profile({"name": "", "email": ""})
 
         # Plan state: prefer the app's cached flag, fall back to entitlements.
         pro = getattr(app, "_account_plan_is_pro", None)
@@ -429,18 +520,33 @@ class SettingsPanel(Widget):
         name = str(user.get("name") or "").strip()
         email = str(user.get("email") or "").strip()
         if not name:
-            name = email.split("@")[0] if email else "Local user"
+            name = email.split("@")[0] if email else "Signed in"
         initial = name[:1].upper() or "?"
         self._account_avatar.update(initial)
         self._account_name.update(name)
-        self._account_handle.update(email or "@local")
+        self._account_handle.update(email or "@cloud")
+        self._account_action.display = False
+        self._set_signed_in_sections_visible(True)
 
-    def _apply_local_profile(self) -> None:
-        self._account_avatar.update(
-            self.app.config.model_name[:1].upper() or "?"
-        )
-        self._account_name.update(self.app.config.model_name or "iTE")
-        self._account_handle.update("@local")
+    def _apply_signed_out_profile(self) -> None:
+        self._account_avatar.update("?")
+        self._account_name.update("Not signed in")
+        self._account_handle.update("Sign in to enable iTE Cloud")
+        self._account_action.display = True
+        self._set_signed_in_sections_visible(False)
+
+    def _set_signed_in_sections_visible(self, visible: bool) -> None:
+        self.query_one("#settings-usage-title").display = visible
+        self.query_one("#settings-usage-card").display = visible
+        self.query_one("#settings-plan-title").display = visible
+        self.query_one("#settings-plan-card").display = visible
+        self.query_one("#settings-signout-title").display = visible
+        self.query_one("#settings-signout-card").display = visible
+        if not visible:
+            self.query_one("#settings-stats-row").display = False
+            self.query_one("#settings-activity-title").display = False
+            self.query_one("#settings-activity-panel").display = False
+            self.query_one("#settings-activity-locked").display = False
 
     def _apply_plan_state(self, pro: bool) -> None:
         if pro:
@@ -449,6 +555,14 @@ class SettingsPanel(Widget):
         else:
             self._plan_name.update("Free plan")
             self._plan_action.display = True
+        self._apply_activity_access(pro)
+
+    def _apply_activity_access(self, pro: bool) -> None:
+        """Show streaks/activity for Pro users, an upsell card otherwise."""
+        self.query_one("#settings-stats-row").display = pro
+        self.query_one("#settings-activity-title").display = pro
+        self.query_one("#settings-activity-panel").display = pro
+        self.query_one("#settings-activity-locked").display = not pro
 
     def _apply_usage_summary(self, summary: dict[str, object] | None) -> None:
         if not isinstance(summary, dict):
