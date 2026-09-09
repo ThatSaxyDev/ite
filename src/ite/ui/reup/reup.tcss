@@ -3207,7 +3207,6 @@ ActivityModal .usage-summary-body {
     padding: 1 1;
     align-vertical: middle;
     background: $surface-darken-1;
-    border: solid $border;
 }
 
 #settings-panel .settings-footer-text {
