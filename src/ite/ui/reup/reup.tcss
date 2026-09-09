@@ -3003,6 +3003,50 @@ ActivityModal .usage-summary-body {
     content-align: right middle;
 }
 
+#settings-panel .settings-info {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1 1;
+    background: $surface-darken-1;
+}
+
+#settings-panel .settings-info-row {
+    height: 1;
+    width: 1fr;
+    min-height: 1;
+    margin-bottom: 1;
+    border-left: solid transparent;
+    background: transparent;
+}
+
+#settings-panel .settings-info-clickable:hover,
+#settings-panel .settings-info-clickable:focus {
+    background: $surface;
+    border-left: solid $accent;
+}
+
+#settings-panel .settings-info-label {
+    width: 14;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel .settings-info-value {
+    width: 1fr;
+    color: $foreground;
+    padding-left: 1;
+    content-align: left middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#settings-panel .settings-info-clickable:hover .settings-info-value,
+#settings-panel .settings-info-clickable:focus .settings-info-value {
+    color: $text-primary;
+    text-style: bold;
+}
+
 #settings-panel .settings-heatmap-panel {
     height: auto;
     margin-top: 1;

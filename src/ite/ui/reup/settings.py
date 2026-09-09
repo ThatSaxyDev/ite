@@ -18,6 +18,13 @@ LABELED_WEEKDAYS = (1, 3, 5)
 # Each cell occupies 2 columns plus a 1-column gap on its trailing edge.
 CELL_STRIDE = 3
 
+# Info-row fields that open a picker — maps field name to an app method.
+_ACTION_FIELDS = {
+    "model": "_open_model_picker_from_meta",
+    "provider": "_open_setup_modal",
+    "approval": "_open_approval_picker_from_meta",
+}
+
 
 class HeatCell(Static):
     """A single heatmap day cell that opens a day-detail modal when clicked."""
@@ -38,6 +45,49 @@ class HeatCell(Static):
         self.post_message(self.Clicked(self))
 
 
+class SettingsInfoRow(Horizontal):
+    """A single key/value line in the session context block.
+
+    When ``field`` names an action on the app, the whole row becomes
+    clickable and posts a ``Pressed`` message.
+    """
+
+    class Pressed(Message):
+        """Posted when a clickable info row is clicked."""
+
+        def __init__(self, method: str) -> None:
+            super().__init__()
+            self.method = method
+
+    def __init__(
+        self,
+        label: str,
+        value: str,
+        *,
+        field: str | None = None,
+    ) -> None:
+        classes = "settings-info-row"
+        if field is not None:
+            classes += " settings-info-clickable"
+        super().__init__(classes=classes)
+        self._label = label
+        self._field = field
+        self._value_widget = Static(value, classes="settings-info-value")
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._label, classes="settings-info-label")
+        yield self._value_widget
+
+    def update_value(self, value: str) -> None:
+        self._value_widget.update(value)
+
+    def on_click(self, event: events.Click) -> None:
+        if self._field is None:
+            return
+        event.stop()
+        self.post_message(self.Pressed(self._field))
+
+
 class SettingsPanel(Widget):
     """In-shell settings view that replaces the chat feed and composer."""
 
@@ -46,6 +96,27 @@ class SettingsPanel(Widget):
             with Horizontal(classes="settings-header"):
                 yield Button("Back to chat", id="settings-back", variant="default")
                 yield Static("Settings", classes="settings-title")
+
+            with Vertical(classes="settings-info"):
+                self._info_model = SettingsInfoRow("model", "…", field="model")
+                self._info_provider = SettingsInfoRow(
+                    "provider", "…", field="provider"
+                )
+                self._info_cwd = SettingsInfoRow("cwd", "…")
+                self._info_approval = SettingsInfoRow(
+                    "approval", "…", field="approval"
+                )
+                self._info_tools = SettingsInfoRow("tools", "…")
+                self._info_agents = SettingsInfoRow("agents", "…")
+                self._info_skills = SettingsInfoRow("skills", "…")
+                yield self._info_model
+                yield self._info_provider
+                yield self._info_cwd
+                yield self._info_approval
+                yield self._info_tools
+                yield self._info_agents
+                yield self._info_skills
+
             with Container(classes="settings-heatmap-panel"):
                 yield Static(
                     "Loading iTE activity…",
@@ -57,11 +128,76 @@ class SettingsPanel(Widget):
                 yield Horizontal(classes="heat-legend")
 
     def on_mount(self) -> None:
+        self._populate_context()
         self.run_worker(self._load_activity(), exclusive=True)
+
+    def on_show(self) -> None:
+        # The agent/session may not have been ready at mount time, and model
+        # or approval can change while the panel is hidden. Refresh on open.
+        self._populate_context()
 
     @on(Button.Pressed, "#settings-back")
     def on_back_pressed(self, _event: Button.Pressed) -> None:
         self.app.set_settings_active(False)
+
+    @on(SettingsInfoRow.Pressed)
+    def _on_info_row_pressed(self, message: SettingsInfoRow.Pressed) -> None:
+        method_name = _ACTION_FIELDS.get(message.method)
+        if not method_name:
+            return
+        method = getattr(self.app, method_name, None)
+        if callable(method):
+            self.app.run_worker(method(), exclusive=False)
+
+    def _populate_context(self) -> None:
+        config = self.app.config
+
+        # Model
+        self._info_model.update_value(config.model_name)
+
+        # Provider — best-effort friendly name from base_url.
+        provider = "local"
+        base_url = str(config.base_url or "").strip().lower()
+        if "openrouter.ai" in base_url:
+            provider = "OpenRouter"
+        elif "localhost:11434" in base_url or "127.0.0.1:11434" in base_url:
+            provider = "Ollama"
+        elif base_url:
+            provider = base_url
+        self._info_provider.update_value(provider)
+
+        # CWD
+        self._info_cwd.update_value(str(config.cwd))
+
+        # Approval
+        self._info_approval.update_value(config.approval.value)
+
+        # Tools / agents / skills — best-effort from the live session.
+        agent = getattr(self.app, "agent", None)
+        if agent is not None and agent.session is not None:
+            session = agent.session
+
+            tools = session.tool_registry.get_tools()
+            self._info_tools.update_value(
+                ", ".join(t.name for t in tools[:3])
+                + (f" +{len(tools) - 3} more" if len(tools) > 3 else "")
+            )
+
+            agent_names = [
+                t.name.removeprefix("subagent_")
+                for t in tools
+                if t.name.startswith("subagent_")
+            ]
+            self._info_agents.update_value(
+                ", ".join(agent_names[:3])
+                + (f" +{len(agent_names) - 3} more" if len(agent_names) > 3 else "")
+            )
+
+            skills = session.list_available_skills()
+            self._info_skills.update_value(
+                ", ".join(s["name"] for s in skills[:3])
+                + (f" +{len(skills) - 3} more" if len(skills) > 3 else "")
+            )
 
     async def _load_activity(self) -> None:
         try:
@@ -209,4 +345,3 @@ class SettingsPanel(Widget):
             return
         tokens = getattr(self, "_tokens", {})
         self.app.push_screen(DayActivityModal(cell_date, tokens))
-
