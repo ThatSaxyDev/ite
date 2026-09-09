@@ -2999,7 +2999,7 @@ ActivityModal .usage-summary-body {
 
 #settings-panel .heatmap-scroller {
     width: 1fr;
-    height: 17;
+    height: 15;
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-size-horizontal: 1;
@@ -3077,6 +3077,7 @@ ActivityModal .usage-summary-body {
     height: 1;
     margin-top: 1;
     align-horizontal: right;
+    width: 100%;
 }
 
 #settings-panel .heat-legend .heat-cell {

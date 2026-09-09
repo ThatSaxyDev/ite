@@ -36,6 +36,7 @@ class SettingsPanel(Widget):
                 )
                 with HorizontalScroll(classes="heatmap-scroller"):
                     yield Vertical(id="settings-heatmap", classes="settings-heatmap")
+                yield Horizontal(classes="heat-legend")
 
     def on_mount(self) -> None:
         self.run_worker(self._load_activity(), exclusive=True)
@@ -159,8 +160,8 @@ class SettingsPanel(Widget):
             ]
             await row.mount(*cells)
 
-        legend = Horizontal(classes="heat-legend")
-        await container.mount(legend)
+        legend = self.query_one(".heat-legend", Horizontal)
+        await legend.remove_children()
         await legend.mount(Static("Less", classes="heat-legend-label"))
         for level in range(5):
             await legend.mount(Static("", classes=f"heat-cell heat-l{level}"))
