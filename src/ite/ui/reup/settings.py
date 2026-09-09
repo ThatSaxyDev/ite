@@ -18,6 +18,7 @@ from rich.text import Text
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
+from ite import __version__
 from ite.cloud import (
     get_activity,
     get_cloud_entitlements_result,
@@ -108,6 +109,40 @@ class UsageLimitCard(Container):
         opener = getattr(self.app, "_open_usage_modal_from_meta", None)
         if callable(opener):
             self.app.run_worker(opener(), exclusive=False)
+
+
+class SettingsFooter(Horizontal):
+    """The settings footer with the credits line and a clickable link."""
+
+    URL = "https://kiishi.space"
+
+    @on(events.Click, "#settings-footer-link")
+    def _on_footer_link_clicked(self, _event: events.Click) -> None:
+        opened = webbrowser.open(self.URL)
+        if opened:
+            self.app.post_notice("iTE", "Opened kiishi.space in your browser.")
+        else:
+            self.app.post_notice(
+                "iTE", "Open https://kiishi.space to learn more."
+            )
+
+    def compose(self) -> ComposeResult:
+        year = date.today().year
+        yield Static(
+            f"Built by ",
+            id="settings-footer-text",
+            classes="settings-footer-text",
+        )
+        yield Static(
+            "Kiishi David",
+            id="settings-footer-link",
+            classes="settings-footer-link",
+        )
+        yield Static(
+            f" ({year}). v{__version__}",
+            id="settings-footer-version",
+            classes="settings-footer-text",
+        )
 
 
 class SettingsPanel(Widget):
@@ -237,6 +272,9 @@ class SettingsPanel(Widget):
                     yield Button(
                         "Sign out", id="settings-signout", variant="default"
                     )
+
+            # Footer
+            yield SettingsFooter(classes="settings-footer")
 
     def on_mount(self) -> None:
         self._populate_context()

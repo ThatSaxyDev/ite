@@ -3200,6 +3200,30 @@ ActivityModal .usage-summary-body {
     content-align: left middle;
 }
 
+#settings-panel .settings-footer {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1 1;
+    align-vertical: middle;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-footer-text {
+    height: auto;
+    width: auto;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel .settings-footer-link {
+    height: auto;
+    width: auto;
+    color: $accent;
+    content-align: left middle;
+}
+
 #settings-panel #settings-signout {
     width: 16;
     min-width: 16;
