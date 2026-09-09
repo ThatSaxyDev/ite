@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
-from datetime import date, datetime, timedelta
-from typing import Any
+from datetime import date, timedelta
 
 from textual import on
 from textual.app import ComposeResult
@@ -52,30 +50,36 @@ class SettingsPanel(Widget):
             payload = None
 
         status = self.query_one("#settings-activity-status", Static)
-        events = payload.get("events") if isinstance(payload, dict) else None
-        if not isinstance(events, list) or not events:
+        daily_tokens = payload.get("dailyTokens") if isinstance(payload, dict) else None
+        tokens = self._parse_daily_tokens(daily_tokens)
+        if not tokens:
             status.update("No iTE activity recorded yet.")
             return
 
         status.display = False
-        counts = self._count_events(events)
-        await self._render_heatmap(counts)
+        await self._render_heatmap(tokens)
 
     @staticmethod
-    def _count_events(events: list[dict[str, Any]]) -> dict[date, int]:
-        counts: dict[date, int] = defaultdict(int)
-        for event in events:
-            if not isinstance(event, dict):
-                continue
-            raw = event.get("createdAt")
+    def _parse_daily_tokens(
+        daily_tokens: dict[str, int] | None,
+    ) -> dict[date, int]:
+        tokens: dict[date, int] = {}
+        if not isinstance(daily_tokens, dict):
+            return tokens
+        for raw, value in daily_tokens.items():
             if not isinstance(raw, str):
                 continue
             try:
-                parsed = datetime.fromisoformat(raw.replace("Z", "+00:00")).astimezone()
+                day = date.fromisoformat(raw)
             except ValueError:
                 continue
-            counts[parsed.date()] += 1
-        return dict(counts)
+            try:
+                amount = int(value)
+            except (TypeError, ValueError):
+                continue
+            if amount > 0:
+                tokens[day] = amount
+        return tokens
 
     @staticmethod
     def _start_sunday(today: date) -> date:
@@ -97,14 +101,14 @@ class SettingsPanel(Widget):
         return [start + timedelta(weeks=index) for index in range(weeks)]
 
     @staticmethod
-    def _level(count: int) -> int:
-        if count <= 0:
+    def _level(tokens: int) -> int:
+        if tokens <= 0:
             return 0
-        if count == 1:
+        if tokens < 100_000:
             return 1
-        if count <= 3:
+        if tokens < 1_000_000:
             return 2
-        if count <= 6:
+        if tokens < 10_000_000:
             return 3
         return 4
 
@@ -125,7 +129,7 @@ class SettingsPanel(Widget):
             previous_month = sunday.month
         return "".join(buffer).rstrip()
 
-    async def _render_heatmap(self, counts: dict[date, int]) -> None:
+    async def _render_heatmap(self, tokens: dict[date, int]) -> None:
         today = date.today()
         sundays = self._week_sundays(today)
         container = self.query_one("#settings-heatmap", Vertical)
@@ -153,7 +157,7 @@ class SettingsPanel(Widget):
                 Static(
                     "",
                     classes=self._cell_classes(
-                        sunday + timedelta(days=weekday), counts, today
+                        sunday + timedelta(days=weekday), tokens, today
                     ),
                 )
                 for sunday in sundays
@@ -169,9 +173,9 @@ class SettingsPanel(Widget):
 
     @classmethod
     def _cell_classes(
-        cls, cell_date: date, counts: dict[date, int], today: date
+        cls, cell_date: date, tokens: dict[date, int], today: date
     ) -> str:
         if cell_date > today:
             return "heat-cell heat-future"
-        return f"heat-cell heat-l{cls._level(counts.get(cell_date, 0))}"
+        return f"heat-cell heat-l{cls._level(tokens.get(cell_date, 0))}"
 
