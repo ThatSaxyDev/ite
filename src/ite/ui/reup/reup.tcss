@@ -3003,6 +3003,206 @@ ActivityModal .usage-summary-body {
     content-align: right middle;
 }
 
+#settings-panel .settings-content-shell {
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+#settings-panel .settings-section-title {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel .settings-account {
+    height: auto;
+    align-vertical: middle;
+    align-horizontal: center;
+    padding: 1 0 1 0;
+    margin-bottom: 1;
+}
+
+#settings-panel .settings-account-row {
+    height: auto;
+    align-vertical: middle;
+    align-horizontal: center;
+}
+
+#settings-panel .settings-avatar {
+    width: 6;
+    height: 3;
+    min-width: 6;
+    min-height: 3;
+    content-align: center middle;
+    background: $primary;
+    color: $text-primary;
+    text-style: bold;
+    margin-right: 1;
+}
+
+#settings-panel .settings-account-meta {
+    height: auto;
+    width: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-account-name {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+    content-align: left middle;
+}
+
+#settings-panel .settings-account-handle {
+    height: auto;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel .settings-usage-card {
+    height: auto;
+    padding: 1 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-usage-head {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-usage-text {
+    height: auto;
+    width: 1fr;
+}
+
+#settings-panel .settings-usage-label {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel .settings-usage-reset {
+    height: auto;
+    color: $foreground-muted;
+}
+
+#settings-panel .settings-usage-pct {
+    height: auto;
+    width: auto;
+    color: $foreground;
+    content-align: right middle;
+}
+
+#settings-panel .settings-usage-card ProgressBar {
+    height: 1;
+    width: 1fr;
+    margin-top: 1;
+}
+
+#settings-panel .settings-usage-card ProgressBar Bar {
+    width: 1fr;
+    height: 1;
+}
+
+#settings-panel .settings-usage-card ProgressBar Bar > .bar--bar {
+    color: $primary;
+    background: $primary;
+}
+
+#settings-panel .settings-usage-card ProgressBar Bar > .bar--complete {
+    color: $primary;
+    background: $primary;
+}
+
+#settings-panel .settings-plan-card {
+    height: auto;
+    padding: 1 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-plan-text {
+    height: auto;
+    width: 1fr;
+}
+
+#settings-panel .settings-plan-name {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel .settings-plan-tier {
+    height: auto;
+    color: $foreground-muted;
+}
+
+#settings-panel #settings-plan-action {
+    width: 16;
+    min-width: 16;
+    margin-left: 1;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-stats-row {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#settings-panel .settings-stat-card {
+    height: auto;
+    padding: 1 1;
+    background: $surface-darken-1;
+    border: solid $border;
+    margin-right: 1;
+}
+
+#settings-panel .settings-stat-card:last-child {
+    margin-right: 0;
+}
+
+#settings-panel .settings-stat-value {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#settings-panel .settings-stat-label {
+    height: auto;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#settings-panel .settings-signout-card {
+    height: auto;
+    padding: 1 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-signout-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-signout-copy {
+    height: auto;
+    width: 1fr;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel #settings-signout {
+    width: 16;
+    min-width: 16;
+}
+
 #settings-panel .settings-info {
     height: auto;
     margin-top: 1;
