@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 from datetime import date, timedelta
 
-from textual import on
+from textual import events, on
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, HorizontalScroll, Vertical
+from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Button, Static
 
@@ -16,6 +17,25 @@ DAY_LABELS = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 LABELED_WEEKDAYS = (1, 3, 5)
 # Each cell occupies 2 columns plus a 1-column gap on its trailing edge.
 CELL_STRIDE = 3
+
+
+class HeatCell(Static):
+    """A single heatmap day cell that opens a day-detail modal when clicked."""
+
+    class Clicked(Message):
+        """Posted when a heatmap cell is clicked."""
+
+        def __init__(self, cell: HeatCell) -> None:
+            super().__init__()
+            self.cell = cell
+
+    def __init__(self, cell_date: date, classes: str) -> None:
+        super().__init__("", classes=classes)
+        self.cell_date = cell_date
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.post_message(self.Clicked(self))
 
 
 class SettingsPanel(Widget):
@@ -130,6 +150,7 @@ class SettingsPanel(Widget):
         return "".join(buffer).rstrip()
 
     async def _render_heatmap(self, tokens: dict[date, int]) -> None:
+        self._tokens = tokens
         today = date.today()
         sundays = self._week_sundays(today)
         container = self.query_one("#settings-heatmap", Vertical)
@@ -153,15 +174,15 @@ class SettingsPanel(Widget):
         for weekday in range(7):
             row = Horizontal(classes="heat-row")
             await cell_cols.mount(row)
-            cells = [
-                Static(
-                    "",
-                    classes=self._cell_classes(
-                        sunday + timedelta(days=weekday), tokens, today
-                    ),
+            cells: list[HeatCell] = []
+            for sunday in sundays:
+                cell_date = sunday + timedelta(days=weekday)
+                cells.append(
+                    HeatCell(
+                        cell_date,
+                        classes=self._cell_classes(cell_date, tokens, today),
+                    )
                 )
-                for sunday in sundays
-            ]
             await row.mount(*cells)
 
         legend = self.query_one(".heat-legend", Horizontal)
@@ -178,4 +199,14 @@ class SettingsPanel(Widget):
         if cell_date > today:
             return "heat-cell heat-future"
         return f"heat-cell heat-l{cls._level(tokens.get(cell_date, 0))}"
+
+    @on(HeatCell.Clicked)
+    def _on_heat_cell_clicked(self, message: HeatCell.Clicked) -> None:
+        from ite.ui.reup.modals import DayActivityModal
+
+        cell_date = message.cell.cell_date
+        if cell_date > date.today():
+            return
+        tokens = getattr(self, "_tokens", {})
+        self.app.push_screen(DayActivityModal(cell_date, tokens))
 

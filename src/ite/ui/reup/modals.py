@@ -5,7 +5,7 @@ import random
 import re
 import socket
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Literal
 from urllib.parse import urlparse
@@ -2012,6 +2012,117 @@ class ActivityModal(ModalScreen[None]):
             with Container(classes="usage-summary-panel"):
                 yield Static(self._build_summary(), classes="usage-summary-body")
             with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Close", id="cancel", variant="default")
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class DayActivityModal(ModalScreen[None]):
+    BINDINGS = [("escape", "dismiss", "Dismiss")]
+
+    def __init__(self, cell_date: date, tokens: dict[date, int]) -> None:
+        super().__init__()
+        self._cell_date = cell_date
+        self._tokens = tokens
+
+    @staticmethod
+    def _format_count(value: int) -> str:
+        return f"{value:,}"
+
+    def _get_theme_colors(self) -> dict[str, str]:
+        from ite.ui.reup.app import ReupApp
+
+        app = self.app
+        if isinstance(app, ReupApp):
+            styles = app._render_styles()
+            return {
+                "fg": styles.get("fg", "#f3f4f6"),
+                "muted": styles.get("muted", "#8f949d"),
+                "success": styles.get("success", "#8AD4A1"),
+            }
+        return {"fg": "#f3f4f6", "muted": "#8f949d", "success": "#8AD4A1"}
+
+    def _title(self) -> str:
+        day = self._cell_date
+        return f"{day.strftime('%A, %B')} {day.day}, {day.year}"
+
+    def _build_renderable(self) -> Group:
+        colors = self._get_theme_colors()
+        fg = colors["fg"]
+        muted = colors["muted"]
+        success = colors["success"]
+
+        amount = self._tokens.get(self._cell_date, 0)
+        today = date.today()
+
+        if self._cell_date == today:
+            rel = "today"
+        elif self._cell_date == today - timedelta(days=1):
+            rel = "yesterday"
+        else:
+            rel = self._cell_date.strftime("%A").lower()
+
+        active = [v for d, v in self._tokens.items() if d <= today and v > 0]
+        peak = max(active, default=0)
+        total = sum(active)
+        is_peak = amount > 0 and amount == peak
+
+        sections: list[object] = [
+            Text(self._format_count(amount), style=f"bold {fg}"),
+            Text("tokens used on this day", style=muted),
+            Text(""),
+        ]
+
+        grid = Table.grid(expand=True)
+        grid.add_column(ratio=1)
+        grid.add_column(justify="right")
+        grid.add_row(Text("Day", style=muted), Text(rel, style=fg))
+        if is_peak:
+            grid.add_row(
+                Text("Highlight", style=muted),
+                Text("busiest day", style=f"bold {success}"),
+            )
+        if active and amount > 0 and len(active) > 1:
+            rank = sorted(active, reverse=True).index(amount) + 1
+            grid.add_row(
+                Text("Rank", style=muted),
+                Text(f"#{rank} of {len(active)} active days", style=fg),
+            )
+        if peak > 0:
+            grid.add_row(
+                Text("Share of peak", style=muted),
+                Text(f"{round(amount / peak * 100)}%", style=fg),
+            )
+        if total > 0:
+            grid.add_row(
+                Text("Share of window", style=muted),
+                Text(f"{round(amount / total * 100, 1):.1f}%", style=fg),
+            )
+        sections.append(grid)
+        return Group(*sections)
+
+    def on_mount(self) -> None:
+        self._refresh_body()
+
+    def _refresh_body(self) -> None:
+        try:
+            self.query_one(".usage-summary-body", Static).update(
+                self._build_renderable()
+            )
+        except Exception:
+            return
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal activity-modal"):
+            yield Label(self._title(), classes="modal-title")
+            yield Static(
+                "Token usage recorded for this day.", classes="modal-body"
+            )
+            with Container(classes="usage-summary-panel"):
+                yield Static(self._build_renderable(), classes="usage-summary-body")
+            with Horizontal(classes="modal-actions"):
                 yield Button("Close", id="cancel", variant="default")
 
     @on(Button.Pressed, "#cancel")

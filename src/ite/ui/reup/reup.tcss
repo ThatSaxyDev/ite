@@ -2184,6 +2184,7 @@ ApprovalPickerModal,
 UsageSummaryModal,
 ContextSummaryModal,
 ActivityModal,
+DayActivityModal,
 AttachPickerModal,
 SetupModal,
 VoiceSetupModal {
@@ -2712,6 +2713,17 @@ ActivityModal .modal {
     overflow: hidden;
 }
 
+DayActivityModal .modal {
+    width: 108;
+    height: auto;
+    max-height: 80%;
+    min-height: 14;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
 AttachPickerModal .modal {
     width: 108;
     height: 36;
@@ -2795,6 +2807,7 @@ ApprovalPickerModal .modal-title,
 UsageSummaryModal .modal-title,
 ContextSummaryModal .modal-title,
 ActivityModal .modal-title,
+DayActivityModal .modal-title,
 AttachPickerModal .modal-title,
 RemoteSetupModal .modal-title,
 SetupModal .modal-title,
@@ -2814,6 +2827,7 @@ ApprovalPickerModal .modal-body,
 UsageSummaryModal .modal-body,
 ContextSummaryModal .modal-body,
 ActivityModal .modal-body,
+DayActivityModal .modal-body,
 AttachPickerModal .modal-body,
 RemoteSetupModal .modal-body,
 SetupModal .modal-body,
@@ -2838,6 +2852,7 @@ ApprovalPickerModal .modal-actions,
 UsageSummaryModal .modal-actions,
 ContextSummaryModal .modal-actions,
 ActivityModal .modal-actions,
+DayActivityModal .modal-actions,
 AttachPickerModal .modal-actions,
 RemoteSetupModal .modal-actions,
 SetupModal .modal-actions,
@@ -2873,6 +2888,7 @@ ApprovalPickerModal #cancel,
 UsageSummaryModal #cancel,
 ContextSummaryModal #cancel,
 ActivityModal #cancel,
+DayActivityModal #cancel,
 AttachPickerModal #cancel,
 RemoteSetupModal #cancel,
 SetupModal #cancel,
@@ -2894,6 +2910,7 @@ ApprovalPickerModal #cancel:hover,
 UsageSummaryModal #cancel:hover,
 ContextSummaryModal #cancel:hover,
 ActivityModal #cancel:hover,
+DayActivityModal #cancel:hover,
 AttachPickerModal #cancel:hover,
 RemoteSetupModal #cancel:hover,
 SetupModal #cancel:hover,
@@ -2925,6 +2942,16 @@ ContextSummaryModal .usage-summary-panel {
 ActivityModal .usage-summary-panel {
     height: 1fr;
     min-height: 14;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 1 1;
+}
+
+DayActivityModal .usage-summary-panel {
+    height: auto;
+    min-height: 0;
     margin-top: 1;
     margin-bottom: 1;
     border: solid $border;
