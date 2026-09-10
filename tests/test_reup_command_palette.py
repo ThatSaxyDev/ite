@@ -3141,7 +3141,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn("frontend-design", text)
         self.assertNotIn('"identifier": "animate"', text)
 
-    def test_consume_dropped_path_text_inserts_refs_instead_of_hidden_queue(
+    def test_normalize_dropped_path_message_rewrites_to_refs(
         self,
     ) -> None:
         app = self._app()
@@ -3151,16 +3151,37 @@ class ReupCommandPaletteTests(unittest.TestCase):
             session=SimpleNamespace(pending_attachment_paths=[])
         )
 
-        with (
-            patch.object(
-                app, "_insert_attachment_refs_into_prompt", return_value=1
-            ) as insert_refs,
-            patch.object(app, "post_attachment_note"),
-        ):
-            handled = app._consume_dropped_path_text(str(sample))
+        with patch.object(app, "post_attachment_note"):
+            normalized = app._normalize_dropped_path_message(str(sample))
 
-        self.assertTrue(handled)
-        insert_refs.assert_called_once_with([str(sample)])
+        self.assertEqual(normalized, "@report.pdf")
+        self.assertEqual(app.agent.session.pending_attachment_paths, [str(sample)])
+
+    def test_normalize_dropped_path_message_leaves_prose_untouched(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
+
+        normalized = app._normalize_dropped_path_message(
+            "please look at this image"
+        )
+
+        self.assertEqual(normalized, "please look at this image")
+
+    def test_normalize_dropped_path_message_swallows_unresolvable_path(self) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
+        ghost = self.cwd / "does-not-exist.png"
+
+        with patch.object(app, "post_attachment_note") as note:
+            normalized = app._normalize_dropped_path_message(str(ghost))
+
+        self.assertIsNone(normalized)
+        note.assert_called_once()
+
 
     def test_attach_picker_stages_outside_workspace_paths(self) -> None:
         app = self._app()

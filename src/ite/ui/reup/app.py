@@ -437,6 +437,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._composer_history_draft: str = ""
         self._applying_history_nav: bool = False
         self._suppress_history_reset_once: bool = False
+        self._rewriting_dropped_path: bool = False
         self._voice_recorder: VoiceRecorder | None = None
         self._voice_target: Widget | None = None
         self._voice_busy: bool = False

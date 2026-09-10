@@ -578,6 +578,78 @@ class ComposerMixin:
         return len(refs)
 
 
+    @staticmethod
+    def _is_path_like_probe(candidate: str) -> bool:
+        probe = candidate.strip().strip("\"'")
+        return (
+            probe.startswith(("/", "~"))
+            or probe.lower().startswith("file://")
+            or bool(re.match(r"^[A-Za-z]:[\\/]", probe))
+        )
+
+
+    def _rewrite_trailing_dropped_path(self, text: str) -> tuple[str, list[str]] | None:
+        """Replace a trailing dropped absolute path with an @name ref.
+
+        Terminals such as macOS Terminal.app deliver drag-and-dropped files as
+        typed keystrokes rather than a bracketed paste, so the raw path
+        (leading slash and all) lands directly in the composer and is mistaken
+        for a slash command. This scans the current line for a trailing
+        absolute path that resolves to an existing file and rewrites it to the
+        same @name ref the attachment picker uses. Returns ``(text, paths)`` or
+        ``None`` when there is nothing to rewrite.
+        """
+        if not text:
+            return None
+        newline = text.rfind("\n")
+        head, tail = text[: newline + 1], text[newline + 1 :]
+        if not tail:
+            return None
+        starts = [0] + [index + 1 for index, char in enumerate(tail) if char.isspace()]
+        for start in starts:
+            candidate = tail[start:]
+            if not self._is_path_like_probe(candidate):
+                continue
+            parsed = parse_dropped_file_paths(candidate)
+            if not parsed.paths:
+                continue
+            refs = " ".join(
+                self._attachment_ref_for_path(Path(path)) for path in parsed.paths
+            )
+            return f"{head}{tail[:start]}{refs}", parsed.paths
+        return None
+
+
+    def _normalize_dropped_path_message(self, message: str) -> str | None:
+        """Rewrite a dropped/pasted absolute-path payload into @name refs.
+
+        Terminals deliver drag-and-dropped files as raw absolute paths (e.g.
+        "/Users/…/image.png"), whose leading slash would otherwise be read as a
+        slash command. When the message is purely path-like, stage the files as
+        attachments and return "@name" refs so the drop sends exactly like an
+        @-mention attachment. Returns None to swallow the send when the payload
+        is path-like but no file resolved (errors are posted as notes).
+        """
+        result = parse_dropped_file_paths(message)
+        if result.path_like_count == 0 or result.prose_count > 0:
+            return message
+
+        session = getattr(getattr(self, "agent", None), "session", None)
+        if result.paths and session is not None:
+            pending = list(session.pending_attachment_paths)
+            for path in result.paths:
+                if path not in pending:
+                    pending.append(path)
+            session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
+
+        for error in result.errors:
+            self.post_attachment_note(error)
+
+        if not result.paths:
+            return None
+        return " ".join(self._attachment_ref_for_path(Path(p)) for p in result.paths)
+
+
     def _apply_command_palette_selection(self) -> bool:
         if self._turn_action_payload is not None:
             if not self._turn_action_options:
@@ -1239,7 +1311,30 @@ class ComposerMixin:
         if self._composer_history_index is not None and not self._applying_history_nav:
             self._composer_history_index = None
             self._composer_history_draft = ""
-        self._sync_command_palette(self.query_one("#prompt", TextArea).text)
+        prompt = self.query_one("#prompt", TextArea)
+        if not self._rewriting_dropped_path:
+            rewrite = self._rewrite_trailing_dropped_path(prompt.text)
+            if rewrite is not None:
+                updated, paths = rewrite
+                self._rewriting_dropped_path = True
+                try:
+                    prompt.load_text(updated)
+                    if hasattr(prompt, "action_cursor_document_end"):
+                        prompt.action_cursor_document_end()
+                    if self.agent and self.agent.session:
+                        pending = list(self.agent.session.pending_attachment_paths)
+                        for path in paths:
+                            if path not in pending:
+                                pending.append(path)
+                        self.agent.session.pending_attachment_paths = pending[
+                            :MAX_ATTACHMENTS
+                        ]
+                finally:
+                    self._rewriting_dropped_path = False
+                self._sync_command_palette(updated)
+                self._resize_composer_for_prompt()
+                return
+        self._sync_command_palette(prompt.text)
         self._resize_composer_for_prompt()
 
 
@@ -1781,6 +1876,10 @@ class ComposerMixin:
             return
         if self._is_turn_running and await self._send_active_shell_input(message):
             return
+        normalized = self._normalize_dropped_path_message(message)
+        if normalized is None:
+            return
+        message = normalized
         attachments: list[str] = []
         if self.agent and self.agent.session:
             attachments = list(self.agent.session.pending_attachment_paths)
@@ -1798,8 +1897,6 @@ class ComposerMixin:
                 return
             return
 
-        if self._consume_dropped_path_text(message):
-            return
         self._clear_composer_after_submit()
         await self._dispatch_payload(payload)
 

@@ -186,47 +186,100 @@ class PromptAreaPasteInterceptionTests(unittest.TestCase):
         self.assertEqual(composer, "plain pasted sentence")
 
 
-class ConsumeDroppedPathTextTests(unittest.TestCase):
+class NormalizeDroppedPathMessageTests(unittest.TestCase):
     def _make_app(self):
         app = SimpleNamespace()
         app.agent = SimpleNamespace(
             session=SimpleNamespace(pending_attachment_paths=[])
         )
-        app.inserted: list[list[str]] = []
         app.notes: list[str] = []
 
-        from ite.ui.reup._panels import PanelsMixin
+        from ite.ui.reup._composer import ComposerMixin
 
-        app._insert_attachment_refs_into_prompt = (
-            lambda paths: app.inserted.append(list(paths)) or 1
-        )
         app.post_attachment_note = app.notes.append
-        app.handler = lambda message: PanelsMixin._consume_dropped_path_text(
+        app._attachment_ref_for_path = lambda path: ComposerMixin._attachment_ref_for_path(
+            app, path
+        )
+        app.normalize = lambda message: ComposerMixin._normalize_dropped_path_message(
             app, message
         )
         return app
 
-    def test_file_uri_message_is_consumed(self) -> None:
+    def test_file_uri_message_is_normalized(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sample = Path(tmp) / "shot.png"
             sample.write_bytes(b"x")
             app = self._make_app()
-            handled = app.handler(f"file://{sample}")
-            self.assertTrue(handled)
-            self.assertEqual(app.inserted, [[str(sample)]])
+            normalized = app.normalize(f"file://{sample}")
+            self.assertEqual(normalized, "@shot.png")
             self.assertEqual(app.agent.session.pending_attachment_paths, [str(sample)])
 
-    def test_prose_message_is_not_consumed(self) -> None:
+    def test_prose_message_is_not_normalized(self) -> None:
         app = self._make_app()
-        self.assertFalse(app.handler("tell me about testing"))
-        self.assertEqual(app.inserted, [])
+        self.assertEqual(app.normalize("tell me about testing"), "tell me about testing")
+        self.assertEqual(app.agent.session.pending_attachment_paths, [])
 
     def test_invalid_path_consumed_with_note(self) -> None:
         app = self._make_app()
-        handled = app.handler("/nonexistent/path/ghost.png")
-        self.assertTrue(handled)
-        self.assertEqual(app.inserted, [])
+        normalized = app.normalize("/nonexistent/path/ghost.png")
+        self.assertIsNone(normalized)
         self.assertTrue(app.notes)
+
+
+class RewriteTrailingDroppedPathTests(unittest.TestCase):
+    def _make_app(self):
+        app = SimpleNamespace()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
+        from ite.ui.reup._composer import ComposerMixin
+
+        app._attachment_ref_for_path = lambda path: ComposerMixin._attachment_ref_for_path(
+            app, path
+        )
+        app._is_path_like_probe = (
+            lambda candidate: ComposerMixin._is_path_like_probe(candidate)
+        )
+        app.rewrite = lambda text: ComposerMixin._rewrite_trailing_dropped_path(
+            app, text
+        )
+        return app
+
+    def test_trailing_absolute_path_becomes_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "fix.png"
+            sample.write_bytes(b"x")
+            app = self._make_app()
+            rewrite = app.rewrite(str(sample))
+            self.assertIsNotNone(rewrite)
+            updated, paths = rewrite
+            self.assertEqual(updated, "@fix.png")
+            self.assertEqual(paths, [str(sample)])
+
+    def test_spaced_filename_is_quoted_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "my shot.png"
+            sample.write_bytes(b"x")
+            app = self._make_app()
+            updated, paths = app.rewrite(str(sample))
+            self.assertEqual(updated, '@"my shot.png"')
+            self.assertEqual(paths, [str(sample)])
+
+    def test_prose_before_path_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "fix.png"
+            sample.write_bytes(b"x")
+            app = self._make_app()
+            updated, _ = app.rewrite(f"look at this {sample}")
+            self.assertEqual(updated, "look at this @fix.png")
+
+    def test_partial_path_is_left_alone(self) -> None:
+        app = self._make_app()
+        self.assertIsNone(app.rewrite("/Users/kiishidavid/Desktop/fi"))
+
+    def test_slash_command_is_left_alone(self) -> None:
+        app = self._make_app()
+        self.assertIsNone(app.rewrite("/help"))
 
 
 if __name__ == "__main__":

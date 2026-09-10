@@ -30,7 +30,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
-from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, parse_dropped_file_paths, resolve_inline_attachment_refs, suggest_inline_attachment_paths
+from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
@@ -827,27 +827,6 @@ class PanelsMixin:
                     pending.append(path)
             self.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
         self._insert_attachment_refs_into_prompt(paths)
-
-
-    def _consume_dropped_path_text(self, message: str) -> bool:
-        if not self.agent:
-            return False
-        result = parse_dropped_file_paths(message)
-        if result.path_like_count == 0 or result.prose_count > 0:
-            return False
-
-        if result.paths and self.agent.session:
-            pending = list(self.agent.session.pending_attachment_paths)
-            for path in result.paths:
-                if path not in pending:
-                    pending.append(path)
-            self.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
-
-        if result.paths:
-            self._insert_attachment_refs_into_prompt(result.paths)
-        for error in result.errors:
-            self.post_attachment_note(error)
-        return True
 
 
     def _empty_state_thread_count(self) -> int:
