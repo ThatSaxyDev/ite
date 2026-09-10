@@ -588,16 +588,38 @@ class ComposerMixin:
         )
 
 
+    @staticmethod
+    def _drop_candidate_starts(tail: str) -> list[int]:
+        """Indexes in ``tail`` where a dropped path could begin.
+
+        Covers the start of the line, each whitespace-delimited token, and any
+        path boundary embedded *inside* a token (``/``, ``~``, ``file://``,
+        drive letters). The latter is what a path looks like when the terminal
+        types the drop straight into the caret after an existing word.
+        """
+        starts = {0}
+        lowered = tail.lower()
+        for index, char in enumerate(tail):
+            if char.isspace():
+                starts.add(index + 1)
+            if char in "/~" or lowered.startswith("file://", index):
+                starts.add(index)
+            elif re.match(r"[A-Za-z]:[\\/]", tail[index : index + 3]):
+                starts.add(index)
+        return sorted(start for start in starts if start < len(tail))
+
+
     def _rewrite_trailing_dropped_path(self, text: str) -> tuple[str, list[str]] | None:
         """Replace a trailing dropped absolute path with an @name ref.
 
         Terminals such as macOS Terminal.app deliver drag-and-dropped files as
         typed keystrokes rather than a bracketed paste, so the raw path
         (leading slash and all) lands directly in the composer and is mistaken
-        for a slash command. This scans the current line for a trailing
-        absolute path that resolves to an existing file and rewrites it to the
-        same @name ref the attachment picker uses. Returns ``(text, paths)`` or
-        ``None`` when there is nothing to rewrite.
+        for a slash command. Because the path is typed at the caret, it can be
+        glued to whatever the user last typed (``look at this/Users/…``); when
+        that happens we insert a separator space so the drop becomes a clean
+        ``@name`` token. Returns ``(text, paths)`` or ``None`` when there is
+        nothing to rewrite.
         """
         if not text:
             return None
@@ -605,8 +627,7 @@ class ComposerMixin:
         head, tail = text[: newline + 1], text[newline + 1 :]
         if not tail:
             return None
-        starts = [0] + [index + 1 for index, char in enumerate(tail) if char.isspace()]
-        for start in starts:
+        for start in self._drop_candidate_starts(tail):
             candidate = tail[start:]
             if not self._is_path_like_probe(candidate):
                 continue
@@ -616,7 +637,9 @@ class ComposerMixin:
             refs = " ".join(
                 self._attachment_ref_for_path(Path(path)) for path in parsed.paths
             )
-            return f"{head}{tail[:start]}{refs}", parsed.paths
+            prefix = tail[:start]
+            separator = "" if not prefix or prefix[-1].isspace() else " "
+            return f"{head}{prefix}{separator}{refs}", parsed.paths
         return None
 
 

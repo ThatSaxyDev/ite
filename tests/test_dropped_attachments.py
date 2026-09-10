@@ -240,6 +240,9 @@ class RewriteTrailingDroppedPathTests(unittest.TestCase):
         app._is_path_like_probe = (
             lambda candidate: ComposerMixin._is_path_like_probe(candidate)
         )
+        app._drop_candidate_starts = (
+            lambda tail: ComposerMixin._drop_candidate_starts(tail)
+        )
         app.rewrite = lambda text: ComposerMixin._rewrite_trailing_dropped_path(
             app, text
         )
@@ -272,6 +275,23 @@ class RewriteTrailingDroppedPathTests(unittest.TestCase):
             app = self._make_app()
             updated, _ = app.rewrite(f"look at this {sample}")
             self.assertEqual(updated, "look at this @fix.png")
+
+    def test_path_glued_to_previous_word_gets_separator(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "fix.png"
+            sample.write_bytes(b"x")
+            app = self._make_app()
+            updated, paths = app.rewrite(f"i see this{sample}")
+            self.assertEqual(updated, "i see this @fix.png")
+            self.assertEqual(paths, [str(sample)])
+
+    def test_glued_path_with_spaces_still_quotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sample = Path(tmp) / "my shot.png"
+            sample.write_bytes(b"x")
+            app = self._make_app()
+            updated, _ = app.rewrite(f"look{sample}")
+            self.assertEqual(updated, 'look @"my shot.png"')
 
     def test_partial_path_is_left_alone(self) -> None:
         app = self._make_app()
