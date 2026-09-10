@@ -3174,13 +3174,29 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app.agent = SimpleNamespace(
             session=SimpleNamespace(pending_attachment_paths=[])
         )
-        ghost = self.cwd / "does-not-exist.png"
 
         with patch.object(app, "post_attachment_note") as note:
-            normalized = app._normalize_dropped_path_message(str(ghost))
+            normalized = app._normalize_dropped_path_message(
+                "~/does-not-exist.png"
+            )
 
         self.assertIsNone(normalized)
         note.assert_called_once()
+
+    def test_normalize_dropped_path_message_leaves_slash_command_untouched(
+        self,
+    ) -> None:
+        app = self._app()
+        app.agent = SimpleNamespace(
+            session=SimpleNamespace(pending_attachment_paths=[])
+        )
+
+        with patch.object(app, "post_attachment_note") as note:
+            normalized = app._normalize_dropped_path_message("/plan")
+
+        self.assertEqual(normalized, "/plan")
+        note.assert_not_called()
+        self.assertEqual(app.agent.session.pending_attachment_paths, [])
 
 
     def test_attach_picker_stages_outside_workspace_paths(self) -> None:
@@ -4166,6 +4182,28 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertFalse(
             app._live_shell_call_state["call_prompt"].metadata["awaiting_input"]
         )
+
+    def test_handle_send_dispatches_slash_command_instead_of_swallowing(self) -> None:
+        app = self._app()
+
+        class DummyPrompt:
+            def __init__(self, text: str) -> None:
+                self.text = text
+
+        prompt = DummyPrompt("/plan")
+
+        async def scenario() -> None:
+            with (
+                patch.object(app, "query_one", return_value=prompt),
+                patch.object(app, "_clear_composer_after_submit"),
+                patch.object(app, "_dispatch_payload", new=AsyncMock()) as dispatch,
+            ):
+                await app.handle_send()
+                return dispatch
+
+        dispatch = asyncio.run(scenario())
+        dispatch.assert_awaited_once()
+        self.assertEqual(dispatch.call_args.args[0]["message"], "/plan")
 
     def test_remote_prompt_routes_text_to_waiting_shell(self) -> None:
         app = self._app()

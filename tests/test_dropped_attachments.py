@@ -221,9 +221,16 @@ class NormalizeDroppedPathMessageTests(unittest.TestCase):
 
     def test_invalid_path_consumed_with_note(self) -> None:
         app = self._make_app()
-        normalized = app.normalize("/nonexistent/path/ghost.png")
+        normalized = app.normalize("~/nonexistent/path/ghost.png")
         self.assertIsNone(normalized)
         self.assertTrue(app.notes)
+
+    def test_slash_command_is_left_untouched(self) -> None:
+        app = self._make_app()
+        normalized = app.normalize("/plan")
+        self.assertEqual(normalized, "/plan")
+        self.assertEqual(app.agent.session.pending_attachment_paths, [])
+        self.assertEqual(app.notes, [])
 
 
 class RewriteTrailingDroppedPathTests(unittest.TestCase):

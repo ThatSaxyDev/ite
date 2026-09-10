@@ -651,10 +651,19 @@ class ComposerMixin:
         slash command. When the message is purely path-like, stage the files as
         attachments and return "@name" refs so the drop sends exactly like an
         @-mention attachment. Returns None to swallow the send when the payload
-        is path-like but no file resolved (errors are posted as notes).
+        is path-like but no file resolved (errors are posted as notes), except
+        for "/"-prefixed payloads — those are treated as slash commands and
+        left untouched.
         """
         result = parse_dropped_file_paths(message)
         if result.path_like_count == 0 or result.prose_count > 0:
+            return message
+
+        # A "/"-prefixed payload that resolves to no existing file is a slash
+        # command (e.g. "/plan"), not a dropped attachment. Leave it untouched
+        # so it dispatches to run_command instead of being swallowed as a
+        # broken drop.
+        if not result.paths and message.startswith("/"):
             return message
 
         session = getattr(getattr(self, "agent", None), "session", None)
