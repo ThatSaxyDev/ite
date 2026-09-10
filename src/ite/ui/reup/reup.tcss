@@ -2683,9 +2683,9 @@ ApprovalPickerModal .approval-picker-modal {
 
 ThinkingLevelModal .thinking-level-modal {
     width: 72;
-    height: auto;
+    height: 22;
     max-height: 86%;
-    min-height: 12;
+    min-height: 16;
     border: heavy $border;
     background: $surface;
     padding: 1 2;
@@ -2803,6 +2803,7 @@ BranchPickerModal .modal-list,
 ModelPickerModal .modal-list,
 ThemePickerModal .modal-list,
 ApprovalPickerModal .modal-list,
+ThinkingLevelModal .modal-list,
 ActivityModal .modal-list,
 AttachPickerModal .modal-list {
     height: 1fr;
@@ -2821,6 +2822,7 @@ BranchPickerModal .modal-title,
 ModelPickerModal .modal-title,
 ThemePickerModal .modal-title,
 ApprovalPickerModal .modal-title,
+ThinkingLevelModal .modal-title,
 UsageSummaryModal .modal-title,
 ContextSummaryModal .modal-title,
 ActivityModal .modal-title,
@@ -2841,6 +2843,7 @@ BranchPickerModal .modal-body,
 ModelPickerModal .modal-body,
 ThemePickerModal .modal-body,
 ApprovalPickerModal .modal-body,
+ThinkingLevelModal .modal-body,
 UsageSummaryModal .modal-body,
 ContextSummaryModal .modal-body,
 ActivityModal .modal-body,
@@ -2866,6 +2869,7 @@ BranchPickerModal .modal-actions,
 ModelPickerModal .modal-actions,
 ThemePickerModal .modal-actions,
 ApprovalPickerModal .modal-actions,
+ThinkingLevelModal .modal-actions,
 UsageSummaryModal .modal-actions,
 ContextSummaryModal .modal-actions,
 ActivityModal .modal-actions,
@@ -2902,6 +2906,7 @@ BranchPickerModal #cancel,
 ModelPickerModal #cancel,
 ThemePickerModal #cancel,
 ApprovalPickerModal #cancel,
+ThinkingLevelModal #cancel,
 UsageSummaryModal #cancel,
 ContextSummaryModal #cancel,
 ActivityModal #cancel,
@@ -2924,6 +2929,7 @@ BranchPickerModal #cancel:hover,
 ModelPickerModal #cancel:hover,
 ThemePickerModal #cancel:hover,
 ApprovalPickerModal #cancel:hover,
+ThinkingLevelModal #cancel:hover,
 UsageSummaryModal #cancel:hover,
 ContextSummaryModal #cancel:hover,
 ActivityModal #cancel:hover,
@@ -3765,7 +3771,8 @@ ModelPickerModal #delete:hover {
 }
 
 ThemePickerModal #select,
-ApprovalPickerModal #select {
+ApprovalPickerModal #select,
+ThinkingLevelModal #select {
     width: 14;
     min-width: 14;
     text-style: bold;
@@ -3775,7 +3782,8 @@ ApprovalPickerModal #select {
 }
 
 ThemePickerModal #select:hover,
-ApprovalPickerModal #select:hover {
+ApprovalPickerModal #select:hover,
+ThinkingLevelModal #select:hover {
     background: $primary-lighten-1;
     color: $button-color-foreground;
 }

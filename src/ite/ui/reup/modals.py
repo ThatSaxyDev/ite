@@ -1519,12 +1519,6 @@ class ThinkingLevelModal(ModalScreen[str | None]):
             with Horizontal(classes="modal-actions resume-actions"):
                 yield Button("Select", id="select", variant="primary")
                 yield Button("Cancel", id="cancel", variant="default")
-            yield Static(
-                "↑/↓ navigate, Enter to select, Esc to go back",
-                classes="modal-footer resume-footer",
-                id="thinking-level-footer",
-            )
-
     async def on_mount(self) -> None:
         table = self.query_one("#thinking-levels", DataTable)
         table.add_columns("Level", "Description", "Current")
