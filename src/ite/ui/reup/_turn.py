@@ -959,6 +959,10 @@ class TurnMixin:
             await self._open_attach_picker_from_meta()
             return
 
+        if command == "/models":
+            await self._open_model_picker_from_meta()
+            return
+
         if command == "/cloud":
             subcommand = args[0].lower() if args else "status"
             if subcommand in {"status", "show"}:
@@ -1110,7 +1114,6 @@ class TurnMixin:
         if command in {
             "/branch",
             "/attach",
-            "/model",
             "/rename",
             "/theme",
             "/approval",

@@ -1,4 +1,4 @@
-"""Model/config commands: /model, /config, /approval, /theme."""
+"""Model/config commands: /models, /config, /approval, /theme."""
 
 import os
 import sys
@@ -76,51 +76,6 @@ def _pick_approval_mode(
         return _pick_approval_with_curses(modes, descriptions, current_mode)
     except Exception:
         return None
-
-
-async def cmd_model(ctx: CommandContext, args: list[str]) -> None:
-    if args:
-        old_model = ctx.config.model_name
-        new_model = args[0]
-        ctx.config.model_name = new_model
-        title = Text.assemble(("🤖 ", ""), ("Model Changed", "bold bright_white"))
-        ctx.console.print()
-        ctx.console.print(
-            Panel(
-                Text.assemble(
-                    (old_model, "dim strikethrough"),
-                    (" → ", "muted"),
-                    (new_model, "bold cyan"),
-                    "\n\n",
-                    ("Model changed successfully", "green"),
-                ),
-                title=title,
-                title_align="left",
-                border_style="green",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
-        )
-    else:
-        title = Text.assemble(("🤖 ", ""), ("Model", "bold bright_white"))
-        ctx.console.print()
-        ctx.console.print(
-            Panel(
-                Text.assemble(
-                    ("Active model: ", "code"),
-                    (ctx.config.model_name, "bold cyan"),
-                    "\n\n",
-                    ("Use ", "code"),
-                    ("/model <name>", "green bold"),
-                    (" to change the model", "code"),
-                ),
-                title=title,
-                title_align="left",
-                border_style="cyan",
-                box=box.ROUNDED,
-                padding=(1, 2),
-            )
-        )
 
 
 async def cmd_config(ctx: CommandContext, args: list[str]) -> None:
@@ -316,10 +271,32 @@ async def cmd_theme(ctx: CommandContext, args: list[str]) -> None:
     )
 
 
+async def cmd_models(ctx: CommandContext, args: list[str]) -> None:
+    open_model_picker = getattr(ctx.tui, "_open_model_picker_from_meta", None)
+    if callable(open_model_picker):
+        await open_model_picker()
+        return
+
+    title = Text.assemble(("🤖 ", ""), ("Models", "bold bright_white"))
+    ctx.console.print()
+    ctx.console.print(
+        Panel(
+            Text.assemble(
+                ("Model selection is available in the re-up UI.", "code"),
+            ),
+            title=title,
+            title_align="left",
+            border_style="cyan",
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+
 def register(registry: CommandRegistry) -> None:
     registry.register(Command(
-        name="/model", description="Show or change the model",
-        handler=cmd_model,
+        name="/models", description="Choose a model for this session",
+        handler=cmd_models,
     ))
     registry.register(Command(
         name="/config", description="Show current configuration",
