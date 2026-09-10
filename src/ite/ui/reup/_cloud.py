@@ -277,6 +277,13 @@ class CloudMixin:
                     return False
         return detect_vision_from_model_name(model_name)
 
+    def _is_deepseek_model(self) -> bool:
+        """Whether the active bundled model supports DeepSeek reasoning levels."""
+        if not self._is_bundled_model():
+            return False
+        model = str(self.config.model_name or "").strip().lower()
+        return "deepseek-v4" in model
+
 
     def _apply_cloud_auth_status(
         self,
@@ -1646,6 +1653,7 @@ class CloudMixin:
             )
             session_config.model.source_kind = self.config.model.source_kind
             session_config.model.supports_vision = self.config.model.supports_vision
+            session_config.model.reasoning_effort = self.config.model.reasoning_effort
         if not getattr(self.agent.session, "client", None):
             return
         try:

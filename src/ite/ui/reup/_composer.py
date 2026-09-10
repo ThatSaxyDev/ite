@@ -68,8 +68,8 @@ from .widgets.remote_bridge import RemoteBridgeCard, RemoteBridgeField, UpdateCo
 from .widgets.system_commands import ReupSystemCommandsProvider
 from .adapters.tui_adapter import ReupTUIAdapter
 from .change_views import change_entry_label, build_change_card_body, build_change_card_payload
-from .model_labels import bundled_model_display_label
-from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
+from .model_labels import bundled_model_display_label, reasoning_effort_display_label
+from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, ThinkingLevelModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
 
 _VOICE_TRANSCRIPTION_MAX_RETRIES = 2
 
@@ -205,6 +205,7 @@ class ComposerMixin:
             text,
             attach_hitbox,
             model_hitbox,
+            reasoning_hitbox,
             branch_hitbox,
             plan_hitbox,
             usage_hitbox,
@@ -222,9 +223,15 @@ class ComposerMixin:
             show_usage=self._is_bundled_model(),
             show_context=model_display_name != "select model",
             available_width=available_width,
+            reasoning_label=(
+                reasoning_effort_display_label(self.config.model.reasoning_effort)
+                if self._is_deepseek_model()
+                else None
+            ),
         )
         self._composer_attach_hitbox = attach_hitbox
         self._composer_model_hitbox = model_hitbox
+        self._composer_reasoning_hitbox = reasoning_hitbox
         self._composer_branch_hitbox = branch_hitbox
         self._composer_plan_hitbox = plan_hitbox
         self._composer_usage_hitbox = usage_hitbox
@@ -741,6 +748,7 @@ class ComposerMixin:
     def on_composer_meta_line_click(self, event: events.Click) -> None:
         attach_start, attach_end = self._composer_attach_hitbox
         model_start, model_end = self._composer_model_hitbox
+        reasoning_start, reasoning_end = self._composer_reasoning_hitbox
         branch_start, branch_end = self._composer_branch_hitbox
         usage_hitbox = self._composer_usage_hitbox
         usage_start = usage_hitbox[0] if usage_hitbox else -1
@@ -753,6 +761,10 @@ class ComposerMixin:
             return
         if model_start <= event.x < model_end:
             self.run_worker(self._open_model_picker_from_meta(), exclusive=False)
+            event.stop()
+            return
+        if reasoning_start < reasoning_end and reasoning_start <= event.x < reasoning_end:
+            self.run_worker(self._open_thinking_level_modal_from_meta(), exclusive=False)
             event.stop()
             return
         if branch_start <= event.x < branch_end:
@@ -826,6 +838,31 @@ class ComposerMixin:
         session = self.agent.session
         target = "off" if session.plan_mode_enabled else "on"
         await self._run_plan_command_native([target])
+
+    async def _open_thinking_level_modal_from_meta(self) -> None:
+        if not self._is_deepseek_model():
+            return
+        current = str(self.config.model.reasoning_effort or "").strip()
+        model_label = self._model_display_name()
+        modal = ThinkingLevelModal(current, model_label=model_label)
+        result = await self._open_modal(modal)
+        if result is None or result == current:
+            return
+        save_system_config(
+            api_key=self.config.api_key or "",
+            base_url=self.config.base_url or "",
+            model_name=self.config.model_name,
+            context_window=self.config.model.context_window,
+            context_window_source=self.config.model.context_window_source,
+            source_kind=self.config.model.source_kind,
+            reasoning_effort=result,
+            cloud_auth_enabled=self.config.cloud_auth_enabled,
+            cloud_api_url=self.config.cloud_api_url,
+            cloud_client_id=self.config.cloud_client_id,
+        )
+        self.config.model.reasoning_effort = result
+        self._update_composer_meta_line()
+        await self._reset_active_provider_client()
 
 
     def action_command_palette(self) -> None:

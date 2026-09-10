@@ -102,6 +102,34 @@ class LLMClient:
         base_url = str(getattr(self.config, "base_url", "") or "").strip().lower()
         return "minimax" in model_name or "minimax" in base_url
 
+    def _reasoning_effort_value(self) -> str:
+        """Normalize the configured DeepSeek reasoning effort to a wire value.
+
+        DeepSeek accepts `none` (disables thinking), `low`, `high`, and `max`.
+        `minimal` maps to `low`; `medium`/`xhigh` map to `high`.
+        """
+        effort = str(
+            getattr(self.config.model, "reasoning_effort", None) or ""
+        ).strip().lower()
+        if effort in {"none", "low", "max"}:
+            return effort
+        if effort == "minimal":
+            return "low"
+        return "low"
+
+    def _deepseek_reasoning_extra_body(self) -> dict[str, Any] | None:
+        """Build DeepSeek reasoning params for BYOK requests.
+
+        `reasoning_effort` controls both the thinking-mode toggle and the
+        effort level: `none` disables thinking; `low`/`high`/`max` enable it.
+        Returns None when the active model/provider doesn't support them.
+        """
+        model_name = str(self.config.model_name or "").strip().lower()
+        base_url = str(self.config.base_url or "").strip().lower()
+        if "deepseek-v4" not in model_name and "api.deepseek.com" not in base_url:
+            return None
+        return {"reasoning_effort": self._reasoning_effort_value()}
+
     def _current_model_has_saved_profile(self) -> bool:
         source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
         if source_kind == "bundled":
@@ -991,6 +1019,12 @@ class LLMClient:
                 kwargs["extra_body"] = {}
             kwargs["extra_body"]["reasoning_split"] = True
 
+        deepseek_extra = self._deepseek_reasoning_extra_body()
+        if deepseek_extra:
+            if "extra_body" not in kwargs:
+                kwargs["extra_body"] = {}
+            kwargs["extra_body"].update(deepseek_extra)
+
         for attempt in range(self._max_retries + 1):
             try:
                 if stream:
@@ -1181,6 +1215,9 @@ class LLMClient:
             request_payload["top_p"] = 0.95
             request_payload["top_k"] = 64
         
+        if "deepseek-v4" in model_name:
+            request_payload["reasoningEffort"] = self._reasoning_effort_value()
+
         if visual_budget:
             request_payload["visual_token_budget"] = visual_budget
 

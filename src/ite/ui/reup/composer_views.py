@@ -31,8 +31,10 @@ def composer_meta_text(
     show_usage: bool = True,
     show_context: bool = True,
     available_width: int | None = None,
+    reasoning_label: str | None = None,
 ) -> tuple[
     Text,
+    tuple[int, int],
     tuple[int, int],
     tuple[int, int],
     tuple[int, int],
@@ -118,6 +120,7 @@ def composer_meta_text(
         tuple[int, int],
         tuple[int, int],
         tuple[int, int],
+        tuple[int, int],
         tuple[int, int] | None,
         tuple[int, int],
         tuple[int, int],
@@ -135,6 +138,17 @@ def composer_meta_text(
                     "model",
                     [(display_model, f"bold {fg}"), (" ▾", f"bold {muted}")],
                     "model",
+                )
+            )
+        if include_model and reasoning_label:
+            segments.append(
+                (
+                    "reasoning",
+                    [
+                        (reasoning_label, f"bold {fg}"),
+                        (" ▾", f"bold {muted}"),
+                    ],
+                    "reasoning",
                 )
             )
         segments.append(
@@ -196,6 +210,7 @@ def composer_meta_text(
         hitboxes: dict[str, tuple[int, int]] = {
             "attach": (0, 0),
             "model": (0, 0),
+            "reasoning": (0, 0),
             "branch": (0, 0),
             "plan": (0, 0),
             "context": (0, 0),
@@ -221,6 +236,7 @@ def composer_meta_text(
             text,
             hitboxes["attach"],
             hitboxes["model"],
+            hitboxes["reasoning"],
             hitboxes["branch"],
             hitboxes["plan"],
             usage_hitbox if show_usage and include_usage else None,

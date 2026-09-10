@@ -2181,6 +2181,7 @@ BranchPickerModal,
 ModelPickerModal,
 ThemePickerModal,
 ApprovalPickerModal,
+ThinkingLevelModal,
 UsageSummaryModal,
 ContextSummaryModal,
 ActivityModal,
@@ -2678,6 +2679,22 @@ ApprovalPickerModal .approval-picker-modal {
     background: $surface;
     padding: 1 2;
     overflow: hidden;
+}
+
+ThinkingLevelModal .thinking-level-modal {
+    width: 72;
+    height: auto;
+    max-height: 86%;
+    min-height: 12;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ThinkingLevelModal .modal-footer {
+    margin-top: 1;
+    color: $foreground-muted;
 }
 
 UsageSummaryModal .modal {
@@ -3561,6 +3578,7 @@ SessionResumeModal .resume-table,
 BranchPickerModal .resume-table,
 ModelPickerModal .resume-table,
 ThemePickerModal .resume-table,
+ThinkingLevelModal .resume-table,
 AttachPickerModal .resume-table {
     height: 1fr;
     background: $surface-darken-1;
@@ -3572,6 +3590,7 @@ SessionResumeModal .resume-table > .datatable--header,
 BranchPickerModal .resume-table > .datatable--header,
 ModelPickerModal .resume-table > .datatable--header,
 ThemePickerModal .resume-table > .datatable--header,
+ThinkingLevelModal .resume-table > .datatable--header,
 AttachPickerModal .resume-table > .datatable--header {
     background: $panel;
     color: $foreground;
@@ -3581,6 +3600,7 @@ SessionResumeModal .resume-table > .datatable--even-row,
 BranchPickerModal .resume-table > .datatable--even-row,
 ModelPickerModal .resume-table > .datatable--even-row,
 ThemePickerModal .resume-table > .datatable--even-row,
+ThinkingLevelModal .resume-table > .datatable--even-row,
 AttachPickerModal .resume-table > .datatable--even-row {
     background: $surface;
 }
@@ -3589,6 +3609,7 @@ SessionResumeModal .resume-table > .datatable--odd-row,
 BranchPickerModal .resume-table > .datatable--odd-row,
 ModelPickerModal .resume-table > .datatable--odd-row,
 ThemePickerModal .resume-table > .datatable--odd-row,
+ThinkingLevelModal .resume-table > .datatable--odd-row,
 AttachPickerModal .resume-table > .datatable--odd-row {
     background: $surface-darken-1;
 }
@@ -3601,6 +3622,8 @@ ModelPickerModal .resume-table > .datatable--cursor,
 ModelPickerModal .resume-table:focus > .datatable--cursor,
 ThemePickerModal .resume-table > .datatable--cursor,
 ThemePickerModal .resume-table:focus > .datatable--cursor,
+ThinkingLevelModal .resume-table > .datatable--cursor,
+ThinkingLevelModal .resume-table:focus > .datatable--cursor,
 AttachPickerModal .resume-table > .datatable--cursor,
 AttachPickerModal .resume-table:focus > .datatable--cursor {
     background: $primary-muted;
@@ -3611,6 +3634,7 @@ SessionResumeModal .resume-table > .datatable--header-cursor,
 BranchPickerModal .resume-table > .datatable--header-cursor,
 ModelPickerModal .resume-table > .datatable--header-cursor,
 ThemePickerModal .resume-table > .datatable--header-cursor,
+ThinkingLevelModal .resume-table > .datatable--header-cursor,
 AttachPickerModal .resume-table > .datatable--header-cursor {
     background: $primary;
     color: $button-color-foreground;

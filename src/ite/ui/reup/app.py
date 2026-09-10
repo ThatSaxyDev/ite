@@ -509,6 +509,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._plan_question_recommended_index: int | None = None
         self._composer_attach_hitbox: tuple[int, int] = (0, 0)
         self._composer_model_hitbox: tuple[int, int] = (0, 0)
+        self._composer_reasoning_hitbox: tuple[int, int] = (0, 0)
         self._composer_plan_hitbox: tuple[int, int] = (0, 0)
         self._composer_branch_hitbox: tuple[int, int] = (0, 0)
         self._composer_usage_hitbox: tuple[int, int] | None = None

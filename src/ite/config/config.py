@@ -32,6 +32,7 @@ class ModelConfig(BaseModel):
     context_window_source: str | None = None
     source_kind: str | None = None
     supports_vision: bool = True
+    reasoning_effort: str | None = None
 
 
 class ShellEnvironmentPolicy(BaseModel):

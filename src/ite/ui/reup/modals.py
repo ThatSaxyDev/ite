@@ -49,7 +49,12 @@ from ite.model_metadata import (
     format_context_window_label,
     parse_openrouter_model_metadata,
 )
-from ite.ui.reup.model_labels import bundled_model_display_label
+from ite.ui.reup.model_labels import (
+    DEFAULT_REASONING_EFFORT,
+    REASONING_LEVELS,
+    bundled_model_display_label,
+    reasoning_effort_display_label,
+)
 
 SETUP_PROVIDER_OLLAMA = "ollama"
 SETUP_PROVIDER_OPENROUTER = "openrouter"
@@ -1477,6 +1482,88 @@ class ThemePickerModal(ModalScreen[str | None]):
         row = table.cursor_row
         if 0 <= row < len(self._theme_names):
             self.dismiss(self._theme_names[row])
+
+    @on(Button.Pressed, "#cancel")
+    def on_cancel_pressed(self, _event: Button.Pressed) -> None:
+        self.dismiss(None)
+
+
+class ThinkingLevelModal(ModalScreen[str | None]):
+    BINDINGS = [
+        ("escape", "dismiss", "Dismiss"),
+        ("up", "cursor_up", "Up"),
+        ("down", "cursor_down", "Down"),
+        ("enter", "select", "Select"),
+    ]
+
+    def __init__(self, current: str, *, model_label: str) -> None:
+        super().__init__()
+        self._current = str(current or "").strip().lower() or DEFAULT_REASONING_EFFORT
+        self._model_label = str(model_label or "Model").strip()
+
+    def compose(self) -> ComposeResult:
+        with Container(classes="modal resume-modal thinking-level-modal"):
+            yield Label(
+                f"Thinking Level for {self._model_label}",
+                classes="modal-title resume-title",
+            )
+            yield Static(
+                "Choose how much the model reasons before responding.",
+                classes="modal-body resume-body",
+                id="thinking-level-help",
+            )
+            with Container(classes="modal-list resume-list"):
+                yield DataTable(
+                    id="thinking-levels", classes="resume-table", cursor_type="row"
+                )
+            with Horizontal(classes="modal-actions resume-actions"):
+                yield Button("Select", id="select", variant="primary")
+                yield Button("Cancel", id="cancel", variant="default")
+            yield Static(
+                "↑/↓ navigate, Enter to select, Esc to go back",
+                classes="modal-footer resume-footer",
+                id="thinking-level-footer",
+            )
+
+    async def on_mount(self) -> None:
+        table = self.query_one("#thinking-levels", DataTable)
+        table.add_columns("Level", "Description", "Current")
+        initial_row = 0
+        for index, (wire_value, label, description) in enumerate(REASONING_LEVELS):
+            table.add_row(
+                label,
+                description,
+                "✓" if wire_value == self._current else "",
+            )
+            if wire_value == self._current:
+                initial_row = index
+        if REASONING_LEVELS:
+            table.move_cursor(row=initial_row, column=0)
+
+    def action_cursor_up(self) -> None:
+        table = self.query_one("#thinking-levels", DataTable)
+        table.action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        table = self.query_one("#thinking-levels", DataTable)
+        table.action_cursor_down()
+
+    def action_select(self) -> None:
+        table = self.query_one("#thinking-levels", DataTable)
+        self._dismiss_row(table.cursor_row)
+
+    def _dismiss_row(self, row: int) -> None:
+        if 0 <= row < len(REASONING_LEVELS):
+            self.dismiss(REASONING_LEVELS[row][0])
+
+    @on(DataTable.RowSelected, "#thinking-levels")
+    def on_row_selected(self, event: DataTable.RowSelected) -> None:
+        self._dismiss_row(event.cursor_row)
+
+    @on(Button.Pressed, "#select")
+    def on_select_pressed(self, _event: Button.Pressed) -> None:
+        table = self.query_one("#thinking-levels", DataTable)
+        self._dismiss_row(table.cursor_row)
 
     @on(Button.Pressed, "#cancel")
     def on_cancel_pressed(self, _event: Button.Pressed) -> None:
