@@ -2887,6 +2887,10 @@ VoiceSetupModal .modal-actions {
     margin-bottom: 0;
 }
 
+ThinkingLevelModal .modal-actions {
+    margin-top: 1;
+}
+
 SessionResumeModal #resume {
     width: 14;
     min-width: 14;
