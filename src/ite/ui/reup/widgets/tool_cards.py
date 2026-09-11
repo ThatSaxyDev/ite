@@ -117,6 +117,8 @@ class CompactToolCard(Static):
             self.show_full = False
         elif self.truncated and not self.show_full:
             self.show_full = True
+        elif self.truncated and self.show_full:
+            self.show_full = False
         else:
             self.expanded = False
             self.show_full = False
