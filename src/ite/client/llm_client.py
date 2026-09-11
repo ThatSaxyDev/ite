@@ -39,6 +39,17 @@ CLOUD_AGENT_MAX_TOKENS_DEEPSEEK = 8_192
 CLOUD_TEXT_MAX_TOKENS = 1_200
 
 
+def _is_deepseek_model_name(model_name: str) -> bool:
+    """Whether a model id targets a DeepSeek V4+ model (Flash or Pro).
+
+    Matches the bundled ids (`deepseek-flash`, `deepseek-v4-pro`) as well as
+    versioned variants (`deepseek-v4.1-flash`). Deliberately excludes the
+    legacy `deepseek-reasoner` id, which uses a different thinking-mode API.
+    """
+    normalized = str(model_name or "").strip().lower()
+    return "deepseek-v4" in normalized or "deepseek-flash" in normalized
+
+
 def _is_ssl_error(exc: BaseException) -> bool:
     """Check whether an exception chain contains an ssl.SSLError."""
     seen: set[int] = set()
@@ -126,7 +137,7 @@ class LLMClient:
         """
         model_name = str(self.config.model_name or "").strip().lower()
         base_url = str(self.config.base_url or "").strip().lower()
-        if "deepseek-v4" not in model_name and "api.deepseek.com" not in base_url:
+        if not _is_deepseek_model_name(model_name) and "api.deepseek.com" not in base_url:
             return None
         return {"reasoning_effort": self._reasoning_effort_value()}
 
@@ -200,7 +211,7 @@ class LLMClient:
 
     def _cloud_agent_max_tokens(self, model_name: str) -> int:
         normalized = model_name.strip().lower()
-        if "deepseek-v4" in normalized:
+        if _is_deepseek_model_name(normalized):
             return CLOUD_AGENT_MAX_TOKENS_DEEPSEEK
         return CLOUD_AGENT_MAX_TOKENS_DEFAULT
 
@@ -1215,7 +1226,7 @@ class LLMClient:
             request_payload["top_p"] = 0.95
             request_payload["top_k"] = 64
         
-        if "deepseek-v4" in model_name:
+        if _is_deepseek_model_name(model_name):
             request_payload["reasoningEffort"] = self._reasoning_effort_value()
 
         if visual_budget:
@@ -1372,7 +1383,7 @@ class LLMClient:
         base_url = str(self.config.base_url or "").strip().lower()
         if "deepseek-reasoner" in model_name:
             return False
-        return "deepseek-v4" in model_name or "api.deepseek.com" in base_url
+        return _is_deepseek_model_name(model_name) or "api.deepseek.com" in base_url
 
     async def _stream_response(
         self,

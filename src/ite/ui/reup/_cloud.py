@@ -282,7 +282,7 @@ class CloudMixin:
         if not self._is_bundled_model():
             return False
         model = str(self.config.model_name or "").strip().lower()
-        return "deepseek-v4" in model
+        return "deepseek-v4" in model or "deepseek-flash" in model
 
 
     def _apply_cloud_auth_status(

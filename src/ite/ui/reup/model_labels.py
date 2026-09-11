@@ -2,6 +2,8 @@ from __future__ import annotations
 
 BUNDLED_MODEL_DISPLAY_NAMES_BY_MODEL: dict[str, str] = {
     "deepseek-v4": "DeepSeek V4",
+    "deepseek-flash": "DeepSeek Flash",
+    "deepseek/deepseek-flash": "DeepSeek Flash",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
     "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
     "minimax-m3": "MiniMax M3",
