@@ -65,6 +65,11 @@ class CompactToolCard(Static):
         self.tool_name = ""
         self.path_key = ""
         self.title_text = ""
+        self.truncated = False
+        self.overflow_blocks: list[Any] = []
+        self.show_full = False
+        self.more_style = ""
+        self.less_style = ""
 
     def set_tool_content(
         self,
@@ -73,11 +78,21 @@ class CompactToolCard(Static):
         compact_blocks: list[Any],
         full_blocks: list[Any],
         expanded: bool,
+        truncated: bool = False,
+        overflow_blocks: list[Any] | None = None,
+        show_full: bool = False,
+        more_style: str = "",
+        less_style: str = "",
     ) -> None:
         self._header = header
         self._compact_blocks = list(compact_blocks)
         self._full_blocks = list(full_blocks)
+        self.overflow_blocks = list(overflow_blocks or [])
+        self.truncated = bool(truncated)
+        self.more_style = more_style
+        self.less_style = less_style
         self.expanded = expanded
+        self.show_full = show_full
         self.has_completed_content = True
         self._refresh_content()
 
@@ -97,7 +112,14 @@ class CompactToolCard(Static):
     def action_toggle_expanded(self) -> None:
         if not self.has_completed_content:
             return
-        self.expanded = not self.expanded
+        if not self.expanded:
+            self.expanded = True
+            self.show_full = False
+        elif self.truncated and not self.show_full:
+            self.show_full = True
+        else:
+            self.expanded = False
+            self.show_full = False
         self._refresh_content()
 
     def on_click(self, event: events.Click) -> None:
@@ -109,7 +131,13 @@ class CompactToolCard(Static):
     def _refresh_content(self) -> None:
         header = self._disclosure_header()
         blocks = self._visible_blocks()
-        self.update(Group(header, *blocks))
+        renderables: list[Any] = [header, *blocks]
+        if self.truncated and self.expanded:
+            if self.show_full:
+                renderables.append(Text("[less]", style=self.less_style or "bold"))
+            else:
+                renderables.append(Text("[more]", style=self.more_style or "bold"))
+        self.update(Group(*renderables))
 
     def _disclosure_header(self) -> Text:
         header = Text()
@@ -144,11 +172,19 @@ class CompactToolCard(Static):
 
     def _visible_blocks(self) -> list[Any]:
         if not self._stack_child_mode:
-            return self._full_blocks if self.expanded else self._compact_blocks
+            if not self.expanded:
+                return self._compact_blocks
+            if self.truncated and self.show_full and self.overflow_blocks:
+                return self.overflow_blocks
+            return self._full_blocks
         if not self.expanded:
             return []
+        blocks = (
+            list(self.overflow_blocks)
+            if self.truncated and self.show_full and self.overflow_blocks
+            else list(self._full_blocks)
+        )
         child_header = self.stack_child_header().plain.strip()
-        blocks = list(self._full_blocks)
         if (
             blocks
             and isinstance(blocks[0], Text)

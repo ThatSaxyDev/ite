@@ -2464,6 +2464,7 @@ class StreamingMixin:
 
         styles = self._render_styles()
         blocks: list[Any] = []
+        full_blocks: list[Any] = []
         local_truncated = False
         primary_path = md.get("path") if isinstance(md.get("path"), str) else None
         redirect_to = str(md.get("redirect_to") or "").strip()
@@ -2484,12 +2485,13 @@ class StreamingMixin:
                 local_truncated = local_truncated or was_truncated
                 language = guess_language(primary_path)
                 prefer_terminal_safe = self._prefer_terminal_safe_source_rendering()
-                if language == "markdown":
-                    blocks.append(RichMarkdown(code_display))
-                elif self.current_theme.dark and not prefer_terminal_safe:
-                    blocks.append(
-                        Syntax(
-                            code_display,
+
+                def render_code(text: str) -> Any:
+                    if language == "markdown":
+                        return RichMarkdown(text)
+                    if self.current_theme.dark and not prefer_terminal_safe:
+                        return Syntax(
+                            text,
                             language,
                             theme=self._syntax_theme_name(),
                             background_color=syntax_background_color(
@@ -2499,15 +2501,15 @@ class StreamingMixin:
                             start_line=start_line,
                             word_wrap=False,
                         )
+                    return render_line_numbered_text(
+                        text,
+                        start_line=start_line,
+                        theme_variables=self._theme_tokens(),
                     )
-                else:
-                    blocks.append(
-                        render_line_numbered_text(
-                            code_display,
-                            start_line=start_line,
-                            theme_variables=self._theme_tokens(),
-                        )
-                    )
+
+                blocks.append(render_code(code_display))
+                if was_truncated:
+                    full_blocks.append(render_code(code))
             else:
                 output_display, was_truncated = truncate_for_tool(name, payload)
                 local_truncated = local_truncated or was_truncated
@@ -2519,6 +2521,15 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_text_payload(
+                            payload,
+                            success=True,
+                            syntax_theme=self._syntax_theme_name(),
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
         elif (
             name
             in {
@@ -2586,6 +2597,13 @@ class StreamingMixin:
             blocks.append(
                 render_numbered_unified_diff(diff_display, self._theme_tokens())
             )
+            if was_truncated:
+                full_blocks.append(
+                    render_numbered_unified_diff(
+                        normalize_unified_diff_paths(diff, cwd=self.config.cwd),
+                        self._theme_tokens(),
+                    )
+                )
         elif name in {"run_tests", "run_linter", "run_typecheck", "http_request"}:
             blocks.append(Text(narrative, style=self._style("muted")))
             if name == "http_request":
@@ -2642,6 +2660,15 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_text_payload(
+                            payload,
+                            success=success,
+                            syntax_theme=self._syntax_theme_name(),
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
             else:
                 blocks.extend(
                     render_shell_result_payload(
@@ -2651,6 +2678,15 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.extend(
+                        render_shell_result_payload(
+                            payload=payload,
+                            metadata=md,
+                            exit_code=exit_code,
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
         elif name == "list_archive" and success:
             blocks.append(Text(narrative, style=self._style("muted")))
             if primary_path:
@@ -2670,6 +2706,15 @@ class StreamingMixin:
                     theme_variables=self._theme_tokens(),
                 )
             )
+            if was_truncated:
+                full_blocks.append(
+                    render_text_payload(
+                        payload,
+                        success=True,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self._theme_tokens(),
+                    )
+                )
         elif name in {"read_pdf", "read_document", "read_image"} and success:
             if primary_path:
                 blocks.append(
@@ -2732,9 +2777,10 @@ class StreamingMixin:
                 language = "toml"
             elif name == "read_yaml":
                 language = "yaml"
-            blocks.append(
-                render_text_payload(
-                    output_display,
+
+            def render_structured(text: str) -> Any:
+                return render_text_payload(
+                    text,
                     success=True,
                     language=(
                         language
@@ -2745,7 +2791,10 @@ class StreamingMixin:
                     syntax_theme=self._syntax_theme_name(),
                     theme_variables=self._theme_tokens(),
                 )
-            )
+
+            blocks.append(render_structured(output_display))
+            if was_truncated:
+                full_blocks.append(render_structured(payload))
         elif name in {"shell", "shell_poll", "shell_stop"}:
             blocks.append(Text(narrative, style=self._style("muted")))
             command = args.get("command")
@@ -2770,6 +2819,15 @@ class StreamingMixin:
                     theme_variables=self._theme_tokens(),
                 )
             )
+            if was_truncated:
+                full_blocks.extend(
+                    render_shell_result_payload(
+                        payload=payload,
+                        metadata=md,
+                        exit_code=exit_code,
+                        theme_variables=self._theme_tokens(),
+                    )
+                )
         elif name == "web_search" and success:
             blocks.append(Text(narrative, style=self._style("muted")))
             query = md.get("query") or args.get("query")
@@ -2798,6 +2856,15 @@ class StreamingMixin:
                     theme_variables=self._theme_tokens(),
                 )
             )
+            if was_truncated:
+                full_blocks.append(
+                    render_text_payload(
+                        payload,
+                        success=success,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self._theme_tokens(),
+                    )
+                )
         elif name == "web_fetch" and success:
             blocks.append(Text(narrative, style=self._style("muted")))
             summary_parts: list[str] = []
@@ -2824,6 +2891,15 @@ class StreamingMixin:
                     theme_variables=self._theme_tokens(),
                 )
             )
+            if was_truncated:
+                full_blocks.append(
+                    render_text_payload(
+                        payload,
+                        success=success,
+                        syntax_theme=self._syntax_theme_name(),
+                        theme_variables=self._theme_tokens(),
+                    )
+                )
         elif name in {"list_dir", "glob", "grep"}:
             blocks.append(Text(narrative, style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -2834,6 +2910,12 @@ class StreamingMixin:
                         output_display, theme_variables=self._theme_tokens()
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_list_dir_output(
+                            payload, theme_variables=self._theme_tokens()
+                        )
+                    )
             elif name == "grep":
                 blocks.append(
                     render_grep_output(
@@ -2843,6 +2925,15 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_grep_output(
+                            payload,
+                            cwd=self.config.cwd,
+                            syntax_theme=self._syntax_theme_name(),
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
             else:
                 blocks.append(
                     render_text_payload(
@@ -2852,6 +2943,15 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_text_payload(
+                            payload,
+                            success=success,
+                            syntax_theme=self._syntax_theme_name(),
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
         elif name == "git_diff":
             blocks.append(Text(narrative, style=self._style("muted")))
             selection = md.get("selection")
@@ -2895,6 +2995,16 @@ class StreamingMixin:
                         self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_numbered_unified_diff(
+                            normalize_unified_diff_paths(
+                                payload,
+                                cwd=self.config.cwd,
+                            ),
+                            self._theme_tokens(),
+                        )
+                    )
             elif output_display.strip():
                 blocks.append(
                     render_text_payload(
@@ -2904,6 +3014,15 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_text_payload(
+                            payload,
+                            success=success,
+                            syntax_theme=self._syntax_theme_name(),
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
             else:
                 blocks.append(Text("No diff output", style=self._style("muted")))
         elif name == "git_log" and success:
@@ -3024,6 +3143,15 @@ class StreamingMixin:
                                 theme_variables=self._theme_tokens(),
                             )
                         )
+                        if was_truncated:
+                            full_blocks.append(
+                                render_text_payload(
+                                    payload,
+                                    success=False,
+                                    syntax_theme=self._syntax_theme_name(),
+                                    theme_variables=self._theme_tokens(),
+                                )
+                            )
         else:
             blocks.append(Text(narrative, style=self._style("muted")))
             output_display, was_truncated = truncate_for_tool(name, payload)
@@ -3040,6 +3168,18 @@ class StreamingMixin:
                         word_wrap=True,
                     )
                 )
+                if diff_truncated:
+                    full_blocks.append(
+                        Syntax(
+                            diff,
+                            "diff",
+                            theme=self._syntax_theme_name(),
+                            background_color=syntax_background_color(
+                                self._theme_tokens()
+                            ),
+                            word_wrap=True,
+                        )
+                    )
             elif output_display.strip():
                 blocks.append(
                     render_text_payload(
@@ -3049,10 +3189,19 @@ class StreamingMixin:
                         theme_variables=self._theme_tokens(),
                     )
                 )
+                if was_truncated:
+                    full_blocks.append(
+                        render_text_payload(
+                            payload,
+                            success=success,
+                            syntax_theme=self._syntax_theme_name(),
+                            theme_variables=self._theme_tokens(),
+                        )
+                    )
             else:
                 blocks.append(Text("No output", style=self._style("muted")))
 
-        if local_truncated or truncated:
+        if (local_truncated or truncated) and not full_blocks:
             blocks.append(Text("... [truncated]", style=self._style("warning")))
 
         header = Text()
@@ -3077,6 +3226,10 @@ class StreamingMixin:
         if isinstance(card, CompactToolCard):
             default_expanded = not success or recoverable
             expanded = card.expanded if card.has_completed_content else default_expanded
+            truncated_for_card = bool(full_blocks)
+            show_full = (
+                card.show_full if card.has_completed_content and truncated_for_card else False
+            )
             card.stack_key = f"{tool_kind or 'builtin'}:{name}:{title_text}"
             card.tool_name = name
             card.title_text = title_text
@@ -3092,6 +3245,11 @@ class StreamingMixin:
                 ),
                 full_blocks=blocks,
                 expanded=expanded,
+                truncated=truncated_for_card,
+                overflow_blocks=full_blocks,
+                show_full=show_full,
+                more_style=f"bold {self._style('primary')}",
+                less_style=f"bold {self._style('primary')}",
             )
         else:
             card.update(Group(header, *blocks))
