@@ -135,7 +135,7 @@ from ite.git.working_tree import (
     working_tree_change_set,
 )
 from ite.memory import MemoryManager
-from ite.remote import RemoteRuntimeServer
+from ite.remote import CloudRelayClient, RemoteRuntimeServer
 from ite.remote.protocol import (
     build_remote_transcript,
     json_safe,
@@ -574,6 +574,9 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._sigint_handled: bool = False
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
+        self._cloud_relay: CloudRelayClient | None = None
+        self._remote_relay_status: str = ""
+        self._remote_relay_footer: str = ""
         self._telegram_service: Any = None  # TelegramBotService | None (deferred import)
         self._suppress_telegram_user_echo: bool = False
         self._remote_port_preference: int = 0
@@ -1310,6 +1313,13 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             self.agent = None
 
     async def _shutdown_remote_server(self) -> None:
+        if self._cloud_relay is not None:
+            relay = self._cloud_relay
+            self._cloud_relay = None
+            try:
+                await asyncio.wait_for(relay.stop(), timeout=2.0)
+            except Exception:
+                pass
         if self._remote_server is None:
             return
         remote_server = self._remote_server

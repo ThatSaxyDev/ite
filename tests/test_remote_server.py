@@ -216,6 +216,74 @@ class RemoteRuntimeServerStateTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["pair_code"], info["pair_code"])
         self.assertEqual(parsed["fingerprint"], info["fingerprint"])
         self.assertEqual(info["exposure_mode"], "local")
+        self.assertEqual(info["transport"], "direct")
+        self.assertTrue(str(info["runtime_id"]).startswith("rt_"))
+
+    async def test_connection_info_direct_mode_defaults(self) -> None:
+        server = self._isolated_server()
+        server._fingerprint = "sha256:abc123"
+        info = server.connection_info()
+
+        self.assertEqual(info["transport"], "direct")
+        self.assertEqual(info["runtime_id"], "rt_" + __import__("hashlib").sha256(
+            b"sha256:abc123"
+        ).hexdigest()[:32])
+        self.assertIn("connect_uri", info)
+        self.assertIn("pair_code", info)
+
+    async def test_connection_info_relay_mode_omits_direct_connect_data(self) -> None:
+        server = RemoteRuntimeServer(
+            state_provider=lambda: {},
+            submit_prompt=lambda _message: None,
+            cancel_turn=lambda: None,
+            transport="relay",
+            runtime_id="rt_custom",
+        )
+        server._fingerprint = "sha256:abc123"
+        server._runtime_name = "vps-runtime"
+        server._host = "0.0.0.0"
+        server._display_host = "10.0.0.5"
+        server._port = 9123
+
+        info = server.connection_info()
+
+        self.assertEqual(info["transport"], "relay")
+        self.assertEqual(info["runtime_id"], "rt_custom")
+        self.assertEqual(info["exposure_mode"], "relay")
+        for leaked in ("connect_uri", "pair_code", "pair_code_expires_at", "host", "port", "display_host"):
+            self.assertNotIn(leaked, info)
+        self.assertTrue(str(info["runtime_id"]).startswith("rt_"))
+
+    async def test_relay_mode_running_tracks_connection_state(self) -> None:
+        server = RemoteRuntimeServer(
+            state_provider=lambda: {},
+            submit_prompt=lambda _message: None,
+            cancel_turn=lambda: None,
+            transport="relay",
+        )
+
+        self.assertFalse(server.is_running)
+        server.set_relay_connected(True)
+        self.assertTrue(server.is_running)
+        server.set_relay_connected(False)
+        self.assertFalse(server.is_running)
+
+    async def test_build_state_payload_relay_mode_uses_relay_identity(self) -> None:
+        server = RemoteRuntimeServer(
+            state_provider=lambda: {},
+            submit_prompt=lambda _message: None,
+            cancel_turn=lambda: None,
+            transport="relay",
+            runtime_id="rt_state_test",
+        )
+        server._fingerprint = "sha256:def456"
+        server._state_provider = lambda: {"current_session": {"session_id": "s-1"}}
+
+        payload = await server._build_state_payload()
+
+        self.assertEqual(payload["server"]["transport"], "relay")
+        self.assertEqual(payload["server"]["runtime_id"], "rt_state_test")
+        self.assertNotIn("connect_uri", payload["server"])
 
     async def test_handshake_rejects_when_access_checker_denies_remote(self) -> None:
         server = RemoteRuntimeServer(

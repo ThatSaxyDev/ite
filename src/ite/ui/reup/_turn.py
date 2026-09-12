@@ -44,7 +44,7 @@ from ite.git.branches import checkout_branch, create_and_checkout, current_branc
 from ite.git.remotes import upsert_remote
 from ite.git.working_tree import commit_changes, discard_all, discard_path, git_outbound_state, outbound_commit_subjects, push_current_branch, stage_all, stage_path, unstage_all, unstage_path, working_tree_change_set
 from ite.memory import MemoryManager
-from ite.remote import RemoteRuntimeServer
+from ite.remote import CloudRelayClient, RemoteRuntimeServer
 from ite.remote.protocol import build_remote_transcript, json_safe, serialize_agent_event, serialize_approval_request, serialize_plan_question_request, serialize_plan_ready_request
 from ite.skills import build_skill_detail_renderable, build_skill_feedback_renderable, build_skills_overview_renderable
 from ite.skills.manager import SkillDefinition
@@ -166,6 +166,33 @@ class TurnMixin:
         self._remote_port_preference = int(info.get("port") or selected_port or 0)
         return info
 
+    async def _ensure_cloud_relay(self) -> dict[str, Any]:
+        if not await self._require_remote_companion_access(refresh=False):
+            raise PermissionError("Remote companion requires bundled access.")
+        if self._remote_server is None or self._remote_server.transport != "relay":
+            if self._remote_server is not None:
+                await self._shutdown_remote_server()
+            self._remote_server = RemoteRuntimeServer(
+                state_provider=self._build_remote_runtime_state,
+                submit_prompt=self._submit_remote_prompt,
+                cancel_turn=self._cancel_remote_turn,
+                switch_session=self._switch_remote_session,
+                access_checker=self._has_remote_companion_access,
+                transport="relay",
+            )
+        if self._cloud_relay is None:
+            self._cloud_relay = CloudRelayClient(
+                self._remote_server,
+                config=self.config,
+                status_callback=self._on_cloud_relay_status,
+            )
+        await self._cloud_relay.start()
+        return self._remote_server.connection_info()
+
+    def _on_cloud_relay_status(self, status: str, message: str) -> None:
+        self._remote_relay_status = status
+        self._remote_relay_footer = message
+
 
     def _build_remote_runtime_state(self) -> dict[str, Any]:
         session = self.agent.session if self.agent and self.agent.session else None
@@ -283,6 +310,7 @@ class TurnMixin:
             if not await self._require_remote_companion_access():
                 return
             lan = True
+            relay = False
             port = None
             for arg in option_args:
                 if arg == "--lan":
@@ -291,15 +319,30 @@ class TurnMixin:
                 if arg == "--local":
                     lan = False
                     continue
+                if arg == "--relay":
+                    relay = True
+                    continue
                 try:
                     port = int(arg)
                 except ValueError:
                     self.post_system(
                         "Remote",
-                        "Usage: /remote on [port] [--local]",
+                        "Usage: /remote on [port] [--local] [--relay]",
                         is_error=True,
                     )
                     return
+            if relay:
+                info = await self._ensure_cloud_relay()
+                runtime_id = str(info.get("runtime_id") or "")
+                self.post_system(
+                    "Remote",
+                    "Cloud relay is starting.\n"
+                    f"Runtime ID: {runtime_id}\n"
+                    "This runtime dials out to iTE Cloud, so no inbound port or "
+                    "firewall change is needed. Open iTE Remote, sign in, and pick "
+                    "this runtime.",
+                )
+                return
             info = await self._ensure_remote_server(port=port, lan=lan)
             self.post_remote_bridge(
                 runtime_name=str(info.get("runtime_name") or ""),
@@ -325,6 +368,17 @@ class TurnMixin:
                 self.post_system("Remote", "Remote bridge is off.")
                 return
             info = self._remote_server.connection_info()
+            if self._remote_server.transport == "relay":
+                status = self._remote_relay_status or "connected"
+                lines = [
+                    "Cloud relay is active.",
+                    f"Runtime ID: {info.get('runtime_id') or ''}",
+                    f"Connected phones: {int(info.get('authenticated_clients') or 0)}",
+                ]
+                if self._remote_relay_footer:
+                    lines.append(self._remote_relay_footer)
+                self.post_system("Remote", "\n".join(lines))
+                return
             self.post_remote_bridge(
                 runtime_name=str(info.get("runtime_name") or ""),
                 exposure_mode=str(info.get("exposure_mode") or "local"),
@@ -437,7 +491,7 @@ class TurnMixin:
 
         self.post_system(
             "Remote",
-            "Usage: /remote\n/remote on [port]\n/remote on [port] --local\n/remote status\n/remote code\n/remote devices\n/remote revoke <device-id-prefix>\n/remote revoke-all\n/remote off",
+            "Usage: /remote\n/remote on [port]\n/remote on [port] --local\n/remote on --relay\n/remote status\n/remote code\n/remote devices\n/remote revoke <device-id-prefix>\n/remote revoke-all\n/remote off",
             is_error=True,
         )
 
