@@ -395,15 +395,31 @@ class RemoteRuntimeServer:
         )
         return self._pair_code
 
-    async def start(self, *, host: str = "0.0.0.0", port: int = 0) -> dict[str, Any]:
-        if self._server is not None:
-            return self.connection_info()
+    def ensure_identity(self) -> None:
+        """Load the runtime's TLS identity (fingerprint + runtime name).
 
+        Required in relay mode: ``runtime_id`` is derived from the fingerprint
+        (:attr:`runtime_id`) and the registration payload reads the runtime name
+        (:meth:`connection_info`), but neither is set by binding a socket. Relay mode
+        never binds one, so without this the relay client fails with "could not derive
+        a stable runtime id" and the runtime never appears in the mobile app.
+
+        Safe to call more than once; the identity is generated on first use.
+        """
+
+        if self._fingerprint and self._runtime_name:
+            return
         identity = load_or_create_tls_identity()
         self._runtime_name = str(identity["runtime_name"])
         self._fingerprint = str(identity["fingerprint"])
         self._tls_cert_path = Path(identity["cert_path"])
         self._tls_key_path = Path(identity["key_path"])
+
+    async def start(self, *, host: str = "0.0.0.0", port: int = 0) -> dict[str, Any]:
+        if self._server is not None:
+            return self.connection_info()
+
+        self.ensure_identity()
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(
             certfile=str(self._tls_cert_path),

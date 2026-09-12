@@ -46,6 +46,8 @@ from ite.git.working_tree import commit_changes, discard_all, discard_path, git_
 from ite.memory import MemoryManager
 from ite.remote import CloudRelayClient, RemoteRuntimeServer
 from ite.remote.protocol import build_remote_transcript, json_safe, serialize_agent_event, serialize_approval_request, serialize_plan_question_request, serialize_plan_ready_request
+from ite.runtime.approval import ApprovalChannel, race_first_decision
+from ite.runtime.session import RuntimeSession
 from ite.skills import build_skill_detail_renderable, build_skill_feedback_renderable, build_skills_overview_renderable
 from ite.skills.manager import SkillDefinition
 from ite.skills.rendering import skill_state
@@ -181,9 +183,21 @@ class TurnMixin:
                 transport="relay",
             )
         if self._cloud_relay is None:
+            # Relay mode never binds a socket, so the TLS identity (and therefore
+            # runtime_id) must be loaded explicitly before the relay connects.
+            self._remote_server.ensure_identity()
+            runtime_id = self._remote_server.runtime_id
+            if not runtime_id:
+                self.post_system(
+                    "Remote",
+                    "Could not derive a runtime id; the cloud relay cannot start.",
+                    is_error=True,
+                )
+                return self._remote_server.connection_info()
             self._cloud_relay = CloudRelayClient(
                 self._remote_server,
                 config=self.config,
+                runtime_id=runtime_id,
                 status_callback=self._on_cloud_relay_status,
             )
         await self._cloud_relay.start()
@@ -1902,6 +1916,49 @@ class TurnMixin:
             self._restore_queued_payload_after_unsuccessful_turn()
 
 
+    def _runtime_session_for(self, agent: Agent, session_id: str) -> RuntimeSession:
+        """Get or build the shared turn engine for this agent.
+
+        Both the TUI and the headless daemon run turns through ``RuntimeSession``; the
+        only difference is the renderer. State (retry/recovery/progress) lives there.
+        """
+
+        workspace = self._workspace_for_session_id(session_id)
+        existing = self._runtime_sessions.get(session_id)
+        if existing is not None and existing.agent is agent:
+            existing.workspace = workspace
+            return existing
+        runtime_session = RuntimeSession(
+            agent=agent,
+            session_id=session_id,
+            workspace=workspace,
+            bus=self._runtime_bus,
+            run_state=self._run_state(session_id),
+            render_event=self._make_event_renderer(session_id),
+            on_turn_failed=self._make_turn_failed_handler(),
+            on_turn_recovering=self._make_turn_recovering_handler(),
+        )
+        self._runtime_sessions[session_id] = runtime_session
+        return runtime_session
+
+    def _make_event_renderer(self, session_id: str):
+        async def _render(event: AgentEvent, turn_id: int) -> None:
+            await self.handle_agent_event(event, session_id, turn_id)
+
+        return _render
+
+    def _make_turn_failed_handler(self):
+        async def _on_failed(error: str) -> None:
+            self.post_system("Connection lost", error, is_error=True)
+
+        return _on_failed
+
+    def _make_turn_recovering_handler(self):
+        async def _on_recovering() -> None:
+            self._set_loading_state("Reconnecting...", busy=True)
+
+        return _on_recovering
+
     async def _agent_turn(
         self,
         agent: Agent,
@@ -1912,41 +1969,19 @@ class TurnMixin:
         user_model_content: str | list[dict] | None = None,
         attachment_turn_id: str | None = None,
     ) -> None:
-        try:
-            async for event in agent.run(
-                message, user_model_content=user_model_content
-            ):
-                await self.handle_agent_event(event, session_id, turn_id)
-        except Exception as exc:
-            error_str = str(exc)
-            run_state = self._run_state(session_id)
-            run_state.turn_had_error = True
-            run_state.context_meter_floor_pct = None
-            self._mark_retryable_turn_failure(session_id, error_str)
-            recovery_payload = self._build_followup_recovery_payload(session_id)
-            if recovery_payload is not None and run_state.failure_recovery_attempts < 3:
-                run_state.failure_recovery_payload = recovery_payload
-                run_state.failure_recovery_attempts += 1
-                run_state.silent_recovery_active = True
-                self._set_loading_state("Reconnecting...", busy=True)
-            else:
-                retry_payload = self._build_silent_retry_payload(session_id)
-                if retry_payload is not None and run_state.failure_recovery_attempts < 3:
-                    run_state.failure_recovery_payload = retry_payload
-                    run_state.failure_recovery_attempts += 1
-                    run_state.silent_recovery_active = True
-                    self._set_loading_state("Reconnecting...", busy=True)
-                else:
-                    self.post_system(
-                        "Connection lost",
-                        error_str,
-                        is_error=True,
-                    )
-        finally:
-            if attachment_turn_id:
-                AttachmentManager(
-                    self._workspace_for_session_id(session_id)
-                ).cleanup_turn(attachment_turn_id)
+        """Run one turn through the shared engine.
+
+        This is the same code path the headless daemon uses; the only difference is
+        that the TUI installs a renderer, so it paints events instead of ignoring them.
+        """
+
+        runtime_session = self._runtime_session_for(agent, session_id)
+        await runtime_session.run_agent_turn(
+            message,
+            turn_id,
+            user_model_content=user_model_content,
+            attachment_turn_id=attachment_turn_id,
+        )
 
 
     async def handle_agent_event(
@@ -1960,8 +1995,6 @@ class TurnMixin:
             self._telegram_service.set_plan_only(self._is_plan_only_phase())
             self._telegram_service.handle_agent_event(event, session_id, turn_id)
         if session_id != self._active_session_id():
-            if event.type == AgentEventType.AGENT_ERROR:
-                run_state.turn_had_error = True
             return
         plan_only_phase = self._is_plan_only_phase()
         suppressed_tools = {"memory", "plan_question"}
@@ -1985,7 +2018,6 @@ class TurnMixin:
         if event.type == AgentEventType.TEXT_DELTA:
             content = event.data.get("content", "")
             if content:
-                run_state.turn_made_progress = True
                 self._cancel_activity_resume_timer()
                 self._activity_version += 1
                 await self._hide_activity_indicator(self._activity_version)
@@ -1996,8 +2028,6 @@ class TurnMixin:
         if event.type == AgentEventType.TEXT_COMPLETE:
             content = event.data.get("content", "")
             is_final_text = bool(event.data.get("final", True))
-            if content:
-                run_state.turn_made_progress = True
             self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
@@ -2035,48 +2065,13 @@ class TurnMixin:
             self._cancel_activity_resume_timer()
             self._activity_version += 1
             await self._hide_activity_indicator(self._activity_version)
-            run_state.turn_had_error = True
-            run_state.context_meter_floor_pct = None
+            # State (retryability, recovery scheduling, attempt counting) is owned by
+            # RuntimeSession._apply_event_state. Here we only paint the outcome.
             error_message = str(event.data.get("error", "Unknown error"))
-            self._mark_retryable_turn_failure(session_id, error_message)
-            scheduled_recovery = False
-            should_attempt_recovery = (
-                run_state.retryable_turn_payload is not None
-                and run_state.turn_made_progress
-                and run_state.failure_recovery_attempts < 1
-            )
-            if should_attempt_recovery:
-                recovery_payload = self._build_followup_recovery_payload(session_id)
-                if recovery_payload is not None:
-                    run_state.failure_recovery_payload = recovery_payload
-                    run_state.failure_recovery_attempts += 1
-                    run_state.silent_recovery_active = True
-                    scheduled_recovery = True
-                    self._set_loading_state("continuing", busy=True)
-                else:
-                    retry_payload = self._build_silent_retry_payload(session_id)
-                    if retry_payload is not None:
-                        run_state.failure_recovery_payload = retry_payload
-                        run_state.failure_recovery_attempts += 1
-                        run_state.silent_recovery_active = True
-                        scheduled_recovery = True
-                        self._set_loading_state("continuing", busy=True)
+            if run_state.silent_recovery_active:
+                self._set_loading_state("continuing", busy=True)
             else:
-                if run_state.retryable_turn_payload is not None:
-                    retry_payload = self._build_silent_retry_payload(session_id)
-                    if (
-                        retry_payload is not None
-                        and run_state.failure_recovery_attempts < 1
-                    ):
-                        run_state.failure_recovery_payload = retry_payload
-                        run_state.failure_recovery_attempts += 1
-                        run_state.silent_recovery_active = True
-                        scheduled_recovery = True
-                        self._set_loading_state("continuing", busy=True)
-            if not scheduled_recovery:
-                if run_state.silent_recovery_active:
-                    run_state.silent_recovery_active = False
-                    self._set_loading_state("idle", busy=False)
+                self._set_loading_state("idle", busy=False)
                 self.post_system("Error", error_message, is_error=True)
             self.refresh_header()
             self._schedule_usage_meta_refresh_for_cloud_model()
@@ -2091,15 +2086,6 @@ class TurnMixin:
             return
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
-            auto_resume_required = bool(event.data.get("auto_resume_required", False))
-            run_state.context_meter_floor_pct = 100
-            if auto_resume_required:
-                run_state.auto_resume_payload = {
-                    "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
-                    "display_message": "",
-                    "attachments": [],
-                    "suppress_user_echo": True,
-                }
             await self._finish_live_compaction_card("Context compacted.")
             self.refresh_header()
             return
@@ -2181,7 +2167,6 @@ class TurnMixin:
 
         if event.type == AgentEventType.TOOL_CALL_COMPLETE:
             tool_name = event.data.get("name", "tool")
-            run_state.turn_made_progress = True
             error_text = str(event.data.get("error") or "")
             metadata = event.data.get("metadata")
             if (
@@ -2402,73 +2387,47 @@ class TurnMixin:
             return bool(approved)
 
         request_id = uuid.uuid4().hex
-        tasks: list[asyncio.Task[Any]] = [asyncio.create_task(self._open_modal(modal))]
+        channels: list[ApprovalChannel] = [lambda: self._open_modal(modal)]
 
-        remote_task = None
         if should_request_remote:
-            remote_task = asyncio.create_task(
-                remote_server.request_approval(
-                    serialize_approval_request(
-                        request_id=request_id,
-                        tool_name=str(confirmation.tool_name or "tool"),
-                        description=str(confirmation.description or ""),
-                        command=confirmation.command,
-                        diff=confirmation.diff.to_diff() if confirmation.diff else None,
-                        session_id=self._active_session_id()
-                        or self.agent.session.session_id,
-                    )
-                )
+            payload = serialize_approval_request(
+                request_id=request_id,
+                tool_name=str(confirmation.tool_name or "tool"),
+                description=str(confirmation.description or ""),
+                command=confirmation.command,
+                diff=confirmation.diff.to_diff() if confirmation.diff else None,
+                session_id=self._active_session_id()
+                or self.agent.session.session_id,
             )
-            tasks.append(remote_task)
+            channels.append(lambda: remote_server.request_approval(payload))
 
-        telegram_task = None
         if should_request_telegram:
-            async def _telegram_approval():
+            async def _telegram_channel():
                 try:
                     return await telegram_service.request_confirmation(confirmation)
                 except Exception:
                     return None
-            telegram_task = asyncio.create_task(_telegram_approval())
-            tasks.append(telegram_task)
+            channels.append(_telegram_channel)
 
-        try:
-            done, _pending = await asyncio.wait(
-                {*tasks},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            local_task = tasks[0]
-            if local_task in done:
-                approved = bool(local_task.result())
-                if remote_task:
-                    await remote_server.resolve_approval_request(request_id, approved)
-                    with contextlib.suppress(asyncio.TimeoutError):
-                        await asyncio.wait_for(remote_task, timeout=0.5)
-                await self._broadcast_remote_state()
-                return approved
+        local_index = 0
 
-            # A remote (Telegram or ite_remote) responded first
-            winner = next(iter(done))
-            result = winner.result()
-            if result is None:
-                approved = bool(await local_task)
-                await self._broadcast_remote_state()
-                return approved
+        async def _on_winner(index: int, value: Any) -> None:
+            if index == local_index:
+                # The local modal answered first: mirror the decision to the relay so
+                # a phone still showing the request sees it resolved.
+                if should_request_remote:
+                    await remote_server.resolve_approval_request(request_id, bool(value))
+                return
+            # A remote client answered first: close the local modal with that answer.
+            with contextlib.suppress(Exception):
+                modal.dismiss(bool(value))
 
-            approved = bool(result)
-            if not local_task.done():
-                modal.dismiss(approved)
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(local_task, timeout=0.5)
-            await self._broadcast_remote_state()
-            return approved
-        except Exception:
-            if not tasks[0].done():
-                return bool(await tasks[0])
-            raise
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
+        result = await race_first_decision(channels, on_winner=_on_winner)
+        if result is None:
+            return False
+        _index, value = result
+        await self._broadcast_remote_state()
+        return bool(value)
 
 
     async def plan_question_callback(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -265,6 +265,73 @@ def mcp_add(
     )
 
 
+@main.group("remote")
+def remote_group() -> None:
+    """Manage the headless runtime daemon."""
+
+
+@remote_group.command("serve")
+@click.option(
+    "--workspace",
+    "-w",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    default=None,
+    help="Workspace directory the runtime serves.",
+)
+@click.option(
+    "--approval-policy",
+    type=click.Choice(["deny", "allow", "hold"]),
+    default="deny",
+    show_default=True,
+    help="Policy applied when no interactive client can approve a tool call.",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]),
+    default="INFO",
+    show_default=True,
+)
+@click.pass_context
+def remote_serve(
+    ctx: click.Context,
+    workspace: Path | None,
+    approval_policy: str,
+    log_level: str,
+) -> None:
+    """Run the headless runtime and connect it to the cloud relay."""
+    import logging
+
+    from ite.runtime.client import ApprovalPolicy as RuntimeApprovalPolicy
+    from ite.runtime.daemon import run_daemon
+
+    logging.basicConfig(
+        level=getattr(logging, log_level),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    workspace_dir = Path(
+        workspace or ctx.obj.get("workspace_dir") or Path.cwd()
+    )
+    config = _load_runtime_config(
+        workspace_dir=workspace_dir,
+        model=ctx.obj.get("model"),
+        api_key=ctx.obj.get("api_key"),
+        base_url=ctx.obj.get("base_url"),
+    )
+    errors = config.validate()
+    if errors:
+        for error in errors:
+            console.print(f"[error]{error}[/error]")
+        raise click.Abort()
+
+    raise SystemExit(
+        run_daemon(
+            config,
+            approval_policy=RuntimeApprovalPolicy(approval_policy),
+        )
+    )
+
+
 def _normalize_mcp_transport(value: str) -> str:
     normalized = str(value or "").strip().lower()
     aliases = {

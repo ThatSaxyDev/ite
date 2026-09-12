@@ -45,6 +45,12 @@ from ite.git.working_tree import commit_changes, discard_all, discard_path, git_
 from ite.memory import MemoryManager
 from ite.remote import RemoteRuntimeServer
 from ite.remote.protocol import build_remote_transcript, json_safe, serialize_agent_event, serialize_approval_request, serialize_plan_question_request, serialize_plan_ready_request
+from ite.runtime.recovery import (
+    build_followup_recovery_payload,
+    build_silent_retry_payload,
+    is_retryable_bundled_inference_error,
+    mark_retryable_turn_failure,
+)
 from ite.skills import build_skill_detail_renderable, build_skill_feedback_renderable, build_skills_overview_renderable
 from ite.skills.manager import SkillDefinition
 from ite.skills.rendering import skill_state
@@ -1640,44 +1646,17 @@ class ComposerMixin:
 
 
     def _mark_retryable_turn_failure(self, session_id: str, error_message: str) -> None:
-        run_state = self._run_state(session_id)
-        run_state.last_error_message = error_message
-        if (
-            self._is_retryable_bundled_inference_error(error_message)
-            and run_state.last_turn_payload is not None
-        ):
-            run_state.retryable_turn_payload = dict(run_state.last_turn_payload)
-        else:
-            run_state.retryable_turn_payload = None
+        mark_retryable_turn_failure(self._run_state(session_id), error_message)
 
 
     def _build_silent_retry_payload(self, session_id: str) -> dict[str, Any] | None:
-        run_state = self._run_state(session_id)
-        payload = run_state.retryable_turn_payload or run_state.last_turn_payload
-        if payload is None:
-            return None
-        retry_payload = dict(payload)
-        retry_payload["suppress_user_echo"] = True
-        retry_payload["display_message"] = ""
-        return retry_payload
+        return build_silent_retry_payload(self._run_state(session_id))
 
 
     def _build_followup_recovery_payload(
         self, session_id: str
     ) -> dict[str, Any] | None:
-        run_state = self._run_state(session_id)
-        if not run_state.last_turn_payload:
-            return None
-        return {
-            "message": (
-                "Continue from the last successful step only. "
-                "Do not repeat completed tool work, repeated file reads, or already-finished analysis. "
-                "Use the existing results already in the conversation and finish the interrupted task."
-            ),
-            "display_message": "",
-            "attachments": [],
-            "suppress_user_echo": True,
-        }
+        return build_followup_recovery_payload(self._run_state(session_id))
 
 
     async def _post_no_model_selected_guidance(self) -> None:

@@ -144,6 +144,8 @@ from ite.remote.protocol import (
     serialize_plan_question_request,
     serialize_plan_ready_request,
 )
+from ite.runtime.bus import EventBus
+from ite.runtime.session import RuntimeSession
 from ite.skills import (
     build_skill_detail_renderable,
     build_skill_feedback_renderable,
@@ -408,6 +410,10 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._session_run_states: dict[str, SessionRunState] = {}
         self._session_name_refinements: set[str] = set()
         self._fallback_run_state = SessionRunState()
+        # Shared turn engine registry. One RuntimeSession per open agent; the TUI
+        # renders its events but does NOT own the retry/recovery state machine.
+        self._runtime_sessions: dict[str, RuntimeSession] = {}
+        self._runtime_bus = EventBus()
         self._macos_terminal_hint_shown: bool = False
         self._command_registry = None
         self._command_registry_ready: bool = False

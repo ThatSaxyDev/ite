@@ -301,6 +301,7 @@ class ThreadsMixin:
             sid for sid in self._open_session_order if sid != session_id
         ]
         self._session_run_states.pop(session_id, None)
+        self._runtime_sessions.pop(session_id, None)
         self._thread_nav_order = [
             sid for sid in self._thread_nav_order if sid != session_id
         ]
@@ -1018,6 +1019,7 @@ class ThreadsMixin:
             sid for sid in self._thread_nav_order if sid != current_session_id
         ]
         self._session_run_states.pop(current_session_id, None)
+        self._runtime_sessions.pop(current_session_id, None)
         closed_agent = self._session_agents.pop(current_session_id, None)
 
         if next_session_id:
