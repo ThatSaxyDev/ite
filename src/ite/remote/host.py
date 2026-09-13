@@ -17,6 +17,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.config.config import Config
 from ite.config.loader import ensure_workspace_layout, load_config
+from ite.ui.tool_narrative import progress_label
 
 from .protocol import (
     build_remote_transcript,
@@ -281,15 +282,34 @@ class HeadlessRuntimeHost:
         )
 
     def _track_activity(self, event: AgentEvent) -> None:
+        """Publish the same action wording the interactive runtime shows.
+
+        The TUI names the specific action ("Searching code", "Running tests")
+        and uses varied gerunds while reasoning. Reusing `progress_label` keeps
+        the remote identical to the local experience instead of flattening every
+        state to a single "Thinking".
+        """
         if event.type == AgentEventType.TOOL_CALL_START:
-            name = str(event.data.get("name") or "tool")
-            self._run_state.activity_label = f"Running {name}"
+            name = str(event.data.get("name") or "")
+            arguments = event.data.get("arguments")
+            self._run_state.activity_label = progress_label(
+                tool_name=name,
+                arguments=arguments if isinstance(arguments, dict) else None,
+            )
+        elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+            name = str(event.data.get("name") or "")
+            metadata = event.data.get("metadata")
+            self._run_state.activity_label = progress_label(
+                tool_name=name,
+                metadata=metadata if isinstance(metadata, dict) else None,
+                phase="post_tool",
+            )
         elif event.type == AgentEventType.TEXT_DELTA:
             self._run_state.activity_label = "Writing"
         elif event.type == AgentEventType.PLAN_READY:
             self._run_state.activity_label = "Plan ready"
         else:
-            self._run_state.activity_label = "Thinking"
+            self._run_state.activity_label = progress_label()
 
     def _on_tool_start(self, event: AgentEvent) -> None:
         name = str(event.data.get("name") or "")
