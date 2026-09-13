@@ -188,6 +188,34 @@ def mcp_group() -> None:
     """Manage persisted MCP server definitions."""
 
 
+@main.group("remote")
+def remote_group() -> None:
+    """Run iTE as a cloud runtime for the mobile app."""
+
+
+@remote_group.command("serve")
+@click.option(
+    "--cwd",
+    "-w",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Workspace directory the cloud runtime operates on.",
+)
+@click.pass_context
+def remote_serve(ctx: click.Context, cwd: Path | None) -> None:
+    """Connect this machine to iTE Cloud and serve remote clients."""
+    import asyncio
+
+    from ite.remote.runtime import run_cloud_runtime
+
+    workspace_dir = cwd or Path(ctx.obj.get("workspace_dir") or Path.cwd())
+    try:
+        asyncio.run(run_cloud_runtime(workspace_dir))
+    except KeyboardInterrupt:
+        pass
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 @mcp_group.command("add", context_settings={"ignore_unknown_options": True})
 @click.argument("server")
 @click.argument("target", required=False)

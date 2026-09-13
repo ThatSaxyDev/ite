@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import ipaddress
 import json
@@ -10,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Protocol
 
 from .protocol import REMOTE_PROTOCOL_VERSION, json_safe, utc_now_iso
 from .security import load_or_create_tls_identity
@@ -19,6 +20,24 @@ from .uri import create_connection_uri
 
 
 MaybeAsync = Callable[..., Any] | Callable[..., Awaitable[Any]]
+
+
+class ClientWriter(Protocol):
+    """Minimal write surface shared by direct sockets and the cloud relay.
+
+    The remote runtime server writes newline-delimited JSON frames and then
+    awaits ``drain``. Direct TLS clients hand it an ``asyncio.StreamWriter``;
+    relay mode hands it a writer that forwards the same bytes over the relay
+    WebSocket, so the server can stay transport-agnostic.
+    """
+
+    def write(self, data: bytes) -> None: ...
+
+    async def drain(self) -> None: ...
+
+    def close(self) -> None: ...
+
+    async def wait_closed(self) -> None: ...
 
 
 @dataclass
@@ -51,7 +70,7 @@ class _PlanReadyRequest:
 @dataclass
 class _ClientConnection:
     client_id: str
-    writer: asyncio.StreamWriter
+    writer: ClientWriter
     address: str
     device_id: str = ""
     name: str = ""
@@ -130,12 +149,18 @@ class RemoteRuntimeServer:
         cancel_turn: MaybeAsync,
         switch_session: MaybeAsync | None = None,
         access_checker: MaybeAsync | None = None,
+        transport: str = "direct",
+        runtime_id: str | None = None,
     ) -> None:
         self._state_provider = state_provider
         self._submit_prompt = submit_prompt
         self._cancel_turn = cancel_turn
         self._switch_session = switch_session
         self._access_checker = access_checker
+        self._transport = "relay" if str(transport or "").strip().lower() == "relay" else "direct"
+        self._runtime_id_override = str(runtime_id or "").strip()
+        self._relay_connected = False
+        self._relay_app_count = 0
         self._server: asyncio.AbstractServer | None = None
         self._host: str = "0.0.0.0"
         self._port: int = 0
@@ -159,7 +184,71 @@ class RemoteRuntimeServer:
 
     @property
     def is_running(self) -> bool:
+        if self._transport == "relay":
+            return self._relay_connected
         return self._server is not None
+
+    @property
+    def transport(self) -> str:
+        return self._transport
+
+    @property
+    def runtime_id(self) -> str:
+        """Stable runtime id derived from the TLS identity fingerprint."""
+        if self._runtime_id_override:
+            return self._runtime_id_override
+        if self._fingerprint:
+            digest = hashlib.sha256(self._fingerprint.encode("utf-8")).hexdigest()
+            return f"rt_{digest[:32]}"
+        return ""
+
+    def set_relay_connected(self, connected: bool) -> None:
+        self._relay_connected = bool(connected)
+
+    def attach_relay_client(
+        self,
+        writer: ClientWriter,
+        *,
+        client_name: str = "iTE Cloud Relay",
+        device_id: str = "cloud-relay",
+    ) -> _ClientConnection:
+        """Register the cloud relay as an authenticated client of this server.
+
+        The relay carries the same frames a direct client would, so it is
+        modelled as a normal authenticated client whose writer forwards to the
+        cloud. This lets the existing broadcast/approval machinery work
+        unchanged in relay mode.
+        """
+        client = _ClientConnection(
+            client_id=uuid.uuid4().hex,
+            writer=writer,
+            address="relay",
+            device_id=device_id,
+            name=client_name,
+            authenticated=True,
+        )
+        self._clients[client.client_id] = client
+        self._relay_connected = True
+        return client
+
+    def detach_relay_client(self, client_id: str) -> None:
+        self._clients.pop(client_id, None)
+        if not any(client.authenticated for client in self._clients.values()):
+            self._relay_connected = False
+
+    def get_client(self, client_id: str) -> _ClientConnection | None:
+        return self._clients.get(client_id)
+
+    async def handle_client_message(
+        self,
+        client: _ClientConnection,
+        message: dict[str, Any],
+    ) -> None:
+        """Dispatch a single decoded frame for a client connection."""
+        if not client.authenticated:
+            await self._handle_handshake(client, message)
+            return
+        await self._handle_authenticated_message(client, message)
 
     @property
     def pair_code(self) -> str:
@@ -169,10 +258,21 @@ class RemoteRuntimeServer:
 
     @property
     def authenticated_client_count(self) -> int:
+        if self._transport == "relay":
+            return self._relay_app_count
         return sum(1 for client in self._clients.values() if client.authenticated)
 
     def has_authenticated_clients(self) -> bool:
+        if self._transport == "relay":
+            return self._relay_app_count > 0
         return self.authenticated_client_count > 0
+
+    def set_relay_app_count(self, count: int) -> None:
+        self._relay_app_count = max(0, int(count))
+
+    @property
+    def relay_app_count(self) -> int:
+        return self._relay_app_count
 
     @property
     def trusted_device_count(self) -> int:
@@ -258,6 +358,8 @@ class RemoteRuntimeServer:
 
     @property
     def exposure_mode(self) -> str:
+        if self._transport == "relay":
+            return "relay"
         return "local" if self._host in {"127.0.0.1", "::1", "localhost"} else "lan"
 
     def _client_address_key(self, client: _ClientConnection) -> str:
@@ -304,15 +406,28 @@ class RemoteRuntimeServer:
         )
         return self._pair_code
 
-    async def start(self, *, host: str = "0.0.0.0", port: int = 0) -> dict[str, Any]:
-        if self._server is not None:
-            return self.connection_info()
+    def ensure_identity(self) -> None:
+        """Load the runtime's TLS identity (fingerprint + runtime name).
 
+        Relay mode needs this: :attr:`runtime_id` is derived from the
+        fingerprint and the relay registration carries the runtime name, but
+        neither is populated by binding a socket. Relay mode never binds one,
+        so without this the runtime cannot derive a stable id and never appears
+        in the mobile app. Safe to call more than once.
+        """
+        if self._fingerprint and self._runtime_name:
+            return
         identity = load_or_create_tls_identity()
         self._runtime_name = str(identity["runtime_name"])
         self._fingerprint = str(identity["fingerprint"])
         self._tls_cert_path = Path(identity["cert_path"])
         self._tls_key_path = Path(identity["key_path"])
+
+    async def start(self, *, host: str = "0.0.0.0", port: int = 0) -> dict[str, Any]:
+        if self._server is not None:
+            return self.connection_info()
+
+        self.ensure_identity()
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(
             certfile=str(self._tls_cert_path),
@@ -467,31 +582,40 @@ class RemoteRuntimeServer:
         )
 
     def connection_info(self) -> dict[str, Any]:
-        return {
+        info: dict[str, Any] = {
             "protocol_version": REMOTE_PROTOCOL_VERSION,
             "running": self.is_running,
+            "transport": self._transport,
+            "runtime_id": self.runtime_id,
             "tls_enabled": True,
             "exposure_mode": self.exposure_mode,
-            "host": self._host,
-            "port": self._port,
-            "display_host": self._display_host,
             "runtime_name": self._runtime_name,
             "fingerprint": self._fingerprint,
-            "pair_code": self.pair_code,
-            "pair_code_expires_at": self._pair_code_expires_at.isoformat()
-            if self._pair_code_expires_at
-            else None,
             "authenticated_clients": self.authenticated_client_count,
             "trusted_devices": self.trusted_device_count,
-            "connect_uri": create_connection_uri(
-                self._display_host,
-                self._port,
-                self.pair_code,
-                name=self._runtime_name,
-                fingerprint=self._fingerprint,
-                expires_at=self._pair_code_expires_at,
-            ),
         }
+        if self._transport == "relay":
+            return info
+        info.update(
+            {
+                "host": self._host,
+                "port": self._port,
+                "display_host": self._display_host,
+                "pair_code": self.pair_code,
+                "pair_code_expires_at": self._pair_code_expires_at.isoformat()
+                if self._pair_code_expires_at
+                else None,
+                "connect_uri": create_connection_uri(
+                    self._display_host,
+                    self._port,
+                    self.pair_code,
+                    name=self._runtime_name,
+                    fingerprint=self._fingerprint,
+                    expires_at=self._pair_code_expires_at,
+                ),
+            }
+        )
+        return info
 
     async def publish_state(self) -> None:
         if not self.has_authenticated_clients():
