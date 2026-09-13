@@ -284,9 +284,14 @@ def remote_serve(base_dir: Path | None) -> None:
     work itself, and it needs no user sign-in once this machine is enrolled.
     """
     import asyncio
+    import logging
 
     from ite.remote.host_identity import load_host_identity
     from ite.remote.supervisor import HostSupervisor, default_base_dir, ensure_base_dir
+
+    # Without this, the supervisor's own INFO logs are invisible and a failed
+    # provisioning looks identical to nothing happening at all.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     identity = load_host_identity()
     if identity is None:

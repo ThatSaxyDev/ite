@@ -469,9 +469,12 @@ class HostSupervisor:
         payload = message.get("payload") if isinstance(message.get("payload"), dict) else {}
 
         if message_type == "provision":
+            user_id = str(payload.get("userId") or "")
+            runtime_id = str(payload.get("runtimeId") or "")
+            logger.info("Provisioning request received for user %s (runtime %s)", user_id, runtime_id)
             self.provision(
-                user_id=str(payload.get("userId") or ""),
-                runtime_id=str(payload.get("runtimeId") or ""),
+                user_id=user_id,
+                runtime_id=runtime_id,
                 token=str(payload.get("token") or ""),
                 workspace=str(payload.get("workspace") or ""),
             )
