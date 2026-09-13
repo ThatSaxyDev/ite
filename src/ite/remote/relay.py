@@ -85,11 +85,25 @@ class CloudRelayClient:
         self._stop_event = asyncio.Event()
         self._connected = asyncio.Event()
         self._relay_client_id: str | None = None
+        self._last_error = ""
         self._writer = RelayFrameWriter(self)
 
     @property
     def connected(self) -> bool:
         return self._connected.is_set()
+
+    @property
+    def last_error(self) -> str:
+        """Most recent relay failure reason, for honest startup diagnostics."""
+        return self._last_error
+
+    async def wait_connected(self, timeout: float) -> bool:
+        """Wait for the first successful relay registration."""
+        try:
+            await asyncio.wait_for(self._connected.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     def enqueue_outbound(self, frame: dict[str, Any]) -> None:
         """Queue a frame for delivery to the relay without blocking the caller."""
@@ -147,6 +161,7 @@ class CloudRelayClient:
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    self._last_error = str(exc) or exc.__class__.__name__
                     logger.warning("Relay connection failed: %s", exc)
 
                 self._teardown()

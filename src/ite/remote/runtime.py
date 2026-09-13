@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import platform
 import signal
 import sys
@@ -11,6 +12,8 @@ from ite.config.loader import ensure_workspace_layout, load_config
 
 from .host import HeadlessRuntimeHost
 from .relay import CloudRelayClient
+
+_CONNECT_REPORT_SECONDS = 15.0
 
 
 def _platform_label() -> str:
@@ -35,6 +38,10 @@ async def run_cloud_runtime(cwd: Path) -> None:
     workspace = Path(cwd).resolve()
     ensure_workspace_layout(workspace)
     config = load_config(cwd=workspace)
+
+    # The relay client reports rejections and retries through logging. Without
+    # this, a failed handshake would be silent.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     status = await asyncio.to_thread(get_remote_companion_access_status, config)
     if not status.is_valid:
@@ -72,8 +79,24 @@ async def run_cloud_runtime(cwd: Path) -> None:
             pass
 
     relay_task = asyncio.create_task(relay.run())
-    print(f"iTE cloud runtime online as {runtime_id}. Attach from the mobile app.")
-    print("Press Ctrl+C to stop.")
+    print(f"Runtime id: {runtime_id}")
+    print(f"Connecting to {session.api_url} …")
+
+    # Wait for the first successful registration so we never claim to be online
+    # when the relay actually rejected or could not reach us.
+    if await relay.wait_connected(_CONNECT_REPORT_SECONDS):
+        print("iTE cloud runtime online. Attach from the mobile app.")
+        print("Press Ctrl+C to stop.")
+    else:
+        reason = relay.last_error or "no response from the relay endpoint"
+        print("Could not reach the iTE Cloud relay.", file=sys.stderr)
+        print(f"  Reason: {reason}", file=sys.stderr)
+        print(
+            "  Check that the API is reachable and that its reverse proxy "
+            "forwards WebSocket upgrades for /remote/relay/runtime.",
+            file=sys.stderr,
+        )
+        print("  Still retrying in the background…", file=sys.stderr)
 
     try:
         await stop_event.wait()
