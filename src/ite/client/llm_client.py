@@ -232,10 +232,51 @@ class LLMClient:
 
     def _resolve_cloud_model_name(self) -> str:
         model_name = str(self.config.model_name or "").strip()
-        source_kind = str(getattr(self.config.model, "source_kind", "") or "").strip().lower()
-        if source_kind == "bundled":
-            return LEGACY_BUNDLED_MODEL_ALIASES.get(model_name, model_name)
+        if model_name:
+            source_kind = str(
+                getattr(self.config.model, "source_kind", "") or ""
+            ).strip().lower()
+            if source_kind == "bundled":
+                return LEGACY_BUNDLED_MODEL_ALIASES.get(model_name, model_name)
+            return model_name
+
+        # A delegated runtime may have been started without an explicit model.
+        # Rather than fail, ask the cloud which bundled models this account may
+        # use and take the first. This keeps a freshly provisioned runtime
+        # working even if provisioning carried no model.
+        if self._session_provider is not None:
+            return self._discover_delegated_model()
         return model_name
+
+    def _discover_delegated_model(self) -> str:
+        session = self._resolve_cloud_session()
+        if session is None or not session.api_url:
+            return ""
+        endpoint = f"{session.api_url.rstrip('/')}/models/bundled"
+        try:
+            response = httpx.get(
+                endpoint,
+                headers={"authorization": f"Bearer {session.access_token}"},
+                timeout=20.0,
+            )
+        except httpx.HTTPError:
+            return ""
+        if response.status_code != 200:
+            return ""
+        try:
+            payload = response.json()
+        except ValueError:
+            return ""
+        models = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            return ""
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            candidate = str(item.get("modelName") or "").strip()
+            if candidate:
+                return candidate
+        return ""
 
     def _cloud_agent_max_tokens(self, model_name: str) -> int:
         normalized = model_name.strip().lower()

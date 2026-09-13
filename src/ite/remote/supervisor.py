@@ -157,6 +157,69 @@ class HostSupervisor:
     def _token_file_path(self, user_id: str) -> Path:
         return self.runtime_base_dir(user_id) / "runtime-token"
 
+    def _pid_file_path(self, user_id: str) -> Path:
+        return self.runtime_base_dir(user_id) / "runtime.pid"
+
+    def _write_child_pid(self, user_id: str, pid: int) -> None:
+        path = self._pid_file_path(user_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(pid), encoding="utf-8")
+
+    def _clear_child_pid(self, user_id: str) -> None:
+        try:
+            self._pid_file_path(user_id).unlink()
+        except OSError:
+            pass
+
+    def _is_ite_child(self, pid: int) -> bool:
+        """Confirm a pid really is one of our runtime children before killing it.
+
+        Pids are recycled, so acting on a stale pidfile without this check could
+        kill an unrelated process that happens to have inherited the number.
+        """
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as handle:
+                cmdline = handle.read().decode("utf-8", "replace")
+        except OSError:
+            return False
+        return "ite.remote.child" in cmdline
+
+    def reap_orphaned_children(self) -> int:
+        """Kill runtime children left behind by a previous supervisor run.
+
+        Children are started in their own session so the supervisor's shutdown
+        cannot kill them mid-turn. The cost is that they outlive a restart and
+        keep their runtime marked online, which makes the cloud believe the
+        runtime is healthy while nothing is serving it. On startup we reclaim
+        those children so the next provision recreates them with current config.
+        """
+        runtimes_dir = self._base_dir / "runtimes"
+        if not runtimes_dir.is_dir():
+            return 0
+
+        reaped = 0
+        for user_dir in runtimes_dir.iterdir():
+            if not user_dir.is_dir():
+                continue
+            pid_path = user_dir / "runtime.pid"
+            try:
+                pid = int(pid_path.read_text(encoding="utf-8").strip())
+            except (OSError, ValueError):
+                continue
+
+            if pid == os.getpid() or not self._is_ite_child(pid):
+                self._clear_child_pid(user_dir.name)
+                continue
+
+            logger.info("Reaping orphaned runtime child pid=%s for user %s", pid, user_dir.name)
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+            self._clear_child_pid(user_dir.name)
+            reaped += 1
+        return reaped
+
     def _write_runtime_token(self, user_id: str, token: str) -> None:
         """Write the token where the child re-reads it, owner-only and atomic.
 
@@ -324,6 +387,7 @@ class HostSupervisor:
             self._report_status(runtime_id, "failed", detail=f"spawn failed: {exc}")
             logger.error("Failed to spawn runtime %s: %s", runtime_id, exc)
             return
+        self._write_child_pid(user_id, process.pid)
 
         child = _Child(
             runtime_id=runtime_id,
@@ -337,11 +401,12 @@ class HostSupervisor:
         child.monitor = asyncio.create_task(self._monitor_child(child))
         self._report_status(runtime_id, "starting")
         logger.info(
-            "Provisioned runtime %s for user %s (pid=%s, uid=%s, log=%s)",
+            "Provisioned runtime %s for user %s (pid=%s, uid=%s, model=%s, log=%s)",
             runtime_id,
             user_id,
             process.pid,
             uid,
+            resolved_model or "(none)",
             child.log_path,
         )
 
@@ -368,6 +433,7 @@ class HostSupervisor:
             return  # superseded by a newer provision
 
         stderr_tail = self._read_child_log_tail(child.user_id)
+        self._clear_child_pid(child.user_id)
 
         child.failures += 1
         detail = f"exit code {returncode}"
@@ -448,6 +514,15 @@ class HostSupervisor:
 
     async def run(self) -> None:
         from websockets.asyncio.client import connect
+
+        # Reclaim children left by a previous supervisor before serving. Without
+        # this they hold their runtimes "online" with stale config forever.
+        try:
+            reaped = self.reap_orphaned_children()
+            if reaped:
+                logger.info("Reaped %s orphaned runtime child(ren) from a previous run", reaped)
+        except Exception as exc:  # noqa: BLE001 - never block startup on cleanup
+            logger.warning("Could not reap orphaned runtime children: %s", exc)
 
         backoff = _RECONNECT_MIN_SECONDS
         try:
@@ -542,7 +617,12 @@ class HostSupervisor:
         if message_type == "provision":
             user_id = str(payload.get("userId") or "")
             runtime_id = str(payload.get("runtimeId") or "")
-            logger.info("Provisioning request received for user %s (runtime %s)", user_id, runtime_id)
+            logger.info(
+                "Provisioning request received for user %s (runtime %s, model %s)",
+                user_id,
+                runtime_id,
+                str(payload.get("model") or "(none)"),
+            )
             self.provision(
                 user_id=user_id,
                 runtime_id=runtime_id,
