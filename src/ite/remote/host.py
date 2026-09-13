@@ -17,6 +17,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.config.config import Config
 from ite.config.loader import ensure_workspace_layout, load_config
+from ite.remote.commands import is_slash_command, parse_command, run_headless_command
 from ite.ui.tool_narrative import progress_label
 
 from .protocol import (
@@ -74,6 +75,10 @@ class HeadlessRuntimeHost:
     _command_feed: list[dict[str, Any]] = field(default_factory=list, init=False)
     _change_feed: list[dict[str, Any]] = field(default_factory=list, init=False)
     _command_seq: int = field(default=0, init=False)
+    # A UI surface a command asked the remote to open (e.g. a model picker).
+    # Published in the state payload until the client clears it.
+    _pending_command_ui: str = field(default="", init=False)
+    _command_task: asyncio.Task[None] | None = field(default=None, init=False)
     _change_seq: int = field(default=0, init=False)
     _access_cache: tuple[bool, float] | None = field(default=None, init=False)
 
@@ -103,6 +108,8 @@ class HeadlessRuntimeHost:
             submit_prompt=self.submit_prompt,
             cancel_turn=self.cancel_turn,
             switch_session=self.switch_session,
+            clear_command_ui=self.clear_command_ui,
+            set_model=self.set_model,
             access_checker=self.access_checker or self._has_remote_access,
             transport="relay",
         )
@@ -184,6 +191,9 @@ class HeadlessRuntimeHost:
                 "awaiting_shell_input": False,
                 "turn_had_error": bool(run_state.turn_had_error),
                 "last_error_message": str(run_state.last_error_message or ""),
+                # A command asked for a surface the runtime cannot render (a
+                # picker, a new thread). The client opens the matching modal.
+                "pending_command_ui": str(self._pending_command_ui or ""),
             },
             "open_sessions": [
                 {
@@ -215,12 +225,63 @@ class HeadlessRuntimeHost:
         text = str(message or "").strip()
         if not text:
             return
+
+        # A leading slash is a command, not a prompt. The interactive TUI
+        # dispatches these through the command registry; without the same step
+        # here every mobile slash command reached the model as literal text.
+        if is_slash_command(text):
+            await self._queue_command(text)
+            return
+
         await self._ensure_agent()
         if self._run_state.is_turn_running:
             # A turn is already running; queueing prompts is out of scope for now.
             logger.info("Ignoring prompt while a turn is running")
             return
         await self._start_turn(text)
+
+    async def _queue_command(self, command_line: str) -> None:
+        """Run a slash command off the submit path so the client ack is prompt.
+
+        Commands are state changes, not turns, so they run even while a turn is
+        active — that is what makes `/plan` and `/approval` usable mid-run.
+        """
+        if self._command_task is not None and not self._command_task.done():
+            logger.info("Ignoring command while another command is running")
+            return
+        await self._ensure_agent()
+        self._command_task = asyncio.create_task(self._run_command(command_line))
+
+    async def _run_command(self, command_line: str) -> None:
+        entry_id = self._start_command_feed_entry(command_line)
+        try:
+            result = await run_headless_command(
+                command_line=command_line,
+                config=self.config,
+                agent=self._agent,
+                cwd=self.cwd,
+            )
+        except Exception as exc:  # noqa: BLE001 - surfaced as a failed entry
+            logger.exception("Slash command crashed")
+            self._finish_command_feed_entry(
+                entry_id, status="failed", output=str(exc)
+            )
+            return
+        finally:
+            self._command_task = None
+
+        # A command may need a surface the runtime cannot render (a picker, a
+        # new thread). Record it so the remote opens the matching modal instead
+        # of the request being silently dropped.
+        if result.ui_request:
+            self._pending_command_ui = result.ui_request
+
+        self._finish_command_feed_entry(
+            entry_id,
+            status="completed" if result.ok else "failed",
+            output=result.output or result.error,
+        )
+        await self._publish_state()
 
     async def _start_turn(self, message: str) -> None:
         assert self._session is not None
@@ -327,6 +388,39 @@ class HeadlessRuntimeHost:
         # reassigning here would change the label on every progress tick and
         # broadcast the whole state each time.
 
+    def _start_command_feed_entry(self, command_line: str) -> str:
+        """Open a command-feed entry so the app can show the command running."""
+        self._command_seq += 1
+        command_id = f"cmd_{self._command_seq}"
+        command, args = parse_command(command_line)
+        self._command_feed.append(
+            {
+                "id": command_id,
+                "session_id": self._active_session_id(),
+                "command": str(command_line).strip(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "status": "running",
+                "output": "",
+                "metadata": {
+                    "kind": "command",
+                    "command_name": command,
+                    "args": args,
+                },
+            }
+        )
+        self._command_feed = self._command_feed[-_COMMAND_FEED_LIMIT:]
+        return command_id
+
+    def _finish_command_feed_entry(
+        self, command_id: str, *, status: str, output: str
+    ) -> None:
+        for entry in reversed(self._command_feed):
+            if entry.get("id") != command_id:
+                continue
+            entry["status"] = status
+            entry["output"] = str(output or "")
+            break
+
     def _on_tool_start(self, event: AgentEvent) -> None:
         name = str(event.data.get("name") or "")
         arguments = event.data.get("arguments")
@@ -409,6 +503,29 @@ class HeadlessRuntimeHost:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
+
+    async def set_model(self, model_name: str) -> bool:
+        """Apply a model chosen from the app's picker.
+
+        Mirrors what the desktop picker does to config, so the mobile flow and
+        the TUI end up in the same state.
+        """
+        name = str(model_name or "").strip()
+        if not name:
+            return False
+        self.config.model_name = name
+        try:
+            self.config.model.source_kind = "bundled"
+        except (AttributeError, TypeError):
+            pass
+        await self._publish_state()
+        return True
+
+    async def clear_command_ui(self) -> None:
+        if not self._pending_command_ui:
+            return
+        self._pending_command_ui = ""
+        await self._publish_state()
 
     async def switch_session(self, session_id: str) -> bool:
         # Single-runtime model: only the active session exists.

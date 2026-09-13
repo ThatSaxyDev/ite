@@ -148,6 +148,8 @@ class RemoteRuntimeServer:
         submit_prompt: MaybeAsync,
         cancel_turn: MaybeAsync,
         switch_session: MaybeAsync | None = None,
+        clear_command_ui: MaybeAsync | None = None,
+        set_model: MaybeAsync | None = None,
         access_checker: MaybeAsync | None = None,
         transport: str = "direct",
         runtime_id: str | None = None,
@@ -156,6 +158,8 @@ class RemoteRuntimeServer:
         self._submit_prompt = submit_prompt
         self._cancel_turn = cancel_turn
         self._switch_session = switch_session
+        self._clear_command_ui = clear_command_ui
+        self._set_model = set_model
         self._access_checker = access_checker
         self._transport = "relay" if str(transport or "").strip().lower() == "relay" else "direct"
         self._runtime_id_override = str(runtime_id or "").strip()
@@ -1045,6 +1049,51 @@ class RemoteRuntimeServer:
             )
             if switched:
                 await self.publish_state()
+            return
+        if msg_type == "clear_command_ui":
+            # The client has shown (or dismissed) the surface a command asked
+            # for, so the runtime stops advertising it.
+            if self._clear_command_ui is not None:
+                await self._call(self._clear_command_ui)
+            await self._send(
+                client,
+                "command_ack",
+                {"ok": True, "message": "Command UI cleared."},
+                request_id=request_id,
+            )
+            return
+        if msg_type == "set_model":
+            model_name = str(payload.get("model") or "").strip()
+            if not model_name:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "Model name is required."},
+                    request_id=request_id,
+                )
+                return
+            if self._set_model is None:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "Model switching is unavailable."},
+                    request_id=request_id,
+                )
+                return
+            applied = bool(await self._call(self._set_model, model_name))
+            await self._send(
+                client,
+                "command_ack",
+                {
+                    "ok": applied,
+                    "message": (
+                        f"Model set to {model_name}."
+                        if applied
+                        else "Could not apply that model."
+                    ),
+                },
+                request_id=request_id,
+            )
             return
         if msg_type == "approval_response":
             approval_id = str(payload.get("request_id") or "").strip()
