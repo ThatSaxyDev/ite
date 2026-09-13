@@ -104,6 +104,11 @@ class LLMClient:
         return self._client
 
     def _is_cloud_model(self) -> bool:
+        # A delegated runtime is cloud by definition: it has no local provider
+        # credentials, only a runtime token. Deciding by model name here would
+        # send it down the direct-provider path and fail on a missing api_key.
+        if self._session_provider is not None:
+            return True
         model_name = str(self.config.model_name or "").strip()
         # :cloud suffix always routes through the cloud API regardless
         # of any local provider credentials (e.g. Ollama defaults)

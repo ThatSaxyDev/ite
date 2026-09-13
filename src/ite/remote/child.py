@@ -34,6 +34,7 @@ def main() -> int:
             runtime_id=runtime_id,
             runtime_token=runtime_token,
             token_file=os.environ.get("ITE_RUNTIME_TOKEN_FILE", ""),
+            model=os.environ.get("ITE_MODEL", ""),
         )
     )
     return 0

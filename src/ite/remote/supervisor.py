@@ -40,6 +40,7 @@ class _Child:
     process: subprocess.Popen[bytes]
     base_dir: Path
     log_path: Path
+    model: str = ""
     failures: int = 0
     monitor: asyncio.Task[None] | None = None
 
@@ -101,7 +102,7 @@ class HostSupervisor:
         *,
         base_dir: Path,
         runtime_command: list[str] | None = None,
-        child_env_factory: Callable[[str, str, str], dict[str, str]] | None = None,
+        child_env_factory: Callable[[str, str, str, str], dict[str, str]] | None = None,
     ) -> None:
         self._identity = identity
         self._base_dir = Path(base_dir)
@@ -135,7 +136,9 @@ class HostSupervisor:
     def runtime_base_dir(self, user_id: str) -> Path:
         return self._base_dir / "runtimes" / user_id
 
-    def _build_child_env(self, user_id: str, runtime_id: str, token: str) -> dict[str, str]:
+    def _build_child_env(
+        self, user_id: str, runtime_id: str, token: str, model: str = ""
+    ) -> dict[str, str]:
         base = self.runtime_base_dir(user_id)
         env = {
             **os.environ,
@@ -147,6 +150,8 @@ class HostSupervisor:
             "ITE_RUNTIME_TOKEN": token,
             "ITE_RUNTIME_TOKEN_FILE": str(self._token_file_path(user_id)),
         }
+        if model:
+            env["ITE_MODEL"] = model
         return env
 
     def _token_file_path(self, user_id: str) -> Path:
@@ -260,6 +265,7 @@ class HostSupervisor:
         runtime_id: str,
         token: str,
         workspace: str = "",
+        model: str = "",
     ) -> None:
         """Spawn one isolated runtime for ``user_id``. No-op if already running."""
         existing = self._children.get(runtime_id)
@@ -284,7 +290,8 @@ class HostSupervisor:
         user_dir = self._prepare_user_dir(user_id, uid)
         self._write_runtime_token(user_id, token)
 
-        env = self._child_env_factory(user_id, runtime_id, token)
+        resolved_model = str(model or "").strip()
+        env = self._child_env_factory(user_id, runtime_id, token, resolved_model)
 
         # The workspace path is advertised by the cloud but must exist locally;
         # an unusable path fails loudly rather than silently using the wrong dir.
@@ -308,6 +315,7 @@ class HostSupervisor:
             process=process,
             base_dir=user_dir,
             log_path=self._child_log_path(user_id),
+            model=resolved_model,
         )
         self._children[runtime_id] = child
         child.monitor = asyncio.create_task(self._monitor_child(child))
@@ -379,7 +387,7 @@ class HostSupervisor:
 
     def _restart(self, child: _Child) -> None:
         token = self._read_runtime_token(child.user_id)
-        env = self._child_env_factory(child.user_id, child.runtime_id, token)
+        env = self._child_env_factory(child.user_id, child.runtime_id, token, child.model)
         try:
             child.process = self._spawn_child(
                 user_id=child.user_id, runtime_id=child.runtime_id, env=env
@@ -524,6 +532,7 @@ class HostSupervisor:
                 runtime_id=runtime_id,
                 token=str(payload.get("token") or ""),
                 workspace=str(payload.get("workspace") or ""),
+                model=str(payload.get("model") or ""),
             )
             return
 

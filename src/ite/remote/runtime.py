@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import platform
 import signal
 import sys
@@ -120,6 +121,7 @@ async def run_provisioned_runtime(
     runtime_id: str,
     runtime_token: str,
     token_file: str = "",
+    model: str = "",
 ) -> None:
     """Serve one runtime using a cloud-issued runtime token.
 
@@ -140,6 +142,17 @@ async def run_provisioned_runtime(
             "A provisioned runtime needs ITE_CLOUD_API_URL and ITE_RUNTIME_TOKEN. "
             "It is normally started by `ite remote serve`, not by hand."
         )
+
+    # The cloud tells us which bundled model to use. A fresh runtime workspace
+    # has no model configured, and without this it would try a direct provider
+    # with no credentials.
+    resolved_model = str(model or os.environ.get("ITE_MODEL") or "").strip()
+    if resolved_model:
+        config.model_name = resolved_model
+        try:
+            config.model.source_kind = "bundled"
+        except (AttributeError, TypeError):
+            pass
 
     host = HeadlessRuntimeHost.create(
         cwd=workspace,
