@@ -170,6 +170,7 @@ async def run_provisioned_runtime(
         runtime_name=server.connection_info().get("runtime_name") or "iTE Runtime",
         platform=_platform_label(),
         fingerprint=server.connection_info().get("fingerprint") or "",
+        project_id=os.environ.get("ITE_PROJECT_ID", ""),
     )
 
     print(f"Runtime id: {resolved_runtime_id}")

@@ -302,7 +302,9 @@ def remote_serve(base_dir: Path | None) -> None:
     directory = ensure_base_dir(base_dir or default_base_dir())
     supervisor = HostSupervisor(identity, base_dir=directory)
     console.print(f"Host supervisor starting. Base dir: {directory}")
-    console.print(f"Per-user runtime logs: {directory}/runtimes/<user>/runtime.log")
+    console.print(
+        f"Per-project runtime logs: {directory}/users/<user>/projects/<project>/runtime.log"
+    )
     try:
         asyncio.run(supervisor.run())
     except KeyboardInterrupt:

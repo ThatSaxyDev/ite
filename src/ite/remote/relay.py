@@ -71,6 +71,7 @@ class CloudRelayClient:
         runtime_name: str,
         platform: str,
         fingerprint: str,
+        project_id: str = "",
     ) -> None:
         self._server = server
         self._api_url = str(api_url or "").strip().rstrip("/")
@@ -79,6 +80,7 @@ class CloudRelayClient:
         self._runtime_name = str(runtime_name or "iTE Runtime").strip() or "iTE Runtime"
         self._platform = str(platform or "").strip()
         self._fingerprint = str(fingerprint or "").strip()
+        self._project_id = str(project_id or "").strip()
         self._outbound: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(
             maxsize=_SEND_QUEUE_MAX
         )
@@ -193,6 +195,7 @@ class CloudRelayClient:
                         "name": self._runtime_name,
                         "platform": self._platform,
                         "fingerprint": self._fingerprint,
+                        "projectId": self._project_id,
                     },
                 }
             )

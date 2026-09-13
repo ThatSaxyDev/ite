@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
+import re
+import signal
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -28,15 +31,37 @@ _TOKEN_REFRESH_SECONDS = 6 * 60 * 60
 _UID_RANGE_START = 210_000
 _UID_RANGE_SIZE = 20_000
 
+# A project with no explicit id lands here, so single-project users keep working.
+DEFAULT_PROJECT_ID = "default"
+
+_SAFE_SEGMENT_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
 
 class IsolationUnavailable(RuntimeError):
     """Raised when the host cannot create a real per-user boundary."""
+
+
+def safe_segment(value: str) -> str:
+    """Map an identifier to a safe single path segment.
+
+    Identifiers arrive from the cloud, so they are not trusted to be filesystem
+    safe. A conforming id is used as-is for readability; anything else becomes a
+    stable hash, so two different ids can never collapse onto the same directory
+    (which would silently merge two tenants).
+    """
+    raw = str(value or "").strip()
+    if raw and raw not in {".", ".."} and _SAFE_SEGMENT_RE.fullmatch(raw):
+        return raw
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    logger.warning("Unsafe path segment %r; using hashed directory h_%s", raw, digest)
+    return f"h_{digest}"
 
 
 @dataclass
 class _Child:
     runtime_id: str
     user_id: str
+    project_id: str
     process: subprocess.Popen[bytes]
     base_dir: Path
     log_path: Path
@@ -102,7 +127,7 @@ class HostSupervisor:
         *,
         base_dir: Path,
         runtime_command: list[str] | None = None,
-        child_env_factory: Callable[[str, str, str, str], dict[str, str]] | None = None,
+        child_env_factory: Callable[[str, str, str, str, str], dict[str, str]] | None = None,
     ) -> None:
         self._identity = identity
         self._base_dir = Path(base_dir)
@@ -133,41 +158,64 @@ class HostSupervisor:
 
     # -- isolation ---------------------------------------------------------
 
-    def runtime_base_dir(self, user_id: str) -> Path:
-        return self._base_dir / "runtimes" / user_id
+    def user_root(self, user_id: str) -> Path:
+        return self._base_dir / "users" / safe_segment(user_id)
+
+    def user_home(self, user_id: str) -> Path:
+        return self.user_root(user_id) / "home"
+
+    def project_dir(self, user_id: str, project_id: str) -> Path:
+        return self.user_root(user_id) / "projects" / safe_segment(project_id)
+
+    def workspace_dir(self, user_id: str, project_id: str) -> Path:
+        """The agent's working directory for one project.
+
+        Threads live inside a workspace; a new project is a new workspace, which
+        means a new runtime process (a Session binds its cwd at construction).
+        """
+        return self.project_dir(user_id, project_id) / "workspace"
 
     def _build_child_env(
-        self, user_id: str, runtime_id: str, token: str, model: str = ""
+        self,
+        user_id: str,
+        runtime_id: str,
+        token: str,
+        model: str = "",
+        project_id: str = DEFAULT_PROJECT_ID,
     ) -> dict[str, str]:
-        base = self.runtime_base_dir(user_id)
+        # HOME is per user, so credentials and config persist across that user's
+        # projects; only the cwd differs per project.
+        home = self.user_home(user_id)
         env = {
             **os.environ,
-            "HOME": str(base),
-            "XDG_CONFIG_HOME": str(base / "config"),
-            "XDG_DATA_HOME": str(base / "data"),
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / "config"),
+            "XDG_DATA_HOME": str(home / "data"),
             "ITE_CLOUD_API_URL": self._identity.api_url,
             "ITE_RUNTIME_ID": runtime_id,
+            "ITE_PROJECT_ID": str(project_id or DEFAULT_PROJECT_ID),
+            "ITE_WORKSPACE": str(self.workspace_dir(user_id, project_id)),
             "ITE_RUNTIME_TOKEN": token,
-            "ITE_RUNTIME_TOKEN_FILE": str(self._token_file_path(user_id)),
+            "ITE_RUNTIME_TOKEN_FILE": str(self._token_file_path(user_id, project_id)),
         }
         if model:
             env["ITE_MODEL"] = model
         return env
 
-    def _token_file_path(self, user_id: str) -> Path:
-        return self.runtime_base_dir(user_id) / "runtime-token"
+    def _token_file_path(self, user_id: str, project_id: str) -> Path:
+        return self.project_dir(user_id, project_id) / "runtime-token"
 
-    def _pid_file_path(self, user_id: str) -> Path:
-        return self.runtime_base_dir(user_id) / "runtime.pid"
+    def _pid_file_path(self, user_id: str, project_id: str) -> Path:
+        return self.project_dir(user_id, project_id) / "runtime.pid"
 
-    def _write_child_pid(self, user_id: str, pid: int) -> None:
-        path = self._pid_file_path(user_id)
+    def _write_child_pid(self, user_id: str, project_id: str, pid: int) -> None:
+        path = self._pid_file_path(user_id, project_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(str(pid), encoding="utf-8")
 
-    def _clear_child_pid(self, user_id: str) -> None:
+    def _clear_child_pid(self, user_id: str, project_id: str) -> None:
         try:
-            self._pid_file_path(user_id).unlink()
+            self._pid_file_path(user_id, project_id).unlink()
         except OSError:
             pass
 
@@ -193,40 +241,44 @@ class HostSupervisor:
         runtime is healthy while nothing is serving it. On startup we reclaim
         those children so the next provision recreates them with current config.
         """
-        runtimes_dir = self._base_dir / "runtimes"
-        if not runtimes_dir.is_dir():
+        users_dir = self._base_dir / "users"
+        if not users_dir.is_dir():
             return 0
 
         reaped = 0
-        for user_dir in runtimes_dir.iterdir():
-            if not user_dir.is_dir():
-                continue
-            pid_path = user_dir / "runtime.pid"
+        for pid_path in users_dir.glob("*/projects/*/runtime.pid"):
             try:
                 pid = int(pid_path.read_text(encoding="utf-8").strip())
             except (OSError, ValueError):
                 continue
 
+            project_id = pid_path.parent.name
             if pid == os.getpid() or not self._is_ite_child(pid):
-                self._clear_child_pid(user_dir.name)
+                try:
+                    pid_path.unlink()
+                except OSError:
+                    pass
                 continue
 
-            logger.info("Reaping orphaned runtime child pid=%s for user %s", pid, user_dir.name)
+            logger.info("Reaping orphaned runtime child pid=%s (project %s)", pid, project_id)
             try:
                 os.kill(pid, signal.SIGTERM)
             except OSError:
                 pass
-            self._clear_child_pid(user_dir.name)
+            try:
+                pid_path.unlink()
+            except OSError:
+                pass
             reaped += 1
         return reaped
 
-    def _write_runtime_token(self, user_id: str, token: str) -> None:
+    def _write_runtime_token(self, user_id: str, project_id: str, token: str) -> None:
         """Write the token where the child re-reads it, owner-only and atomic.
 
         Rotation is a file replace, so an already-running child picks up the new
         token on its next call without being restarted.
         """
-        path = self._token_file_path(user_id)
+        path = self._token_file_path(user_id, project_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(token, encoding="utf-8")
@@ -237,31 +289,49 @@ class HostSupervisor:
         except (PermissionError, OSError):
             pass
 
-    def _prepare_user_dir(self, user_id: str, uid: int) -> Path:
-        """Create the tenant directory tree, owned by that tenant's uid, 0700.
+    def _chmod_quiet(self, path: Path, mode: int) -> None:
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
 
-        This is the security boundary: a child running as its own uid cannot read
-        a sibling tenant's directory even though it can run arbitrary shell.
+    def _chown_quiet(self, path: Path, uid: int) -> None:
+        if not hasattr(os, "chown"):
+            return
+        try:
+            os.chown(path, uid, uid)
+        except (PermissionError, OSError):
+            # Non-root dev environments: degrade, but the caller warns loudly.
+            pass
+
+    def _prepare_project_dir(self, user_id: str, project_id: str, uid: int) -> Path:
+        """Create the tenant tree: one shared home plus one directory per project.
+
+        The home (HOME/config/data) is shared across a user's projects, so their
+        credentials persist; only the workspace differs per project. Everything
+        is 0700 and owned by the tenant uid — the security boundary that lets the
+        agent run arbitrary shell without reaching a sibling tenant's files.
         """
-        base = self._base_dir / "runtimes"
-        base.mkdir(parents=True, exist_ok=True)
-        os.chmod(base, 0o711)  # traversable, not listable
-        user_dir = base / user_id
+        users_dir = self._base_dir / "users"
+        users_dir.mkdir(parents=True, exist_ok=True)
+        # Traversable but not listable, so tenants cannot enumerate each other.
+        self._chmod_quiet(users_dir, 0o711)
+        self._chown_quiet(users_dir, uid)
+
+        home = self.user_home(user_id)
+        project = self.project_dir(user_id, project_id)
         for directory in (
-            user_dir,
-            user_dir / "config",
-            user_dir / "data",
-            user_dir / "workspace",
+            self.user_root(user_id),
+            home,
+            home / "config",
+            home / "data",
+            project,
+            project / "workspace",
         ):
             directory.mkdir(parents=True, exist_ok=True)
-            os.chmod(directory, 0o700)
-            if hasattr(os, "chown"):
-                try:
-                    os.chown(directory, uid, uid)
-                except (PermissionError, OSError):
-                    # Non-root dev environments: degrade, but say so loudly.
-                    pass
-        return user_dir
+            self._chmod_quiet(directory, 0o700)
+            self._chown_quiet(directory, uid)
+        return project
 
     def _isolation_available(self) -> bool:
         return sys.platform.startswith("linux") and os.geteuid() == 0
@@ -276,16 +346,16 @@ class HostSupervisor:
 
         return _drop_privileges
 
-    def _child_log_path(self, user_id: str) -> Path:
-        return self.runtime_base_dir(user_id) / "runtime.log"
+    def _child_log_path(self, user_id: str, project_id: str) -> Path:
+        return self.project_dir(user_id, project_id) / "runtime.log"
 
-    def _open_child_log(self, user_id: str) -> Any:
-        """Append the child's output to a per-user file.
+    def _open_child_log(self, user_id: str, project_id: str) -> Any:
+        """Append the child's output to a per-project file.
 
         Deliberately not a pipe: an undrained pipe can fill and block the child,
         and it hides the child's own diagnostics exactly when we need them most.
         """
-        path = self._child_log_path(user_id)
+        path = self._child_log_path(user_id, project_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         handle = open(path, "ab")  # noqa: SIM115 - closed right after spawn
         try:
@@ -294,21 +364,23 @@ class HostSupervisor:
             pass
         return handle
 
-    def _read_child_log_tail(self, user_id: str, limit: int = 600) -> str:
+    def _read_child_log_tail(self, user_id: str, project_id: str, limit: int = 600) -> str:
         try:
-            text = self._child_log_path(user_id).read_text(encoding="utf-8", errors="replace")
+            text = self._child_log_path(user_id, project_id).read_text(
+                encoding="utf-8", errors="replace"
+            )
         except OSError:
             return ""
         return text.strip()[-limit:]
 
     def _spawn_child(
-        self, *, user_id: str, runtime_id: str, env: dict[str, str]
+        self, *, user_id: str, project_id: str, env: dict[str, str]
     ) -> subprocess.Popen[bytes]:
-        log_handle = self._open_child_log(user_id)
+        log_handle = self._open_child_log(user_id, project_id)
         try:
             return subprocess.Popen(  # noqa: S603 - command is operator-configured
                 self._runtime_command,
-                cwd=str(self.runtime_base_dir(user_id) / "workspace"),
+                cwd=str(self.workspace_dir(user_id, project_id)),
                 env=env,
                 preexec_fn=self._preexec_for(self._allocations.uid_for(user_id)),
                 stdout=log_handle,
@@ -327,10 +399,12 @@ class HostSupervisor:
         user_id: str,
         runtime_id: str,
         token: str,
+        project_id: str = DEFAULT_PROJECT_ID,
         workspace: str = "",
         model: str = "",
     ) -> None:
-        """Spawn one isolated runtime for ``user_id``. No-op if already running."""
+        """Spawn one isolated runtime for one project. No-op if already running."""
+        resolved_project = str(project_id or DEFAULT_PROJECT_ID).strip() or DEFAULT_PROJECT_ID
         existing = self._children.get(runtime_id)
         if existing is not None:
             if existing.process.poll() is None:
@@ -351,7 +425,7 @@ class HostSupervisor:
                         "Runtime %s already running; ignoring duplicate provision", runtime_id
                     )
                     # A fresh token still needs to land on disk for the running child.
-                    self._write_runtime_token(user_id, token)
+                    self._write_runtime_token(user_id, existing.project_id, token)
                     return
             else:
                 # A previous child for this runtime has exited: adopt the new spawn.
@@ -366,47 +440,55 @@ class HostSupervisor:
             )
 
         uid = self._allocations.uid_for(user_id)
-        user_dir = self._prepare_user_dir(user_id, uid)
-        self._write_runtime_token(user_id, token)
+        project_dir = self._prepare_project_dir(user_id, resolved_project, uid)
+        self._write_runtime_token(user_id, resolved_project, token)
 
         resolved_model = str(model or "").strip()
-        env = self._child_env_factory(user_id, runtime_id, token, resolved_model)
+        env = self._child_env_factory(
+            user_id, runtime_id, token, resolved_model, resolved_project
+        )
 
-        # The workspace path is advertised by the cloud but must exist locally;
-        # an unusable path fails loudly rather than silently using the wrong dir.
+        # The cloud may propose a workspace path. It is advisory: the host owns
+        # placement, so an unavailable path is reported and the canonical one is
+        # used rather than silently writing somewhere unexpected.
         if workspace and not Path(workspace).is_dir():
             logger.warning(
-                "Provisioned workspace %s does not exist; using %s",
+                "Cloud workspace %s is not present; using %s",
                 workspace,
-                user_dir / "workspace",
+                self.workspace_dir(user_id, resolved_project),
             )
 
         try:
-            process = self._spawn_child(user_id=user_id, runtime_id=runtime_id, env=env)
+            process = self._spawn_child(
+                user_id=user_id, project_id=resolved_project, env=env
+            )
         except OSError as exc:
             self._report_status(runtime_id, "failed", detail=f"spawn failed: {exc}")
             logger.error("Failed to spawn runtime %s: %s", runtime_id, exc)
             return
-        self._write_child_pid(user_id, process.pid)
+        self._write_child_pid(user_id, resolved_project, process.pid)
 
         child = _Child(
             runtime_id=runtime_id,
             user_id=user_id,
+            project_id=resolved_project,
             process=process,
-            base_dir=user_dir,
-            log_path=self._child_log_path(user_id),
+            base_dir=project_dir,
+            log_path=self._child_log_path(user_id, resolved_project),
             model=resolved_model,
         )
         self._children[runtime_id] = child
         child.monitor = asyncio.create_task(self._monitor_child(child))
         self._report_status(runtime_id, "starting")
         logger.info(
-            "Provisioned runtime %s for user %s (pid=%s, uid=%s, model=%s, log=%s)",
+            "Provisioned runtime %s for user %s (project=%s, pid=%s, uid=%s, model=%s, cwd=%s, log=%s)",
             runtime_id,
             user_id,
+            resolved_project,
             process.pid,
             uid,
             resolved_model or "(none)",
+            self.workspace_dir(user_id, resolved_project),
             child.log_path,
         )
 
@@ -432,8 +514,8 @@ class HostSupervisor:
         if self._children.get(child.runtime_id) is not child:
             return  # superseded by a newer provision
 
-        stderr_tail = self._read_child_log_tail(child.user_id)
-        self._clear_child_pid(child.user_id)
+        stderr_tail = self._read_child_log_tail(child.user_id, child.project_id)
+        self._clear_child_pid(child.user_id, child.project_id)
 
         child.failures += 1
         detail = f"exit code {returncode}"
@@ -468,11 +550,13 @@ class HostSupervisor:
         self._restart(child)
 
     def _restart(self, child: _Child) -> None:
-        token = self._read_runtime_token(child.user_id)
-        env = self._child_env_factory(child.user_id, child.runtime_id, token, child.model)
+        token = self._read_runtime_token(child.user_id, child.project_id)
+        env = self._child_env_factory(
+            child.user_id, child.runtime_id, token, child.model, child.project_id
+        )
         try:
             child.process = self._spawn_child(
-                user_id=child.user_id, runtime_id=child.runtime_id, env=env
+                user_id=child.user_id, project_id=child.project_id, env=env
             )
         except OSError as exc:
             self._children.pop(child.runtime_id, None)
@@ -481,9 +565,9 @@ class HostSupervisor:
         child.monitor = asyncio.create_task(self._monitor_child(child))
         self._report_status(child.runtime_id, "starting")
 
-    def _read_runtime_token(self, user_id: str) -> str:
+    def _read_runtime_token(self, user_id: str, project_id: str) -> str:
         try:
-            return self._token_file_path(user_id).read_text(encoding="utf-8").strip()
+            return self._token_file_path(user_id, project_id).read_text(encoding="utf-8").strip()
         except OSError:
             return ""
 
@@ -617,16 +701,19 @@ class HostSupervisor:
         if message_type == "provision":
             user_id = str(payload.get("userId") or "")
             runtime_id = str(payload.get("runtimeId") or "")
+            project_id = str(payload.get("projectId") or DEFAULT_PROJECT_ID)
             logger.info(
-                "Provisioning request received for user %s (runtime %s, model %s)",
+                "Provisioning request received for user %s (runtime %s, project %s, model %s)",
                 user_id,
                 runtime_id,
+                project_id,
                 str(payload.get("model") or "(none)"),
             )
             self.provision(
                 user_id=user_id,
                 runtime_id=runtime_id,
                 token=str(payload.get("token") or ""),
+                project_id=project_id,
                 workspace=str(payload.get("workspace") or ""),
                 model=str(payload.get("model") or ""),
             )
@@ -705,13 +792,17 @@ class HostSupervisor:
 
 
 def default_base_dir() -> Path:
-    """Where per-user runtime directories live when the operator does not override."""
+    """Root under which per-user, per-project directories are created.
+
+    ``users/<user>/projects/<project>`` is appended to this, so the value is the
+    container, not the leaf.
+    """
     env_value = os.environ.get("ITE_RUNTIME_BASE_DIR", "").strip()
     if env_value:
         return Path(env_value)
     if os.geteuid() == 0:
         return Path("/var/lib/ite")
-    return Path.home() / ".ite" / "runtimes"
+    return Path.home() / ".ite"
 
 
 def ensure_base_dir(path: Path) -> Path:
@@ -730,4 +821,5 @@ __all__ = [
     "IsolationUnavailable",
     "default_base_dir",
     "ensure_base_dir",
+    "safe_segment",
 ]
