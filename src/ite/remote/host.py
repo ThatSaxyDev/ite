@@ -68,6 +68,9 @@ class HeadlessRuntimeHost:
     _server: RemoteRuntimeServer | None = field(default=None, init=False)
     _run_state: HostRunState = field(default_factory=HostRunState, init=False)
     _turn_task: asyncio.Task[None] | None = field(default=None, init=False)
+    # Last activity label broadcast to clients, so a change is published exactly
+    # once instead of on every streamed event.
+    _published_activity_label: str = field(default="", init=False)
     _command_feed: list[dict[str, Any]] = field(default_factory=list, init=False)
     _change_feed: list[dict[str, Any]] = field(default_factory=list, init=False)
     _command_seq: int = field(default=0, init=False)
@@ -228,6 +231,7 @@ class HeadlessRuntimeHost:
         self._run_state.last_error_message = ""
         self._run_state.activity_busy = True
         self._run_state.activity_label = "Thinking"
+        self._published_activity_label = "Thinking"
         await self._publish_state()
         self._turn_task = asyncio.create_task(self._run_turn(message, turn_id))
 
@@ -262,6 +266,7 @@ class HeadlessRuntimeHost:
             self._run_state.is_turn_running = False
             self._run_state.activity_busy = False
             self._run_state.activity_label = ""
+            self._published_activity_label = ""
             self._turn_task = None
             self._append_change_feed()
             await self._publish_state()
@@ -273,6 +278,12 @@ class HeadlessRuntimeHost:
         self, event: AgentEvent, *, session_id: str, turn_id: int
     ) -> None:
         self._track_activity(event)
+        # The activity label lives in the *state* payload, but a turn otherwise
+        # only streams agent events. Without republishing, the client keeps
+        # showing whatever was set when the turn started ("Thinking") for the
+        # whole turn. Publish only on change so streamed deltas do not trigger a
+        # full state broadcast each time.
+        await self._publish_activity_if_changed()
         if event.type == AgentEventType.TOOL_CALL_START:
             self._on_tool_start(event)
         elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
@@ -308,8 +319,13 @@ class HeadlessRuntimeHost:
             self._run_state.activity_label = "Writing"
         elif event.type == AgentEventType.PLAN_READY:
             self._run_state.activity_label = "Plan ready"
-        else:
-            self._run_state.activity_label = progress_label()
+        elif event.type == AgentEventType.CONTEXT_COMPACTING:
+            self._run_state.activity_label = "Compacting context"
+        # Any other event (streamed tool progress, usage updates, lifecycle)
+        # leaves the label alone. A tool is still running, so its action label is
+        # still correct — and `progress_label()` returns a random gerund, so
+        # reassigning here would change the label on every progress tick and
+        # broadcast the whole state each time.
 
     def _on_tool_start(self, event: AgentEvent) -> None:
         name = str(event.data.get("name") or "")
@@ -403,6 +419,13 @@ class HeadlessRuntimeHost:
     async def _publish_state(self) -> None:
         if self._server is not None:
             await self._server.publish_state()
+
+    async def _publish_activity_if_changed(self) -> None:
+        label = str(self._run_state.activity_label or "")
+        if label == self._published_activity_label:
+            return
+        self._published_activity_label = label
+        await self._publish_state()
 
     async def _publish_event(self, payload: dict[str, Any]) -> None:
         if self._server is not None:
