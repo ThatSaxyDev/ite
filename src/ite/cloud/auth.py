@@ -1038,7 +1038,12 @@ def get_activity(config: Config) -> dict[str, Any] | None:
     return payload
 
 
-def ensure_cloud_auth(console: Console | None, config: Config) -> None:
+def ensure_cloud_auth(
+    console: Console | None,
+    config: Config,
+    *,
+    open_browser: bool = True,
+) -> None:
     if not config.cloud_auth_enabled:
         return
 
@@ -1080,8 +1085,16 @@ def ensure_cloud_auth(console: Console | None, config: Config) -> None:
         console.print(
             "[bold bright_white]iTE Cloud sign-in required[/bold bright_white]"
         )
-        console.print("[dim]Opening your browser to complete sign-in...[/dim]")
-    opened = webbrowser.open(auth_url)
+        console.print("[bold]Open this URL to sign in:[/bold]")
+        console.print(f"[cyan]{auth_url}[/cyan]")
+    opened = False
+    if open_browser:
+        # Headless hosts (servers, containers, SSH sessions) have no browser and
+        # some Linux fallbacks launch a text browser that blocks, so callers can
+        # opt out and print the URL for the user to open elsewhere.
+        if console is not None:
+            console.print("[dim]Opening your browser to complete sign-in...[/dim]")
+        opened = webbrowser.open(auth_url)
     if not opened and console is not None:
         console.print(
             f"[dim]Browser did not open automatically. Open:[/dim] {auth_url}"

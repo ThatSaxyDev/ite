@@ -216,6 +216,70 @@ def remote_serve(ctx: click.Context, cwd: Path | None) -> None:
         raise click.ClickException(str(exc)) from exc
 
 
+@main.group("cloud")
+def cloud_group() -> None:
+    """Manage the iTE Cloud session."""
+
+
+@cloud_group.command("login")
+@click.option(
+    "--open-browser",
+    is_flag=True,
+    help="Try to open a browser. Off by default so this works on headless hosts.",
+)
+@click.pass_context
+def cloud_login(ctx: click.Context, open_browser: bool) -> None:
+    """Sign in to iTE Cloud.
+
+    Prints the sign-in URL and waits for approval, so it works over SSH or on a
+    server with no browser.
+    """
+    from ite.cloud import CloudAuthError, CloudConnectionError, ensure_cloud_auth
+
+    config = _load_runtime_config(
+        workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
+        model=None,
+        api_key=None,
+        base_url=None,
+    )
+    try:
+        ensure_cloud_auth(console, config, open_browser=open_browser)
+    except CloudConnectionError as exc:
+        raise click.ClickException(f"Cloud API unreachable: {exc}") from exc
+    except CloudAuthError as exc:
+        raise click.ClickException(f"Cloud login failed: {exc}") from exc
+    console.print("[bold green]iTE Cloud session is active.[/bold green]")
+
+
+@cloud_group.command("status")
+@click.pass_context
+def cloud_status(ctx: click.Context) -> None:
+    """Show the current iTE Cloud session status."""
+    from ite.cloud import get_cloud_auth_status
+
+    config = _load_runtime_config(
+        workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
+        model=None,
+        api_key=None,
+        base_url=None,
+    )
+    auth = get_cloud_auth_status(config)
+    console.print(f"[bold]{auth.state}[/bold]")
+    if auth.message:
+        console.print(f"[dim]{auth.message}[/dim]")
+
+
+@cloud_group.command("logout")
+def cloud_logout() -> None:
+    """Clear the stored iTE Cloud session."""
+    from ite.cloud import clear_cloud_auth
+
+    if clear_cloud_auth():
+        console.print("[bold green]Cloud session cleared.[/bold green]")
+    else:
+        console.print("[dim]No local cloud session was present.[/dim]")
+
+
 @mcp_group.command("add", context_settings={"ignore_unknown_options": True})
 @click.argument("server")
 @click.argument("target", required=False)
