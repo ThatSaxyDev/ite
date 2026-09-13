@@ -596,8 +596,40 @@ class HostSupervisor:
     def stop(self) -> None:
         self._stop_event.set()
 
+    def _install_signal_handlers(self) -> None:
+        """Turn SIGTERM/SIGINT into a graceful stop.
+
+        A service manager stops a unit with SIGTERM, and Python's default action
+        for it terminates the process immediately: no exception, no unwinding,
+        so the shutdown path that deprovisions children never runs. Handling the
+        signal ourselves makes `systemctl stop`/`restart` deterministic instead
+        of relying on the orphan reaper at next startup.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, self._on_shutdown_signal, sig)
+            except (NotImplementedError, RuntimeError, ValueError):
+                # Not supported on this platform (e.g. Windows) or not on the
+                # main thread. The reaper covers the crash-equivalent case.
+                logger.debug("Could not install handler for signal %s", sig)
+
+    def _on_shutdown_signal(self, sig: int) -> None:
+        logger.info("Received %s; shutting down", signal.Signals(sig).name)
+        self.stop()
+
     async def run(self) -> None:
         from websockets.asyncio.client import connect
+
+        # Shut down gracefully on the signals a service manager sends. `systemctl
+        # stop`/`restart` uses SIGTERM, whose default action kills the process
+        # immediately without unwinding — the `finally` below would never run and
+        # children would be left behind. This makes stop deterministic.
+        self._install_signal_handlers()
 
         # Reclaim children left by a previous supervisor before serving. Without
         # this they hold their runtimes "online" with stale config forever.
