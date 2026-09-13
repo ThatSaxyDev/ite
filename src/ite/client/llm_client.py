@@ -1242,6 +1242,17 @@ class LLMClient:
 
         safe_messages = self._sanitize_messages(messages)
         model_name = self._resolve_cloud_model_name()
+        if not model_name:
+            # Sending an empty model produces an opaque "Invalid inference payload"
+            # from the server. Fail here with something actionable instead.
+            yield StreamEvent(
+                type=StreamEventType.ERROR,
+                error=(
+                    "No cloud model is configured for this runtime. "
+                    "Re-provision it so the cloud can assign one."
+                ),
+            )
+            return
         request_payload: dict[str, Any] = {
             "model": model_name,
             "messages": safe_messages,

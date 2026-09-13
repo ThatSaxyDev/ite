@@ -271,14 +271,30 @@ class HostSupervisor:
         existing = self._children.get(runtime_id)
         if existing is not None:
             if existing.process.poll() is None:
-                logger.info("Runtime %s already running; ignoring duplicate provision", runtime_id)
-                # A fresh token still needs to land on disk for the running child.
-                self._write_runtime_token(user_id, token)
-                return
-            # A previous child for this runtime has exited: adopt the new spawn.
-            if existing.monitor is not None:
-                existing.monitor.cancel()
-            self._children.pop(runtime_id, None)
+                resolved_model = str(model or "").strip()
+                if resolved_model and resolved_model != existing.model:
+                    # The model is only read at startup, so a changed model needs
+                    # a fresh process. Without this the runtime keeps serving with
+                    # a stale (or missing) model and inference fails.
+                    logger.info(
+                        "Runtime %s model changed (%s -> %s); restarting",
+                        runtime_id,
+                        existing.model or "(unset)",
+                        resolved_model,
+                    )
+                    self.deprovision(runtime_id, reason="model changed")
+                else:
+                    logger.info(
+                        "Runtime %s already running; ignoring duplicate provision", runtime_id
+                    )
+                    # A fresh token still needs to land on disk for the running child.
+                    self._write_runtime_token(user_id, token)
+                    return
+            else:
+                # A previous child for this runtime has exited: adopt the new spawn.
+                if existing.monitor is not None:
+                    existing.monitor.cancel()
+                self._children.pop(runtime_id, None)
 
         if not self._isolation_available():
             logger.warning(
