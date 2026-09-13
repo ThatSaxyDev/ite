@@ -9,6 +9,8 @@ import base64
 import json
 from openai import RateLimitError
 from typing import AsyncGenerator
+from typing import Callable
+from typing import TYPE_CHECKING
 from ite.client.response import StreamEventType
 from ite.client.response import StreamEvent
 from ite.client.response import TokenUsage
@@ -23,6 +25,14 @@ from ite import __version__
 import httpx
 import ssl
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from ite.cloud import CloudSession
+
+# How the client obtains a cloud session. The interactive TUI leaves this unset
+# and reads the operator's own login; a provisioned runtime injects one that
+# returns a session built from its delegated runtime token instead.
+CloudSessionProvider = Callable[[], "CloudSession | None"]
 
 LEGACY_BUNDLED_MODEL_ALIASES: dict[str, str] = {
     "kimi-k2.5:cloud": "moonshotai/kimi-k2.5",
@@ -65,10 +75,23 @@ def _is_ssl_error(exc: BaseException) -> bool:
 
 
 class LLMClient:
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        session_provider: "CloudSessionProvider | None" = None,
+    ) -> None:
         self._client: AsyncOpenAI | None = None
         self._max_retries: int = 3
         self.config = config
+        # Unset in the TUI (reads the operator's own login). A provisioned runtime
+        # injects a provider that returns a session built from its runtime token,
+        # so no user login is ever stored on the host.
+        self._session_provider = session_provider
+
+    def _resolve_cloud_session(self) -> "CloudSession | None":
+        if self._session_provider is not None:
+            return self._session_provider()
+        return get_cloud_session(self.config)
 
     def get_client(self) -> AsyncOpenAI:
         if self._client is None:
@@ -1204,7 +1227,7 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         visual_budget: int | None = None,
     ) -> AsyncGenerator[StreamEvent, None]:
-        session = get_cloud_session(self.config)
+        session = self._resolve_cloud_session()
         if session is None:
             yield StreamEvent(
                 type=StreamEventType.ERROR,
@@ -1270,7 +1293,7 @@ class LLMClient:
             return
 
     async def _cloud_complete_text(self, messages: list[dict[str, Any]]) -> str:
-        session = get_cloud_session(self.config)
+        session = self._resolve_cloud_session()
         if session is None:
             raise RuntimeError(
                 "Cloud session is missing or expired. Run `/cloud login` and try again."

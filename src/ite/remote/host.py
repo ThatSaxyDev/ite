@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from typing import Awaitable
+from typing import Callable
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
@@ -58,6 +60,8 @@ class HeadlessRuntimeHost:
 
     config: Config
     cwd: Path
+    session_provider: Any = None
+    access_checker: Callable[[], Awaitable[bool]] | None = None
     _session: Session | None = field(default=None, init=False)
     _agent: Agent | None = field(default=None, init=False)
     _server: RemoteRuntimeServer | None = field(default=None, init=False)
@@ -70,11 +74,22 @@ class HeadlessRuntimeHost:
     _access_cache: tuple[bool, float] | None = field(default=None, init=False)
 
     @classmethod
-    def create(cls, *, cwd: Path | None = None) -> "HeadlessRuntimeHost":
+    def create(
+        cls,
+        *,
+        cwd: Path | None = None,
+        session_provider: Any = None,
+        access_checker: Callable[[], Awaitable[bool]] | None = None,
+    ) -> "HeadlessRuntimeHost":
         workspace = (cwd or Path.cwd()).resolve()
         ensure_workspace_layout(workspace)
         config = load_config(cwd=workspace)
-        return cls(config=config, cwd=workspace)
+        return cls(
+            config=config,
+            cwd=workspace,
+            session_provider=session_provider,
+            access_checker=access_checker,
+        )
 
     async def start(self) -> RemoteRuntimeServer:
         if self._agent is None:
@@ -84,7 +99,7 @@ class HeadlessRuntimeHost:
             submit_prompt=self.submit_prompt,
             cancel_turn=self.cancel_turn,
             switch_session=self.switch_session,
-            access_checker=self._has_remote_access,
+            access_checker=self.access_checker or self._has_remote_access,
             transport="relay",
         )
         server.ensure_identity()
@@ -104,7 +119,7 @@ class HeadlessRuntimeHost:
     async def _ensure_agent(self) -> None:
         if self._agent is not None:
             return
-        session = Session(config=self.config)
+        session = Session(config=self.config, session_provider=self.session_provider)
         agent = Agent(
             config=self.config,
             session=session,

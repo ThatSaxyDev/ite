@@ -193,23 +193,112 @@ def remote_group() -> None:
     """Run iTE as a cloud runtime for the mobile app."""
 
 
-@remote_group.command("serve")
+@remote_group.group("host")
+def remote_host_group() -> None:
+    """Manage this machine's enrollment as an iTE Cloud host."""
+
+
+@remote_host_group.command("enroll")
+@click.option("--name", default="", help="Display name for this machine.")
 @click.option(
-    "--cwd",
-    "-w",
-    type=click.Path(exists=True, file_okay=False, path_type=Path),
-    help="Workspace directory the cloud runtime operates on.",
+    "--api-url",
+    default="",
+    help="Cloud API URL. Defaults to the URL already in your cloud session.",
 )
 @click.pass_context
-def remote_serve(ctx: click.Context, cwd: Path | None) -> None:
-    """Connect this machine to iTE Cloud and serve remote clients."""
+def remote_host_enroll(ctx: click.Context, name: str, api_url: str) -> None:
+    """Enroll this machine as a host.
+
+    Needs a one-time terminal sign-in (`ite cloud login`). After enrolling, the
+    machine authenticates as itself and `ite remote serve` needs no login.
+    """
+    from ite.cloud.auth import get_cloud_session
+
+    from ite.remote.enrollment import enroll_host
+
+    config = _load_runtime_config(
+        workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
+        model=None,
+        api_key=None,
+        base_url=None,
+    )
+    session = get_cloud_session(config)
+    if session is None:
+        raise click.ClickException(
+            "Enrolling a host needs a one-time sign-in. Run `ite cloud login` first."
+        )
+    resolved_url = (
+        api_url.strip().rstrip("/")
+        or str(session.api_url or "").strip().rstrip("/")
+        or str(config.cloud_api_url or "").strip().rstrip("/")
+    )
+    identity = enroll_host(
+        api_url=resolved_url,
+        access_token=session.access_token,
+        name=name,
+    )
+    console.print(f"[bold green]Host enrolled.[/bold green] id={identity.host_id}")
+    console.print(f"API: {identity.api_url}")
+
+
+@remote_host_group.command("status")
+def remote_host_status() -> None:
+    """Show whether this machine is enrolled as a host."""
+    from ite.remote.host_identity import load_host_identity
+
+    identity = load_host_identity()
+    if identity is None:
+        console.print("[yellow]Not enrolled.[/yellow] Run `ite remote host enroll`.")
+        return
+    console.print(f"Host id: [bold]{identity.host_id}[/bold]")
+    console.print(f"API: {identity.api_url}")
+    console.print(f"Name: {identity.name} ({identity.platform})")
+
+
+@remote_host_group.command("forget")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def remote_host_forget(yes: bool) -> None:
+    """Delete this machine's stored host credential."""
+    from ite.remote.host_identity import clear_host_identity, load_host_identity
+
+    if load_host_identity() is None:
+        console.print("[dim]Nothing to forget.[/dim]")
+        return
+    if not yes:
+        click.confirm("Delete this machine's host credential?", abort=True)
+    clear_host_identity()
+    console.print("[bold]Host credential removed.[/bold]")
+
+
+@remote_group.command("serve")
+@click.option(
+    "--base-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Where per-user runtime directories live. Defaults to /var/lib/ite on root.",
+)
+def remote_serve(base_dir: Path | None) -> None:
+    """Serve every provisioned user on this machine.
+
+    Runs the host supervisor: it holds one control connection to iTE Cloud and
+    starts an isolated runtime process per user on demand. It does not run agent
+    work itself, and it needs no user sign-in once this machine is enrolled.
+    """
     import asyncio
 
-    from ite.remote.runtime import run_cloud_runtime
+    from ite.remote.host_identity import load_host_identity
+    from ite.remote.supervisor import HostSupervisor, default_base_dir, ensure_base_dir
 
-    workspace_dir = cwd or Path(ctx.obj.get("workspace_dir") or Path.cwd())
+    identity = load_host_identity()
+    if identity is None:
+        raise click.ClickException(
+            "This machine is not enrolled as a host. Run `ite remote host enroll` first."
+        )
+
+    directory = ensure_base_dir(base_dir or default_base_dir())
+    supervisor = HostSupervisor(identity, base_dir=directory)
+    console.print(f"Host supervisor starting. Base dir: {directory}")
     try:
-        asyncio.run(run_cloud_runtime(workspace_dir))
+        asyncio.run(supervisor.run())
     except KeyboardInterrupt:
         pass
     except Exception as exc:
@@ -255,7 +344,7 @@ def cloud_login(ctx: click.Context, open_browser: bool) -> None:
 @click.pass_context
 def cloud_status(ctx: click.Context) -> None:
     """Show the current iTE Cloud session status."""
-    from ite.cloud import get_cloud_auth_status
+    from ite.cloud import get_cloud_entitlements_result
 
     config = _load_runtime_config(
         workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
@@ -263,10 +352,34 @@ def cloud_status(ctx: click.Context) -> None:
         api_key=None,
         base_url=None,
     )
-    auth = get_cloud_auth_status(config)
+    result = get_cloud_entitlements_result(config)
+    auth = result.auth
     console.print(f"[bold]{auth.state}[/bold]")
     if auth.message:
         console.print(f"[dim]{auth.message}[/dim]")
+
+    # The account identity matters: runtimes are scoped per cloud account, so a
+    # runtime signed in with a different email than the mobile app is invisible
+    # to it no matter how healthy the connection looks.
+    user = result.user or {}
+    email = str(user.get("email") or "").strip()
+    if email:
+        console.print(f"Account: [bold]{email}[/bold]")
+    elif auth.is_valid:
+        console.print("[dim]Account: unavailable (could not reach /auth/me)[/dim]")
+
+    if auth.is_valid and result.entitlements:
+        remote_ok = bool(
+            result.entitlements.get("remoteCompanion")
+            or result.entitlements.get("proAccess")
+        )
+        if remote_ok:
+            console.print("Remote access: [bold green]enabled[/bold green]")
+        else:
+            console.print(
+                "Remote access: [bold red]not enabled[/bold red] "
+                "[dim](iTE Remote requires Pro)[/dim]"
+            )
 
 
 @cloud_group.command("logout")

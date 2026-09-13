@@ -56,9 +56,10 @@ class Session:
     def __init__(
         self,
         config: Config,
+        session_provider: Any = None,
     ):
         self.config = config
-        self.client = LLMClient(config=self.config)
+        self.client = LLMClient(config=self.config, session_provider=session_provider)
         self.session_id = str(uuid.uuid4())
         self.tool_registry = create_default_registry(config)
         self.context_manager: ContextManager | None = None
