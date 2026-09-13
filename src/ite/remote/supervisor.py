@@ -39,6 +39,7 @@ class _Child:
     user_id: str
     process: subprocess.Popen[bytes]
     base_dir: Path
+    log_path: Path
     failures: int = 0
     monitor: asyncio.Task[None] | None = None
 
@@ -207,6 +208,49 @@ class HostSupervisor:
 
         return _drop_privileges
 
+    def _child_log_path(self, user_id: str) -> Path:
+        return self.runtime_base_dir(user_id) / "runtime.log"
+
+    def _open_child_log(self, user_id: str) -> Any:
+        """Append the child's output to a per-user file.
+
+        Deliberately not a pipe: an undrained pipe can fill and block the child,
+        and it hides the child's own diagnostics exactly when we need them most.
+        """
+        path = self._child_log_path(user_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "ab")  # noqa: SIM115 - closed right after spawn
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return handle
+
+    def _read_child_log_tail(self, user_id: str, limit: int = 600) -> str:
+        try:
+            text = self._child_log_path(user_id).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return ""
+        return text.strip()[-limit:]
+
+    def _spawn_child(
+        self, *, user_id: str, runtime_id: str, env: dict[str, str]
+    ) -> subprocess.Popen[bytes]:
+        log_handle = self._open_child_log(user_id)
+        try:
+            return subprocess.Popen(  # noqa: S603 - command is operator-configured
+                self._runtime_command,
+                cwd=str(self.runtime_base_dir(user_id) / "workspace"),
+                env=env,
+                preexec_fn=self._preexec_for(self._allocations.uid_for(user_id)),
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        finally:
+            # The child holds its own duplicate of the fd.
+            log_handle.close()
+
     # -- provisioning ------------------------------------------------------
 
     def provision(
@@ -219,9 +263,16 @@ class HostSupervisor:
     ) -> None:
         """Spawn one isolated runtime for ``user_id``. No-op if already running."""
         existing = self._children.get(runtime_id)
-        if existing and existing.process.poll() is None:
-            logger.info("Runtime %s already running; ignoring duplicate provision", runtime_id)
-            return
+        if existing is not None:
+            if existing.process.poll() is None:
+                logger.info("Runtime %s already running; ignoring duplicate provision", runtime_id)
+                # A fresh token still needs to land on disk for the running child.
+                self._write_runtime_token(user_id, token)
+                return
+            # A previous child for this runtime has exited: adopt the new spawn.
+            if existing.monitor is not None:
+                existing.monitor.cancel()
+            self._children.pop(runtime_id, None)
 
         if not self._isolation_available():
             logger.warning(
@@ -234,24 +285,18 @@ class HostSupervisor:
         self._write_runtime_token(user_id, token)
 
         env = self._child_env_factory(user_id, runtime_id, token)
-        cwd = str(user_dir / "workspace")
 
         # The workspace path is advertised by the cloud but must exist locally;
         # an unusable path fails loudly rather than silently using the wrong dir.
         if workspace and not Path(workspace).is_dir():
             logger.warning(
-                "Provisioned workspace %s does not exist; using %s", workspace, cwd
+                "Provisioned workspace %s does not exist; using %s",
+                workspace,
+                user_dir / "workspace",
             )
 
         try:
-            process = subprocess.Popen(  # noqa: S603 - command is operator-configured
-                self._runtime_command,
-                cwd=cwd,
-                env=env,
-                preexec_fn=self._preexec_for(uid),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
+            process = self._spawn_child(user_id=user_id, runtime_id=runtime_id, env=env)
         except OSError as exc:
             self._report_status(runtime_id, "failed", detail=f"spawn failed: {exc}")
             logger.error("Failed to spawn runtime %s: %s", runtime_id, exc)
@@ -262,11 +307,19 @@ class HostSupervisor:
             user_id=user_id,
             process=process,
             base_dir=user_dir,
+            log_path=self._child_log_path(user_id),
         )
         self._children[runtime_id] = child
         child.monitor = asyncio.create_task(self._monitor_child(child))
         self._report_status(runtime_id, "starting")
-        logger.info("Provisioned runtime %s for user %s (uid=%s)", runtime_id, user_id, uid)
+        logger.info(
+            "Provisioned runtime %s for user %s (pid=%s, uid=%s, log=%s)",
+            runtime_id,
+            user_id,
+            process.pid,
+            uid,
+            child.log_path,
+        )
 
     def deprovision(self, runtime_id: str, reason: str = "") -> None:
         child = self._children.pop(runtime_id, None)
@@ -290,13 +343,7 @@ class HostSupervisor:
         if self._children.get(child.runtime_id) is not child:
             return  # superseded by a newer provision
 
-        stderr_tail = ""
-        if child.process.stderr is not None:
-            try:
-                raw = await asyncio.to_thread(child.process.stderr.read)
-                stderr_tail = (raw or b"").decode("utf-8", "replace").strip()[-500:]
-            except OSError:
-                stderr_tail = ""
+        stderr_tail = self._read_child_log_tail(child.user_id)
 
         child.failures += 1
         detail = f"exit code {returncode}"
@@ -310,15 +357,20 @@ class HostSupervisor:
                 "failed",
                 detail=f"gave up after {child.failures} failures — {detail}",
             )
-            logger.error("Runtime %s failed repeatedly; not restarting", child.runtime_id)
+            logger.error(
+                "Runtime %s failed repeatedly; not restarting. Log: %s",
+                child.runtime_id,
+                child.log_path,
+            )
             return
 
         self._report_status(child.runtime_id, "failed", detail=detail)
         logger.warning(
-            "Runtime %s exited (%s); restarting in %ss",
+            "Runtime %s exited (%s); restarting in %ss. Log: %s",
             child.runtime_id,
             detail,
             _RESTART_BACKOFF_SECONDS,
+            child.log_path,
         )
         await asyncio.sleep(_RESTART_BACKOFF_SECONDS)
         if self._stop_event.is_set() or self._children.get(child.runtime_id) is not child:
@@ -329,13 +381,8 @@ class HostSupervisor:
         token = self._read_runtime_token(child.user_id)
         env = self._child_env_factory(child.user_id, child.runtime_id, token)
         try:
-            child.process = subprocess.Popen(  # noqa: S603
-                self._runtime_command,
-                cwd=str(child.base_dir / "workspace"),
-                env=env,
-                preexec_fn=self._preexec_for(self._allocations.uid_for(child.user_id)),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
+            child.process = self._spawn_child(
+                user_id=child.user_id, runtime_id=child.runtime_id, env=env
             )
         except OSError as exc:
             self._children.pop(child.runtime_id, None)
