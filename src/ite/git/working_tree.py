@@ -291,9 +291,15 @@ def _friendly_push_error(message: str) -> str:
     if "index.lock" in text:
         return "Git is locked by another process. Close the other git operation or remove the stale .git/index.lock file, then try again."
     if "could not read from remote repository" in lowered or "permission denied" in lowered:
-        return "Push failed because Git could not authenticate with the remote repository."
+        return (
+            "Push failed because Git could not authenticate with the remote repository. "
+            "Connect GitHub in the mobile app (Settings → GitHub), then try again."
+        )
     if "repository not found" in lowered:
-        return "Push failed because the remote repository could not be found."
+        return (
+            "Push failed because the remote repository could not be found. "
+            "If it is private, connect GitHub in the mobile app (Settings → GitHub), then try again."
+        )
     if "set the remote as upstream" in lowered or "no upstream branch" in lowered:
         return "This branch is not published yet. Publish it first so Git can track the remote branch."
     if "non-fast-forward" in lowered or "fetch first" in lowered or "rejected" in lowered:

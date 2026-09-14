@@ -81,6 +81,10 @@ class HeadlessRuntimeHost:
     _command_task: asyncio.Task[None] | None = field(default=None, init=False)
     _change_seq: int = field(default=0, init=False)
     _access_cache: tuple[bool, float] | None = field(default=None, init=False)
+    # Last known GitHub link state for this tenant. Refreshed by the
+    # github_* callbacks (broker + local `gh`), published in build_state so a
+    # reconnecting app re-renders without another round-trip.
+    _github_state: dict[str, Any] = field(default_factory=dict, init=False)
 
     @classmethod
     def create(
@@ -110,6 +114,9 @@ class HeadlessRuntimeHost:
             switch_session=self.switch_session,
             clear_command_ui=self.clear_command_ui,
             set_model=self.set_model,
+            github_connect=self.github_connect,
+            github_disconnect=self.github_disconnect,
+            github_status=self.github_status,
             access_checker=self.access_checker or self._has_remote_access,
             transport="relay",
         )
@@ -210,6 +217,7 @@ class HeadlessRuntimeHost:
             "transcript": transcript,
             "command_feed": list(self._command_feed),
             "change_feed": list(self._change_feed),
+            "github": dict(self._github_state) if self._github_state else {"linked": False},
         }
 
     def _session_title(self) -> str:
@@ -532,6 +540,78 @@ class HeadlessRuntimeHost:
         return bool(session_id) and session_id == str(
             getattr(self._session, "session_id", "") or ""
         )
+
+    # ------------------------------------------------------------------ github
+
+    def _runtime_credentials(self) -> tuple[str, str]:
+        """Resolve (api_url, runtime_token) from the delegated session provider.
+
+        A provisioned runtime has no user login; the CloudSession returned by the
+        provider carries the runtime token as its access token.
+        """
+        provider = self.session_provider
+        if provider is None:
+            return "", ""
+        try:
+            session = provider() if callable(provider) else provider
+        except Exception:
+            return "", ""
+        api_url = str(getattr(session, "api_url", "") or "").strip().rstrip("/")
+        token = str(getattr(session, "access_token", "") or "").strip()
+        return api_url, token
+
+    async def github_status(self) -> dict[str, Any]:
+        from . import github as github_mod
+
+        api_url, token = self._runtime_credentials()
+        if not api_url or not token:
+            state = await asyncio.to_thread(github_mod.local_gh_state)
+            self._github_state = state.to_dict()
+            return self._github_state
+        try:
+            payload = await asyncio.to_thread(github_mod.broker_status, api_url, token)
+        except Exception:
+            state = await asyncio.to_thread(github_mod.local_gh_state)
+            self._github_state = state.to_dict()
+            return self._github_state
+        node = payload.get("github") if isinstance(payload, dict) else {}
+        local = await asyncio.to_thread(github_mod.local_gh_state)
+        merged = local.to_dict()
+        if isinstance(node, dict):
+            merged["linked"] = bool(node.get("linked")) and local.linked or bool(node.get("linked"))
+            merged["username"] = str(node.get("username") or local.username or "")
+            merged["account_id"] = str(node.get("accountId") or "")
+            merged["missing_scopes"] = list(node.get("missingScopes") or [])
+            merged["full_access"] = not bool(node.get("missingScopes"))
+            if merged["missing_scopes"]:
+                merged["error"] = "github_scope_insufficient"
+            elif not node.get("linked"):
+                merged["linked"] = local.linked
+                merged["error"] = "" if local.linked else "github_not_linked"
+            else:
+                merged["error"] = "" if local.linked else "github_cli_pending"
+        self._github_state = merged
+        return merged
+
+    async def github_connect(self) -> dict[str, Any]:
+        from . import github as github_mod
+
+        api_url, token = self._runtime_credentials()
+        if not api_url or not token:
+            state = await asyncio.to_thread(github_mod.local_gh_state)
+            self._github_state = state.to_dict()
+            return self._github_state
+        state = await asyncio.to_thread(github_mod.connect, api_url, token)
+        self._github_state = state.to_dict()
+        return self._github_state
+
+    async def github_disconnect(self) -> dict[str, Any]:
+        from . import github as github_mod
+
+        api_url, token = self._runtime_credentials()
+        state = await asyncio.to_thread(github_mod.disconnect, api_url, token)
+        self._github_state = state.to_dict()
+        return self._github_state
 
     async def _publish_state(self) -> None:
         if self._server is not None:

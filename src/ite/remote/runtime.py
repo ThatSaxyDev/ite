@@ -159,6 +159,15 @@ async def run_provisioned_runtime(
         session_provider=runtime_session_provider(api_url, runtime_token, token_file),
         access_checker=_provisioned_access_check,
     )
+    # Re-materialize the tenant's GitHub credentials when the account is linked,
+    # so a restarted child recovers `gh`/git auth without another phone tap.
+    try:
+        from . import github as github_mod
+
+        current = _read_runtime_token(token_file, runtime_token)
+        host._github_state = github_mod.sync_if_linked(api_url, current).to_dict()
+    except Exception:
+        logging.getLogger(__name__).warning("GitHub boot sync failed", exc_info=True)
     server = await host.start()
     resolved_runtime_id = runtime_id or server.runtime_id
 

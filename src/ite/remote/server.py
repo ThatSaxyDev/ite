@@ -150,6 +150,9 @@ class RemoteRuntimeServer:
         switch_session: MaybeAsync | None = None,
         clear_command_ui: MaybeAsync | None = None,
         set_model: MaybeAsync | None = None,
+        github_connect: MaybeAsync | None = None,
+        github_disconnect: MaybeAsync | None = None,
+        github_status: MaybeAsync | None = None,
         access_checker: MaybeAsync | None = None,
         transport: str = "direct",
         runtime_id: str | None = None,
@@ -160,6 +163,9 @@ class RemoteRuntimeServer:
         self._switch_session = switch_session
         self._clear_command_ui = clear_command_ui
         self._set_model = set_model
+        self._github_connect = github_connect
+        self._github_disconnect = github_disconnect
+        self._github_status = github_status
         self._access_checker = access_checker
         self._transport = "relay" if str(transport or "").strip().lower() == "relay" else "direct"
         self._runtime_id_override = str(runtime_id or "").strip()
@@ -1092,6 +1098,61 @@ class RemoteRuntimeServer:
                         else "Could not apply that model."
                     ),
                 },
+                request_id=request_id,
+            )
+            return
+        if msg_type == "github_connect":
+            if self._github_connect is None:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "GitHub connect is unavailable."},
+                    request_id=request_id,
+                )
+                return
+            state = await self._call(self._github_connect)
+            await self._broadcast("github_state", state if isinstance(state, dict) else {})
+            await self._send(
+                client,
+                "command_ack",
+                {"ok": True, "message": "GitHub connect finished."},
+                request_id=request_id,
+            )
+            await self.publish_state()
+            return
+        if msg_type == "github_disconnect":
+            if self._github_disconnect is None:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "GitHub disconnect is unavailable."},
+                    request_id=request_id,
+                )
+                return
+            state = await self._call(self._github_disconnect)
+            await self._broadcast("github_state", state if isinstance(state, dict) else {})
+            await self._send(
+                client,
+                "command_ack",
+                {"ok": True, "message": "GitHub disconnected."},
+                request_id=request_id,
+            )
+            await self.publish_state()
+            return
+        if msg_type == "github_status":
+            if self._github_status is None:
+                await self._send(
+                    client,
+                    "command_ack",
+                    {"ok": False, "message": "GitHub status is unavailable."},
+                    request_id=request_id,
+                )
+                return
+            state = await self._call(self._github_status)
+            await self._send(
+                client,
+                "github_state",
+                state if isinstance(state, dict) else {},
                 request_id=request_id,
             )
             return
