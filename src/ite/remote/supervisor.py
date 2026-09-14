@@ -646,6 +646,29 @@ class HostSupervisor:
     def _on_shutdown_signal(self, sig: int) -> None:
         logger.info("Received %s; shutting down", signal.Signals(sig).name)
         self.stop()
+        # Setting the event is not enough. The main loop is parked in
+        # `async for raw in websocket` (see _serve), and an Event cannot
+        # interrupt an in-flight websocket read. Without closing the socket the
+        # process only exits when systemd's TimeoutStopSec expires and SIGKILLs
+        # it, so `systemctl restart` appears to hang for the whole timeout and
+        # the graceful deprovision below never runs.
+        self._close_websocket_for_shutdown()
+
+    def _close_websocket_for_shutdown(self) -> None:
+        websocket = self._websocket
+        if websocket is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._close_websocket(websocket))
+
+    async def _close_websocket(self, websocket: Any) -> None:
+        try:
+            await websocket.close()
+        except Exception as exc:  # noqa: BLE001 - shutdown is best-effort
+            logger.debug("Closing control channel during shutdown failed: %s", exc)
 
     async def run(self) -> None:
         from websockets.asyncio.client import connect
@@ -685,7 +708,11 @@ class HostSupervisor:
                     raise
                 except Exception as exc:  # noqa: BLE001 - reconnect on any failure
                     self._last_error = str(exc) or exc.__class__.__name__
-                    logger.warning("Host control connection failed: %s", exc)
+                    if self._stop_event.is_set():
+                        # Expected: we closed the socket to stop. Not a fault.
+                        logger.debug("Control channel closed during shutdown: %s", exc)
+                    else:
+                        logger.warning("Host control connection failed: %s", exc)
                 finally:
                     self._websocket = None
 
