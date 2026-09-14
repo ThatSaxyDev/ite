@@ -19,6 +19,11 @@ _CONNECT_REPORT_SECONDS = 15.0
 # Must not outlive the cloud-issued runtime token; the supervisor re-provisions
 # with a fresh token before this elapses.
 _RUNTIME_TOKEN_TTL_SECONDS = 12 * 60 * 60
+# How often a running child re-checks the GitHub link. Linking happens on the
+# phone, possibly while this child is disconnected or before it ever starts, so
+# without this the tenant HOME would stay unauthed until the next restart or an
+# explicit phone trigger.
+_GITHUB_RESYNC_SECONDS = 5 * 60
 
 
 def _platform_label() -> str:
@@ -78,6 +83,37 @@ async def _provisioned_access_check() -> bool:
     deliberately does not have. The runtime token's scope is the gate instead.
     """
     return True
+
+
+async def _github_resync_loop(
+    host: HeadlessRuntimeHost, api_url: str, token_file: str, fallback_token: str
+) -> None:
+    """Periodically re-materialize the tenant's GitHub credentials.
+
+    Best-effort and quiet: a link created on the phone while this child was
+    starting, disconnected, or not yet provisioned would otherwise never reach
+    the tenant HOME until a restart or an explicit app trigger.
+    """
+    from . import github as github_mod
+
+    while True:
+        try:
+            await asyncio.sleep(_GITHUB_RESYNC_SECONDS)
+        except asyncio.CancelledError:
+            return
+        try:
+            current = _read_runtime_token(token_file, fallback_token)
+            if not current:
+                continue
+            before = dict(host._github_state)
+            state = await asyncio.to_thread(github_mod.sync_if_linked, api_url, current)
+            host._github_state = state.to_dict()
+            if host._github_state != before:
+                await host._publish_state()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logging.getLogger(__name__).warning("GitHub periodic sync failed", exc_info=True)
 
 
 async def _serve_until_stopped(host: HeadlessRuntimeHost, relay: CloudRelayClient) -> None:
@@ -184,7 +220,14 @@ async def run_provisioned_runtime(
 
     print(f"Runtime id: {resolved_runtime_id}")
     print(f"Connecting to {api_url} …")
-    await _serve_until_stopped(host, relay)
+    resync_task = asyncio.create_task(
+        _github_resync_loop(host, api_url, token_file, runtime_token)
+    )
+    try:
+        await _serve_until_stopped(host, relay)
+    finally:
+        resync_task.cancel()
+        await asyncio.gather(resync_task, return_exceptions=True)
     print("iTE cloud runtime stopped.")
 
 

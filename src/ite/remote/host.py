@@ -578,7 +578,8 @@ class HeadlessRuntimeHost:
         local = await asyncio.to_thread(github_mod.local_gh_state)
         merged = local.to_dict()
         if isinstance(node, dict):
-            merged["linked"] = bool(node.get("linked")) and local.linked or bool(node.get("linked"))
+            node_linked = bool(node.get("linked"))
+            merged["linked"] = node_linked
             merged["username"] = str(node.get("username") or local.username or "")
             merged["account_id"] = str(node.get("accountId") or "")
             merged["missing_scopes"] = list(node.get("missingScopes") or [])
