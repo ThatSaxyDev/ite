@@ -6,6 +6,15 @@ Documentation=https://github.com/kiishi/itetheagt
 After=network-online.target
 Wants=network-online.target
 
+# A crash loop is usually a real misconfiguration (bad credential, bad path).
+# Stop retrying after repeated fast failures so `systemctl status` shows it
+# rather than hiding it behind endless restarts.
+#
+# These two live in [Unit], not [Service]: systemd ignores them in [Service]
+# and logs "Unknown lvalue", which silently disables the protection.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 
@@ -50,12 +59,6 @@ RestartSec=10
 # SIGTERM and deprovisions its runtimes; this is the ceiling before SIGKILL.
 KillSignal=SIGTERM
 TimeoutStopSec=45
-
-# A crash loop is usually a real misconfiguration (bad credential, bad path).
-# Stop retrying after repeated fast failures so `systemctl status` shows it
-# rather than hiding it behind endless restarts.
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
