@@ -31,7 +31,16 @@ Environment=HOME=/home/kiishi
 
 # Absolute path to the entry point: systemd has no shell, so `ite` will not be
 # found on PATH (and root's PATH is minimal).
-ExecStart=/home/kiishi/Documents/projects/itetheagt/ite/.venv/bin/ite remote serve
+#
+# This is the curl-install layout (`curl -fsSL https://ite.kiishi.space/install.sh | bash`):
+# it drops the standalone binary at <HOME>/.ite/app/ite/ite and puts a symlink at
+# <HOME>/.ite/bin/ite. Point ExecStart at the real binary, not the symlink:
+# the bundle's `_internal/` directory sits next to it, and re-running the
+# installer replaces the whole `app/` tree.
+#
+# After re-running the installer you MUST `systemctl restart ite-remote`; the
+# old process keeps serving the deleted binaries until it is restarted.
+ExecStart=/home/kiishi/.ite/app/ite/ite remote serve
 
 # Restart on any exit, including a clean one, so the host stays online.
 Restart=always
@@ -42,7 +51,7 @@ RestartSec=10
 KillSignal=SIGTERM
 TimeoutStopSec=45
 
-# A crash loop is usually a real misconfiguration (bad credential, missing venv).
+# A crash loop is usually a real misconfiguration (bad credential, bad path).
 # Stop retrying after repeated fast failures so `systemctl status` shows it
 # rather than hiding it behind endless restarts.
 StartLimitIntervalSec=300

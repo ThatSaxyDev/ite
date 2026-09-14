@@ -313,6 +313,18 @@ def remote_serve(base_dir: Path | None) -> None:
         raise click.ClickException(str(exc)) from exc
 
 
+@remote_group.command("child", hidden=True)
+def remote_child() -> None:
+    """Run one provisioned runtime process.
+
+    Internal entry point. `ite remote serve` starts this as an isolated child
+    with a cloud-issued runtime token; it is not meant to be run by hand.
+    """
+    from ite.remote.child import main as run_child
+
+    raise SystemExit(run_child())
+
+
 @main.group("cloud")
 def cloud_group() -> None:
     """Manage the iTE Cloud session."""

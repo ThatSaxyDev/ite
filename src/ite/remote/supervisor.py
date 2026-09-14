@@ -36,6 +36,35 @@ DEFAULT_PROJECT_ID = "default"
 
 _SAFE_SEGMENT_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
+# The internal subcommand a frozen build uses to start a runtime child.
+_CHILD_SUBCOMMAND = ("remote", "child")
+
+
+def default_runtime_command() -> list[str]:
+    """Build the command that starts one isolated runtime child.
+
+    A frozen (PyInstaller) build has no Python interpreter, so ``-m`` cannot be
+    used: ``sys.executable`` is the ``ite`` binary itself and ``-m`` is the model
+    flag, not "run module". Frozen builds therefore spawn the ``remote child``
+    subcommand, which calls the same entry point.
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, *_CHILD_SUBCOMMAND]
+    return [sys.executable, "-m", "ite.remote.child"]
+
+
+def _is_child_cmdline(cmdline: str) -> bool:
+    """Whether a ``/proc/<pid>/cmdline`` value belongs to a runtime child.
+
+    Accepts both spawn forms: the module form (``-m ite.remote.child``) and the
+    frozen-binary form (``... remote child``). The NUL separators are
+    normalized so a single substring check covers both.
+    """
+    normalized = cmdline.replace("\x00", " ").strip()
+    if "ite.remote.child" in normalized:
+        return True
+    return normalized.endswith("remote child")
+
 
 class IsolationUnavailable(RuntimeError):
     """Raised when the host cannot create a real per-user boundary."""
@@ -136,11 +165,7 @@ class HostSupervisor:
         self._stop_event = asyncio.Event()
         self._websocket: Any = None
         self._last_error = ""
-        self._runtime_command = runtime_command or [
-            sys.executable,
-            "-m",
-            "ite.remote.child",
-        ]
+        self._runtime_command = runtime_command or default_runtime_command()
         self._child_env_factory = child_env_factory or self._build_child_env
 
     @property
@@ -230,7 +255,7 @@ class HostSupervisor:
                 cmdline = handle.read().decode("utf-8", "replace")
         except OSError:
             return False
-        return "ite.remote.child" in cmdline
+        return _is_child_cmdline(cmdline)
 
     def reap_orphaned_children(self) -> int:
         """Kill runtime children left behind by a previous supervisor run.

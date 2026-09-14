@@ -110,6 +110,10 @@ HIDDEN_IMPORTS: list[str] = [
     "tree_sitter_java",
     "tree_sitter_c",
     "tree_sitter_cpp",
+    # remote runtime host (spawned as `remote child` in a frozen build)
+    "ite.remote.child",
+    "ite.remote.runtime",
+    "ite.remote.supervisor",
 ]
 
 # Data files to include
