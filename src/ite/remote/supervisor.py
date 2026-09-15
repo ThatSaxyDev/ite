@@ -812,10 +812,18 @@ class HostSupervisor:
 
         if message_type == "runtime_token":
             user_id = str(payload.get("userId") or "")
+            runtime_id = str(payload.get("runtimeId") or "")
             token = str(payload.get("token") or "")
             if user_id and token:
-                self._write_runtime_token(user_id, token)
-                logger.info("Rotated runtime token for user %s", user_id)
+                # The token file is per (user, project), so resolve the project
+                # from the child the rotation was requested for. Without this a
+                # rotation would land in the wrong project's file.
+                child = self._children.get(runtime_id)
+                project_id = child.project_id if child is not None else DEFAULT_PROJECT_ID
+                self._write_runtime_token(user_id, project_id, token)
+                logger.info(
+                    "Rotated runtime token for user %s (project %s)", user_id, project_id
+                )
             return
 
         if message_type == "pong":

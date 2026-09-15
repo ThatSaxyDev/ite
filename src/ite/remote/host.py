@@ -577,6 +577,9 @@ class HeadlessRuntimeHost:
         node = payload.get("github") if isinstance(payload, dict) else {}
         local = await asyncio.to_thread(github_mod.local_gh_state)
         merged = local.to_dict()
+        # `gh_ready` is read by the app as "this tenant's credentials work", not
+        # merely "the gh binary exists", so it requires a materialized login.
+        merged["gh_ready"] = bool(local.gh_ready and local.linked)
         if isinstance(node, dict):
             node_linked = bool(node.get("linked"))
             merged["linked"] = node_linked
@@ -586,11 +589,16 @@ class HeadlessRuntimeHost:
             merged["full_access"] = not bool(node.get("missingScopes"))
             if merged["missing_scopes"]:
                 merged["error"] = "github_scope_insufficient"
-            elif not node.get("linked"):
+            elif not node_linked:
                 merged["linked"] = local.linked
                 merged["error"] = "" if local.linked else "github_not_linked"
+            elif local.linked:
+                merged["error"] = ""
             else:
-                merged["error"] = "" if local.linked else "github_cli_pending"
+                # The cloud holds the credential but this HOME does not: report
+                # the actual reason so the phone can say something actionable
+                # instead of a generic "pending".
+                merged["error"] = local.error or "github_cli_pending"
         self._github_state = merged
         return merged
 
