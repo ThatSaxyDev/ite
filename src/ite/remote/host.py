@@ -91,14 +91,19 @@ class HeadlessRuntimeHost:
         cls,
         *,
         cwd: Path | None = None,
+        config: Config | None = None,
         session_provider: Any = None,
         access_checker: Callable[[], Awaitable[bool]] | None = None,
     ) -> "HeadlessRuntimeHost":
         workspace = (cwd or Path.cwd()).resolve()
         ensure_workspace_layout(workspace)
-        config = load_config(cwd=workspace)
+        # An explicit config is used as-is. `ite remote child` loads the workspace
+        # config, applies the model the cloud provisioned, and passes it here —
+        # re-loading would discard that and leave the runtime with no model, so
+        # the app would report "no model" while inference failed with no creds.
+        resolved_config = config if config is not None else load_config(cwd=workspace)
         return cls(
-            config=config,
+            config=resolved_config,
             cwd=workspace,
             session_provider=session_provider,
             access_checker=access_checker,

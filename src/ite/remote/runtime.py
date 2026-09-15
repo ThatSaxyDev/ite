@@ -181,7 +181,8 @@ async def run_provisioned_runtime(
 
     # The cloud tells us which bundled model to use. A fresh runtime workspace
     # has no model configured, and without this it would try a direct provider
-    # with no credentials.
+    # with no credentials. The config carrying this is handed to the host below;
+    # letting the host re-load it would silently drop the model.
     resolved_model = str(model or os.environ.get("ITE_MODEL") or "").strip()
     if resolved_model:
         config.model_name = resolved_model
@@ -192,6 +193,7 @@ async def run_provisioned_runtime(
 
     host = HeadlessRuntimeHost.create(
         cwd=workspace,
+        config=config,
         session_provider=runtime_session_provider(api_url, runtime_token, token_file),
         access_checker=_provisioned_access_check,
     )
