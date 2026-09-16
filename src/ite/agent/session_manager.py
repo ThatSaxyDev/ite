@@ -119,6 +119,9 @@ class SessionSnapshot:
     name_source: str | None = None
     name_locked: bool = False
     name_last_generated_turn: int = 0
+    name_last_attempt_turn: int = 0
+    name_failed_attempts: int = 0
+    name_context_hash: str | None = None
     workspace_path: str | None = None
     plan_mode_enabled: bool = False
     plan_phase: str = "idle"
@@ -139,6 +142,9 @@ class SessionSnapshot:
             "name_source": self.name_source,
             "name_locked": self.name_locked,
             "name_last_generated_turn": self.name_last_generated_turn,
+            "name_last_attempt_turn": self.name_last_attempt_turn,
+            "name_failed_attempts": self.name_failed_attempts,
+            "name_context_hash": self.name_context_hash,
             "workspace_path": self.workspace_path,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
@@ -167,6 +173,9 @@ class SessionSnapshot:
             name_source=data.get("name_source"),
             name_locked=bool(data.get("name_locked", False)),
             name_last_generated_turn=int(data.get("name_last_generated_turn", 0)),
+            name_last_attempt_turn=int(data.get("name_last_attempt_turn", 0)),
+            name_failed_attempts=int(data.get("name_failed_attempts", 0)),
+            name_context_hash=data.get("name_context_hash"),
             workspace_path=data.get("workspace_path"),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),

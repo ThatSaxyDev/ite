@@ -678,6 +678,9 @@ class TurnMixin:
         resumed.name_source = snapshot.name_source
         resumed.name_locked = snapshot.name_locked
         resumed.name_last_generated_turn = snapshot.name_last_generated_turn
+        resumed.name_last_attempt_turn = snapshot.name_last_attempt_turn
+        resumed.name_failed_attempts = snapshot.name_failed_attempts
+        resumed.name_context_hash = snapshot.name_context_hash
         resumed.created_at = snapshot.created_at
         resumed.updated_at = snapshot.updated_at
         resumed.turn_count = snapshot.turn_count
@@ -1696,6 +1699,14 @@ class TurnMixin:
         if add_to_feed and not suppress_user_echo and is_visible_session:
             await self.add_user_message(rendered_message)
             await self._broadcast_remote_state()
+        if not suppress_user_echo and not active_agent.session.name:
+            # Give the thread a usable title the moment the first message is sent,
+            # so it is never shown as "Untitled thread" while the model works.
+            self._apply_fallback_session_name(active_agent.session, message)
+            self._refresh_session_name_ui(
+                active_agent.session,
+                refresh_ui=is_visible_session,
+            )
         run_state = self._run_state(session_id)
         if is_visible_session:
             self._last_rendered_plan_text = None

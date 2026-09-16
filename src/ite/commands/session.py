@@ -310,6 +310,9 @@ async def _resume_session_by_id(ctx: CommandContext, session_id: str) -> None:
     session.name_source = snapshot.name_source
     session.name_locked = snapshot.name_locked
     session.name_last_generated_turn = snapshot.name_last_generated_turn
+    session.name_last_attempt_turn = snapshot.name_last_attempt_turn
+    session.name_failed_attempts = snapshot.name_failed_attempts
+    session.name_context_hash = snapshot.name_context_hash
     session.created_at = snapshot.created_at
     session.updated_at = snapshot.updated_at
     session.turn_count = snapshot.turn_count

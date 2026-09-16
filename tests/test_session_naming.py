@@ -3,7 +3,10 @@ import asyncio
 from pathlib import Path
 
 from ite.agent.session import Session
-from ite.agent.session_naming import sanitize_model_session_title
+from ite.agent.session_naming import (
+    build_fallback_session_title,
+    sanitize_model_session_title,
+)
 from ite.config.config import Config
 
 
@@ -60,7 +63,7 @@ class SessionNamingTests(unittest.TestCase):
         )
         self.assertIn("Now map the gaps against csrc.", context["latest_user"])
 
-    def test_name_generation_context_summarizes_first_turn_tools(self) -> None:
+    def test_name_generation_context_digest_excludes_tool_noise(self) -> None:
         asyncio.run(self.session.initialize())
         assert self.session.context_manager is not None
 
@@ -95,12 +98,49 @@ class SessionNamingTests(unittest.TestCase):
         context = self.session.name_generation_context()
 
         self.assertIn("User: Why is session naming stuck?", context["first_turn"])
-        self.assertIn("Tool call: grep", context["first_turn"])
-        self.assertIn("Tool result: grep ok", context["first_turn"])
+        self.assertIn("Tools: grep", context["first_turn"])
+        # The digest is intentionally low-noise: the answer is the last assistant
+        # prose of the first turn, and tool arguments/output are excluded because
+        # they swamp the naming prompt and yield generic titles.
         self.assertIn("The first title is being saved", context["first_turn"])
+        self.assertNotIn("should_refresh_auto_name", context["first_turn"])
+        self.assertNotIn("src/ite/agent/session.py", context["first_turn"])
         self.assertNotIn("Now fix the first turn naming.", context["first_turn"])
+        self.assertEqual(context["first_turn_tools"], "grep")
+        self.assertEqual(
+            context["first_assistant"],
+            "The first title is being saved before refinement has enough context.",
+        )
         self.assertEqual(context["turn_count"], "0")
 
     def test_model_session_title_sanitizer_rejects_generic_titles(self) -> None:
         self.assertEqual(sanitize_model_session_title('"Improve Session Naming."'), "Improve Session Naming")
         self.assertEqual(sanitize_model_session_title("New chat"), "")
+
+    def test_model_session_title_sanitizer_strips_title_prefix(self) -> None:
+        self.assertEqual(sanitize_model_session_title("Title: Fix Composer Usage"), "Fix Composer Usage")
+        self.assertEqual(sanitize_model_session_title("The title is Fix Composer Usage"), "Fix Composer Usage")
+        # A title that legitimately starts with the word "title" must survive.
+        self.assertEqual(sanitize_model_session_title("Title Generation Cleanup"), "Title Generation Cleanup")
+
+    def test_fallback_title_strips_conversational_filler(self) -> None:
+        # The provisional title is shown the moment the first message is sent, so
+        # it must read as a topic rather than an echoed first sentence.
+        self.assertEqual(
+            build_fallback_session_title(
+                "I did some work on session naming. Could you help me check that?"
+            ),
+            "Session naming",
+        )
+        self.assertEqual(
+            build_fallback_session_title("Can you fix the composer usage display?"),
+            "Fix the composer usage display",
+        )
+        self.assertEqual(
+            build_fallback_session_title("I was working on the auth token refresh"),
+            "The auth token refresh",
+        )
+
+    def test_fallback_title_handles_empty_input(self) -> None:
+        self.assertEqual(build_fallback_session_title(""), "")
+        self.assertEqual(build_fallback_session_title("   "), "")

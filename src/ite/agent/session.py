@@ -1,4 +1,5 @@
 from typing import Any
+import hashlib
 from ite.context.compact_artifacts import CompactArtifactManager
 from ite.context.loop_detector import LoopDetector
 from ite.safety.approval import ApprovalManager
@@ -96,6 +97,9 @@ class Session:
         self.name_source: str | None = None
         self.name_locked: bool = False
         self.name_last_generated_turn: int = 0
+        self.name_last_attempt_turn: int = 0
+        self.name_failed_attempts: int = 0
+        self.name_context_hash: str | None = None
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
         self.plan_mode_enabled: bool = False
@@ -322,6 +326,18 @@ class Session:
         self.name = normalized
         self.name_source = "auto"
         self.name_last_generated_turn = self.turn_count
+        self.name_last_attempt_turn = self.turn_count
+        self.name_failed_attempts = 0
+        self.updated_at = datetime.now()
+
+    def set_fallback_name(self, name: str) -> None:
+        normalized = (name or "").strip()
+        if not normalized or self.name_locked:
+            return
+        if self.name and self.name_source != "fallback":
+            return
+        self.name = normalized
+        self.name_source = "fallback"
         self.updated_at = datetime.now()
 
     def set_manual_name(self, name: str) -> None:
@@ -334,37 +350,63 @@ class Session:
         self.updated_at = datetime.now()
 
     def should_refresh_auto_name(self) -> bool:
-        return (
-            bool(self.name)
-            and self.name_source == "auto"
-            and not self.name_locked
-            and any(
-                self.turn_count >= milestone > self.name_last_generated_turn
-                for milestone in AUTO_NAME_REFRESH_MILESTONES
-            )
+        if self.name_locked or self.name_source == "manual":
+            return False
+        if self.turn_count <= 0:
+            return False
+        if self.name_failed_attempts > 0:
+            retry_after = min(self.name_failed_attempts, 3)
+            if self.turn_count - self.name_last_attempt_turn < retry_after:
+                return False
+        if not self.name or self.name_source == "fallback":
+            return True
+        return any(
+            self.turn_count >= milestone > self.name_last_generated_turn
+            for milestone in AUTO_NAME_REFRESH_MILESTONES
         )
 
-    def mark_auto_name_attempt(self) -> None:
-        if self.name_source != "auto" or self.name_locked:
+    def mark_auto_name_attempt(self, *, success: bool = False) -> None:
+        if self.name_locked or self.name_source == "manual":
             return
-        completed_milestones = [
-            milestone
-            for milestone in AUTO_NAME_REFRESH_MILESTONES
-            if self.turn_count >= milestone
-        ]
-        if not completed_milestones:
-            return
-        self.name_last_generated_turn = max(
-            self.name_last_generated_turn,
-            completed_milestones[-1],
-        )
+        self.name_last_attempt_turn = self.turn_count
+        if success:
+            self.name_failed_attempts = 0
+            completed_milestones = [
+                milestone
+                for milestone in AUTO_NAME_REFRESH_MILESTONES
+                if self.turn_count >= milestone
+            ]
+            if completed_milestones:
+                self.name_last_generated_turn = max(
+                    self.name_last_generated_turn,
+                    completed_milestones[-1],
+                )
+            else:
+                self.name_last_generated_turn = max(
+                    self.name_last_generated_turn,
+                    self.turn_count,
+                )
+        else:
+            self.name_failed_attempts = min(self.name_failed_attempts + 1, 3)
         self.updated_at = datetime.now()
+
+    def naming_fingerprint(self) -> str:
+        context = self.name_generation_context()
+        basis = "\x1f".join(
+            [
+                context.get("first_user", ""),
+                context.get("focus_hint", ""),
+                context.get("latest_user", "")[:160],
+            ]
+        )
+        return hashlib.sha1(basis.encode("utf-8", "ignore")).hexdigest()
 
     def name_generation_context(self) -> dict[str, str]:
         first_user = ""
         first_assistant = ""
         latest_user = ""
-        first_turn_parts: list[str] = []
+        digest_parts: list[str] = []
+        tool_names: list[str] = []
         if self.context_manager:
             transcript_state = self.context_manager.export_transcript_state()
             transcript_events = (
@@ -377,36 +419,47 @@ class Session:
                 for event in transcript_events
                 if isinstance(event, dict) and isinstance(event.get("message"), dict)
             ]
+            user_seen = 0
             for msg in transcript_messages:
                 role = str(msg.get("role", "") or "").strip()
                 if role == "user":
-                    content = str(msg.get("content", "") or "").strip()
-                    if content and not first_user:
-                        first_user = content[:NAME_CONTEXT_FIELD_CHARS]
+                    user_seen += 1
+                    content = self._compact_name_context_text(msg.get("content"))
+                    if user_seen == 1 and content:
+                        first_user = content
                     if content:
-                        latest_user = content[:NAME_CONTEXT_FIELD_CHARS]
-                elif role == "assistant" and first_user and not first_assistant:
-                    content = str(msg.get("content", "") or "").strip()
+                        latest_user = content
+                elif role == "assistant" and user_seen == 1:
+                    content = self._compact_name_context_text(msg.get("content"))
                     if content:
-                        first_assistant = content[:NAME_CONTEXT_FIELD_CHARS]
-            first_turn_parts = self._first_turn_name_context(transcript_messages)
+                        first_assistant = content
+            digest_parts, tool_names = self._first_turn_name_context(transcript_messages)
         return {
-            "first_user": first_user,
-            "first_assistant": first_assistant,
-            "latest_user": latest_user,
+            "first_user": first_user[:NAME_CONTEXT_FIELD_CHARS],
+            "first_assistant": first_assistant[:NAME_CONTEXT_FIELD_CHARS],
+            "latest_user": latest_user[:NAME_CONTEXT_FIELD_CHARS],
             "focus_hint": self._derive_current_focus()[:NAME_CONTEXT_FIELD_CHARS],
-            "first_turn": "\n".join(first_turn_parts)[:NAME_CONTEXT_FIRST_TURN_CHARS],
+            "first_turn": "\n".join(digest_parts)[:NAME_CONTEXT_FIRST_TURN_CHARS],
+            "first_turn_tools": ", ".join(tool_names)[:NAME_CONTEXT_FIELD_CHARS],
             "turn_count": str(self.turn_count),
         }
 
     def _first_turn_name_context(
         self,
         transcript_messages: list[dict[str, Any]],
-    ) -> list[str]:
+    ) -> tuple[list[str], list[str]]:
+        """Build a small, low-noise digest of the first turn.
+
+        Deliberately excludes tool arguments and tool output: naming a session
+        from a wall of diffs and file dumps produces generic titles. Only the
+        user request, the assistant's prose answer, and the names of the tools
+        used are kept.
+        """
         parts: list[str] = []
+        tool_names: list[str] = []
         in_first_turn = False
         first_user_seen = False
-        tool_names_by_id: dict[str, str] = {}
+        answer = ""
         for msg in transcript_messages:
             role = str(msg.get("role", "") or "").strip()
             if role == "user":
@@ -418,46 +471,24 @@ class Session:
                 if content:
                     parts.append(f"User: {content}")
                 continue
-            if not in_first_turn:
+            if not in_first_turn or role != "assistant":
                 continue
-            if role == "assistant":
-                content = self._compact_name_context_text(msg.get("content"))
-                if content:
-                    parts.append(f"Assistant: {content}")
-                for tool_call in msg.get("tool_calls") or []:
-                    if not isinstance(tool_call, dict):
-                        continue
-                    call_id = str(tool_call.get("id") or "").strip()
-                    function = tool_call.get("function")
-                    function = function if isinstance(function, dict) else {}
-                    tool_name = str(function.get("name") or "").strip()
-                    if not tool_name:
-                        continue
-                    if call_id:
-                        tool_names_by_id[call_id] = tool_name
-                    arguments = self._compact_name_context_text(function.get("arguments"))
-                    if arguments:
-                        parts.append(f"Tool call: {tool_name} {arguments}")
-                    else:
-                        parts.append(f"Tool call: {tool_name}")
-                continue
-            if role == "tool":
-                tool_ui = msg.get("tool_ui") if isinstance(msg.get("tool_ui"), dict) else {}
-                call_id = str(msg.get("tool_call_id") or "").strip()
-                tool_name = str(tool_ui.get("name") or tool_names_by_id.get(call_id) or "tool")
-                success = bool(tool_ui.get("success", True))
-                output = tool_ui.get("output")
-                if output in (None, ""):
-                    output = msg.get("content")
-                compact_output = self._compact_name_context_text(
-                    output,
-                    limit=NAME_CONTEXT_TOOL_OUTPUT_CHARS,
-                )
-                if not compact_output:
-                    compact_output = "completed" if success else "failed"
-                state = "ok" if success else "error"
-                parts.append(f"Tool result: {tool_name} {state} - {compact_output}")
-        return parts
+            content = self._compact_name_context_text(msg.get("content"))
+            if content:
+                answer = content
+            for tool_call in msg.get("tool_calls") or []:
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function")
+                function = function if isinstance(function, dict) else {}
+                tool_name = str(function.get("name") or "").strip()
+                if tool_name and tool_name not in tool_names:
+                    tool_names.append(tool_name)
+        if answer:
+            parts.append(f"Assistant: {answer}")
+        if tool_names:
+            parts.append(f"Tools: {', '.join(tool_names)}")
+        return parts, tool_names
 
     def _compact_name_context_text(
         self,
@@ -489,6 +520,9 @@ class Session:
             "name_source": self.name_source,
             "name_locked": self.name_locked,
             "name_last_generated_turn": self.name_last_generated_turn,
+            "name_last_attempt_turn": self.name_last_attempt_turn,
+            "name_failed_attempts": self.name_failed_attempts,
+            "name_context_hash": self.name_context_hash,
             "workspace_path": workspace_path,
             "created_at": self.created_at,
             "updated_at": self.updated_at,

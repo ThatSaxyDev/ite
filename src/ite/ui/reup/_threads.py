@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio, contextlib, difflib, hashlib, inspect, io, json, os, re, shlex, signal, ssl
+import asyncio, contextlib, difflib, hashlib, inspect, io, json, logging, os, re, shlex, signal, ssl
 import subprocess, sys, time, uuid, webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -29,11 +29,16 @@ from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
+from ite.agent.session_naming import (
+    build_fallback_session_title,
+    build_session_title_messages,
+    sanitize_model_session_title,
+)
 
 from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
-from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
+from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, is_cloud_api_reachable, mark_cloud_signed_out
 from ite.cloud.services import generate_cloud_session_title
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
@@ -71,6 +76,8 @@ from .change_views import change_entry_label, build_change_card_body, build_chan
 from .model_labels import bundled_model_display_label
 from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
 from .tool_views import render_shell_running_card
+
+logger = logging.getLogger(__name__)
 
 
 class ThreadsMixin:
@@ -1066,21 +1073,34 @@ class ThreadsMixin:
         if session.turn_count == 0:
             return
 
-        if allow_name_generation and (
-            session.name is None
-            or session.should_refresh_auto_name()
-        ):
-            self._queue_session_name_refinement(
-                session,
-                workspace=workspace,
-                refresh_ui=refresh_ui,
-            )
+        if allow_name_generation:
+            self._apply_fallback_session_name(session)
+            if session.should_refresh_auto_name():
+                self._queue_session_name_refinement(
+                    session,
+                    workspace=workspace,
+                    refresh_ui=refresh_ui,
+                )
 
         snapshot = SessionSnapshot(
             **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
         )
         SessionManager().save_session(snapshot)
 
+    def _apply_fallback_session_name(
+        self,
+        session: Session,
+        seed: str | None = None,
+    ) -> None:
+        if session.name or getattr(session, "name_locked", False):
+            return
+        if seed is None:
+            context = session.name_generation_context()
+            seed = str(context.get("first_user") or context.get("latest_user") or "")
+        fallback = build_fallback_session_title(seed)
+        if fallback:
+            session.set_fallback_name(fallback)
+            logger.debug("Applied provisional session title: %r", fallback)
 
     def _queue_session_name_refinement(
         self,
@@ -1091,8 +1111,6 @@ class ThreadsMixin:
     ) -> None:
         session_id = self._session_id(session)
         if not session_id or session_id in self._session_name_refinements:
-            return
-        if not has_stored_cloud_auth(self.config):
             return
         self._session_name_refinements.add(session_id)
         self.run_worker(
@@ -1117,11 +1135,31 @@ class ThreadsMixin:
             if getattr(session, "name_locked", False):
                 return
             current = str(session.name or "").strip()
-            refreshed = (await self._generate_cloud_session_name(session) or "").strip()
-            if refreshed and refreshed != current:
-                session.set_auto_name(refreshed)
+            fingerprint = session.naming_fingerprint()
+            if (
+                current
+                and session.name_source == "auto"
+                and session.name_context_hash == fingerprint
+            ):
+                session.mark_auto_name_attempt(success=True)
             else:
-                session.mark_auto_name_attempt()
+                refreshed = (await self._generate_session_name(session) or "").strip()
+                if refreshed and (
+                    refreshed != current or session.name_source == "fallback"
+                ):
+                    session.set_auto_name(refreshed)
+                    session.name_context_hash = fingerprint
+                    session.mark_auto_name_attempt(success=True)
+                elif refreshed and refreshed == current:
+                    session.name_context_hash = fingerprint
+                    session.mark_auto_name_attempt(success=True)
+                else:
+                    logger.info(
+                        "Session naming produced no title at turn %s (attempts=%s)",
+                        session.turn_count,
+                        getattr(session, "name_failed_attempts", 0) + 1,
+                    )
+                    session.mark_auto_name_attempt(success=False)
             snapshot = SessionSnapshot(
                 **session.snapshot_kwargs(workspace_path=str(workspace.resolve()))
             )
@@ -1149,8 +1187,47 @@ class ThreadsMixin:
 
 
     async def generate_session_name(self, session: Session) -> str:
+        model_title = await self._generate_model_session_name(session)
+        if model_title:
+            return model_title
         cloud_title = await self._generate_cloud_session_name(session)
         return cloud_title or ""
+
+
+    async def _generate_session_name(self, session: Session) -> str | None:
+        model_title = await self._generate_model_session_name(session)
+        if model_title:
+            return model_title
+        return await self._generate_cloud_session_name(session)
+
+
+    async def _generate_model_session_name(self, session: Session) -> str | None:
+        try:
+            context = session.name_generation_context()
+            if not str(context.get("first_user") or "").strip():
+                return None
+            current_title = (
+                str(session.name).strip()
+                if session.name and session.name_source == "auto"
+                else None
+            )
+            messages = build_session_title_messages(
+                context,
+                current_title=current_title,
+            )
+            raw = await session.client.complete_text(
+                messages,
+                max_tokens=128,
+                temperature=0.2,
+                purpose="session title",
+            )
+            sanitized = sanitize_model_session_title(raw)
+            if not sanitized:
+                logger.info("Model session title rejected by sanitizer: %r", raw)
+            return sanitized or None
+        except Exception:
+            logger.warning("Model session title generation failed", exc_info=True)
+            return None
 
 
     async def _generate_cloud_session_name(self, session: Session) -> str | None:
@@ -1165,7 +1242,7 @@ class ThreadsMixin:
                 return cloud_title
 
         except Exception:
-            pass
+            logger.warning("Cloud session title generation failed", exc_info=True)
 
         return None
 

@@ -1192,17 +1192,30 @@ class LLMClient:
     async def complete_text(
         self,
         messages: list[dict[str, Any]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        purpose: str = "text",
     ) -> str:
         if self._is_cloud_model():
-            return await self._cloud_complete_text(messages)
+            return await self._cloud_complete_text(
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                purpose=purpose,
+            )
 
         client = self.get_client()
         safe_messages = self._sanitize_messages(messages)
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": self.config.model_name,
             "messages": safe_messages,
             "stream": False,
         }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if temperature is not None:
+            kwargs["temperature"] = temperature
 
         for attempt in range(self._max_retries + 1):
             try:
@@ -1210,7 +1223,7 @@ class LLMClient:
                 text = (event.text_delta.content if event.text_delta else "").strip()
                 if text:
                     return text
-                raise ValueError("Commit subject generation returned an empty response.")
+                raise ValueError(f"{purpose.capitalize()} generation returned an empty response.")
             except ValueError:
                 raise
             except RateLimitError as e:
@@ -1349,7 +1362,14 @@ class LLMClient:
             )
             return
 
-    async def _cloud_complete_text(self, messages: list[dict[str, Any]]) -> str:
+    async def _cloud_complete_text(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        purpose: str = "text",
+    ) -> str:
         session = self._resolve_cloud_session()
         if session is None:
             raise RuntimeError(
@@ -1361,8 +1381,8 @@ class LLMClient:
         request_payload: dict[str, Any] = {
             "model": model_name,
             "messages": safe_messages,
-            "maxTokens": CLOUD_TEXT_MAX_TOKENS,
-            "temperature": self.config.temperature,
+            "maxTokens": max_tokens if max_tokens is not None else CLOUD_TEXT_MAX_TOKENS,
+            "temperature": temperature if temperature is not None else self.config.temperature,
         }
 
         try:
@@ -1378,12 +1398,17 @@ class LLMClient:
 
         if status_code != 200 or not payload.get("ok"):
             if await self._activate_saved_provider_fallback() if self._should_bypass_bundled_error(payload) else False:
-                return await self.complete_text(messages)
+                return await self.complete_text(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    purpose=purpose,
+                )
             raise RuntimeError(self._format_cloud_error(payload))
 
         output = str(payload.get("output") or "").strip()
         if not output:
-            raise ValueError("Commit subject generation returned an empty response.")
+            raise ValueError(f"{purpose.capitalize()} generation returned an empty response.")
         return output
 
     def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:

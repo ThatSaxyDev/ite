@@ -7,7 +7,7 @@ from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from rich.console import Console
 from rich.table import Table
@@ -4553,17 +4553,41 @@ class ReupCommandPaletteTests(unittest.TestCase):
         self.assertIn(outside, session_config.sandbox.allowed_paths)
         self.assertIsNot(session_config.sandbox, app.config.sandbox)
 
-    def test_generate_session_name_uses_cloud_title_generation(self) -> None:
+    def test_generate_session_name_prefers_working_model(self) -> None:
         app = self._app()
 
-        async def fail_if_called(*_args, **_kwargs):
-            raise AssertionError(
-                "session title generation should not call the active chat client"
-            )
-            yield
+        session = SimpleNamespace(
+            name="Old Title",
+            name_source="auto",
+            client=SimpleNamespace(
+                complete_text=AsyncMock(return_value='"Portfolio JSON Overview"')
+            ),
+            name_generation_context=lambda: {
+                "first_user": "Explain this portfolio project",
+                "first_assistant": "",
+                "latest_user": "Explain this portfolio project",
+                "focus_hint": "portfolio structure",
+            },
+        )
+
+        with patch(
+            "ite.ui.reup._threads.generate_cloud_session_title",
+            AsyncMock(return_value="Cloud Should Not Win"),
+        ) as cloud_title:
+            title = asyncio.run(app.generate_session_name(session))
+
+        self.assertEqual(title, "Portfolio JSON Overview")
+        cloud_title.assert_not_called()
+
+    def test_generate_session_name_falls_back_to_cloud(self) -> None:
+        app = self._app()
 
         session = SimpleNamespace(
-            client=SimpleNamespace(chat_completion=fail_if_called),
+            name=None,
+            name_source=None,
+            client=SimpleNamespace(
+                complete_text=AsyncMock(side_effect=RuntimeError("no local model"))
+            ),
             name_generation_context=lambda: {
                 "first_user": "Explain this portfolio project",
                 "first_assistant": "",
@@ -4590,7 +4614,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
             yield
 
         session = SimpleNamespace(
-            client=SimpleNamespace(chat_completion=fail_if_called),
+            name=None,
+            name_source=None,
+            client=SimpleNamespace(
+                complete_text=AsyncMock(side_effect=RuntimeError("bundled")),
+                chat_completion=fail_if_called,
+            ),
             name_generation_context=lambda: {
                 "first_user": "Explain this codebase?",
                 "first_assistant": "",
@@ -4606,7 +4635,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         self.assertEqual(title, "")
 
-    def test_auto_save_queues_title_refinement_on_first_named_save(self) -> None:
+    def test_auto_save_applies_fallback_then_queues_refinement(self) -> None:
         app = self._app()
         session = SimpleNamespace(
             turn_count=1,
@@ -4614,18 +4643,23 @@ class ReupCommandPaletteTests(unittest.TestCase):
             name_source=None,
             name_locked=False,
             name_last_generated_turn=0,
+            name_context_hash=None,
             session_id="s-title-first",
             name_generation_context=lambda: {
                 "first_user": "Can you fix the composer usage display?",
                 "latest_user": "Can you fix the composer usage display?",
                 "focus_hint": "",
             },
+            set_fallback_name=lambda value: (
+                setattr(session, "name", value),
+                setattr(session, "name_source", "fallback"),
+            ),
             set_auto_name=lambda value: (
                 setattr(session, "name", value),
                 setattr(session, "name_source", "auto"),
                 setattr(session, "name_last_generated_turn", session.turn_count),
             ),
-            should_refresh_auto_name=lambda: False,
+            should_refresh_auto_name=lambda: True,
             snapshot_kwargs=lambda workspace_path: {
                 "session_id": session.session_id,
                 "name": session.name,
@@ -4659,9 +4693,12 @@ class ReupCommandPaletteTests(unittest.TestCase):
             workspace=self.cwd,
             refresh_ui=False,
         )
-        self.assertIsNone(session.name)
+        # A deterministic floor is applied immediately so the thread is never
+        # shown as "Untitled thread" while the model title is generated.
+        self.assertEqual(session.name, "Fix the composer usage display")
+        self.assertEqual(session.name_source, "fallback")
 
-    def test_refine_session_name_records_attempt_when_cloud_fails(self) -> None:
+    def test_refine_session_name_records_failure_without_advancing_milestone(self) -> None:
         app = self._app()
         session = SimpleNamespace(
             turn_count=3,
@@ -4669,15 +4706,20 @@ class ReupCommandPaletteTests(unittest.TestCase):
             name_source="auto",
             name_locked=False,
             name_last_generated_turn=1,
+            name_last_attempt_turn=0,
+            name_failed_attempts=0,
+            name_context_hash=None,
             session_id="s-title-fail",
+            naming_fingerprint=lambda: "fp-fail",
             set_auto_name=lambda value: (
                 setattr(session, "name", value),
+                setattr(session, "name_source", "auto"),
                 setattr(session, "name_last_generated_turn", session.turn_count),
             ),
-            mark_auto_name_attempt=lambda: setattr(
+            mark_auto_name_attempt=lambda *, success=False: setattr(
                 session,
-                "name_last_generated_turn",
-                session.turn_count,
+                "name_failed_attempts",
+                0 if success else session.name_failed_attempts + 1,
             ),
             name_generation_context=lambda: {
                 "first_user": "Refactor the database connection pool",
@@ -4700,9 +4742,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         with (
-            patch.object(
-                app, "_generate_cloud_session_name", AsyncMock(return_value=None)
-            ),
+            patch.object(app, "_generate_session_name", AsyncMock(return_value=None)),
             patch("ite.ui.reup._threads.SessionManager") as session_manager,
         ):
             asyncio.run(
@@ -4713,12 +4753,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 )
             )
 
-        # Cloud failed — name stays unchanged, attempt is recorded
+        # Generation failed — title stays, the failure is recorded, and the
+        # milestone is NOT advanced so a later turn can retry.
         self.assertEqual(session.name, "Fix Composer Usage Display")
-        self.assertEqual(session.name_last_generated_turn, 3)
+        self.assertEqual(session.name_last_generated_turn, 1)
+        self.assertEqual(session.name_failed_attempts, 1)
         session_manager.return_value.save_session.assert_called_once()
 
-    def test_refine_session_name_records_attempt_when_title_is_unchanged(self) -> None:
+    def test_refine_session_name_keeps_unchanged_title_and_records_hash(self) -> None:
         app = self._app()
         session = SimpleNamespace(
             turn_count=3,
@@ -4726,69 +4768,21 @@ class ReupCommandPaletteTests(unittest.TestCase):
             name_source="auto",
             name_locked=False,
             name_last_generated_turn=1,
+            name_last_attempt_turn=0,
+            name_failed_attempts=0,
+            name_context_hash=None,
             session_id="s-title-same",
+            naming_fingerprint=lambda: "fp-same",
             set_auto_name=lambda value: (
                 setattr(session, "name", value),
                 setattr(session, "name_last_generated_turn", session.turn_count),
             ),
-            mark_auto_name_attempt=lambda: setattr(
-                session,
-                "name_last_generated_turn",
-                3,
-            ),
-            snapshot_kwargs=lambda workspace_path: {
-                "session_id": session.session_id,
-                "name": session.name,
-                "name_source": session.name_source,
-                "name_locked": session.name_locked,
-                "name_last_generated_turn": session.name_last_generated_turn,
-                "created_at": datetime.now(),
-                "updated_at": datetime.now(),
-                "turn_count": session.turn_count,
-                "workspace_path": workspace_path,
-                "messages": [],
-                "total_usage": TokenUsage(),
-            },
-        )
-
-        with (
-            patch.object(
-                app,
-                "_generate_cloud_session_name",
-                AsyncMock(return_value="Fix Composer Usage Display"),
-            ),
-            patch("ite.ui.reup._threads.SessionManager") as session_manager,
-            patch.object(app, "_queue_session_tabs_refresh") as refresh_tabs,
-        ):
-            asyncio.run(
-                app._refine_session_name(
-                    session,
-                    workspace=self.cwd,
-                    refresh_ui=False,
-                )
-            )
-
-        self.assertEqual(session.name, "Fix Composer Usage Display")
-        self.assertEqual(session.name_last_generated_turn, 3)
-        session_manager.return_value.save_session.assert_called_once()
-        refresh_tabs.assert_called_once()
-
-    def test_queue_refinement_uses_inline_local_when_no_cloud_session(self) -> None:
-        app = self._app()
-        session = SimpleNamespace(
-            turn_count=3,
-            name="Old Name",
-            name_source="auto",
-            name_locked=False,
-            name_last_generated_turn=1,
-            session_id="s-no-cloud",
-            set_auto_name=lambda value: (
-                setattr(session, "name", value),
-                setattr(session, "name_last_generated_turn", session.turn_count),
+            mark_auto_name_attempt=lambda *, success=False: setattr(
+                session, "name_failed_attempts", 0
             ),
             name_generation_context=lambda: {
-                "first_user": "Audit the context runtime architecture",
-                "latest_user": "",
+                "first_user": "Fix the composer usage display",
+                "latest_user": "Fix the composer usage display",
                 "focus_hint": "",
             },
             snapshot_kwargs=lambda workspace_path: {
@@ -4807,7 +4801,34 @@ class ReupCommandPaletteTests(unittest.TestCase):
         )
 
         with (
-            patch("ite.ui.reup._threads.has_stored_cloud_auth", return_value=False),
+            patch.object(
+                app,
+                "_generate_session_name",
+                AsyncMock(return_value="Fix Composer Usage Display"),
+            ),
+            patch("ite.ui.reup._threads.SessionManager") as session_manager,
+            patch.object(app, "_queue_session_tabs_refresh") as refresh_tabs,
+        ):
+            asyncio.run(
+                app._refine_session_name(
+                    session,
+                    workspace=self.cwd,
+                    refresh_ui=False,
+                )
+            )
+
+        self.assertEqual(session.name, "Fix Composer Usage Display")
+        self.assertEqual(session.name_context_hash, "fp-same")
+        session_manager.return_value.save_session.assert_called_once()
+        refresh_tabs.assert_called_once()
+
+    def test_queue_refinement_spawns_worker_without_cloud_session(self) -> None:
+        app = self._app()
+        session = SimpleNamespace(session_id="s-no-cloud")
+
+        with (
+            patch.object(app, "_refine_session_name", MagicMock()) as refine,
+            patch.object(app, "run_worker") as run_worker,
         ):
             app._queue_session_name_refinement(
                 session,
@@ -4815,10 +4836,10 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 refresh_ui=False,
             )
 
-        # No worker spawned — no cloud auth, refinement skipped silently
-        self.assertEqual(session.name, "Old Name")
-        self.assertEqual(session.name_last_generated_turn, 1)
-        self.assertNotIn("s-no-cloud", app._session_name_refinements)
+        # Naming no longer depends on iTE Cloud auth — the working model can name it.
+        run_worker.assert_called_once()
+        refine.assert_called_once()
+        self.assertIn("s-no-cloud", app._session_name_refinements)
 
     def test_remember_open_session_tracks_order_and_workspace(self) -> None:
         app = self._app()
