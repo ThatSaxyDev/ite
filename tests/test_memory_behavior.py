@@ -104,6 +104,43 @@ class MemoryBehaviorTests(unittest.IsolatedAsyncioTestCase):
         response = await self._collect_text(agent.run("What test tool should we use here?"))
         self.assertIn("use pytest for tests", response.lower())
 
+    async def test_unrelated_question_is_not_answered_from_incidental_memory_match(self) -> None:
+        workspace = self.base_path / "ws-incidental-match"
+        workspace.mkdir()
+
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        assert agent.session is not None
+        await agent.session.initialize()
+
+        # Scores above the recall threshold only because "git" appears inside
+        # "gitignored" and "ite" inside the note body.
+        agent.session.memory_manager.set_entry(
+            "semantic",
+            "open_island_integration",
+            "iTE to Open Island bridge. Reference clone (GPLv3, gitignored): open-vibe-island",
+        )
+
+        model_calls: list[str] = []
+
+        async def record_call(messages, tools=None, stream=True):
+            model_calls.append("called")
+            yield StreamEvent(
+                type=StreamEventType.TEXT_DELTA,
+                text_delta=TextDelta("model answer"),
+            )
+            yield StreamEvent(
+                type=StreamEventType.MESSAGE_COMPLETE,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+            )
+
+        agent.session.client.chat_completion = record_call  # type: ignore[method-assign]
+        response = await self._collect_text(
+            agent.run("How does Git work with ite? I know we have some Git tools.")
+        )
+
+        self.assertEqual(len(model_calls), 1)
+        self.assertEqual(response.strip(), "model answer")
+
     async def test_explicit_memory_instruction_bypasses_model_turn(self) -> None:
         workspace = self.base_path / "ws-explicit"
         workspace.mkdir()

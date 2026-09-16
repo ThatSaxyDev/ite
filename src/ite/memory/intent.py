@@ -108,6 +108,37 @@ def parse_exact_recall_probe(message: str) -> ExactRecallProbe | None:
     return None
 
 
+def is_query_anchored_to_key(query: str, key: str) -> bool:
+    """Return True when the question plausibly refers to this memory's topic.
+
+    The direct-answer shortcut answers *for* the model, so it must never fire on
+    incidental substring overlap with a memory body. Memory keys are derived from
+    the stored value, so requiring a distinctive query word to appear in the key
+    keeps genuine single-fact recall working while rejecting accidental matches
+    (for example, "git" matching inside "gitignored").
+    """
+    query_tokens = _topic_tokens(query)
+    if not query_tokens:
+        return False
+
+    key_tokens = _topic_tokens(key)
+    if not key_tokens:
+        return False
+
+    return any(
+        query_token == key_token
+        or key_token.startswith(query_token)
+        or query_token.startswith(key_token)
+        for query_token in query_tokens
+        for key_token in key_tokens
+    )
+
+
+def _topic_tokens(value: str) -> list[str]:
+    text = _clean_value(value).lower()
+    return [token for token in re.findall(r"[a-z0-9]+", text) if len(token) >= 4]
+
+
 def extract_preference_controls(message: str) -> dict[str, Any]:
     text = _clean_value(message).lower()
     if not text:

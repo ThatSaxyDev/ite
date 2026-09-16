@@ -19,6 +19,7 @@ from ite.config.config import Config
 from ite.integrations.open_island.bridge import build_bridge
 from ite.integrations.open_island.client import OpenIslandClient
 from ite.memory import (
+    is_query_anchored_to_key,
     parse_exact_recall_probe,
     parse_explicit_memory_instruction,
     parse_explicit_memory_instructions,
@@ -782,7 +783,11 @@ class Agent:
         if len(semantic) != 1:
             return None
 
-        summary = str(next(iter(semantic.values()), "")).strip()
+        memory_key, summary = next(iter(semantic.items()), ("", ""))
+        if not is_query_anchored_to_key(user_text, str(memory_key)):
+            return None
+
+        summary = str(summary).strip()
         if not summary:
             return None
 
