@@ -58,3 +58,6 @@ kwiksim_mobile/
 claw-code/
 csrc/
 auto-harness/
+
+# External reference clones (GPLv3 — must never be vendored or committed)
+open-vibe-island/

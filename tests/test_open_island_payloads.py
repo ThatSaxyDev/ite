@@ -1,0 +1,140 @@
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+
+from ite.integrations.open_island import payloads
+from ite.integrations.open_island.terminal import (
+    TerminalContext,
+    detect_terminal,
+    detect_terminal_app,
+    detect_terminal_session_id,
+    workspace_name,
+)
+
+
+class DetectTerminalAppTests(unittest.TestCase):
+    def test_known_term_program_is_named(self) -> None:
+        self.assertEqual(detect_terminal_app({"TERM_PROGRAM": "iTerm.app"}), "iTerm")
+        self.assertEqual(
+            detect_terminal_app({"TERM_PROGRAM": "Apple_Terminal"}), "Terminal"
+        )
+        self.assertEqual(
+            detect_terminal_app({"TERM_PROGRAM": "WarpTerminal"}), "Warp"
+        )
+
+    def test_unknown_term_program_passes_through(self) -> None:
+        self.assertEqual(detect_terminal_app({"TERM_PROGRAM": "SomeNewTerm"}), "SomeNewTerm")
+
+    def test_missing_environment_yields_none(self) -> None:
+        self.assertIsNone(detect_terminal_app({}))
+
+    def test_ghostty_inferred_from_term(self) -> None:
+        self.assertEqual(detect_terminal_app({"TERM": "xterm-ghostty"}), "Ghostty")
+
+
+class DetectSessionIdTests(unittest.TestCase):
+    def test_iterm_session_id_is_used(self) -> None:
+        self.assertEqual(
+            detect_terminal_session_id({"ITERM_SESSION_ID": "w0t0p0:ABC"}),
+            "w0t0p0:ABC",
+        )
+
+    def test_missing_session_id_yields_none(self) -> None:
+        self.assertIsNone(detect_terminal_session_id({}))
+
+
+class TerminalContextTests(unittest.TestCase):
+    def test_empty_fields_are_omitted(self) -> None:
+        context = TerminalContext(app="iTerm", tty=None, session_id="", title=None)
+        self.assertEqual(context.as_payload_fields(), {"terminal_app": "iTerm"})
+
+    def test_all_fields_present(self) -> None:
+        context = TerminalContext(
+            app="Warp", tty="/dev/ttys003", session_id="abc", title="zsh"
+        )
+        self.assertEqual(
+            context.as_payload_fields(),
+            {
+                "terminal_app": "Warp",
+                "terminal_tty": "/dev/ttys003",
+                "terminal_session_id": "abc",
+                "terminal_title": "zsh",
+            },
+        )
+
+    def test_detection_never_raises_on_broken_env(self) -> None:
+        self.assertIsInstance(detect_terminal({"TERM_PROGRAM": ""}), TerminalContext)
+
+
+class WorkspaceNameTests(unittest.TestCase):
+    def test_uses_directory_name(self) -> None:
+        self.assertEqual(workspace_name("/Users/someone/projects/my-app"), "my-app")
+
+    def test_falls_back_to_full_path_for_root(self) -> None:
+        self.assertEqual(workspace_name(Path("/")), "/")
+
+
+class PayloadShapeTests(unittest.TestCase):
+    def test_session_start_has_required_fields(self) -> None:
+        payload = payloads.session_start("sid-1", "/tmp/proj")
+        self.assertEqual(payload["hook_event_name"], "SessionStart")
+        self.assertEqual(payload["session_id"], "sid-1")
+        self.assertEqual(payload["cwd"], "/tmp/proj")
+        self.assertEqual(payload["source"], "startup")
+        self.assertEqual(payload["hook_source"], payloads.HOOK_SOURCE)
+
+    def test_command_wraps_in_process_claude_hook(self) -> None:
+        command = payloads.command(payloads.session_start("sid-1", "/tmp/proj"))
+        self.assertEqual(command["type"], "processClaudeHook")
+        self.assertEqual(command["claudeHook"]["hook_event_name"], "SessionStart")
+
+    def test_terminal_fields_are_embedded(self) -> None:
+        terminal = TerminalContext(app="iTerm", tty="/dev/ttys001")
+        payload = payloads.session_start("sid-1", "/tmp/proj", terminal)
+        self.assertEqual(payload["terminal_app"], "iTerm")
+        self.assertEqual(payload["terminal_tty"], "/dev/ttys001")
+
+    def test_tool_payloads_use_upstream_field_names(self) -> None:
+        pre = payloads.pre_tool_use("sid", "/tmp/p", "read_file", {"path": "a.py"}, "call-1")
+        self.assertEqual(pre["tool_name"], "read_file")
+        self.assertEqual(pre["tool_use_id"], "call-1")
+        self.assertEqual(pre["tool_input"], {"path": "a.py"})
+        self.assertNotIn("toolUseID", pre)
+
+    def test_failed_tool_uses_failure_event(self) -> None:
+        post = payloads.post_tool_use(
+            "sid", "/tmp/p", "shell", None, "call-1", output="boom", success=False
+        )
+        self.assertEqual(post["hook_event_name"], "PostToolUseFailure")
+        self.assertIn("error", post)
+
+    def test_successful_tool_uses_post_tool_use(self) -> None:
+        post = payloads.post_tool_use(
+            "sid", "/tmp/p", "shell", None, "call-1", output="ok", success=True
+        )
+        self.assertEqual(post["hook_event_name"], "PostToolUse")
+        self.assertNotIn("error", post)
+
+    def test_large_output_is_truncated(self) -> None:
+        huge = "x" * (payloads.MAX_FIELD_CHARS + 500)
+        payload = payloads.post_tool_use(
+            "sid", "/tmp/p", "shell", None, None, output=huge, success=True
+        )
+        self.assertLessEqual(
+            len(payload["tool_response"]), payloads.MAX_FIELD_CHARS + 20
+        )
+
+    def test_session_end_marks_interrupt(self) -> None:
+        payload = payloads.session_end("sid", "/tmp/p", is_interrupt=True)
+        self.assertEqual(payload["hook_event_name"], "SessionEnd")
+        self.assertTrue(payload["is_interrupt"])
+
+    def test_serialize_tool_input_is_stable_ordering(self) -> None:
+        first = payloads.serialize_tool_input({"b": 1, "a": 2})
+        second = payloads.serialize_tool_input({"a": 2, "b": 1})
+        self.assertEqual(first, second)
+
+
+if __name__ == "__main__":
+    unittest.main()

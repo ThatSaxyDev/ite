@@ -75,6 +75,17 @@ auth = "client_credentials"
 client_credentials_url = "https://mcp.paystack.africa/oauth/token"
 client_credentials_refresh_buffer_sec = "300"
 
+[tool_optimizer]
+enabled = true
+compact_descriptions = true
+compact_read_output = true
+line_range_edit = true
+
+[integrations]
+
+[integrations.open_island]
+enabled = true
+
 [[hooks]]
 name = "test_before_tool"
 trigger = "before_tool"
@@ -104,9 +115,3 @@ name = "test_on_error"
 trigger = "on_error"
 command = "python3 ./scripts/hook_logger.py"
 blocking = false
-
-[tool_optimizer]
-enabled = true
-compact_descriptions = true
-compact_read_output = true
-line_range_edit = true

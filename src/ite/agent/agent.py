@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import mimetypes
 import re
+import sys
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Awaitable, Callable
@@ -14,6 +16,8 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage
 from ite.config.config import Config
+from ite.integrations.open_island.bridge import build_bridge
+from ite.integrations.open_island.client import OpenIslandClient
 from ite.memory import (
     parse_exact_recall_probe,
     parse_explicit_memory_instruction,
@@ -24,6 +28,8 @@ from ite.prompts.system import create_loop_breaker_prompt
 from ite.tools.base import ToolConfirmation, ToolKind, ToolResult
 from ite.utils.paths import resolve_path
 from ite.utils.errors import is_context_overflow_error
+
+logger = logging.getLogger(__name__)
 
 
 def _encode_image_part(image_path: str) -> dict:
@@ -83,6 +89,51 @@ class Agent:
         self.session: Session | None = session or Session(self.config)
         self.session.approval_manager.confirmation_callback = confirmation_callback
         self.plan_question_callback = plan_question_callback
+        self._event_observers: list[Callable[[AgentEvent], None]] = []
+        self._open_island_bridge = self._build_open_island_bridge()
+
+    def _build_open_island_bridge(self) -> object | None:
+        """Attach the Open Island bridge when the integration is enabled.
+
+        Optional and fail-open: any problem here disables the bridge rather
+        than degrading the agent. No I/O happens at construction — the bridge
+        only opens a socket once it observes its first event.
+        """
+        try:
+            settings = self.config.integrations.open_island
+            if not settings.enabled or sys.platform != "darwin":
+                return None
+
+            session = self.session
+            if session is None:
+                return None
+
+            client = (
+                OpenIslandClient(socket_path=settings.socket_path)
+                if settings.socket_path
+                else None
+            )
+            bridge = build_bridge(
+                session.session_id,
+                self.config.cwd,
+                enabled=True,
+                model=self.config.model.name,
+                client=client,
+            )
+            if bridge is not None:
+                self._event_observers.append(bridge.observe)
+            return bridge
+        except Exception as exc:  # noqa: BLE001 - integration must never break the agent
+            logger.debug("Open Island bridge unavailable: %s", exc)
+            return None
+
+    def _notify_event_observers(self, event: AgentEvent) -> None:
+        """Fan an event out to observers. A failing observer is isolated."""
+        for observer in self._event_observers:
+            try:
+                observer(event)
+            except Exception as exc:  # noqa: BLE001 - never break the agent loop
+                logger.debug("Agent event observer failed: %s", exc)
 
     @classmethod
     def _raw_tool_call_markers(cls) -> tuple[str, ...]:
@@ -182,6 +233,19 @@ class Agent:
         return normalized_name, tuple(sorted(normalized.items()))
 
     async def run(
+        self, message: str, user_model_content: str | list[dict] | None = None
+    ):
+        """Yield agent events, mirroring each to registered observers.
+
+        The observer fan-out lives here rather than in the individual
+        consumers so that every caller (Reup TUI, remote host) gets the
+        integration without duplicating wiring.
+        """
+        async for event in self._run_stream(message, user_model_content):
+            self._notify_event_observers(event)
+            yield event
+
+    async def _run_stream(
         self, message: str, user_model_content: str | list[dict] | None = None
     ):
         session = self.session

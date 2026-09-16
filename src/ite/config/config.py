@@ -270,6 +270,21 @@ class ToolOptimizerConfig(BaseModel):
     line_range_edit: bool = True
 
 
+class OpenIslandConfig(BaseModel):
+    """Opt-in mirroring of iTE sessions into the Open Island notch overlay.
+
+    macOS-only in practice. Disabled by default: the integration performs
+    socket I/O, so it must be a deliberate choice rather than a surprise.
+    """
+
+    enabled: bool = False
+    socket_path: Path | None = None
+
+
+class IntegrationsConfig(BaseModel):
+    open_island: OpenIslandConfig = Field(default_factory=OpenIslandConfig)
+
+
 class Config(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     cwd: Path = Field(default=Path.cwd())
@@ -281,6 +296,7 @@ class Config(BaseModel):
     tool_optimizer: ToolOptimizerConfig = Field(
         default_factory=ToolOptimizerConfig
     )
+    integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
     hooks_enabled: bool = False
     hooks: list[HookConfig] = Field(default_factory=list)
     approval: ApprovalPolicy = ApprovalPolicy.AUTO
