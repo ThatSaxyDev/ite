@@ -69,6 +69,27 @@ _ARG_KEY_ALIASES = {
 _PROMOTION_PREFERENCE = ("command", "pattern", "file_path")
 
 
+def has_renderable_preview(normalized: dict[str, Any] | None) -> bool:
+    """Return True when Open Island can render a preview from this input.
+
+    Upstream returns the first *string* value among `PREVIEW_KEY_PRIORITY`. If
+    none qualifies it falls back to serialising the entire object
+    (`ClaudeHooks.swift:1126-1150`), which is how raw JSON such as
+    ``{limit: 10}`` reached the UI.
+
+    Non-string recognised keys do not count: upstream's `stringValue` only
+    yields text for `.string`, and `toolInputPreview` skips empty values.
+    """
+    if not isinstance(normalized, dict):
+        return False
+
+    for key in PREVIEW_KEY_PRIORITY:
+        value = normalized.get(key)
+        if isinstance(value, str) and value:
+            return True
+    return False
+
+
 def normalize_tool_input(arguments: dict[str, Any] | None) -> dict[str, Any] | None:
     """Rename iTE argument keys to the names Open Island can render.
 
@@ -80,13 +101,19 @@ def normalize_tool_input(arguments: dict[str, Any] | None) -> dict[str, Any] | N
     recognises, aliases are left untouched. Otherwise ``grep {pattern, path}``
     would promote ``path`` to ``file_path``, which outranks ``pattern`` in
     upstream's list and would hide the search term the user wants to see.
+
+    Returns ``None`` when nothing is renderable, which makes the caller omit
+    ``tool_input`` entirely. That is the important behaviour: omitting it leaves
+    the island showing just the humanised tool name, whereas sending an
+    unrenderable object makes the island dump raw JSON into the UI
+    (e.g. ``$ {limit: 10}`` for ``git_log``). Never leak internals to users.
     """
     if not arguments:
-        return arguments
+        return None
 
     normalized = dict(_stringify(arguments))
 
-    if any(key in PREVIEW_KEY_PRIORITY for key in normalized):
+    if has_renderable_preview(normalized):
         return normalized
 
     for preferred in _PROMOTION_PREFERENCE:
@@ -95,9 +122,14 @@ def normalize_tool_input(arguments: dict[str, Any] | None) -> dict[str, Any] | N
                 continue
             value = normalized.pop(alias)
             normalized[canonical] = value
-            return normalized
+            if has_renderable_preview(normalized):
+                return normalized
+            # Promotion did not yield text (e.g. a non-string value); put it
+            # back and keep looking rather than shipping a half-rename.
+            normalized.pop(canonical, None)
+            normalized[alias] = value
 
-    return normalized
+    return None
 
 
 def summary_preview(tool_name: str, tool_input: dict[str, Any] | None) -> str:
@@ -176,8 +208,13 @@ def pre_tool_use(
 ) -> dict[str, Any]:
     payload = _base("PreToolUse", session_id, cwd, terminal)
     payload["tool_name"] = tool_name
-    if tool_input is not None:
-        payload["tool_input"] = normalize_tool_input(tool_input)
+
+    # Only send input the island can actually render. Anything else makes it
+    # dump raw JSON into the UI; omitting it leaves the humanised tool name.
+    normalized = normalize_tool_input(tool_input)
+    if normalized is not None:
+        payload["tool_input"] = normalized
+
     if tool_use_id:
         payload["tool_use_id"] = tool_use_id
     return payload
@@ -187,7 +224,6 @@ def post_tool_use(
     session_id: str,
     cwd: str,
     tool_name: str,
-    tool_input: dict[str, Any] | None,
     tool_use_id: str | None,
     *,
     output: str | None,
@@ -195,12 +231,18 @@ def post_tool_use(
     error: str | None = None,
     terminal: TerminalContext | None = None,
 ) -> dict[str, Any]:
+    """Build the completion payload.
+
+    Deliberately carries **no** ``tool_input``. Upstream clears its
+    ``currentToolInputPreview`` only when an update omits it
+    (`BridgeServer.swift:2888-2903`), so omitting it here is what stops the
+    finished tool's preview bleeding into the next reasoning label — otherwise
+    a rotated gerund would render as ``Mulling config/loader.py``.
+    """
     failed = not success
     event_name = "PostToolUseFailure" if failed else "PostToolUse"
     payload = _base(event_name, session_id, cwd, terminal)
     payload["tool_name"] = tool_name
-    if tool_input is not None:
-        payload["tool_input"] = normalize_tool_input(tool_input)
     if tool_use_id:
         payload["tool_use_id"] = tool_use_id
     if output is not None:

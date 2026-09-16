@@ -167,6 +167,68 @@ class ToolInputNormalizationTests(unittest.TestCase):
     def test_none_is_passed_through(self) -> None:
         self.assertIsNone(payloads.normalize_tool_input(None))
 
+
+class NonRenderableInputTests(unittest.TestCase):
+    """Raw JSON must never reach the UI.
+
+    `git_log` takes only `{limit, ref}`. Neither is a name Open Island renders,
+    so it fell back to serialising the whole object and the notch showed the
+    literal string `$ {limit: 10}` — an internal parameter leaked to the user.
+    """
+
+    def _status(self, tool_name: str, arguments: dict) -> str:
+        payload = payloads.pre_tool_use("sid", "/tmp/p", tool_name, arguments, None)
+        self.assertNotIn("tool_input", payload)
+        return payloads.island_status_text(payload)
+
+    def test_limit_only_args_are_dropped(self) -> None:
+        self.assertIsNone(payloads.normalize_tool_input({"limit": 10}))
+
+    def test_git_log_shows_only_its_name(self) -> None:
+        self.assertEqual(self._status("git_log", {"limit": 10}), "Git Log")
+
+    def test_empty_arguments_are_dropped(self) -> None:
+        self.assertIsNone(payloads.normalize_tool_input({}))
+
+    def test_non_string_recognised_key_is_dropped(self) -> None:
+        """Upstream only renders `.string`; a number would still dump JSON."""
+        self.assertIsNone(payloads.normalize_tool_input({"file_path": 12}))
+
+    def test_boolean_of_a_recognised_key_is_dropped(self) -> None:
+        self.assertIsNone(payloads.normalize_tool_input({"file_path": True}))
+
+    def test_meaningful_arg_survives_alongside_noise(self) -> None:
+        normalized = payloads.normalize_tool_input({"path": "a.py", "limit": 10})
+        self.assertEqual(normalized["file_path"], "a.py")
+        self.assertEqual(
+            payloads.island_status_text(
+                {"tool_name": "read_file", "tool_input": normalized}
+            ),
+            "Read File a.py",
+        )
+
+    def test_ref_only_args_are_dropped(self) -> None:
+        self.assertIsNone(payloads.normalize_tool_input({"ref": "main"}))
+
+    def test_offset_only_args_are_dropped(self) -> None:
+        self.assertIsNone(payloads.normalize_tool_input({"offset": 200}))
+
+    def test_no_payload_produces_a_json_blob(self) -> None:
+        """End-to-end guard across every iTE tool argument shape we know of."""
+        shapes = [
+            ("git_log", {"limit": 10}),
+            ("git_diff", {"staged_only": True}),
+            ("read_file", {"limit": 50}),
+            ("todos", {"action": "list", "scope": "execution"}),
+            ("todos", {"action": "add", "items": ["a", "b"]}),
+            ("memory", {"action": "list", "limit": 6}),
+            ("list_dir", {}),
+        ]
+        for tool_name, arguments in shapes:
+            with self.subTest(tool=tool_name, args=arguments):
+                status = self._status(tool_name, arguments)
+                self.assertNotIn("{", status)
+                self.assertNotIn("}", status)
     def test_summary_preview_renders_path(self) -> None:
         preview = payloads.summary_preview(
             "read_file", payloads.normalize_tool_input({"path": "src/app.py"})
@@ -265,22 +327,34 @@ class IslandStatusTextTests(unittest.TestCase):
 
     def test_failed_tool_uses_failure_event(self) -> None:
         post = payloads.post_tool_use(
-            "sid", "/tmp/p", "shell", None, "call-1", output="boom", success=False
+            "sid", "/tmp/p", "shell", "call-1", output="boom", success=False
         )
         self.assertEqual(post["hook_event_name"], "PostToolUseFailure")
         self.assertIn("error", post)
 
     def test_successful_tool_uses_post_tool_use(self) -> None:
         post = payloads.post_tool_use(
-            "sid", "/tmp/p", "shell", None, "call-1", output="ok", success=True
+            "sid", "/tmp/p", "shell", "call-1", output="ok", success=True
         )
         self.assertEqual(post["hook_event_name"], "PostToolUse")
         self.assertNotIn("error", post)
 
+    def test_completion_carries_no_tool_input(self) -> None:
+        """Omitting it is what clears the island's preview.
+
+        Upstream clears `currentToolInputPreview` only when an update omits it.
+        Sending it would let a finished tool's preview survive into the next
+        reasoning label.
+        """
+        post = payloads.post_tool_use(
+            "sid", "/tmp/p", "read_file", "call-1", output="ok", success=True
+        )
+        self.assertNotIn("tool_input", post)
+
     def test_large_output_is_truncated(self) -> None:
         huge = "x" * (payloads.MAX_FIELD_CHARS + 500)
         payload = payloads.post_tool_use(
-            "sid", "/tmp/p", "shell", None, None, output=huge, success=True
+            "sid", "/tmp/p", "shell", None, output=huge, success=True
         )
         self.assertLessEqual(
             len(payload["tool_response"]), payloads.MAX_FIELD_CHARS + 20

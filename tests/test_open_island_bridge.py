@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import unittest
 from pathlib import Path
 from typing import Any
 
 from ite.agent.events import AgentEvent
+from ite.integrations.open_island import bridge as bridge_module
 from ite.integrations.open_island import payloads
 from ite.integrations.open_island.bridge import OpenIslandBridge, build_bridge
 from ite.integrations.open_island.terminal import TerminalContext
@@ -261,6 +263,145 @@ class ActivityLabelWiringTests(unittest.IsolatedAsyncioTestCase):
             payloads.island_status_text(h) for h in client.events_of("PreToolUse")
         ]
         self.assertIn("Compacting context", labels)
+
+
+class ActivityRotationTests(unittest.IsolatedAsyncioTestCase):
+    """The TUI rotates its gerund on a timer, not on events.
+
+    `app.py:825` ticks every 4.5s purely to advance a counter, so no event
+    stream can reproduce it. Without an equivalent timer the island freezes on
+    whichever word it showed first.
+    """
+
+    async def asyncSetUp(self) -> None:
+        self._original_interval = bridge_module._ROTATION_INTERVAL_SECONDS
+        bridge_module._ROTATION_INTERVAL_SECONDS = 0.02
+
+    async def asyncTearDown(self) -> None:
+        bridge_module._ROTATION_INTERVAL_SECONDS = self._original_interval
+
+    async def test_rotation_starts_with_the_turn(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+
+        self.assertIsNotNone(bridge._rotation_task)
+        await bridge.aclose()
+
+    async def test_rotation_keeps_emitting_as_time_passes(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+        initial = len(client.events_of("PreToolUse"))
+
+        await asyncio.sleep(0.15)
+        later = len(client.events_of("PreToolUse"))
+
+        self.assertGreater(later, initial)
+        await bridge.aclose()
+
+    async def test_rotation_pauses_while_a_tool_is_in_flight(self) -> None:
+        """A live tool's label must not be overwritten by a gerund."""
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+        bridge.observe(
+            AgentEvent.tool_call_start("call-1", "read_file", {"path": "a.py"})
+        )
+        await _drain(bridge)
+
+        settled = len(client.commands)
+        await asyncio.sleep(0.15)
+
+        self.assertEqual(len(client.commands), settled)
+        await bridge.aclose()
+
+    async def test_rotation_resumes_after_the_tool_finishes(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+        bridge.observe(
+            AgentEvent.tool_call_start("call-1", "read_file", {"path": "a.py"})
+        )
+        await _drain(bridge)
+        bridge.observe(
+            AgentEvent.tool_call_complete(
+                "call-1", "read_file", ToolResult(success=True, output="ok")
+            )
+        )
+        await _drain(bridge)
+
+        settled = len(client.commands)
+        await asyncio.sleep(0.15)
+
+        self.assertGreater(len(client.commands), settled)
+        await bridge.aclose()
+
+    async def test_rotation_stops_when_the_turn_ends(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+        bridge.observe(AgentEvent.agent_end(response="done"))
+        await _drain(bridge)
+
+        self.assertIsNone(bridge._rotation_task)
+
+        settled = len(client.commands)
+        await asyncio.sleep(0.15)
+
+        self.assertEqual(len(client.commands), settled)
+
+    async def test_rotation_stops_on_error(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+        bridge.observe(AgentEvent.agent_error("kaboom"))
+        await _drain(bridge)
+
+        self.assertIsNone(bridge._rotation_task)
+
+    async def test_aclose_cancels_rotation(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+
+        await bridge.aclose()
+
+        self.assertIsNone(bridge._rotation_task)
+
+    async def test_labels_do_not_repeat_back_to_back(self) -> None:
+        bridge = _bridge(_RecordingClient())
+
+        labels = [bridge._next_activity_label() for _ in range(12)]
+
+        for previous, current in itertools.pairwise(labels):
+            self.assertNotEqual(previous, current)
+
+    async def test_rotation_is_stable_within_a_turn(self) -> None:
+        """The first label of a turn is not rewritten by the worker."""
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+
+        # Before any rotation tick, exactly one activity label exists.
+        self.assertEqual(len(client.events_of("PreToolUse")), 1)
+        await bridge.aclose()
 
     async def test_unmapped_events_produce_no_traffic(self) -> None:
         client = _RecordingClient()

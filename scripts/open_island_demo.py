@@ -13,6 +13,7 @@ reports what actually went over the wire and what the app acknowledged.
 Usage:
     python scripts/open_island_demo.py              # full simulated turn
     python scripts/open_island_demo.py --hold       # keep bubble up for inspection
+    python scripts/open_island_demo.py --reason 12  # pause so rotation is visible
 """
 
 from __future__ import annotations
@@ -33,11 +34,17 @@ from ite.tools.base import ToolResult
 _CWD = str(Path(__file__).resolve().parents[1])
 
 
-class _VerboseClient:
-    """Pass-through wrapper that prints the exact hook payload sent."""
+class _RecordingClient:
+    """Pass-through wrapper that reports what the island will render.
 
-    def __init__(self, inner: OpenIslandClient) -> None:
+    The whole point of the demo is the user-visible result, so the rendered
+    activity line is always printed. Raw wire lines stay behind --verbose.
+    """
+
+    def __init__(self, inner: OpenIslandClient, *, verbose: bool = False) -> None:
         self._inner = inner
+        self._verbose = verbose
+        self.activity_labels: list[str] = []
 
     @property
     def socket_path(self) -> Path:
@@ -47,11 +54,17 @@ class _VerboseClient:
         hook = command.get("claudeHook", {})
         event = hook.get("hook_event_name")
         tool = hook.get("tool_name")
+
         if tool:
-            print(f"     wire:   {event}  tool={tool}")
-            print(f"     island: {payloads.island_status_text(hook)}")
-        else:
+            if self._verbose:
+                print(f"     wire:   {event}  tool={tool}")
+            rendered = payloads.island_status_text(hook)
+            print(f"     island: {rendered}")
+            if event == "PreToolUse":
+                self.activity_labels.append(rendered)
+        elif self._verbose:
             print(f"     wire:   {event}")
+
         return await self._inner.try_send(command, timeout=timeout)
 
     def send_sync(self, command, *, timeout: float = 2.0):
@@ -65,13 +78,19 @@ _TURN: list[AgentEvent] = [
     AgentEvent.tool_call_complete(
         "call-1", "read_file", ToolResult(success=True, output="import tomli ...")
     ),
-    AgentEvent.tool_call_start("call-2", "edit", {"path": "config/loader.py"}),
+    # The exact case that leaked raw JSON into the UI before the fix:
+    # git_log takes only {limit, ref}, neither of which the island renders.
+    AgentEvent.tool_call_start("call-2", "git_log", {"limit": 10}),
     AgentEvent.tool_call_complete(
-        "call-2", "edit", ToolResult(success=True, output="applied 1 edit")
+        "call-2", "git_log", ToolResult(success=True, output="abc1234 initial commit")
     ),
-    AgentEvent.tool_call_start("call-3", "shell", {"command": "pytest -q"}),
+    AgentEvent.tool_call_start("call-3", "edit", {"path": "config/loader.py"}),
     AgentEvent.tool_call_complete(
-        "call-3", "shell", ToolResult(success=False, output="", error="3 failed")
+        "call-3", "edit", ToolResult(success=True, output="applied 1 edit")
+    ),
+    AgentEvent.tool_call_start("call-4", "shell", {"cmd": "pytest -q"}),
+    AgentEvent.tool_call_complete(
+        "call-4", "shell", ToolResult(success=False, output="", error="3 failed")
     ),
     AgentEvent.agent_end(response="Refactored the loader; 3 tests still failing."),
 ]
@@ -88,6 +107,14 @@ async def _main() -> int:
         "--verbose",
         action="store_true",
         help="print the exact hook payload sent for each event",
+    )
+    parser.add_argument(
+        "--reason",
+        type=float,
+        default=10.0,
+        metavar="SECONDS",
+        help="pause after the prompt to simulate reasoning, so the rotating "
+        "activity label is visible (set 0 to skip)",
     )
     args = parser.parse_args()
 
@@ -114,8 +141,8 @@ async def _main() -> int:
         print("bridge was not attached — integration path is broken")
         return 1
 
-    if args.verbose:
-        bridge._client = _VerboseClient(bridge._client)
+    recorder = _RecordingClient(bridge._client, verbose=args.verbose)
+    bridge._client = recorder
 
     print("Agent wiring")
     print(f"  observers:       {len(agent._event_observers)}")
@@ -129,15 +156,31 @@ async def _main() -> int:
     for event in _TURN:
         agent._notify_event_observers(event)
         print(f"  -> {event.type.value}")
-        await asyncio.sleep(0.35)
+        if event.type.value == "agent_start" and args.reason > 0:
+            print(
+                f"     (reasoning for {args.reason:g}s — "
+                "watch the label rotate)"
+            )
+            await asyncio.sleep(args.reason)
+        else:
+            await asyncio.sleep(0.35)
 
     # Let the worker flush to the socket.
     await asyncio.sleep(1.0)
+
+    rotations = [
+        label
+        for label in recorder.activity_labels
+        if label not in {"Read File config/loader.py", "Edit config/loader.py"}
+    ]
 
     print()
     print("Result")
     print(f"  events observed: {len(_TURN)}")
     print(f"  queue drained:   {bridge._queue.empty()}")
+    print(f"  activity labels: {len(recorder.activity_labels)} sent")
+    if rotations:
+        print(f"  rotation seen:   {' -> '.join(rotations)}")
     print("  -> check your notch: one 'ite' session, summary showing activity")
     if args.hold:
         print("\n  Holding 60s for inspection (Ctrl-C to stop early)...")

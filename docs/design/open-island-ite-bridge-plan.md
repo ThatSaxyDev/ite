@@ -296,16 +296,49 @@ payloads.activity_status(session_id, cwd, label, terminal) -> PreToolUse(tool_na
 
 The island then renders `humanized(label)` with no preview appended — displaying iTE's
 wording verbatim. The label comes from the same `progress_label` the TUI and the remote
-host use (`src/ite/remote/host.py:377-391` already reuses it for exactly this reason), and
-is resolved once per turn and cached so it does not flicker between gerunds.
+host use (`src/ite/remote/host.py:377-391` already reuses it for exactly this reason).
+
+#### The rotation must be timer-driven, not event-driven
+
+An earlier revision resolved the label once per turn and cached it, to avoid flicker. **That
+was wrong**, and it is what made the island look frozen: it showed one word
+("Contemplating") and never changed, while the TUI kept cycling.
+
+The TUI's rotation is a *timer*, not a reaction to events:
+
+```
+app.py:825          self.set_interval(4.5, self._tick_aside_gerund)
+_panels.py:2031-2034   def _tick_aside_gerund(self):
+                           ...
+                           self._aside_gerund_index += 1
+tool_narrative.py:956-974   _ASIDE_GERUNDS = (Thinking, Considering, Contemplating, ...)
+```
+
+`_tick_aside_gerund` advances a counter every 4.5s. It emits **no event**, so no amount of
+event mapping could reproduce it. The bridge therefore runs its own
+`_ROTATION_INTERVAL_SECONDS = 4.5` task while a turn is running.
 
 Emission points:
 
-| iTE event | Label sent | Position |
+| Trigger | Label sent | Notes |
 |---|---|---|
-| `AGENT_START` | a starting gerund | **last** in the batch — `UserPromptSubmit` keeps `currentTool`, so ordering is what makes the label win |
+| `AGENT_START` | a starting gerund | last in the batch — `UserPromptSubmit` keeps `currentTool`, so ordering is what makes the label win |
+| every 4.5s while reasoning | a fresh gerund | paused while `_tools_in_flight > 0` so a live tool's label is never overwritten |
 | `CONTEXT_COMPACTED` | `"Compacting context"` | after `PreCompact` |
-| `TOOL_CALL_START` | *(unchanged)* the real tool name + input preview | as before |
+| `TOOL_CALL_START` | the real tool name + input preview | takes over from the rotation |
+
+Rotation stops on `AGENT_END`, `AGENT_ERROR`, and `aclose`, so a finished session does not
+keep mutating.
+
+**Verified live** (`scripts/open_island_demo.py --reason 12`):
+```
+-> agent_start
+   island: Sussing
+   island: Whirring
+   island: Spelunking
+-> tool_call_start
+   island: Read File config/loader.py
+```
 
 **Why not `Notification`:** it preserves `currentTool` rather than setting it, so it cannot
 drive the status line — it only writes `summary`, which the spotlight row does not render.
@@ -317,6 +350,93 @@ dropped wholesale at `Stop` / `StopFailure` / `SessionEnd`
 **Known residual:** the TUI lowercases its label (`_threads.py:917`) while the island
 title-cases via `humanizedToolName`. The island reads "Brewing" where the TUI reads
 "brewing" — consistent with the island's own capitalised statuses ("Ready", "Thinking").
+
+### 3.9 What the activity line can and cannot show
+
+Verified live via the demo, the rendered lines are:
+
+```
+island: Read File config/loader.py      <- file path IS shown, during the tool
+island: Edit config/loader.py
+island: Shell pytest -q
+```
+
+`island_status_text` = `humanizedToolName(currentTool)` + the first renderable key from
+`tool_input` (`PREVIEW_KEY_PRIORITY`, §3.5). So **the file being read or edited is already
+visible** while that tool runs.
+
+What is **not** available: a history. The island renders exactly one activity line per
+session — the most recent event wins and previous ones are discarded. There is no log,
+timeline, or per-tool list in the spotlight row.
+
+The only *list* surface the island renders is `activeTasks`
+(`IslandPanelView.swift:1449-1471`), a checklist with status icons and strikethrough,
+driven by `TaskCreate` / `TaskUpdate` tool names via `updateTask`
+(`BridgeServer.swift:2773-2804`):
+
+| Field | Accepted key |
+|---|---|
+| title | `subject` ?? `description` |
+| id | `id`, or `taskId`/`task_id` on update |
+| status | `pending` \| `in_progress` \| `completed` |
+
+iTE has a comparable surface — the `todos` tool (`src/ite/tools/builtin/todo.py`), with
+`add` / `complete` / `update` / `remove` / `reopen` actions over `content`-bearing items.
+Mapping it onto `TaskCreate`/`TaskUpdate` would give a visible checklist of "what
+happened". That is a deliberate next step rather than something done here, because it
+requires emitting a synthetic `tool_name` that impersonates a Claude Code tool, which is a
+behavioural decision rather than a mechanical one.
+
+### 3.10 Raw JSON must never reach the UI (fixed)
+
+A live session rendered this in the notch:
+
+```
+$ {limit: 6.0}
+```
+
+**Cause — four steps, all on our side.**
+
+1. iTE sent a tool's raw arguments, e.g. `git_log` with `{"limit": 10}`
+   (`GitLogParams.limit = 10`, `src/ite/tools/builtin/git_tools.py:167`).
+2. `normalize_tool_input` found no key in `PREVIEW_KEY_PRIORITY` and no alias to promote,
+   so it passed the object through unchanged.
+3. Upstream's `toolInputPreview` then found no priority key holding a *string*, so it fell
+   back to serialising the **entire object** — `ClaudeHooks.swift:1126-1150`
+   (`stringValue(for: .object)` renders `{key: value}` with sorted keys).
+4. `runningDetailText` wraps any preview as `"$ \(preview)"`
+   (`IslandPanelView.swift:1898-1901`), which is why an internal parameter appeared as if
+   it were a shell command.
+
+**The rule now enforced: only send `tool_input` when the island can actually render from
+it.** `normalize_tool_input` returns `None` when no `PREVIEW_KEY_PRIORITY` key holds a
+non-empty **string**, and callers omit the field entirely. `has_renderable_preview` encodes
+the test. Non-string values do not count, because upstream's `stringValue` only produces
+text for `.string`.
+
+Result for the reported case:
+
+| | Before | After |
+|---|---|---|
+| wire | `tool_input: {"limit": 10}` | *(field omitted)* |
+| notch | `$ {limit: 10}` | `Git Log` |
+
+**A second, related change.** `post_tool_use` now carries **no** `tool_input`. Upstream
+clears `currentToolInputPreview` only when an update omits it
+(`BridgeServer.swift:2888-2903`), so sending it on completion let a finished tool's preview
+survive — a rotated gerund would then render as `Mulling config/loader.py`. Omitting it
+clears the preview, which also made the per-`call_id` argument cache unnecessary and it was
+removed.
+
+**Guarded by tests** (`NonRenderableInputTests`), including a table across the tool
+argument shapes we know: `git_log {limit}`, `git_diff {staged_only}`, `read_file {limit}`,
+`todos {action, items}`, `memory {action, limit}`, `list_dir {}`. Each asserts the rendered
+line contains no `{` or `}`.
+
+**Trade-off, stated plainly:** tools whose arguments have no island equivalent now show only
+their humanised name — `Git Log`, `Todos`, `Plan Question` — rather than a detail line.
+That is a deliberate choice: a clean name beats leaking internals. Enriching specific tools
+would mean curating per-tool previews, which the wire protocol does not have a field for.
 
 ---
 

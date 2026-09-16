@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 # is invisible to the user, a blocked agent turn is not.
 _QUEUE_MAXSIZE = 256
 
-# Upper bound on remembered tool arguments (see _remember_tool_arguments).
-_MAX_REMEMBERED_TOOL_CALLS = 256
+# How often the reasoning label is refreshed. The TUI rotates its gerund on a
+# 4.5s timer (`app.py:825` -> `_panels.py:2031`); matching it keeps the island
+# feeling alive instead of frozen on whichever word it first showed.
+_ROTATION_INTERVAL_SECONDS = 4.5
 
 _WORKER_IDLE_SENTINEL = object()
 
@@ -71,13 +73,16 @@ class OpenIslandBridge:
         self._closed = False
         self._session_announced = False
         self._atexit_registered = False
-        # TOOL_CALL_COMPLETE carries no arguments, but the island renders its
-        # summary from tool_input. Remember them per call id so the completion
-        # event can carry the same preview as the start event.
-        self._tool_arguments: dict[str, dict[str, Any]] = {}
-        # iTE's wording for the current turn's reasoning phase. Resolved once
-        # per turn so the island does not flicker between gerunds.
-        self._turn_activity_label: str | None = None
+        # The island has no free-text activity field: its status line is derived
+        # solely from `currentTool`. During reasoning there is no tool, so we
+        # synthesise one carrying iTE's wording. That wording is refreshed on a
+        # timer (see _rotate_activity) because the TUI's rotation is timer-driven
+        # rather than event-driven — no event stream can reproduce it.
+        self._rotation_task: asyncio.Task[None] | None = None
+        self._last_activity_label: str | None = None
+        # Count of tool calls that have started but not yet completed. Rotation
+        # pauses while non-zero so it cannot overwrite a live tool's label.
+        self._tools_in_flight = 0
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -137,6 +142,8 @@ class OpenIslandBridge:
         if self._closed:
             return
         self._closed = True
+
+        self._stop_rotation()
 
         if self._worker is not None and not self._worker.done():
             try:
@@ -215,6 +222,70 @@ class OpenIslandBridge:
             logger.debug("Open Island bridge send failed: %s", exc)
             return None
 
+    # ------------------------------------------------------------------
+    # reasoning-label rotation
+    # ------------------------------------------------------------------
+
+    def _start_rotation(self) -> None:
+        """Begin refreshing the reasoning label while a turn is running.
+
+        The TUI's rotation is driven by a timer (`app.py:825` ->
+        `_panels.py:2031`), not by events, so the only faithful reproduction is
+        a timer here too. Without it the island freezes on whichever word it
+        happened to show first, which is what made it look dead during pauses.
+        """
+        if self._rotation_task is not None and not self._rotation_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._rotation_task = loop.create_task(self._rotate_activity())
+
+    def _stop_rotation(self) -> None:
+        if self._rotation_task is not None:
+            self._rotation_task.cancel()
+            self._rotation_task = None
+
+    async def _rotate_activity(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(_ROTATION_INTERVAL_SECONDS)
+            except asyncio.CancelledError:
+                return
+
+            # Never overwrite a live tool's label.
+            if self._tools_in_flight > 0 or self._closed:
+                continue
+
+            try:
+                await self._send(
+                    payloads.command(
+                        payloads.activity_status(
+                            self.session_id,
+                            self.cwd,
+                            self._next_activity_label(),
+                            self._terminal,
+                        )
+                    )
+                )
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:  # noqa: BLE001 - rotation is best-effort
+                logger.debug("Open Island activity rotation failed: %s", exc)
+
+    def _next_activity_label(self) -> str:
+        """Draw a fresh gerund, avoiding an immediate repeat."""
+        label = self._activity_label()
+        if label == self._last_activity_label:
+            for _ in range(4):
+                candidate = self._activity_label()
+                if candidate != self._last_activity_label:
+                    label = candidate
+                    break
+        self._last_activity_label = label
+        return label
+
     async def _handle(self, event: AgentEvent) -> None:
         for command in self._commands_for(event):
             await self._send(payloads.command(command))
@@ -250,8 +321,9 @@ class OpenIslandBridge:
         terminal = self._resolve_terminal()
         message = data.get("message")
 
-        # A new turn picks fresh wording, matching the TUI's varied rhythm.
-        self._turn_activity_label = None
+        # A new turn begins: start the timer that keeps the reasoning label
+        # moving, matching the TUI's rotation.
+        self._start_rotation()
 
         # SessionStart is emitted once per iTE session. AGENT_START/AGENT_END
         # bracket a *turn*, so re-sending SessionStart each turn would churn
@@ -294,20 +366,21 @@ class OpenIslandBridge:
         return commands
 
     def _activity_label(self) -> str:
-        """iTE's wording for the current reasoning phase, stable per turn.
+        """One piece of iTE's reasoning wording.
 
-        Reuses the same `progress_label` vocabulary the TUI and the remote
-        host use, so the island shows iTE's wording rather than the island's
-        generic fallback. Resolved once per turn and cached, because the
-        underlying helper picks randomly and the label must not flicker.
+        Reuses the same `progress_label` vocabulary the TUI and the remote host
+        use (`remote/host.py:377-391` already delegates to it for this reason),
+        so the island shows iTE's wording rather than its generic fallback.
+
+        Intentionally *not* cached: the TUI varies this wording as a turn
+        proceeds, and the island should follow. Caching it was the earlier
+        mistake — it made the island freeze on the first word it showed.
         """
-        if self._turn_activity_label is None:
-            try:
-                self._turn_activity_label = progress_label()
-            except Exception:  # noqa: BLE001 - wording must never break the bridge
-                logger.debug("Open Island activity label resolution failed")
-                self._turn_activity_label = "Working"
-        return self._turn_activity_label
+        try:
+            return progress_label()
+        except Exception:  # noqa: BLE001 - wording must never break the bridge
+            logger.debug("Open Island activity label resolution failed")
+            return "Working"
 
     def _on_tool_start(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         name = data.get("name")
@@ -318,9 +391,9 @@ class OpenIslandBridge:
         if not isinstance(arguments, dict):
             arguments = None
 
-        call_id = data.get("call_id")
-        if arguments is not None and isinstance(call_id, str) and call_id:
-            self._remember_tool_arguments(call_id, arguments)
+        # Rotation pauses while a tool is live so it cannot overwrite the tool's
+        # own label with a gerund.
+        self._tools_in_flight += 1
 
         return [
             payloads.pre_tool_use(
@@ -328,24 +401,10 @@ class OpenIslandBridge:
                 self.cwd,
                 name,
                 arguments,
-                call_id,
+                data.get("call_id"),
                 self._terminal,
             )
         ]
-
-    def _remember_tool_arguments(
-        self, call_id: str, arguments: dict[str, Any]
-    ) -> None:
-        """Cache tool arguments for the matching completion event.
-
-        Bounded so a long session with many tool calls cannot grow without
-        limit; the oldest entries are dropped first, which only costs the
-        preview on events that have long since been rendered.
-        """
-        if len(self._tool_arguments) >= _MAX_REMEMBERED_TOOL_CALLS:
-            for stale in list(self._tool_arguments)[: _MAX_REMEMBERED_TOOL_CALLS // 4]:
-                self._tool_arguments.pop(stale, None)
-        self._tool_arguments[call_id] = arguments
 
     def _on_tool_complete(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         name = data.get("name")
@@ -354,19 +413,17 @@ class OpenIslandBridge:
 
         output = data.get("output")
         error = data.get("error")
-        call_id = data.get("call_id")
-        arguments = (
-            self._tool_arguments.pop(call_id, None)
-            if isinstance(call_id, str)
-            else None
-        )
+
+        # Tool finished: rotation may resume on its next tick.
+        if self._tools_in_flight > 0:
+            self._tools_in_flight -= 1
+
         return [
             payloads.post_tool_use(
                 self.session_id,
                 self.cwd,
                 name,
-                arguments,
-                call_id,
+                data.get("call_id"),
                 output=output if isinstance(output, str) else None,
                 success=bool(data.get("success", True)),
                 error=error if isinstance(error, str) else None,
@@ -376,6 +433,9 @@ class OpenIslandBridge:
 
     def _on_agent_end(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         response = data.get("response")
+        # Turn over: stop the timer so the label does not keep mutating on a
+        # finished session.
+        self._stop_rotation()
         return [
             payloads.stop(
                 self.session_id,
@@ -387,6 +447,9 @@ class OpenIslandBridge:
 
     def _on_agent_error(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         error = data.get("error")
+        # Turn failed: stop the timer as well, so a session that never sends
+        # AGENT_END does not keep rotating forever.
+        self._stop_rotation()
         return [
             payloads.stop_failure(
                 self.session_id,
