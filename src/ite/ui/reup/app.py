@@ -455,6 +455,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         )
         self._activity_suffix_frames: tuple[str, ...] = ("", ".", "..", "...")
         self._activity_suffix_index: int = 0
+        self._aside_gerund_index: int = 0
         self._top_state_text: str = ""
         self._activity_widget: Static | None = None
         self._live_compaction_card: Container | None = None
@@ -821,6 +822,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._apply_change_review_panel_state()
         self._apply_hooks_panel_state()
         self.set_interval(0.15, self._tick_top_indicator)
+        self.set_interval(4.5, self._tick_aside_gerund)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)
         self.set_interval(1.0, self._maybe_probe_cloud_network_recovery)

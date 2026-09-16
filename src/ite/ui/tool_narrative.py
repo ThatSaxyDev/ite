@@ -949,6 +949,30 @@ _WRAPPING_GERUNDS: tuple[str, ...] = (
     "Whittling",
 )
 
+# The aside panel answers a question rather than acting on the world, so it
+# draws from cognition, not action.  These words describe the interior work of
+# working out an answer; the panel rotates them slowly so it reads as one
+# sustained thought instead of a flickering roulette.
+_ASIDE_GERUNDS: tuple[str, ...] = (
+    "Thinking",
+    "Considering",
+    "Contemplating",
+    "Cogitating",
+    "Deliberating",
+    "Mulling",
+    "Musing",
+    "Pondering",
+    "Ruminating",
+    "Reasoning",
+    "Reflecting",
+    "Deciphering",
+    "Inferring",
+    "Puzzling",
+    "Reckoning",
+    "Sussing",
+    "Wondering",
+)
+
 
 def _random_gerund(*, phase: str = "starting") -> str:
     """Return a generic status appropriate to the current part of a turn."""

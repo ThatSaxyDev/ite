@@ -53,7 +53,7 @@ from ite.tools.builtin.shell import send_input_to_shell_run
 from ite.tools.mcp.mcp_tool import MCPTool
 from ite.tools.subagent import SubagentTool
 from ite.ui.reup.markdown_widget import CopyableMarkdown
-from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label, _random_gerund
+from ite.ui.tool_narrative import activity_title, describe_tool_activity, progress_label, _ASIDE_GERUNDS
 from ite.update_check import check_runtime_update, current_runtime_version, detect_install_method, get_notification_type, mark_update_notice_seen, should_show_update_notice
 from ite.voice import VoiceRecorder, VoiceRecorderError, transcribe_voice_file
 
@@ -2020,12 +2020,18 @@ class PanelsMixin:
 
     def _render_aside_pending_text(self) -> Text:
         styles = self._render_styles()
-        text = Text(_random_gerund(), style=f"{self._style('success')} italic")
+        word = _ASIDE_GERUNDS[self._aside_gerund_index % len(_ASIDE_GERUNDS)]
+        text = Text(word, style=f"{self._style('success')} italic")
         suffix = self._activity_suffix_frames[
             self._activity_suffix_index % len(self._activity_suffix_frames)
         ]
         text.append(suffix, style=f"{self._style('success')} italic")
         return text
+
+    def _tick_aside_gerund(self) -> None:
+        if not self._aside_pending_widgets:
+            return
+        self._aside_gerund_index += 1
 
 
     async def _render_aside_panel(self) -> None:
@@ -2051,8 +2057,8 @@ class PanelsMixin:
             elif state == "error":
                 response_widget = Static(answer, classes="aside-error")
             else:
-                response_widget = Static(
-                    CopyableMarkdown(answer), classes="aside-assistant-body"
+                response_widget = CopyableMarkdown(
+                    answer, classes="aside-assistant-body"
                 )
             await body.mount(
                 Vertical(user_row, response_widget, classes="aside-thread")
