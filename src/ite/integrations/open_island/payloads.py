@@ -260,6 +260,92 @@ def command(payload: dict[str, Any]) -> dict[str, Any]:
     return {"type": "processClaudeHook", "claudeHook": payload}
 
 
+# ---------------------------------------------------------------------------
+# Activity wording
+#
+# iTE names each phase of a turn ("Brewing", "Reading file", "Searching code")
+# and shows that wording in its own TUI. The island has no free-text activity
+# field: its running-status line is derived *solely* from the session's
+# `currentTool` (see `island_status_text` below and plan §3.8).
+#
+# So the only way to surface iTE's wording is to carry it on `tool_name` of a
+# `PreToolUse` payload. The helpers in this section build and verify that.
+# ---------------------------------------------------------------------------
+
+_ACRONYMS = frozenset({"API", "CI", "ID", "PR", "URL"})
+
+
+def humanized_tool_name(tool_name: str) -> str:
+    """Mirror upstream `currentToolDisplayName`'s fallback humanisation.
+
+    `open-vibe-island/Sources/OpenIslandApp/AgentSession+Presentation.swift:415-430`
+    """
+    trimmed = tool_name.strip()
+    pieces = [piece for piece in trimmed.lstrip("_").split("_") if piece]
+
+    rendered: list[str] = []
+    for piece in pieces:
+        upper = piece.upper()
+        if upper in _ACRONYMS:
+            rendered.append(upper)
+        else:
+            rendered.append(piece[:1].upper() + piece[1:].lower())
+
+    label = " ".join(rendered)
+    return label or tool_name
+
+
+def island_status_text(hook_payload: dict[str, Any]) -> str:
+    """Render the island's running-status line for a hook payload.
+
+    Mirrors `spotlightActivityText` / `spotlightRunningActivityText`
+    (`AgentSession+Presentation.swift:263-268`, `:361-374`): the humanised tool
+    name plus its input preview when one is renderable, otherwise the generic
+    fallback.
+
+    This is a verification aid — it is never sent over the wire. It exists so
+    the exact user-visible string can be asserted in tests and printed by
+    `scripts/open_island_demo.py` instead of requiring a screenshot.
+    """
+    tool_name = hook_payload.get("tool_name")
+    if not isinstance(tool_name, str) or not tool_name.strip():
+        return "Running"
+
+    label = humanized_tool_name(tool_name)
+
+    tool_input = hook_payload.get("tool_input")
+    if isinstance(tool_input, dict):
+        for key in PREVIEW_KEY_PRIORITY:
+            value = tool_input.get(key)
+            if isinstance(value, str) and value:
+                return f"{label} {value}"
+
+    return label
+
+
+def activity_status(
+    session_id: str,
+    cwd: str,
+    label: str,
+    terminal: TerminalContext | None = None,
+) -> dict[str, Any]:
+    """Report iTE's own activity wording to the island.
+
+    The island's running-status line comes only from `currentTool`
+    (`spotlightRunningActivityText`), so without this a reasoning turn falls
+    back to the generic "Thinking". Carrying the label on `tool_name` is what
+    makes the island show iTE's wording instead.
+
+    Deliberately sends no `tool_input` and no `tool_use_id`: the status line
+    then has no preview appended, and permission correlation is untouched.
+    Upstream drops the associated pending context at `Stop` / `StopFailure` /
+    `SessionEnd` (`BridgeServer.swift:2700-2714`), so entries do not accumulate.
+    """
+    payload = _base("PreToolUse", session_id, cwd, terminal)
+    payload["tool_name"] = label
+    return payload
+
+
 def serialize_tool_input(arguments: dict[str, Any] | None) -> str | None:
     """Render tool arguments deterministically for correlation purposes.
 

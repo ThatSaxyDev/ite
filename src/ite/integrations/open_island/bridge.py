@@ -13,6 +13,7 @@ from ite.integrations.open_island.client import (
     hooks_disabled,
 )
 from ite.integrations.open_island.terminal import TerminalContext, detect_terminal
+from ite.ui.tool_narrative import progress_label
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,9 @@ class OpenIslandBridge:
         # summary from tool_input. Remember them per call id so the completion
         # event can carry the same preview as the start event.
         self._tool_arguments: dict[str, dict[str, Any]] = {}
+        # iTE's wording for the current turn's reasoning phase. Resolved once
+        # per turn so the island does not flicker between gerunds.
+        self._turn_activity_label: str | None = None
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -246,6 +250,9 @@ class OpenIslandBridge:
         terminal = self._resolve_terminal()
         message = data.get("message")
 
+        # A new turn picks fresh wording, matching the TUI's varied rhythm.
+        self._turn_activity_label = None
+
         # SessionStart is emitted once per iTE session. AGENT_START/AGENT_END
         # bracket a *turn*, so re-sending SessionStart each turn would churn
         # the notch entry instead of keeping one stable bubble.
@@ -271,7 +278,36 @@ class OpenIslandBridge:
                     terminal,
                 )
             )
+
+        # Last in the batch on purpose: `UserPromptSubmit` can clear the
+        # island's `currentTool`, and this is what populates it for the
+        # reasoning phase. Without it the island falls back to "Thinking"
+        # while iTE's own TUI shows a specific gerund.
+        commands.append(
+            payloads.activity_status(
+                self.session_id,
+                self.cwd,
+                self._activity_label(),
+                terminal,
+            )
+        )
         return commands
+
+    def _activity_label(self) -> str:
+        """iTE's wording for the current reasoning phase, stable per turn.
+
+        Reuses the same `progress_label` vocabulary the TUI and the remote
+        host use, so the island shows iTE's wording rather than the island's
+        generic fallback. Resolved once per turn and cached, because the
+        underlying helper picks randomly and the label must not flicker.
+        """
+        if self._turn_activity_label is None:
+            try:
+                self._turn_activity_label = progress_label()
+            except Exception:  # noqa: BLE001 - wording must never break the bridge
+                logger.debug("Open Island activity label resolution failed")
+                self._turn_activity_label = "Working"
+        return self._turn_activity_label
 
     def _on_tool_start(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         name = data.get("name")
@@ -366,7 +402,15 @@ class OpenIslandBridge:
                 self.session_id,
                 self.cwd,
                 self._terminal,
-            )
+            ),
+            # Compaction is a distinct phase with its own wording in the TUI,
+            # so carry it rather than leaving the island on a stale tool label.
+            payloads.activity_status(
+                self.session_id,
+                self.cwd,
+                "Compacting context",
+                self._terminal,
+            ),
         ]
 
 

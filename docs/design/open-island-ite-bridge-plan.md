@@ -255,6 +255,69 @@ This one **is** within the iTE half: strip or flatten light markdown when buildi
 pending a decision on how much fidelity to keep (fenced code blocks and links may be worth
 preserving).
 
+### 3.8 Activity wording — why the island showed "Thinking" instead of iTE's text
+
+iTE's TUI names each phase of a turn ("Brewing", "Reading file", "Searching code" — see
+`src/ite/ui/tool_narrative.py:896-974`, `progress_label`). None of that reached the island.
+
+**The island has no free-text activity field.** Its status line is derived solely from the
+session's `currentTool`:
+
+```
+AgentSession+Presentation.swift:263-268
+    case .running:
+        if let activity = spotlightRunningActivityText { return activity }
+        return spotlightPromptLineText == nil ? "Running" : "Thinking"
+
+AgentSession+Presentation.swift:361-374
+    spotlightRunningActivityText = currentToolDisplayName(currentTool) + preview
+```
+
+`currentTool` is written only from `defaultClaudeMetadata.currentTool`
+(`ClaudeHooks.swift:712`), i.e. the `tool_name` field. So during pure reasoning — no tool in
+flight — `currentTool` is `nil` and the island falls back to the literal **"Thinking"**,
+while the TUI shows a gerund.
+
+The merge rules confirm `PreToolUse` is the *only* usable lever
+(`BridgeServer.swift:2871-2886`):
+
+| Event | Effect on `currentTool` |
+|---|---|
+| `PreToolUse` | sets it (update wins) |
+| `SessionStart`, `UserPromptSubmit`, `Notification`, `PreCompact` | keeps existing — **cannot** set it |
+| `PostToolUse`, `Stop`, `StopFailure`, `SessionEnd` | clears it (when no update sent) |
+
+**Solution — carried in the iTE half only.** Send a `PreToolUse` payload whose `tool_name`
+is iTE's own label, with **no** `tool_input` and no `tool_use_id`:
+
+```
+payloads.activity_status(session_id, cwd, label, terminal) -> PreToolUse(tool_name=label)
+```
+
+The island then renders `humanized(label)` with no preview appended — displaying iTE's
+wording verbatim. The label comes from the same `progress_label` the TUI and the remote
+host use (`src/ite/remote/host.py:377-391` already reuses it for exactly this reason), and
+is resolved once per turn and cached so it does not flicker between gerunds.
+
+Emission points:
+
+| iTE event | Label sent | Position |
+|---|---|---|
+| `AGENT_START` | a starting gerund | **last** in the batch — `UserPromptSubmit` keeps `currentTool`, so ordering is what makes the label win |
+| `CONTEXT_COMPACTED` | `"Compacting context"` | after `PreCompact` |
+| `TOOL_CALL_START` | *(unchanged)* the real tool name + input preview | as before |
+
+**Why not `Notification`:** it preserves `currentTool` rather than setting it, so it cannot
+drive the status line — it only writes `summary`, which the spotlight row does not render.
+
+**Cleanup:** each synthetic `PreToolUse` registers a pending context upstream. Those are
+dropped wholesale at `Stop` / `StopFailure` / `SessionEnd`
+(`BridgeServer.swift:2700-2714`), so they do not accumulate across turns.
+
+**Known residual:** the TUI lowercases its label (`_threads.py:917`) while the island
+title-cases via `humanizedToolName`. The island reads "Brewing" where the TUI reads
+"brewing" — consistent with the island's own capitalised statuses ("Ready", "Thinking").
+
 ---
 
 ## 4. Architecture

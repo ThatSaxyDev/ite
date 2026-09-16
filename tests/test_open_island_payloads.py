@@ -206,6 +206,63 @@ class ToolInputNormalizationTests(unittest.TestCase):
         second = payloads.serialize_tool_input({"file_path": "a.py"})
         self.assertEqual(first, second)
 
+
+class ActivityStatusTests(unittest.TestCase):
+    """The island's status line is derived only from `currentTool`.
+
+    A reasoning turn has no tool, so without an explicit activity payload the
+    island shows its generic "Thinking" while iTE's TUI shows a gerund.
+    """
+
+    def test_payload_carries_label_on_tool_name(self) -> None:
+        payload = payloads.activity_status("sid", "/tmp/p", "Brewing")
+        self.assertEqual(payload["hook_event_name"], "PreToolUse")
+        self.assertEqual(payload["tool_name"], "Brewing")
+
+    def test_no_tool_input_so_no_preview_is_appended(self) -> None:
+        payload = payloads.activity_status("sid", "/tmp/p", "Brewing")
+        self.assertNotIn("tool_input", payload)
+        self.assertNotIn("tool_use_id", payload)
+
+    def test_island_renders_the_label_verbatim(self) -> None:
+        payload = payloads.activity_status("sid", "/tmp/p", "Brewing")
+        self.assertEqual(payloads.island_status_text(payload), "Brewing")
+
+    def test_terminal_fields_are_included(self) -> None:
+        terminal = TerminalContext(app="iTerm", tty="/dev/ttys001")
+        payload = payloads.activity_status("sid", "/tmp/p", "Brewing", terminal)
+        self.assertEqual(payload["terminal_app"], "iTerm")
+
+    def test_settable_as_a_bridge_command(self) -> None:
+        command = payloads.command(
+            payloads.activity_status("sid", "/tmp/p", "Brewing")
+        )
+        self.assertEqual(command["type"], "processClaudeHook")
+        self.assertEqual(command["claudeHook"]["tool_name"], "Brewing")
+
+
+class IslandStatusTextTests(unittest.TestCase):
+    def test_tool_label_with_preview(self) -> None:
+        payload = {
+            "tool_name": "read_file",
+            "tool_input": {"file_path": "config/loader.py"},
+        }
+        self.assertEqual(
+            payloads.island_status_text(payload), "Read File config/loader.py"
+        )
+
+    def test_unknown_tool_name_is_humanised(self) -> None:
+        self.assertEqual(
+            payloads.humanized_tool_name("apply_patch"), "Apply Patch"
+        )
+
+    def test_acronyms_are_preserved(self) -> None:
+        self.assertEqual(payloads.humanized_tool_name("read_url"), "Read URL")
+        self.assertEqual(payloads.humanized_tool_name("get_api_key"), "Get API Key")
+
+    def test_no_tool_name_falls_back_to_running(self) -> None:
+        self.assertEqual(payloads.island_status_text({}), "Running")
+
     def test_failed_tool_uses_failure_event(self) -> None:
         post = payloads.post_tool_use(
             "sid", "/tmp/p", "shell", None, "call-1", output="boom", success=False

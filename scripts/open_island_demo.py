@@ -48,9 +48,8 @@ class _VerboseClient:
         event = hook.get("hook_event_name")
         tool = hook.get("tool_name")
         if tool:
-            rendered = payloads.summary_preview(tool, hook.get("tool_input"))
             print(f"     wire:   {event}  tool={tool}")
-            print(f"     island: {rendered}")
+            print(f"     island: {payloads.island_status_text(hook)}")
         else:
             print(f"     wire:   {event}")
         return await self._inner.try_send(command, timeout=timeout)

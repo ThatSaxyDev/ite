@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ite.agent.events import AgentEvent
+from ite.integrations.open_island import payloads
 from ite.integrations.open_island.bridge import OpenIslandBridge, build_bridge
 from ite.integrations.open_island.terminal import TerminalContext
 from ite.tools.base import ToolResult
@@ -54,12 +55,22 @@ def _bridge(client: Any, *, enabled: bool = True) -> OpenIslandBridge:
 
 
 async def _drain(bridge: OpenIslandBridge) -> None:
-    """Let the bridge worker consume queued events."""
+    """Wait until the bridge worker has processed every queued event.
+
+    Waiting on `queue.join()` (which waits for `task_done`) rather than polling
+    `queue.empty()` — the latter goes true as soon as the worker *pops* an item,
+    before the send has completed, which makes assertions racy.
+    """
+    if bridge._worker is None:
+        return
+
+    try:
+        await asyncio.wait_for(bridge._queue.join(), timeout=2.0)
+    except TimeoutError:
+        pass
+
+    # Let the worker reach its next await point after the final send.
     await asyncio.sleep(0)
-    for _ in range(20):
-        if bridge._queue.empty():
-            break
-        await asyncio.sleep(0.01)
 
 
 class BridgeDisabledTests(unittest.IsolatedAsyncioTestCase):
@@ -190,6 +201,66 @@ class BridgeMappingTests(unittest.IsolatedAsyncioTestCase):
         await _drain(bridge)
 
         self.assertEqual(len(client.events_of("PreCompact")), 1)
+
+
+class ActivityLabelWiringTests(unittest.IsolatedAsyncioTestCase):
+    """The island's status line is derived only from `currentTool`.
+
+    A reasoning turn has no tool, so without an explicit activity payload the
+    island shows its generic "Thinking" while iTE's TUI shows a gerund.
+    """
+
+    async def test_agent_start_emits_an_activity_payload(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("do the thing"))
+        await _drain(bridge)
+
+        activity = client.events_of("PreToolUse")
+        self.assertEqual(len(activity), 1)
+        label = payloads.island_status_text(activity[0])
+        self.assertTrue(label)
+        self.assertNotEqual(label, "Thinking")
+
+    async def test_activity_is_last_so_it_wins_current_tool(self) -> None:
+        """UserPromptSubmit can clear `currentTool` upstream; order matters."""
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("do the thing"))
+        await _drain(bridge)
+
+        names = [h["hook_event_name"] for h in client.hooks()]
+        self.assertEqual(names[-1], "PreToolUse")
+
+    async def test_real_tool_still_reports_its_own_name(self) -> None:
+        """The activity shim must not mask genuine tool calls."""
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.agent_start("go"))
+        await _drain(bridge)
+        bridge.observe(
+            AgentEvent.tool_call_start("call-1", "read_file", {"path": "a.py"})
+        )
+        await _drain(bridge)
+
+        last = client.events_of("PreToolUse")[-1]
+        self.assertEqual(last["tool_name"], "read_file")
+        self.assertEqual(payloads.island_status_text(last), "Read File a.py")
+
+    async def test_compaction_reports_its_own_wording(self) -> None:
+        client = _RecordingClient()
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.context_compacted(1000, 128000, 500))
+        await _drain(bridge)
+
+        labels = [
+            payloads.island_status_text(h) for h in client.events_of("PreToolUse")
+        ]
+        self.assertIn("Compacting context", labels)
 
     async def test_unmapped_events_produce_no_traffic(self) -> None:
         client = _RecordingClient()
