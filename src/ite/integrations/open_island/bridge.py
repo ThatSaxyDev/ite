@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 # is invisible to the user, a blocked agent turn is not.
 _QUEUE_MAXSIZE = 256
 
+# Upper bound on remembered tool arguments (see _remember_tool_arguments).
+_MAX_REMEMBERED_TOOL_CALLS = 256
+
 _WORKER_IDLE_SENTINEL = object()
 
 
@@ -67,6 +70,10 @@ class OpenIslandBridge:
         self._closed = False
         self._session_announced = False
         self._atexit_registered = False
+        # TOOL_CALL_COMPLETE carries no arguments, but the island renders its
+        # summary from tool_input. Remember them per call id so the completion
+        # event can carry the same preview as the start event.
+        self._tool_arguments: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -275,16 +282,34 @@ class OpenIslandBridge:
         if not isinstance(arguments, dict):
             arguments = None
 
+        call_id = data.get("call_id")
+        if arguments is not None and isinstance(call_id, str) and call_id:
+            self._remember_tool_arguments(call_id, arguments)
+
         return [
             payloads.pre_tool_use(
                 self.session_id,
                 self.cwd,
                 name,
                 arguments,
-                data.get("call_id"),
+                call_id,
                 self._terminal,
             )
         ]
+
+    def _remember_tool_arguments(
+        self, call_id: str, arguments: dict[str, Any]
+    ) -> None:
+        """Cache tool arguments for the matching completion event.
+
+        Bounded so a long session with many tool calls cannot grow without
+        limit; the oldest entries are dropped first, which only costs the
+        preview on events that have long since been rendered.
+        """
+        if len(self._tool_arguments) >= _MAX_REMEMBERED_TOOL_CALLS:
+            for stale in list(self._tool_arguments)[: _MAX_REMEMBERED_TOOL_CALLS // 4]:
+                self._tool_arguments.pop(stale, None)
+        self._tool_arguments[call_id] = arguments
 
     def _on_tool_complete(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         name = data.get("name")
@@ -293,13 +318,19 @@ class OpenIslandBridge:
 
         output = data.get("output")
         error = data.get("error")
+        call_id = data.get("call_id")
+        arguments = (
+            self._tool_arguments.pop(call_id, None)
+            if isinstance(call_id, str)
+            else None
+        )
         return [
             payloads.post_tool_use(
                 self.session_id,
                 self.cwd,
                 name,
-                None,
-                data.get("call_id"),
+                arguments,
+                call_id,
                 output=output if isinstance(output, str) else None,
                 success=bool(data.get("success", True)),
                 error=error if isinstance(error, str) else None,

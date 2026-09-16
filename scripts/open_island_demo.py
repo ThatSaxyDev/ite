@@ -26,6 +26,7 @@ from pathlib import Path
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent
 from ite.config.config import Config
+from ite.integrations.open_island import payloads
 from ite.integrations.open_island.client import OpenIslandClient
 from ite.tools.base import ToolResult
 
@@ -44,18 +45,14 @@ class _VerboseClient:
 
     async def try_send(self, command, *, timeout=None):
         hook = command.get("claudeHook", {})
-        summary = {
-            k: v
-            for k, v in hook.items()
-            if k
-            in {
-                "hook_event_name",
-                "tool_name",
-                "terminal_app",
-                "source",
-            }
-        }
-        print(f"     wire: {command['type']} {summary}")
+        event = hook.get("hook_event_name")
+        tool = hook.get("tool_name")
+        if tool:
+            rendered = payloads.summary_preview(tool, hook.get("tool_input"))
+            print(f"     wire:   {event}  tool={tool}")
+            print(f"     island: {rendered}")
+        else:
+            print(f"     wire:   {event}")
         return await self._inner.try_send(command, timeout=timeout)
 
     def send_sync(self, command, *, timeout: float = 2.0):

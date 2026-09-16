@@ -34,6 +34,96 @@ def _stringify(value: Any) -> Any:
     return str(value)
 
 
+# Open Island builds its activity summary by picking the first recognised key
+# from this list (ClaudeHooks.swift `toolInputPreview`) and falling back to
+# serialising the *entire* JSON object when nothing matches.
+#
+# iTE uses different names for the same concepts, so an unnormalised payload
+# renders as a raw blob: `Running read_file: {"path":"src/ite/...",...}`
+# instead of `Running read_file: src/ite/...`.
+PREVIEW_KEY_PRIORITY = (
+    "command",
+    "file_path",
+    "pattern",
+    "query",
+    "prompt",
+    "description",
+    "skill",
+    "url",
+)
+
+# iTE argument name -> the name Open Island recognises.
+_ARG_KEY_ALIASES = {
+    "path": "file_path",
+    "filepath": "file_path",
+    "file": "file_path",
+    "target": "file_path",
+    "cmd": "command",
+    "glob": "pattern",
+    "regex": "pattern",
+}
+
+# When *no* argument is already recognised, at most one alias is promoted, and
+# in this order — most descriptive of the action first. Promoting more than one
+# would let a higher-priority key hide the meaningful one.
+_PROMOTION_PREFERENCE = ("command", "pattern", "file_path")
+
+
+def normalize_tool_input(arguments: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Rename iTE argument keys to the names Open Island can render.
+
+    Applied uniformly to every event that carries tool input so that the
+    ``PermissionRequest`` correlation key (which hashes the serialised input)
+    stays stable across ``PreToolUse`` and the permission round trip.
+
+    Deliberately conservative: if the payload already contains a key upstream
+    recognises, aliases are left untouched. Otherwise ``grep {pattern, path}``
+    would promote ``path`` to ``file_path``, which outranks ``pattern`` in
+    upstream's list and would hide the search term the user wants to see.
+    """
+    if not arguments:
+        return arguments
+
+    normalized = dict(_stringify(arguments))
+
+    if any(key in PREVIEW_KEY_PRIORITY for key in normalized):
+        return normalized
+
+    for preferred in _PROMOTION_PREFERENCE:
+        for alias, canonical in _ARG_KEY_ALIASES.items():
+            if canonical != preferred or alias not in normalized:
+                continue
+            value = normalized.pop(alias)
+            normalized[canonical] = value
+            return normalized
+
+    return normalized
+
+
+def summary_preview(tool_name: str, tool_input: dict[str, Any] | None) -> str:
+    """Return the activity summary Open Island will display for a tool call.
+
+    Mirrors the upstream ``preToolUse`` rendering so the exact user-visible
+    string can be asserted in tests and printed by the demo, rather than
+    requiring a screenshot to verify.
+    """
+    summary = f"Running {tool_name}"
+    if not isinstance(tool_input, dict):
+        return summary
+
+    for key in PREVIEW_KEY_PRIORITY:
+        value = tool_input.get(key)
+        if isinstance(value, str) and value:
+            return f"{summary}: {value}"
+
+    # Mirrors the upstream fallback, which serialises the *entire* object.
+    # This is the ugly rendering that normalize_tool_input exists to avoid.
+    try:
+        return f"{summary}: {json.dumps(tool_input, separators=(',', ':'))}"
+    except (TypeError, ValueError):
+        return summary
+
+
 def _base(
     event_name: str,
     session_id: str,
@@ -87,7 +177,7 @@ def pre_tool_use(
     payload = _base("PreToolUse", session_id, cwd, terminal)
     payload["tool_name"] = tool_name
     if tool_input is not None:
-        payload["tool_input"] = _stringify(tool_input)
+        payload["tool_input"] = normalize_tool_input(tool_input)
     if tool_use_id:
         payload["tool_use_id"] = tool_use_id
     return payload
@@ -110,7 +200,7 @@ def post_tool_use(
     payload = _base(event_name, session_id, cwd, terminal)
     payload["tool_name"] = tool_name
     if tool_input is not None:
-        payload["tool_input"] = _stringify(tool_input)
+        payload["tool_input"] = normalize_tool_input(tool_input)
     if tool_use_id:
         payload["tool_use_id"] = tool_use_id
     if output is not None:
@@ -180,6 +270,7 @@ def serialize_tool_input(arguments: dict[str, Any] | None) -> str | None:
     if arguments is None:
         return None
     try:
-        return json.dumps(_stringify(arguments), sort_keys=True, separators=(",", ":"))
+        normalized = normalize_tool_input(arguments)
+        return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError):
         return None

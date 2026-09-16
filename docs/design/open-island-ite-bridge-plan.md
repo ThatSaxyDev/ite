@@ -143,6 +143,118 @@ var sessionTitle: String { "Claude · \(workspaceName)" }   // ClaudeHooks.swift
 
 **Important:** if we write to the socket directly from Python we must populate the `terminal_*` fields ourselves. The upstream `OpenIslandHooks` CLI normally computes these via AppleScript/Warp probes (`ClaudeHookPayload.withRuntimeContext`). Without them, jump-back degrades to `"Unknown"` (`defaultJumpTarget`, `ClaudeHooks.swift:694-704`). This is the single largest piece of real work in the iTE half — see §6.
 
+### 3.6 Session title — generated names cannot be sent, but the prompt acts as a topic
+
+iTE generates a real session name per thread. **That name cannot be displayed in the
+island.** The stored session title is not payload-driven; it is a hardcoded property:
+
+```
+BridgeServer.swift:2350   title: payload.sessionTitle
+ClaudeHooks.swift:690-692 var sessionTitle: String { "Claude · \(workspaceName)" }
+ClaudeHooks.swift:682-684 var workspaceName: String { WorkspaceNameResolver.workspaceName(for: cwd) }
+WorkspaceNameResolver.swift:6-27   last path component of cwd
+```
+
+The wire field that *looks* like it should carry a name — `ClaudeHookPayload.title` — is
+decoded (`ClaudeHooks.swift:244`, `:466`) and then **never read**. Grepping every
+`title: payload` assignment across `BridgeServer.swift` returns only
+`payload.sessionTitle` and `payload.permissionRequestTitle`; `payload.title` appears
+nowhere.
+
+#### Correction — the rendered headline *does* carry the first prompt
+
+An earlier revision of this section claimed the headline was *always* the cwd basename.
+That was wrong, and a live capture (§10.2) disproved it. The rendered headline is:
+
+```
+AgentSession+Presentation.swift:171-188
+    spotlightHeadlineText = spotlightWorkspaceName + " · " + initialPromptText
+AgentSession+Presentation.swift:190-194
+    initialPromptText ?? latestPromptText        // "session topic", not the latest
+```
+
+So with a prompt present the row reads `ite · <first prompt>`, not just `ite`. The
+`sessionTitle` property above feeds the *stored* `AgentSession.title`; it is not what the
+eye reads in the spotlight row.
+
+**Revised consequences**
+
+1. The cwd basename supplies the workspace half of the headline; the **first user prompt**
+   supplies the topic half.
+2. Per-thread distinction **is** achievable — two iTE threads in the same folder differ by
+   their first prompt. This is the only lever available, and it is why `UserPromptSubmit`
+   is worth sending (see §5).
+3. The bare `ite` headline seen in the §10.2 probe capture was the folder name in the
+   absence of any prompt. The probe sent no `UserPromptSubmit`. Not branding.
+4. iTE's *generated* session names still have no route into the island. That half needs
+   the fork.
+
+#### The duplication this causes — upstream behaviour, not a payload bug
+
+Because `defaultClaudeMetadata` populates both prompt fields from the *same* source:
+
+```
+ClaudeHooks.swift:709-710   initialUserPrompt: prompt ?? promptPreview,
+                            lastUserPrompt:    prompt ?? promptPreview,
+```
+
+…and the row renders both unconditionally:
+
+```
+AgentSession+Presentation.swift:171-188   headline  = workspace · initialPrompt
+AgentSession+Presentation.swift:196-204   "You:"     = latestPrompt
+```
+
+…a session with **exactly one prompt renders that prompt twice.** No equality guard exists
+anywhere in the presentation layer (grepped).
+
+This is inherent to upstream's "topic vs latest prompt" split, and reproduces for any
+single-prompt session regardless of agent — `claude` sessions behave identically. iTE
+merely exercises it. It self-resolves after 20 minutes of inactivity, when detail lines
+collapse (`AgentSession+Presentation.swift:18`, `:305-315`).
+
+The iTE-side lever is to stop sending the prompt at all, which removes both the duplicate
+*and* the topic — regressing the per-thread distinction in consequence 2. **Not
+recommended.** The clean fix is a one-line guard upstream (or in the fork):
+
+```swift
+// spotlightPromptLineText
+guard latestPromptText != initialPromptText else { return nil }
+```
+
+This is the same category of limitation as the `claude` badge (§3.4) — cosmetic, and
+removable only by forking. The fork change set is small and now well-scoped:
+
+1. Add an `.ite` case to `AgentTool` (`AgentSession.swift:3-16`) with `displayName`,
+   `shortName`, and `brandColorHex` entries. Swift's exhaustive switches will fail the
+   build at every `AgentTool` switch site until each is handled — this is the bulk of the
+   work, and it is mechanical.
+2. Add a `processIteHook` case to `BridgeCommand` (`BridgeTransport.swift:82-123`).
+3. Make `sessionTitle` (`ClaudeHooks.swift:690-692`) honour `payload.title` when present.
+   Because `SessionStart` is the only event that carries a title and
+   `ensureClaudeSessionExists` only runs when the session does not already exist
+   (`BridgeServer.swift:2341-2343`), a title that is generated after the first turn also
+   needs a title-update path on a later event.
+4. Add the `guard latestPromptText != initialPromptText` fix above (§3.6 duplication).
+
+### 3.7 Assistant message renders raw markdown
+
+The third row in the live capture shows an unrendered markdown fragment:
+
+```
+The Open Island changes are a single coherent unit: **make tool calls render
+correctly in the island.** All uncommitted, looks complete but hasn't been v…
+```
+
+Upstream clips the `Stop` payload's `last_assistant_message` to a single line
+(`toolResponsePreview` / `clipped`, `ClaudeHooks.swift:794-796`) and renders it verbatim —
+it does not strip markdown. So `**bold**`, backticks and heading markers appear literally.
+
+This one **is** within the iTE half: strip or flatten light markdown when building the
+`Stop` payload, since the field is a one-line preview rather than a document. Deferred
+pending a decision on how much fidelity to keep (fenced code blocks and links may be worth
+preserving).
+
 ---
 
 ## 4. Architecture
@@ -195,7 +307,6 @@ Deliberately unmapped in v1: `TEXT_DELTA` (noisy, no UI value), `PLAN_READY`, `U
 ---
 
 ## 6. Terminal / jump-back detection
-
 **Status: confirmed required.** Live capture (§10.2) shows the missing fields render as a
 visible `Unknown` badge next to every session. This is not optional polish — it is the
 first thing a user notices. Socket-direct emission bypasses the upstream CLI's

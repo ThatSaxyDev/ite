@@ -99,8 +99,112 @@ class PayloadShapeTests(unittest.TestCase):
         pre = payloads.pre_tool_use("sid", "/tmp/p", "read_file", {"path": "a.py"}, "call-1")
         self.assertEqual(pre["tool_name"], "read_file")
         self.assertEqual(pre["tool_use_id"], "call-1")
-        self.assertEqual(pre["tool_input"], {"path": "a.py"})
+        # iTE calls it `path`; Open Island only renders `file_path`.
+        self.assertEqual(pre["tool_input"], {"file_path": "a.py"})
         self.assertNotIn("toolUseID", pre)
+
+
+class ToolInputNormalizationTests(unittest.TestCase):
+    """Open Island renders a preview from a fixed set of key names.
+
+    An unrecognised key makes it serialise the whole JSON object, which is the
+    "tool calls look wrong" symptom. These tests pin the normalisation that
+    fixes it.
+    """
+
+    def test_path_becomes_file_path(self) -> None:
+        self.assertEqual(
+            payloads.normalize_tool_input({"path": "src/app.py"}),
+            {"file_path": "src/app.py"},
+        )
+
+    def test_cmd_becomes_command(self) -> None:
+        self.assertEqual(
+            payloads.normalize_tool_input({"cmd": "pytest -q"}),
+            {"command": "pytest -q"},
+        )
+
+    def test_glob_becomes_pattern(self) -> None:
+        self.assertEqual(
+            payloads.normalize_tool_input({"glob": "**/*.py"}),
+            {"pattern": "**/*.py"},
+        )
+
+    def test_recognised_key_is_left_untouched(self) -> None:
+        """A payload that already renders well must not be rewritten."""
+        arguments = {"file_path": "right"}
+        self.assertEqual(payloads.normalize_tool_input(arguments), arguments)
+
+    def test_grep_keeps_pattern_visible(self) -> None:
+        """`path` must not be promoted: file_path outranks pattern upstream.
+
+        Regression guard. Promoting `path` to `file_path` hid the search term
+        behind the directory — strictly worse than not normalising at all.
+        """
+        normalized = payloads.normalize_tool_input(
+            {"pattern": "def run", "path": "src/ite"}
+        )
+        self.assertEqual(
+            payloads.summary_preview("grep", normalized), "Running grep: def run"
+        )
+
+    def test_glob_prefers_pattern_over_path(self) -> None:
+        """Only one alias is promoted, most descriptive first."""
+        normalized = payloads.normalize_tool_input({"glob": "**/*.py", "path": "src"})
+        self.assertEqual(
+            payloads.summary_preview("glob", normalized), "Running glob: **/*.py"
+        )
+
+    def test_unrelated_keys_are_preserved(self) -> None:
+        normalized = payloads.normalize_tool_input(
+            {"path": "a.py", "start_line": 10, "end_line": 20}
+        )
+        self.assertEqual(
+            normalized,
+            {"file_path": "a.py", "start_line": 10, "end_line": 20},
+        )
+
+    def test_none_is_passed_through(self) -> None:
+        self.assertIsNone(payloads.normalize_tool_input(None))
+
+    def test_summary_preview_renders_path(self) -> None:
+        preview = payloads.summary_preview(
+            "read_file", payloads.normalize_tool_input({"path": "src/app.py"})
+        )
+        self.assertEqual(preview, "Running read_file: src/app.py")
+
+    def test_summary_preview_renders_command(self) -> None:
+        preview = payloads.summary_preview(
+            "shell", payloads.normalize_tool_input({"cmd": "pytest -q"})
+        )
+        self.assertEqual(preview, "Running shell: pytest -q")
+
+    def test_summary_preview_falls_back_to_whole_object(self) -> None:
+        """Pins the upstream fallback that normalization exists to avoid."""
+        preview = payloads.summary_preview("custom", {"anything": "value"})
+        self.assertEqual(preview, 'Running custom: {"anything":"value"}')
+
+    def test_unnormalized_path_produces_blob(self) -> None:
+        """Regression guard: the pre-fix rendering was a raw JSON blob."""
+        self.assertEqual(
+            payloads.summary_preview("read_file", {"path": "src/app.py"}),
+            'Running read_file: {"path":"src/app.py"}',
+        )
+
+    def test_normalized_path_produces_clean_summary(self) -> None:
+        preview = payloads.summary_preview(
+            "read_file", payloads.normalize_tool_input({"path": "src/app.py"})
+        )
+        self.assertEqual(preview, "Running read_file: src/app.py")
+
+    def test_summary_preview_without_input_is_bare(self) -> None:
+        self.assertEqual(payloads.summary_preview("read_file", None), "Running read_file")
+
+    def test_correlation_key_is_stable_across_alias_forms(self) -> None:
+        """PermissionRequest correlation depends on identical serialisation."""
+        first = payloads.serialize_tool_input({"path": "a.py"})
+        second = payloads.serialize_tool_input({"file_path": "a.py"})
+        self.assertEqual(first, second)
 
     def test_failed_tool_uses_failure_event(self) -> None:
         post = payloads.post_tool_use(

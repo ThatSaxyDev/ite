@@ -81,6 +81,14 @@ class BridgeDisabledTests(unittest.IsolatedAsyncioTestCase):
 
 class BridgeMappingTests(unittest.IsolatedAsyncioTestCase):
     async def test_agent_start_emits_session_start_and_prompt(self) -> None:
+        """Exactly one prompt per turn.
+
+        The island renders the *first* prompt as the headline topic and the
+        *latest* as the "You:" line. Sending the prompt more than once per turn
+        would be a wire-level bug (the user-visible duplicate the row shows for
+        single-prompt sessions is a separate, upstream rendering behaviour —
+        see plan §3.6).
+        """
         client = _RecordingClient()
         bridge = _bridge(client)
 
