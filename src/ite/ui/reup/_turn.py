@@ -73,6 +73,26 @@ from .model_labels import bundled_model_display_label
 from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
 
 
+def _island_approval_summary(confirmation) -> str:
+    """Compose the notch card body for an approval.
+
+    The tool name is included deliberately: the permission payload omits
+    ``tool_name`` (to hide "Always Allow"), so the card's own title degrades to
+    a generic string. This is the text the user actually reads.
+    """
+    tool = str(confirmation.tool_name or "tool")
+    detail = str(confirmation.description or "").strip()
+    if confirmation.command:
+        command = f"$ {confirmation.command}"
+        detail = f"{detail}\n{command}" if detail else command
+    return f"{tool}: {detail}" if detail else f"{tool} requires approval"
+
+
+def _island_affected_path(confirmation) -> str | None:
+    paths = getattr(confirmation, "affected_paths", None) or []
+    return str(paths[0]) if paths else None
+
+
 class TurnMixin:
     """Extracted mixin for _turn."""
 
@@ -2340,6 +2360,8 @@ class TurnMixin:
 
         remote_server = self._remote_server
         telegram_service = self._telegram_service
+        bridge = getattr(self.agent, "open_island_bridge", None)
+        should_request_island = bridge is not None and bridge.enabled
         should_request_remote = (
             remote_server is not None
             and remote_server.is_running
@@ -2354,12 +2376,17 @@ class TurnMixin:
             and self.agent.session
         )
 
-        if not should_request_remote and not should_request_telegram:
+        if (
+            not should_request_remote
+            and not should_request_telegram
+            and not should_request_island
+        ):
             approved = await self._open_modal(modal)
             return bool(approved)
 
         request_id = uuid.uuid4().hex
         tasks: list[asyncio.Task[Any]] = [asyncio.create_task(self._open_modal(modal))]
+        local_task = tasks[0]
 
         remote_task = None
         if should_request_remote:
@@ -2388,39 +2415,84 @@ class TurnMixin:
             telegram_task = asyncio.create_task(_telegram_approval())
             tasks.append(telegram_task)
 
-        try:
-            done, _pending = await asyncio.wait(
-                {*tasks},
-                return_when=asyncio.FIRST_COMPLETED,
+        island_task = None
+        island_bridge = bridge if should_request_island else None
+        if island_bridge is not None:
+            island_task = asyncio.create_task(
+                island_bridge.request_approval(
+                    tool_name=str(confirmation.tool_name or "tool"),
+                    summary=_island_approval_summary(confirmation),
+                    affected_path=_island_affected_path(confirmation),
+                )
             )
-            local_task = tasks[0]
-            if local_task in done:
-                approved = bool(local_task.result())
-                if remote_task:
-                    await remote_server.resolve_approval_request(request_id, approved)
-                    with contextlib.suppress(asyncio.TimeoutError):
-                        await asyncio.wait_for(remote_task, timeout=0.5)
-                await self._broadcast_remote_state()
-                return approved
+            tasks.append(island_task)
 
-            # A remote (Telegram or ite_remote) responded first
-            winner = next(iter(done))
-            result = winner.result()
-            if result is None:
-                approved = bool(await local_task)
-                await self._broadcast_remote_state()
-                return approved
+        def _island_verdict(task: asyncio.Task[Any]) -> bool | None:
+            """Normalise the island's tri-state result. None = no answer."""
+            try:
+                value = task.result()
+            except Exception:
+                return None
+            if value == "approved":
+                return True
+            if value == "denied":
+                return False
+            return None
 
-            approved = bool(result)
-            if not local_task.done():
-                modal.dismiss(approved)
-                with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(local_task, timeout=0.5)
-            await self._broadcast_remote_state()
-            return approved
+        try:
+            pending: set[asyncio.Task[Any]] = set(tasks)
+            while pending:
+                done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+
+                if local_task in done:
+                    approved = bool(local_task.result())
+                    if remote_task:
+                        await remote_server.resolve_approval_request(
+                            request_id, approved
+                        )
+                        with contextlib.suppress(asyncio.TimeoutError):
+                            await asyncio.wait_for(remote_task, timeout=0.5)
+                    await self._broadcast_remote_state()
+                    return approved
+
+                # A non-local racer answered. The island's "unavailable" is not
+                # an answer, so keep waiting for one that is.
+                winner: asyncio.Task[Any] | None = None
+                approved_external = False
+                for task in done:
+                    if task is island_task:
+                        verdict = _island_verdict(task)
+                        if verdict is None:
+                            continue
+                        winner, approved_external = task, verdict
+                        break
+                    result = task.result()
+                    if result is None:
+                        continue
+                    winner, approved_external = task, bool(result)
+                    break
+
+                if winner is not None:
+                    if remote_task is not None and winner is not remote_task:
+                        await remote_server.resolve_approval_request(
+                            request_id, approved_external
+                        )
+                    if not local_task.done():
+                        modal.dismiss(approved_external)
+                        with contextlib.suppress(asyncio.TimeoutError):
+                            await asyncio.wait_for(local_task, timeout=0.5)
+                    await self._broadcast_remote_state()
+                    return approved_external
+
+            # Every external racer declined to answer (island unavailable,
+            # remote/Telegram returned None): the local modal decides, exactly
+            # as it would with no external racers present.
+            return bool(await local_task)
         except Exception:
-            if not tasks[0].done():
-                return bool(await tasks[0])
+            if not local_task.done():
+                return bool(await local_task)
             raise
         finally:
             for task in tasks:

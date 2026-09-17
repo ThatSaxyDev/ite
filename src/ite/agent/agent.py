@@ -16,7 +16,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.client.response import StreamEventType, TokenUsage, ToolCall, ToolResultMessage
 from ite.config.config import Config
-from ite.integrations.open_island.bridge import build_bridge
+from ite.integrations.open_island.bridge import OpenIslandBridge, build_bridge
 from ite.integrations.open_island.client import OpenIslandClient
 from ite.memory import (
     is_query_anchored_to_key,
@@ -93,7 +93,12 @@ class Agent:
         self._event_observers: list[Callable[[AgentEvent], None]] = []
         self._open_island_bridge = self._build_open_island_bridge()
 
-    def _build_open_island_bridge(self) -> object | None:
+    @property
+    def open_island_bridge(self) -> OpenIslandBridge | None:
+        """The live Open Island bridge, when the integration is enabled."""
+        return self._open_island_bridge
+
+    def _build_open_island_bridge(self) -> OpenIslandBridge | None:
         """Attach the Open Island bridge when the integration is enabled.
 
         Optional and fail-open: any problem here disables the bridge rather
@@ -2456,6 +2461,17 @@ class Agent:
         exc_val,
         exc_tb,
     ) -> None:
+        # Remove the session from the notch before teardown. A leaked session
+        # that still offers Allow/Deny buttons is materially worse than a
+        # leaked summary line, so this must not depend on the session object.
+        bridge = self._open_island_bridge
+        if bridge is not None:
+            try:
+                await bridge.aclose()
+            except Exception as exc:  # noqa: BLE001 - teardown must never raise
+                logger.debug("Open Island bridge close failed: %s", exc)
+            self._open_island_bridge = None
+
         if self.session and getattr(self.session, "subagent_runtime", None) is not None:
             await self.session.subagent_runtime.shutdown()
         if self.session and self.session.client and self.session.mcp_manager:

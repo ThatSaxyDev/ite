@@ -19,10 +19,19 @@ _TERMINAL = TerminalContext(app="iTerm", tty="/dev/ttys001")
 class _RecordingClient:
     """Captures bridge commands so tests can assert on the emitted protocol."""
 
-    def __init__(self, fail: bool = False) -> None:
+    def __init__(
+        self,
+        fail: bool = False,
+        interactive_response: dict[str, Any] | None = None,
+        fail_interactive: bool = False,
+    ) -> None:
         self.commands: list[dict[str, Any]] = []
         self.fail = fail
         self.sync_commands: list[dict[str, Any]] = []
+        self.interactive_commands: list[dict[str, Any]] = []
+        self.interactive_timeouts: list[float] = []
+        self.interactive_response = interactive_response
+        self.fail_interactive = fail_interactive
 
     async def try_send(
         self, command: dict[str, Any], *, timeout: float | None = None
@@ -32,6 +41,15 @@ class _RecordingClient:
         self.commands.append(command)
         return {"type": "acknowledged"}
 
+    async def send_interactive(
+        self, command: dict[str, Any], *, timeout: float
+    ) -> dict[str, Any] | None:
+        self.interactive_commands.append(command)
+        self.interactive_timeouts.append(timeout)
+        if self.fail_interactive:
+            raise RuntimeError("bridge unavailable")
+        return self.interactive_response
+
     def send_sync(
         self, command: dict[str, Any], *, timeout: float = 2.0
     ) -> dict[str, Any] | None:
@@ -40,6 +58,9 @@ class _RecordingClient:
 
     def hooks(self) -> list[dict[str, Any]]:
         return [c["claudeHook"] for c in self.commands]
+
+    def interactive_hooks(self) -> list[dict[str, Any]]:
+        return [c["claudeHook"] for c in self.interactive_commands]
 
     def events_of(self, event_name: str) -> list[dict[str, Any]]:
         return [h for h in self.hooks() if h["hook_event_name"] == event_name]
@@ -482,6 +503,163 @@ class BridgeNoEventLoopTests(unittest.TestCase):
 
         self.assertFalse(bridge.enabled)
         self.assertEqual(bridge._queue.qsize(), 0)
+
+
+class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
+    """Approvals and questions parked on the notch.
+
+    The tri-state/fail-open contract is the important part: an unanswered
+    island must never be mistaken for a denial.
+    """
+
+    def _directive(self, decision: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "type": "claudeHookDirective",
+            "directive": {"type": "permissionRequest", "directive": decision},
+        }
+
+    async def test_disabled_bridge_yields_unavailable(self) -> None:
+        bridge = _bridge(_RecordingClient(), enabled=False)
+
+        self.assertEqual(
+            await bridge.request_approval(tool_name="shell", summary="run it"),
+            "unavailable",
+        )
+        self.assertIsNone(
+            await bridge.request_question(question="q", options=["a", "b"])
+        )
+
+    async def test_approval_allow_maps_to_approved(self) -> None:
+        client = _RecordingClient(interactive_response=self._directive({"behavior": "allow"}))
+        bridge = _bridge(client)
+
+        self.assertEqual(
+            await bridge.request_approval(tool_name="shell", summary="run it"),
+            "approved",
+        )
+
+    async def test_approval_deny_maps_to_denied(self) -> None:
+        client = _RecordingClient(
+            interactive_response=self._directive(
+                {"behavior": "deny", "message": "denied"}
+            )
+        )
+        bridge = _bridge(client)
+
+        self.assertEqual(
+            await bridge.request_approval(tool_name="shell", summary="run it"),
+            "denied",
+        )
+
+    async def test_socket_failure_is_unavailable_not_denied(self) -> None:
+        bridge = _bridge(_RecordingClient(fail_interactive=True))
+
+        self.assertEqual(
+            await bridge.request_approval(tool_name="shell", summary="run it"),
+            "unavailable",
+        )
+
+    async def test_unrecognised_response_is_unavailable(self) -> None:
+        bridge = _bridge(_RecordingClient(interactive_response={"type": "acknowledged"}))
+
+        self.assertEqual(
+            await bridge.request_approval(tool_name="shell", summary="run it"),
+            "unavailable",
+        )
+
+    async def test_permission_payload_omits_tool_name(self) -> None:
+        client = _RecordingClient(interactive_response=self._directive({"behavior": "allow"}))
+        bridge = _bridge(client)
+
+        await bridge.request_approval(tool_name="shell", summary="shell: run it")
+
+        hook = client.interactive_hooks()[0]
+        self.assertEqual(hook["hook_event_name"], "PermissionRequest")
+        self.assertNotIn("tool_name", hook)
+        self.assertIn("shell", hook["message"])
+
+    async def test_permission_carries_cached_tool_use_id(self) -> None:
+        client = _RecordingClient(interactive_response=self._directive({"behavior": "allow"}))
+        bridge = _bridge(client)
+
+        bridge.observe(
+            AgentEvent.tool_call_start("call-9", "shell", {"command": "rm -rf x"})
+        )
+        await _drain(bridge)
+        await bridge.request_approval(tool_name="shell", summary="shell: rm -rf x")
+
+        hook = client.interactive_hooks()[0]
+        self.assertEqual(hook["tool_use_id"], "call-9")
+
+    async def test_pre_tool_use_lands_before_the_interactive_send(self) -> None:
+        client = _RecordingClient(interactive_response=self._directive({"behavior": "allow"}))
+        bridge = _bridge(client)
+
+        bridge.observe(AgentEvent.tool_call_start("call-1", "shell", {"command": "ls"}))
+        await bridge.request_approval(tool_name="shell", summary="shell: ls")
+
+        # The drain must have flushed PreToolUse before the interactive command.
+        self.assertTrue(client.commands)
+        self.assertTrue(client.interactive_commands)
+
+    async def test_question_selection_maps_back(self) -> None:
+        updated = {"answers": {"Which colour?": "Blue"}}
+        client = _RecordingClient(
+            interactive_response=self._directive(
+                {"behavior": "allow", "updatedInput": updated}
+            )
+        )
+        bridge = _bridge(client)
+
+        result = await bridge.request_question(
+            question="Which colour?", options=["Red", "Blue"], recommended_index=1
+        )
+
+        self.assertEqual(
+            result,
+            {"selected_option": "Blue", "free_text": "", "selected_index": 1},
+        )
+        hook = client.interactive_hooks()[0]
+        self.assertEqual(hook["tool_name"], "AskUserQuestion")
+        self.assertEqual(
+            hook["tool_input"]["questions"][0]["options"][1]["description"],
+            "Recommended",
+        )
+
+    async def test_question_free_text_maps_back(self) -> None:
+        updated = {"answers": {"Which colour?": "Chartreuse"}}
+        client = _RecordingClient(
+            interactive_response=self._directive(
+                {"behavior": "allow", "updatedInput": updated}
+            )
+        )
+        bridge = _bridge(client)
+
+        result = await bridge.request_question(
+            question="Which colour?", options=["Red", "Blue"]
+        )
+
+        self.assertEqual(
+            result,
+            {"selected_option": "", "free_text": "Chartreuse", "selected_index": None},
+        )
+
+    async def test_question_unavailable_returns_none(self) -> None:
+        bridge = _bridge(_RecordingClient(fail_interactive=True))
+
+        self.assertIsNone(
+            await bridge.request_question(question="q", options=["a", "b"])
+        )
+
+    async def test_question_deny_returns_none(self) -> None:
+        client = _RecordingClient(
+            interactive_response=self._directive({"behavior": "deny"})
+        )
+        bridge = _bridge(client)
+
+        self.assertIsNone(
+            await bridge.request_question(question="q", options=["a", "b"])
+        )
 
 
 if __name__ == "__main__":

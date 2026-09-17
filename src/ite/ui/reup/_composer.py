@@ -2260,17 +2260,32 @@ class ComposerMixin:
                 )
             )
 
+        island_task: asyncio.Task[dict[str, Any] | None] | None = None
+        bridge = getattr(self.agent, "open_island_bridge", None)
+        if bridge is not None and bridge.enabled:
+            island_task = asyncio.create_task(
+                bridge.request_question(
+                    question=question,
+                    options=options,
+                    recommended_index=recommended_index,
+                )
+            )
+
         tasks_to_cleanup: list[asyncio.Task[Any]] = [local_task]
         if remote_task is not None:
             tasks_to_cleanup.append(remote_task)
         if telegram_task is not None:
             tasks_to_cleanup.append(telegram_task)
+        if island_task is not None:
+            tasks_to_cleanup.append(island_task)
         try:
             pending: set[asyncio.Task[Any]] = {local_task}
             if remote_task is not None:
                 pending.add(remote_task)
             if telegram_task is not None:
                 pending.add(telegram_task)
+            if island_task is not None:
+                pending.add(island_task)
             winner: asyncio.Task[Any] | None = None
             answer: dict[str, Any] | None = None
             while pending:
@@ -2282,6 +2297,10 @@ class ComposerMixin:
                     if task is remote_task and result is None:
                         continue
                     if task is telegram_task and result is None:
+                        continue
+                    if task is island_task and result is None:
+                        # Island unanswered (unavailable/timeout): keep waiting
+                        # so the local card stays the deciding racer.
                         continue
                     winner = task
                     answer = result
@@ -2324,6 +2343,19 @@ class ComposerMixin:
                     free_text=free_text,
                 )
                 await local_task
+                await self._broadcast_remote_state()
+            elif winner is island_task:
+                await self._resolve_plan_question_choice(
+                    selected_index=selected_index,
+                    selected_option=selected_option,
+                    free_text=free_text,
+                )
+                await local_task
+                if remote_task is not None and request_id:
+                    assert self._remote_server is not None
+                    await self._remote_server.resolve_plan_question_request(
+                        request_id, answer
+                    )
                 await self._broadcast_remote_state()
             return {
                 "selected_option": selected_option,

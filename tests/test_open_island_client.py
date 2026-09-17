@@ -233,6 +233,37 @@ class OpenIslandClientTests(unittest.IsolatedAsyncioTestCase):
                 {"type": "acknowledged"},
             )
 
+    async def test_send_interactive_returns_response(self) -> None:
+        socket_path, _, _ = await self._start_server(
+            [json.dumps({"type": "response", "response": {"type": "acknowledged"}})]
+        )
+        client = OpenIslandClient(socket_path=socket_path)
+
+        result = await client.send_interactive(
+            {"type": "processClaudeHook"}, timeout=30.0
+        )
+
+        self.assertEqual(result, {"type": "acknowledged"})
+
+    async def test_send_interactive_missing_socket_raises_bridge_error(self) -> None:
+        client = OpenIslandClient(socket_path="/tmp/definitely-not-a-bridge.sock")
+
+        with self.assertRaises(OpenIslandBridgeError):
+            await client.send_interactive({"type": "processClaudeHook"}, timeout=1.0)
+
+    async def test_send_interactive_propagates_cancellation(self) -> None:
+        socket_path, _, _ = await self._start_server([])
+        client = OpenIslandClient(socket_path=socket_path)
+
+        task = asyncio.create_task(
+            client.send_interactive({"type": "processClaudeHook"}, timeout=30.0)
+        )
+        await asyncio.sleep(0.1)
+        task.cancel()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
 
 if __name__ == "__main__":
     unittest.main()

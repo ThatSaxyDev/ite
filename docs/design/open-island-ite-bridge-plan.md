@@ -558,9 +558,26 @@ enabled = false
 
 ---
 
-## 8. Phase 2 — approvals from the notch (designed, not built in v1)
+## 8. Phase 2 — approvals from the notch (delivered)
 
-Worth documenting now because it constrains phase 1 design.
+**Status: delivered.** The full round trip — approvals *and* questions — is
+specified in `docs/design/open-island-attention-plan.md` and implemented in
+`src/ite/integrations/open_island/{client,payloads,bridge}.py` plus the fourth-racer
+wiring in `src/ite/ui/reup/{_turn,_composer}.py`. Phase 1's transport is what it rides.
+
+Two corrections to the design notes below, established while implementing (see the
+attention plan §3.3 and §5.7):
+
+- The correlation key `sessionID|toolName|serializedToolInput` only feeds
+  `claudeToolUseID(for:)`, which prefers the explicit `tool_use_id`. A mismatch is
+  therefore **cosmetic, not functional** — `tool_name` may be omitted from the
+  `PermissionRequest` payload so the island's "Always Allow" button (which has no rule
+  engine behind it) is not rendered. This supersedes the "must send identical
+  `tool_name`" note in *Verified affordances* below.
+- `PreToolUse` ordering is enforced with a bounded `await self._queue.join()` before the
+  interactive send, rather than assumed.
+
+The remainder of this section is retained as the original design record.
 
 The round trip already exists end-to-end:
 

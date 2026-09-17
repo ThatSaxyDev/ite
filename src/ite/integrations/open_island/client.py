@@ -160,6 +160,23 @@ class OpenIslandClient:
             logger.debug("Open Island bridge send skipped: %s", exc)
             return None
 
+    async def send_interactive(
+        self,
+        command: dict[str, Any],
+        *,
+        timeout: float,
+    ) -> dict[str, Any] | None:
+        """Send a command whose reply may take a human-sized wait.
+
+        Semantically identical to :meth:`send` on the wire, but this is the
+        supported entry point for a *parked* exchange: ``default_timeout`` is
+        deliberately not applied, and ``asyncio.CancelledError`` is never
+        swallowed, so a racer that loses can be cancelled cleanly while the
+        request is still outstanding. Every socket failure still surfaces as
+        :class:`OpenIslandBridgeError` so the caller can fail open.
+        """
+        return await self.send(command, timeout=timeout)
+
     async def _exchange(
         self,
         path: str,

@@ -402,3 +402,182 @@ def serialize_tool_input(arguments: dict[str, Any] | None) -> str | None:
         return json.dumps(normalized, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# User-attention round trip (approvals + questions)
+#
+# See `docs/design/open-island-attention-plan.md`. These builders are the only
+# place that knows the attention wire shape; the bridge and UI consume them.
+# ---------------------------------------------------------------------------
+
+# The `AskUserQuestion` tool name is load-bearing, not cosmetic: upstream's
+# `questionPrompt` parser returns nil unless it matches exactly
+# (`ClaudeHooks.swift:822-879`), and a nil question prompt falls through to the
+# approval card, which would render Deny / Allow Once for a question.
+ASK_USER_QUESTION_TOOL = "AskUserQuestion"
+
+
+def permission_request(
+    session_id: str,
+    cwd: str,
+    *,
+    summary: str,
+    affected_path: str | None = None,
+    tool_use_id: str | None = None,
+    terminal: TerminalContext | None = None,
+    title: str | None = None,
+) -> dict[str, Any]:
+    """Build a blocking ``PermissionRequest`` for the notch.
+
+    Deliberately carries **no ``tool_name``**: upstream renders its
+    "Always Allow" button only when a tool name is present
+    (`IslandPanelView.swift:1748`), and there is no persistent-rule engine
+    behind it today. ``tool_use_id`` is still sent so the tool-use badge
+    resolves (`BridgeServer.swift:3056-3058`).
+
+    The visible card body comes from `permissionRequestSummary`, which prefers
+    `notificationPreview` — the joined ``title`` and ``message`` fields. Callers
+    put the human-meaningful text (tool name included) in ``summary``.
+    """
+    payload = _base("PermissionRequest", session_id, cwd, terminal)
+    if title:
+        payload["title"] = _truncate(title)
+    payload["message"] = _truncate(summary)
+
+    # `permissionAffectedPath` is derived from the input's path keys; there is
+    # no dedicated field. Sending `file_path` is what shows the affected file.
+    if affected_path:
+        payload["tool_input"] = {"file_path": str(affected_path)}
+
+    if tool_use_id:
+        payload["tool_use_id"] = tool_use_id
+    return payload
+
+
+def question_request(
+    session_id: str,
+    cwd: str,
+    *,
+    question: str,
+    options: list[str],
+    recommended_index: int | None = None,
+    tool_use_id: str | None = None,
+    terminal: TerminalContext | None = None,
+    header: str = "Plan question",
+) -> dict[str, Any]:
+    """Build an ``AskUserQuestion`` payload that renders as a question card.
+
+    ``tool_name`` and ``header`` are both mandatory: upstream drops any
+    question missing either. ``recommended_index`` is carried on that option's
+    ``description`` (verified rendered at `IslandPanelView.swift:2230`).
+
+    Free text is always available upstream — it appends an ``Other`` option
+    regardless — so this payload does not encode ``allow_free_text``. The caller
+    reconciles an unexpected free-text answer.
+    """
+    option_payloads: list[dict[str, Any]] = []
+    for index, label in enumerate(options):
+        entry: dict[str, Any] = {"label": str(label)}
+        if recommended_index == index:
+            entry["description"] = "Recommended"
+        option_payloads.append(entry)
+
+    payload = _base("PermissionRequest", session_id, cwd, terminal)
+    payload["tool_name"] = ASK_USER_QUESTION_TOOL
+    payload["tool_input"] = {
+        "questions": [
+            {
+                "question": question,
+                "header": header,
+                "options": option_payloads,
+                "multiSelect": False,
+            }
+        ]
+    }
+    if tool_use_id:
+        payload["tool_use_id"] = tool_use_id
+    return payload
+
+
+def _permission_decision(response: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Extract the inner decision from a ``claudeHookDirective`` response.
+
+    The wire path is ``response.directive.directive`` — a
+    `BridgeResponse.claudeHookDirective` wrapping a `ClaudeHookDirective` whose
+    `permissionRequest` case wraps the decision (`ClaudeHooks.swift:560-593`).
+    A question answer arrives through the *same* case with `updatedInput`
+    populated, so callers branch on what they asked for, not the shape.
+    """
+    if not isinstance(response, dict):
+        return None
+    if response.get("type") != "claudeHookDirective":
+        return None
+
+    directive = response.get("directive")
+    if not isinstance(directive, dict):
+        return None
+    if directive.get("type") != "permissionRequest":
+        return None
+
+    decision = directive.get("directive")
+    return decision if isinstance(decision, dict) else None
+
+
+def parse_permission_directive(response: dict[str, Any] | None) -> str | None:
+    """Map a parked permission exchange to ``"approved"`` / ``"denied"``.
+
+    Returns ``None`` when the response is not a recognisable decision, which
+    the caller treats as "the island did not answer" — never as a denial.
+    """
+    decision = _permission_decision(response)
+    if decision is None:
+        return None
+
+    behavior = decision.get("behavior")
+    if behavior == "allow":
+        return "approved"
+    if behavior == "deny":
+        return "denied"
+    return None
+
+
+def parse_question_directive(
+    response: dict[str, Any] | None,
+    *,
+    question: str,
+    options: list[str],
+) -> dict[str, Any] | None:
+    """Map a question answer back into the local card's result shape.
+
+    Upstream merges the reply into the *original* tool input and returns it as
+    ``updatedInput.answers`` keyed by the exact question text we sent
+    (`BridgeServer.swift:3060-3107`). A value matching one of our option labels
+    is a selection; anything else is free text typed through ``Other``.
+    """
+    decision = _permission_decision(response)
+    if decision is None or decision.get("behavior") != "allow":
+        return None
+
+    updated = decision.get("updatedInput")
+    if not isinstance(updated, dict):
+        return None
+
+    answers = updated.get("answers")
+    value: Any = None
+    if isinstance(answers, dict):
+        value = answers.get(question)
+    if value is None:
+        raw = updated.get("rawAnswer")
+        if isinstance(raw, str) and raw:
+            value = raw
+    if not isinstance(value, str) or not value.strip():
+        return {"selected_option": "", "free_text": "", "selected_index": None}
+
+    if value in options:
+        return {
+            "selected_option": value,
+            "free_text": "",
+            "selected_index": options.index(value),
+        }
+    return {"selected_option": "", "free_text": value, "selected_index": None}

@@ -371,5 +371,113 @@ class IslandStatusTextTests(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+class AttentionPayloadTests(unittest.TestCase):
+    """Approvals and questions on the notch (attention plan §5.7–§5.8)."""
+
+    def _directive(self, decision: dict) -> dict:
+        return {
+            "type": "claudeHookDirective",
+            "directive": {"type": "permissionRequest", "directive": decision},
+        }
+
+    def test_permission_request_omits_tool_name(self) -> None:
+        payload = payloads.permission_request(
+            "sid", "/tmp/p", summary="shell: run it"
+        )
+        self.assertEqual(payload["hook_event_name"], "PermissionRequest")
+        # `tool_name` present is what renders "Always Allow" upstream.
+        self.assertNotIn("tool_name", payload)
+        self.assertEqual(payload["message"], "shell: run it")
+
+    def test_permission_request_carries_affected_path_and_call_id(self) -> None:
+        payload = payloads.permission_request(
+            "sid",
+            "/tmp/p",
+            summary="edit: app.py",
+            affected_path="/tmp/p/app.py",
+            tool_use_id="call-1",
+        )
+        self.assertEqual(payload["tool_input"], {"file_path": "/tmp/p/app.py"})
+        self.assertEqual(payload["tool_use_id"], "call-1")
+
+    def test_question_request_requires_ask_user_question(self) -> None:
+        payload = payloads.question_request(
+            "sid",
+            "/tmp/p",
+            question="Which?",
+            options=["A", "B"],
+            recommended_index=0,
+        )
+        self.assertEqual(payload["tool_name"], payloads.ASK_USER_QUESTION_TOOL)
+        questions = payload["tool_input"]["questions"]
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]["header"], "Plan question")
+        self.assertEqual(questions[0]["options"][0]["description"], "Recommended")
+        self.assertNotIn("description", questions[0]["options"][1])
+
+    def test_parse_allow_and_deny(self) -> None:
+        self.assertEqual(
+            payloads.parse_permission_directive(
+                self._directive({"behavior": "allow"})
+            ),
+            "approved",
+        )
+        self.assertEqual(
+            payloads.parse_permission_directive(
+                self._directive({"behavior": "deny"})
+            ),
+            "denied",
+        )
+
+    def test_parse_unrecognised_is_none(self) -> None:
+        self.assertIsNone(payloads.parse_permission_directive(None))
+        self.assertIsNone(payloads.parse_permission_directive({}))
+        self.assertIsNone(
+            payloads.parse_permission_directive({"type": "acknowledged"})
+        )
+
+    def test_parse_question_selection(self) -> None:
+        response = self._directive(
+            {
+                "behavior": "allow",
+                "updatedInput": {"answers": {"Which?": "B"}},
+            }
+        )
+        result = payloads.parse_question_directive(
+            response, question="Which?", options=["A", "B"]
+        )
+        self.assertEqual(
+            result,
+            {"selected_option": "B", "free_text": "", "selected_index": 1},
+        )
+
+    def test_parse_question_free_text(self) -> None:
+        response = self._directive(
+            {
+                "behavior": "allow",
+                "updatedInput": {"answers": {"Which?": "Something else"}},
+            }
+        )
+        result = payloads.parse_question_directive(
+            response, question="Which?", options=["A", "B"]
+        )
+        self.assertEqual(
+            result,
+            {
+                "selected_option": "",
+                "free_text": "Something else",
+                "selected_index": None,
+            },
+        )
+
+    def test_parse_question_deny_is_none(self) -> None:
+        response = self._directive({"behavior": "deny"})
+        self.assertIsNone(
+            payloads.parse_question_directive(
+                response, question="Which?", options=["A", "B"]
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

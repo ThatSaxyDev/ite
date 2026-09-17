@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 # is invisible to the user, a blocked agent turn is not.
 _QUEUE_MAXSIZE = 256
 
+# How long the interactive path waits for the worker to drain before it opens
+# its own parked exchange. `PreToolUse` must reach the server first so the
+# tool-use badge and the row's tool label are in place.
+_QUEUE_DRAIN_TIMEOUT_SECONDS = 2.0
+
+# Ceiling on a parked approval/question. Upstream parks indefinitely; this is
+# our own resource bound, long enough that the local modal effectively decides.
+_ATTENTION_TIMEOUT_SECONDS = 600.0
+
 # How often the reasoning label is refreshed. The TUI rotates its gerund on a
 # 4.5s timer (`app.py:825` -> `_panels.py:2031`); matching it keeps the island
 # feeling alive instead of frozen on whichever word it first showed.
@@ -83,6 +92,9 @@ class OpenIslandBridge:
         # Count of tool calls that have started but not yet completed. Rotation
         # pauses while non-zero so it cannot overwrite a live tool's label.
         self._tools_in_flight = 0
+        # Last known call id per tool name, so the interactive approval path can
+        # carry `tool_use_id` without threading it through the safety layer.
+        self._last_call_id_by_tool: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # lifecycle
@@ -221,6 +233,124 @@ class OpenIslandBridge:
         except Exception as exc:  # noqa: BLE001 - fail-open is the contract
             logger.debug("Open Island bridge send failed: %s", exc)
             return None
+
+    # ------------------------------------------------------------------
+    # interactive (user-attention) exchanges
+    #
+    # These deliberately bypass the worker queue. Invariant #2 ("observe only
+    # enqueues") exists so lifecycle events never delay an agent turn; here
+    # delay *is* the point, and the worker must stay free to drain lifecycle
+    # events while the human decides. Each method runs as its own task and
+    # returns a sentinel instead of raising, so the local modal always remains
+    # a valid racer.
+    # ------------------------------------------------------------------
+
+    async def _drain_queue(self) -> None:
+        """Wait, bounded, for already-enqueued events to be sent.
+
+        Ensures the `PreToolUse` emitted at `TOOL_CALL_START` reaches the server
+        before the interactive `PermissionRequest`, which is what populates the
+        tool-use correlation and the row's tool label.
+        """
+        if self._worker is None or self._worker.done():
+            return
+        try:
+            await asyncio.wait_for(
+                self._queue.join(), timeout=_QUEUE_DRAIN_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            logger.debug("Open Island bridge queue drain timed out")
+        except asyncio.CancelledError:
+            raise
+
+    async def request_approval(
+        self,
+        *,
+        tool_name: str,
+        summary: str,
+        title: str | None = None,
+        affected_path: str | None = None,
+        tool_use_id: str | None = None,
+        timeout: float = _ATTENTION_TIMEOUT_SECONDS,
+    ) -> str:
+        """Park a permission request and return ``approved``/``denied``/``unavailable``.
+
+        ``"unavailable"`` means only that the island did not answer — never that
+        the operation was refused. Callers must not map it to a denial.
+        """
+        if not self._enabled or self._closed:
+            return "unavailable"
+
+        await self._drain_queue()
+        if not self._enabled or self._closed:
+            return "unavailable"
+
+        if tool_use_id is None:
+            tool_use_id = self._last_call_id_by_tool.get(tool_name)
+
+        command = payloads.command(
+            payloads.permission_request(
+                self.session_id,
+                self.cwd,
+                title=title,
+                summary=summary,
+                affected_path=affected_path,
+                tool_use_id=tool_use_id,
+                terminal=self._resolve_terminal(),
+            )
+        )
+        try:
+            response = await self._client.send_interactive(command, timeout=timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - fail-open is the contract
+            logger.debug("Open Island approval exchange failed: %s", exc)
+            return "unavailable"
+
+        return payloads.parse_permission_directive(response) or "unavailable"
+
+    async def request_question(
+        self,
+        *,
+        question: str,
+        options: list[str],
+        recommended_index: int | None = None,
+        tool_name: str = "plan_question",
+        timeout: float = _ATTENTION_TIMEOUT_SECONDS,
+    ) -> dict[str, Any] | None:
+        """Park a question and return the local card's result shape, or ``None``.
+
+        ``None`` means the island did not answer; the local card stays pending.
+        """
+        if not self._enabled or self._closed:
+            return None
+
+        await self._drain_queue()
+        if not self._enabled or self._closed:
+            return None
+
+        command = payloads.command(
+            payloads.question_request(
+                self.session_id,
+                self.cwd,
+                question=question,
+                options=options,
+                recommended_index=recommended_index,
+                tool_use_id=self._last_call_id_by_tool.get(tool_name),
+                terminal=self._resolve_terminal(),
+            )
+        )
+        try:
+            response = await self._client.send_interactive(command, timeout=timeout)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - fail-open is the contract
+            logger.debug("Open Island question exchange failed: %s", exc)
+            return None
+
+        return payloads.parse_question_directive(
+            response, question=question, options=options
+        )
 
     # ------------------------------------------------------------------
     # reasoning-label rotation
@@ -390,6 +520,10 @@ class OpenIslandBridge:
         arguments = data.get("arguments")
         if not isinstance(arguments, dict):
             arguments = None
+
+        call_id = data.get("call_id")
+        if isinstance(call_id, str) and call_id:
+            self._last_call_id_by_tool[name] = call_id
 
         # Rotation pauses while a tool is live so it cannot overwrite the tool's
         # own label with a gerund.
