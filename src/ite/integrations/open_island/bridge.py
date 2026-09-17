@@ -267,16 +267,17 @@ class OpenIslandBridge:
         self,
         *,
         tool_name: str,
-        summary: str,
-        title: str | None = None,
+        preview: str,
         affected_path: str | None = None,
         tool_use_id: str | None = None,
         timeout: float = _ATTENTION_TIMEOUT_SECONDS,
     ) -> str:
         """Park a permission request and return ``approved``/``denied``/``unavailable``.
 
-        ``"unavailable"`` means only that the island did not answer — never that
-        the operation was refused. Callers must not map it to a denial.
+        ``preview`` is the human-readable action shown on the card; build it with
+        :func:`payloads.approval_preview`. ``"unavailable"`` means only that the
+        island did not answer — never that the operation was refused. Callers
+        must not map it to a denial.
         """
         if not self._enabled or self._closed:
             return "unavailable"
@@ -292,8 +293,7 @@ class OpenIslandBridge:
             payloads.permission_request(
                 self.session_id,
                 self.cwd,
-                title=title,
-                summary=summary,
+                preview=preview,
                 affected_path=affected_path,
                 tool_use_id=tool_use_id,
                 terminal=self._resolve_terminal(),

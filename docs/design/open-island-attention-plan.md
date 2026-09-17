@@ -307,11 +307,13 @@ Semantics: identical to `send()` but intended to be parked for a long time and *
 Also add a payload builder in `payloads.py`:
 
 ```python
-def permission_request(session_id, cwd, *, title, summary, affected_path,
+def permission_request(session_id, cwd, *, preview, affected_path,
                        tool_use_id, terminal) -> dict[str, Any]
 ```
 
 which deliberately **omits `tool_name`** (§5.7) and sets `hook_event_name: "PermissionRequest"`.
+`preview` becomes `tool_input.command` (the key the card actually renders);
+`affected_path` becomes `tool_input.file_path` (the dim second line).
 
 ### 5.3 Bridge — interactive methods
 
@@ -403,10 +405,32 @@ If absent, omit `tool_use_id`. The correlation key mismatch is cosmetic (§3.3) 
 
 Send the permission payload **without `tool_name`**. Verified lever: `permissionRequest.toolName` is nil → the button's `if let` fails (`IslandPanelView.swift:1748`) → not rendered.
 
-Two things to confirm live (§11):
+**Correction found in live use (this is the important part).** The card's main
+line does **not** come from `permissionRequestSummary`. It comes from
+`currentCommandPreviewText` (`IslandPanelView.swift:1890-1896`), which
+short-circuits on the first present key of `PREVIEW_KEY_PRIORITY`:
 
-1. That `permissionRequestTitle` / `permissionRequestSummary` / `permissionAffectedPath` still produce a sensible card with a nil tool name. If the title degrades, compensate by putting the tool name in the `summary` text we control.
-2. That `toolUseID` still resolves via the explicit `tool_use_id` we send (`:3056-3058` — it prefers `payload.toolUseID`).
+```swift
+let preview = session.currentCommandPreviewText?      // tool_input-derived
+if let preview, !preview.isEmpty { return "$ \(preview)" }
+return session.permissionRequest?.summary ?? session.summary   // only if all nil
+```
+
+`currentToolInputPreview` is recomputed from **our** `tool_input` on
+`PermissionRequest` (`BridgeServer.swift:2436` → `mergedClaudeCurrentToolInputPreview:2888`,
+which returns `update` whenever non-nil). `command` outranks `file_path`, so
+**`tool_input.command` is the only field that controls the card text**, and
+`message` is effectively never rendered. Sending only `file_path` produced a card
+showing the raw path twice. Fixed by `payloads.approval_preview()`.
+
+**Show the action, not the tool name.** `write_file` / `apply_patch` are jargon.
+Preference order in `approval_preview()`:
+
+1. A verb for a shell command — `rm report.txt` → `Delete report.txt`.
+2. The tool's own description, path-shortened — `Create report.txt`.
+3. Humanised tool name — only when neither describes the action.
+
+The tool name is never shown alongside a real preview.
 
 ### 5.8 Question payload mapping
 
@@ -551,7 +575,7 @@ Tests 8 and 11 are the ones that decide whether this is safe to ship.
 
 ## 11. Must-verify before/while implementing
 
-1. **Nil `tool_name` card quality.** Does the permission card still render a useful title/summary without it? (§5.7) — *Compensated in code*: `summary` carries the tool name and the command; confirm visually live.
+1. **Nil `tool_name` card quality.** Does the permission card still render a useful title/summary without it? (§5.7) — **Resolved — and the original design was wrong.** The card body is `tool_input.command`, not `message`. Corrected in §5.7; text now built by `payloads.approval_preview()`.
 2. **`tool_use_id` survives** with nil `tool_name`. (§5.7) — Needs live confirmation; unit tests pin that we send it.
 3. **`StructuredQuestionPromptView` renders `QuestionOption.description`** — **Resolved: yes** (`IslandPanelView.swift:2230-2231`). `recommended_index` is carried as `"Recommended"` on that option.
 4. **`Other` + `allow_free_text = False`** — Handled: free text is always available upstream, so a typed answer is returned as `free_text` and the plan-question tool decides. Not blanked.

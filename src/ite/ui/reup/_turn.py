@@ -73,19 +73,18 @@ from .model_labels import bundled_model_display_label
 from .modals import ApprovalPickerModal, AttachPickerModal, BranchPickerModal, CommitModal, ContextSummaryModal, ActivityModal, ModelPickerModal, ThemePickerModal, UsageSummaryModal, PushReviewModal, RemoteSetupModal, PlanQuestionModal, SessionResumeModal, VoiceSetupModal, ConfirmModal, SetupModal
 
 
-def _island_approval_summary(confirmation) -> str:
-    """Compose the notch card body for an approval.
+def _island_approval_preview(confirmation) -> str:
+    """Human-readable action for the notch card, via the wire-layer builder."""
+    from ite.integrations.open_island import payloads
 
-    The tool name is included deliberately: the permission payload omits
-    ``tool_name`` (to hide "Always Allow"), so the card's own title degrades to
-    a generic string. This is the text the user actually reads.
-    """
-    tool = str(confirmation.tool_name or "tool")
-    detail = str(confirmation.description or "").strip()
-    if confirmation.command:
-        command = f"$ {confirmation.command}"
-        detail = f"{detail}\n{command}" if detail else command
-    return f"{tool}: {detail}" if detail else f"{tool} requires approval"
+    return payloads.approval_preview(
+        tool_name=str(confirmation.tool_name or ""),
+        description=getattr(confirmation, "description", None),
+        command=getattr(confirmation, "command", None),
+        affected_paths=[
+            str(path) for path in getattr(confirmation, "affected_paths", None) or []
+        ],
+    )
 
 
 def _island_affected_path(confirmation) -> str | None:
@@ -2421,7 +2420,7 @@ class TurnMixin:
             island_task = asyncio.create_task(
                 island_bridge.request_approval(
                     tool_name=str(confirmation.tool_name or "tool"),
-                    summary=_island_approval_summary(confirmation),
+                    preview=_island_approval_preview(confirmation),
                     affected_path=_island_affected_path(confirmation),
                 )
             )

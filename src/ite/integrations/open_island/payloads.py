@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import shlex
+from collections.abc import Sequence
 from typing import Any
 
 from ite.integrations.open_island.terminal import TerminalContext
@@ -418,11 +422,176 @@ def serialize_tool_input(arguments: dict[str, Any] | None) -> str | None:
 ASK_USER_QUESTION_TOOL = "AskUserQuestion"
 
 
+# ---------------------------------------------------------------------------
+# Human-readable approval text
+#
+# The notch card reads as: "Tool permission requested" / "<preview>" / "<path>".
+# The preview is the only line that explains *what* is about to happen, and the
+# tool name is jargon to a user ("write_file", "apply_patch"). So: describe the
+# action, and fall back to a humanised tool name only when nothing describes it.
+# ---------------------------------------------------------------------------
+
+_SHELL_ACTION_VERBS = {
+    "rm": "Delete",
+    "rmdir": "Delete folder",
+    "unlink": "Delete",
+    "mv": "Move",
+    "cp": "Copy",
+    "mkdir": "Create folder",
+    "touch": "Create file",
+    "ln": "Link",
+    "chmod": "Change permissions on",
+    "chown": "Change owner of",
+    "curl": "Download",
+    "wget": "Download",
+    "kill": "Stop process",
+    "pkill": "Stop process",
+}
+
+# These read as a complete action on their own; no object is appended.
+_GIT_ACTION_VERBS = {
+    "commit": "Commit changes",
+    "push": "Push changes",
+    "pull": "Pull changes",
+    "fetch": "Fetch changes",
+    "checkout": "Switch branch",
+    "switch": "Switch branch",
+    "merge": "Merge branch",
+    "rebase": "Rebase branch",
+    "reset": "Reset changes",
+    "restore": "Restore files",
+    "stash": "Stash changes",
+    "add": "Stage changes",
+    "tag": "Tag release",
+    "clone": "Clone repository",
+    "init": "Create repository",
+}
+
+_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&"}
+
+
+def _first_command_segment(command: str) -> list[str]:
+    """Tokens of the first command in a compound shell line.
+
+    ``A && B`` reports ``A``: that is the action the user is being asked to
+    authorise first, and a preview of the whole line would be unreadable.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        tokens = command.split()
+
+    segment: list[str] = []
+    for token in tokens:
+        if token in _COMMAND_SEPARATORS:
+            break
+        segment.append(token)
+    return segment
+
+
+def _command_operand(tokens: list[str]) -> str | None:
+    """The file a command acts on: its last non-flag argument, as a basename."""
+    for token in reversed(tokens):
+        if token and not token.startswith("-"):
+            return os.path.basename(token) or token
+    return None
+
+
+def shell_action_preview(command: str) -> str | None:
+    """Turn a shell command into a short human phrase, or ``None``."""
+    segment = _first_command_segment(command)
+    if not segment:
+        return None
+
+    program = os.path.basename(segment[0]).lower()
+    args = segment[1:]
+
+    if program == "git":
+        subcommand = next((arg for arg in args if not arg.startswith("-")), "")
+        return _GIT_ACTION_VERBS.get(subcommand) or command.strip() or None
+
+    verb = _SHELL_ACTION_VERBS.get(program)
+    if verb:
+        operand = _command_operand(args)
+        return f"{verb} {operand}" if operand else verb
+
+    if program == "sudo" and args:
+        return shell_action_preview(" ".join(args))
+
+    # Unrecognised program: the command itself is the most honest preview.
+    return command.strip() or None
+
+
+def humanize_tool_name(tool_name: str) -> str:
+    """Last-resort label: ``write_file`` -> ``Write file``.
+
+    MCP tools arrive as ``mcp__server__tool``; the protocol prefix is noise the
+    user does not need, so it is dropped.
+    """
+    words = [word for word in re.split(r"[^0-9A-Za-z]+", tool_name) if word]
+    if words and words[0].lower() == "mcp":
+        words = words[1:]
+    if not words:
+        return "Tool action"
+    text = " ".join(words)
+    return text[:1].upper() + text[1:]
+
+
+def _description_preview(
+    description: str, affected_paths: Sequence[str]
+) -> str | None:
+    """Shorten a tool's own description for the card.
+
+    Tool descriptions already read naturally ("Create file: /abs/path",
+    "Edit file: /abs/path"). The only problems are the absolute path and the
+    redundant word "file" — the card is already titled a permission request.
+    """
+    text = description.strip()
+    if not text:
+        return None
+
+    for path in affected_paths:
+        path_text = str(path)
+        text = text.replace(path_text, os.path.basename(path_text))
+
+    text = text.replace(" new file: ", " ").replace(" file: ", " ")
+    return text.strip() or None
+
+
+def approval_preview(
+    *,
+    tool_name: str,
+    description: str | None = None,
+    command: str | None = None,
+    affected_paths: Sequence[str] = (),
+) -> str:
+    """Compose the notch card's main line for an approval.
+
+    Order of preference:
+
+    1. A verb for a shell command (``Delete report.txt``).
+    2. The tool's own description, path-shortened (``Create report.txt``).
+    3. The humanised tool name (``Write file``) — only when nothing above
+       describes the action.
+    """
+    if command and command.strip():
+        shell_preview = shell_action_preview(command)
+        if shell_preview:
+            return shell_preview
+
+    if description:
+        described = _description_preview(description, affected_paths)
+        if described:
+            return described
+
+    return humanize_tool_name(tool_name)
+
+
 def permission_request(
     session_id: str,
     cwd: str,
     *,
-    summary: str,
+    preview: str | None = None,
     affected_path: str | None = None,
     tool_use_id: str | None = None,
     terminal: TerminalContext | None = None,
@@ -436,19 +605,30 @@ def permission_request(
     behind it today. ``tool_use_id`` is still sent so the tool-use badge
     resolves (`BridgeServer.swift:3056-3058`).
 
-    The visible card body comes from `permissionRequestSummary`, which prefers
-    `notificationPreview` — the joined ``title`` and ``message`` fields. Callers
-    put the human-meaningful text (tool name included) in ``summary``.
+    **Card text is driven by ``tool_input.command``, not ``message``.** Upstream
+    renders the main line from `currentCommandPreviewText`
+    (`IslandPanelView.swift:1890-1896`), which short-circuits on the first
+    present key of `PREVIEW_KEY_PRIORITY`; ``command`` outranks ``file_path``.
+    ``message`` is only reached when that whole chain is empty, so sending it
+    alone shows a raw file path instead of the intended description. Build the
+    text with :func:`approval_preview`.
     """
     payload = _base("PermissionRequest", session_id, cwd, terminal)
     if title:
         payload["title"] = _truncate(title)
-    payload["message"] = _truncate(summary)
+    if preview:
+        payload["message"] = _truncate(preview)
 
-    # `permissionAffectedPath` is derived from the input's path keys; there is
-    # no dedicated field. Sending `file_path` is what shows the affected file.
+    tool_input: dict[str, Any] = {}
+    if preview:
+        tool_input["command"] = _truncate(preview)
+    # The dim second line is `permissionAffectedPath`, derived from path keys;
+    # there is no dedicated field.
     if affected_path:
-        payload["tool_input"] = {"file_path": str(affected_path)}
+        tool_input["file_path"] = str(affected_path)
+
+    if tool_input:
+        payload["tool_input"] = tool_input
 
     if tool_use_id:
         payload["tool_use_id"] = tool_use_id

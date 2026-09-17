@@ -522,7 +522,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         bridge = _bridge(_RecordingClient(), enabled=False)
 
         self.assertEqual(
-            await bridge.request_approval(tool_name="shell", summary="run it"),
+            await bridge.request_approval(tool_name="shell", preview="Delete report.txt"),
             "unavailable",
         )
         self.assertIsNone(
@@ -534,7 +534,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         bridge = _bridge(client)
 
         self.assertEqual(
-            await bridge.request_approval(tool_name="shell", summary="run it"),
+            await bridge.request_approval(tool_name="shell", preview="Delete report.txt"),
             "approved",
         )
 
@@ -547,7 +547,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         bridge = _bridge(client)
 
         self.assertEqual(
-            await bridge.request_approval(tool_name="shell", summary="run it"),
+            await bridge.request_approval(tool_name="shell", preview="Delete report.txt"),
             "denied",
         )
 
@@ -555,7 +555,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         bridge = _bridge(_RecordingClient(fail_interactive=True))
 
         self.assertEqual(
-            await bridge.request_approval(tool_name="shell", summary="run it"),
+            await bridge.request_approval(tool_name="shell", preview="Delete report.txt"),
             "unavailable",
         )
 
@@ -563,7 +563,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         bridge = _bridge(_RecordingClient(interactive_response={"type": "acknowledged"}))
 
         self.assertEqual(
-            await bridge.request_approval(tool_name="shell", summary="run it"),
+            await bridge.request_approval(tool_name="shell", preview="Delete report.txt"),
             "unavailable",
         )
 
@@ -571,12 +571,15 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         client = _RecordingClient(interactive_response=self._directive({"behavior": "allow"}))
         bridge = _bridge(client)
 
-        await bridge.request_approval(tool_name="shell", summary="shell: run it")
+        await bridge.request_approval(tool_name="shell", preview="Delete report.txt")
 
         hook = client.interactive_hooks()[0]
         self.assertEqual(hook["hook_event_name"], "PermissionRequest")
         self.assertNotIn("tool_name", hook)
-        self.assertIn("shell", hook["message"])
+        # The card renders `tool_input.command`, not `message` — both carry it,
+        # but only `command` is what the user actually sees.
+        self.assertEqual(hook["tool_input"]["command"], "Delete report.txt")
+        self.assertEqual(hook["message"], "Delete report.txt")
 
     async def test_permission_carries_cached_tool_use_id(self) -> None:
         client = _RecordingClient(interactive_response=self._directive({"behavior": "allow"}))
@@ -586,7 +589,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
             AgentEvent.tool_call_start("call-9", "shell", {"command": "rm -rf x"})
         )
         await _drain(bridge)
-        await bridge.request_approval(tool_name="shell", summary="shell: rm -rf x")
+        await bridge.request_approval(tool_name="shell", preview="Delete x")
 
         hook = client.interactive_hooks()[0]
         self.assertEqual(hook["tool_use_id"], "call-9")
@@ -596,7 +599,7 @@ class BridgeInteractiveTests(unittest.IsolatedAsyncioTestCase):
         bridge = _bridge(client)
 
         bridge.observe(AgentEvent.tool_call_start("call-1", "shell", {"command": "ls"}))
-        await bridge.request_approval(tool_name="shell", summary="shell: ls")
+        await bridge.request_approval(tool_name="shell", preview="List files")
 
         # The drain must have flushed PreToolUse before the interactive command.
         self.assertTrue(client.commands)

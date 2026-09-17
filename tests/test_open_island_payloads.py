@@ -382,22 +382,22 @@ class AttentionPayloadTests(unittest.TestCase):
 
     def test_permission_request_omits_tool_name(self) -> None:
         payload = payloads.permission_request(
-            "sid", "/tmp/p", summary="shell: run it"
+            "sid", "/tmp/p", preview="Delete report.txt"
         )
         self.assertEqual(payload["hook_event_name"], "PermissionRequest")
         # `tool_name` present is what renders "Always Allow" upstream.
         self.assertNotIn("tool_name", payload)
-        self.assertEqual(payload["message"], "shell: run it")
+        self.assertEqual(payload["message"], "Delete report.txt")
 
     def test_permission_request_carries_affected_path_and_call_id(self) -> None:
         payload = payloads.permission_request(
             "sid",
             "/tmp/p",
-            summary="edit: app.py",
+            preview="Edit app.py",
             affected_path="/tmp/p/app.py",
             tool_use_id="call-1",
         )
-        self.assertEqual(payload["tool_input"], {"file_path": "/tmp/p/app.py"})
+        self.assertEqual(payload["tool_input"]["file_path"], "/tmp/p/app.py")
         self.assertEqual(payload["tool_use_id"], "call-1")
 
     def test_question_request_requires_ask_user_question(self) -> None:
@@ -477,6 +477,123 @@ class AttentionPayloadTests(unittest.TestCase):
                 response, question="Which?", options=["A", "B"]
             )
         )
+
+
+class ApprovalPreviewTests(unittest.TestCase):
+    """The notch card's main line must read as an action, not a tool name."""
+
+    def test_shell_delete_uses_a_human_verb(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(
+                tool_name="shell", command="rm approval-test-scratch.txt"
+            ),
+            "Delete approval-test-scratch.txt",
+        )
+
+    def test_shell_verb_survives_flags_and_paths(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(
+                tool_name="shell", command="rm -rf /tmp/scratch/report.txt"
+            ),
+            "Delete report.txt",
+        )
+
+    def test_compound_command_previews_the_first_action(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(
+                tool_name="shell", command="mkdir out && cp a.txt out/"
+            ),
+            "Create folder out",
+        )
+
+    def test_git_subcommands_read_as_actions(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(tool_name="shell", command="git push origin main"),
+            "Push changes",
+        )
+
+    def test_unknown_shell_program_falls_back_to_the_command(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(tool_name="shell", command="pytest -q tests/"),
+            "pytest -q tests/",
+        )
+
+    def test_file_tool_preview_drops_the_tool_name_and_abs_path(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(
+                tool_name="write_file",
+                description="Create file: /Users/dev/project/report.txt",
+                affected_paths=["/Users/dev/project/report.txt"],
+            ),
+            "Create report.txt",
+        )
+
+    def test_edit_preview_is_natural(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(
+                tool_name="edit",
+                description="Edit file: /Users/dev/project/app.py",
+                affected_paths=["/Users/dev/project/app.py"],
+            ),
+            "Edit app.py",
+        )
+
+    def test_apply_patch_preview_needs_no_shortening(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(
+                tool_name="apply_patch",
+                description="Apply patch touching 3 file(s)",
+            ),
+            "Apply patch touching 3 file(s)",
+        )
+
+    def test_tool_name_is_only_a_last_resort(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(tool_name="write_file"), "Write file"
+        )
+
+    def test_mcp_tool_fallback_drops_the_protocol_prefix(self) -> None:
+        self.assertEqual(
+            payloads.approval_preview(tool_name="mcp__vercel__deploy"),
+            "Vercel deploy",
+        )
+
+    def test_a_real_preview_never_shows_the_tool_name(self) -> None:
+        for preview in (
+            payloads.approval_preview(
+                tool_name="write_file",
+                description="Create file: /a/report.txt",
+                affected_paths=["/a/report.txt"],
+            ),
+            payloads.approval_preview(tool_name="shell", command="rm /a/report.txt"),
+        ):
+            self.assertNotIn("write_file", preview)
+            self.assertNotIn("shell", preview)
+
+
+class PermissionRequestPayloadTests(unittest.TestCase):
+    """Permissions must drive the card text through `tool_input.command`."""
+
+    def test_preview_lands_on_the_rendered_key(self) -> None:
+        payload = payloads.permission_request(
+            "sid", "/tmp/p", preview="Delete report.txt"
+        )
+        # `message` alone is not enough: upstream renders the preview key.
+        self.assertEqual(payload["tool_input"]["command"], "Delete report.txt")
+        self.assertEqual(payload["message"], "Delete report.txt")
+
+    def test_affected_path_is_a_separate_dim_line(self) -> None:
+        payload = payloads.permission_request(
+            "sid",
+            "/tmp/p",
+            preview="Delete report.txt",
+            affected_path="/tmp/p/report.txt",
+        )
+        self.assertEqual(payload["tool_input"]["file_path"], "/tmp/p/report.txt")
+
+    def test_no_tool_input_when_nothing_to_show(self) -> None:
+        payload = payloads.permission_request("sid", "/tmp/p")
+        self.assertNotIn("tool_input", payload)
 
 
 if __name__ == "__main__":
