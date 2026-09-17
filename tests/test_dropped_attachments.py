@@ -136,6 +136,18 @@ class ParseDroppedFilePathsTests(unittest.TestCase):
         self.assertEqual(result.path_like_count, 1)
         self.assertTrue(result.errors)
 
+    def test_overlong_path_is_reported_not_raised(self) -> None:
+        # An unmatched apostrophe defeats shlex, so the whole line reaches the
+        # stat() path. Over NAME_MAX this used to raise ENAMETOOLONG.
+        long_prose = (
+            "/chat " + "some context about the session. " * 12
+            + "Don't just start writing code."
+        )
+        result = parse_dropped_file_paths(long_prose)
+        self.assertEqual(result.paths, [])
+        self.assertEqual(result.path_like_count, 1)
+        self.assertTrue(result.errors)
+
 
 class PromptAreaPasteInterceptionTests(unittest.TestCase):
     def _run_paste(self, text: str):
@@ -307,6 +319,14 @@ class RewriteTrailingDroppedPathTests(unittest.TestCase):
     def test_slash_command_is_left_alone(self) -> None:
         app = self._make_app()
         self.assertIsNone(app.rewrite("/help"))
+
+    def test_long_slash_prose_is_left_alone(self) -> None:
+        app = self._make_app()
+        message = (
+            "/chat " + "some context about the session. " * 12
+            + "Don't just start writing code."
+        )
+        self.assertIsNone(app.rewrite(message))
 
 
 if __name__ == "__main__":

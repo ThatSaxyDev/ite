@@ -460,11 +460,23 @@ def parse_dropped_file_paths(text: str) -> DroppedFilePaths:
         error: str | None = None
         for variant in dict.fromkeys(variants):
             expanded = Path(variant).expanduser()
-            if not expanded.exists():
+            try:
+                exists = expanded.exists()
+            except OSError:
+                # Tokens longer than NAME_MAX (and other stat failures) raise
+                # here; treat them as unresolvable rather than crashing.
+                exists = False
+            if not exists:
                 error = f"File not found: {expanded.name or variant}"
                 continue
-            if not expanded.is_file():
-                kind = "directory" if expanded.is_dir() else "file"
+            try:
+                is_file = expanded.is_file()
+                is_dir = not is_file and expanded.is_dir()
+            except OSError:
+                error = f"File not found: {expanded.name or variant}"
+                continue
+            if not is_file:
+                kind = "directory" if is_dir else "file"
                 error = f"Cannot attach {kind}: {expanded.name}"
                 break
             matched = expanded
