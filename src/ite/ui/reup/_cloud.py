@@ -504,6 +504,12 @@ class CloudMixin:
         if not result.auth.is_valid:
             self._set_account_plan_badge_state(None, unavailable=True)
             return
+        if not getattr(result, "metadata_available", True):
+            # A valid bearer token alone does not establish a Free plan. The
+            # account metadata request may have failed after authentication.
+            self._set_account_plan_badge_state(None, unavailable=True)
+            self._set_cloud_user_profile(result.user)
+            return
         entitlements = result.entitlements
         pro = bool(
             entitlements.get("proAccess")

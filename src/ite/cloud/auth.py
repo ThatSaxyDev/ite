@@ -122,6 +122,10 @@ class CloudEntitlementsResult:
     entitlements: dict[str, Any]
     auth: CloudAuthStatus
     user: dict[str, Any] | None = None
+    # ``auth.is_valid`` only means that the terminal credential was accepted.
+    # Keep the result of the metadata fetch separate: a failed or malformed
+    # /auth/me response must not be presented as a confirmed Free plan.
+    metadata_available: bool = True
 
 
 def _cloud_session_path() -> Path:
@@ -888,7 +892,9 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
 def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
     auth = get_cloud_auth_status(config)
     if not auth.is_valid:
-        return CloudEntitlementsResult(entitlements={}, auth=auth)
+        return CloudEntitlementsResult(
+            entitlements={}, auth=auth, metadata_available=False
+        )
 
     session = auth.session
     assert session is not None
@@ -904,29 +910,50 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
         )
     except CloudConnectionError:
         if cached_entitlements:
-            return CloudEntitlementsResult(entitlements=cached_entitlements, auth=auth)
-        return CloudEntitlementsResult(entitlements={}, auth=auth)
+            return CloudEntitlementsResult(
+                entitlements=cached_entitlements,
+                auth=auth,
+                metadata_available=True,
+            )
+        return CloudEntitlementsResult(
+            entitlements={}, auth=auth, metadata_available=False
+        )
     except CloudAuthError:
         if cached_entitlements:
-            return CloudEntitlementsResult(entitlements=cached_entitlements, auth=auth)
-        return CloudEntitlementsResult(entitlements={}, auth=auth)
+            return CloudEntitlementsResult(
+                entitlements=cached_entitlements,
+                auth=auth,
+                metadata_available=True,
+            )
+        return CloudEntitlementsResult(
+            entitlements={}, auth=auth, metadata_available=False
+        )
 
     if status != 200 or not payload.get("ok"):
         if cached_entitlements:
-            return CloudEntitlementsResult(entitlements=cached_entitlements, auth=auth)
-        return CloudEntitlementsResult(entitlements={}, auth=auth)
+            return CloudEntitlementsResult(
+                entitlements=cached_entitlements,
+                auth=auth,
+                metadata_available=True,
+            )
+        return CloudEntitlementsResult(
+            entitlements={}, auth=auth, metadata_available=False
+        )
 
     entitlements = payload.get("entitlements")
-    normalized_entitlements = entitlements if isinstance(entitlements, dict) else {}
+    entitlements_available = isinstance(entitlements, dict)
+    normalized_entitlements = entitlements if entitlements_available else {}
     user = payload.get("user") if isinstance(payload.get("user"), dict) else None
-    try:
-        _save_cloud_entitlements_cache(session, normalized_entitlements)
-    except Exception:
-        pass
+    if entitlements_available:
+        try:
+            _save_cloud_entitlements_cache(session, normalized_entitlements)
+        except Exception:
+            pass
     return CloudEntitlementsResult(
         entitlements=normalized_entitlements,
         auth=auth,
         user=user,
+        metadata_available=entitlements_available,
     )
 
 

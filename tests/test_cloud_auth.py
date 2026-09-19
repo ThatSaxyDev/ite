@@ -24,6 +24,7 @@ from ite.cloud.auth import (
     get_bundled_models,
     get_cloud_auth_status,
     get_cloud_entitlements,
+    get_cloud_entitlements_result,
     get_remote_companion_access_status,
     get_cloud_session,
     has_stored_cloud_auth,
@@ -250,6 +251,21 @@ class CloudAuthTests(unittest.TestCase):
             self.assertEqual(get_bundled_models(self.config), [])
             self.assertIsNone(get_usage_summary(self.config))
             self.assertIsNone(get_activity(self.config))
+
+    def test_entitlements_marks_metadata_unavailable_after_second_me_request_fails(self) -> None:
+        """A token check succeeding must not make a failed metadata fetch Free."""
+        with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
+            "ite.cloud.auth._get_json",
+            side_effect=[
+                (200, {"ok": True}),
+                (503, {"ok": False}),
+            ],
+        ):
+            result = get_cloud_entitlements_result(self.config)
+
+        self.assertTrue(result.auth.is_valid)
+        self.assertFalse(result.metadata_available)
+        self.assertEqual(result.entitlements, {})
 
     def test_get_bundled_models_preserves_availability_metadata(self) -> None:
         payload = {

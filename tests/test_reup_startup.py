@@ -962,6 +962,33 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_account_plan_badge_does_not_mark_free_when_metadata_is_unavailable(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            result = CloudEntitlementsResult(
+                entitlements={},
+                auth=CloudAuthStatus(
+                    state=CloudSessionState.VALID,
+                    session=object(),  # type: ignore[arg-type]
+                ),
+                metadata_available=False,
+            )
+
+            with (
+                patch(
+                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    return_value=result,
+                ),
+                patch.object(app, "refresh_header") as refresh_header,
+            ):
+                await app._refresh_account_plan_badge()
+
+            self.assertIsNone(app._account_plan_is_pro)
+            self.assertTrue(app._account_plan_unavailable)
+            refresh_header.assert_called_once()
+
+        asyncio.run(run_test())
+
     def test_account_plan_badge_preserves_known_state_on_network_error(self) -> None:
         async def run_test() -> None:
             app = self._app()

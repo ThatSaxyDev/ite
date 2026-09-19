@@ -254,6 +254,7 @@ class SettingsPanel(Widget):
             ):
                 yield Static(
                     "Unlock streaks and activity tracker by subscribing for the Pro plan.",
+                    id="settings-activity-locked-copy",
                     classes="settings-activity-locked-copy",
                 )
 
@@ -495,29 +496,38 @@ class SettingsPanel(Widget):
             ):
                 user = candidate
 
+        auth_valid = bool(
+            entitlements_result
+            and getattr(getattr(entitlements_result, "auth", None), "is_valid", False)
+        )
+        metadata_available = bool(
+            entitlements_result
+            and getattr(entitlements_result, "metadata_available", True)
+        )
+
         if user is not None:
             self._apply_account_profile(user)
         elif signed_out:
             self._apply_signed_out_profile()
             self._apply_usage_summary(None)
             return
+        elif not auth_valid or not metadata_available:
+            self._apply_unavailable_profile()
         else:
-            self._apply_account_profile({"name": "", "email": ""})
+            self._apply_account_profile(
+                {"name": "Account profile unavailable", "email": ""}
+            )
 
         # Plan state: prefer the app's cached flag, fall back to entitlements.
         pro = getattr(app, "_account_plan_is_pro", None)
-        if pro is None:
-            entitlements = (
-                getattr(entitlements_result, "entitlements", None)
-                if entitlements_result
-                else None
-            ) or {}
+        if pro is None and auth_valid and metadata_available:
+            entitlements = getattr(entitlements_result, "entitlements", None) or {}
             pro = bool(
                 entitlements.get("proAccess")
                 or entitlements.get("remoteCompanion")
                 or entitlements.get("bundledInference")
             )
-        self._apply_plan_state(bool(pro))
+        self._apply_plan_state(pro)
 
         summary = None
         try:
@@ -545,6 +555,14 @@ class SettingsPanel(Widget):
         self._account_action.display = True
         self._set_signed_in_sections_visible(False)
 
+    def _apply_unavailable_profile(self) -> None:
+        """Show an honest state while cloud metadata is unavailable."""
+        self._account_avatar.update("?")
+        self._account_name.update("Account details unavailable")
+        self._account_handle.update("Could not verify iTE Cloud account")
+        self._account_action.display = False
+        self._set_signed_in_sections_visible(True)
+
     def _set_signed_in_sections_visible(self, visible: bool) -> None:
         self.query_one("#settings-usage-title").display = visible
         self.query_one("#settings-usage-card").display = visible
@@ -558,21 +576,34 @@ class SettingsPanel(Widget):
             self.query_one("#settings-activity-panel").display = False
             self.query_one("#settings-activity-locked").display = False
 
-    def _apply_plan_state(self, pro: bool) -> None:
-        if pro:
+    def _apply_plan_state(self, pro: bool | None) -> None:
+        if pro is True:
             self._plan_name.update("Pro plan")
             self._plan_action.display = False
-        else:
+        elif pro is False:
             self._plan_name.update("Free plan")
             self._plan_action.display = True
+        else:
+            self._plan_name.update("Plan unavailable")
+            self._plan_action.display = False
         self._apply_activity_access(pro)
 
-    def _apply_activity_access(self, pro: bool) -> None:
+    def _apply_activity_access(self, pro: bool | None) -> None:
         """Show streaks/activity for Pro users, an upsell card otherwise."""
-        self.query_one("#settings-stats-row").display = pro
-        self.query_one("#settings-activity-title").display = pro
-        self.query_one("#settings-activity-panel").display = pro
-        self.query_one("#settings-activity-locked").display = not pro
+        is_pro = pro is True
+        self.query_one("#settings-stats-row").display = is_pro
+        self.query_one("#settings-activity-title").display = is_pro
+        self.query_one("#settings-activity-panel").display = is_pro
+        self.query_one("#settings-activity-locked").display = not is_pro
+        copy = self.query_one("#settings-activity-locked-copy", Static)
+        if pro is None:
+            copy.update(
+                "We couldn't verify your plan. Check your iTE Cloud connection and reopen Settings."
+            )
+        else:
+            copy.update(
+                "Unlock streaks and activity tracker by subscribing for the Pro plan."
+            )
 
     def _apply_usage_summary(self, summary: dict[str, object] | None) -> None:
         if not isinstance(summary, dict):
