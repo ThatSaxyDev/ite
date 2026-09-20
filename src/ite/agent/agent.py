@@ -133,6 +133,40 @@ class Agent:
             logger.debug("Open Island bridge unavailable: %s", exc)
             return None
 
+    async def set_open_island_enabled(self, enabled: bool) -> bool:
+        """Apply an Open Island preference change to this live agent.
+
+        The bridge is normally built once with the agent.  Settings and `/oi`
+        must take effect without making the user restart a session, so detach
+        the observer before closing and build a fresh bridge on enable.
+        """
+        self.config.integrations.open_island.enabled = enabled
+        if self.session is not None:
+            self.session.config.integrations.open_island.enabled = enabled
+
+        bridge = self._open_island_bridge
+        if not enabled:
+            if bridge is not None:
+                self._event_observers = [
+                    observer
+                    for observer in self._event_observers
+                    if observer != bridge.observe
+                ]
+                self._open_island_bridge = None
+                try:
+                    await bridge.aclose()
+                except Exception as exc:  # noqa: BLE001 - optional integration
+                    logger.debug("Open Island bridge close failed: %s", exc)
+            return False
+
+        if bridge is not None:
+            return bridge.enabled
+        self._open_island_bridge = self._build_open_island_bridge()
+        return bool(
+            self._open_island_bridge is not None
+            and self._open_island_bridge.enabled
+        )
+
     def _notify_event_observers(self, event: AgentEvent) -> None:
         """Fan an event out to observers. A failing observer is isolated."""
         for observer in self._event_observers:
@@ -2466,6 +2500,11 @@ class Agent:
         # leaked summary line, so this must not depend on the session object.
         bridge = self._open_island_bridge
         if bridge is not None:
+            self._event_observers = [
+                observer
+                for observer in self._event_observers
+                if observer != bridge.observe
+            ]
             try:
                 await bridge.aclose()
             except Exception as exc:  # noqa: BLE001 - teardown must never raise

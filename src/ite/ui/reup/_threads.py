@@ -203,6 +203,7 @@ class ThreadsMixin:
                 "cwd": resolved_workspace,
                 "model": self.config.model.model_copy(deep=True),
                 "voice": self.config.voice.model_copy(deep=True),
+                "integrations": self.config.integrations.model_copy(deep=True),
                 "api_key": self.config.api_key,
                 "base_url": self.config.base_url,
                 "cloud_auth_enabled": self.config.cloud_auth_enabled,

@@ -540,6 +540,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
         # /activity and /approval are alphabetically first
         self.assertIn(slash_only[0].name, ["/activity", "/approval"])
         self.assertIn("/publish", [entry.name for entry in slash_only])
+        self.assertIn("/oi", [entry.name for entry in slash_only])
         self.assertIn("/theme", [entry.name for entry in slash_only])
         self.assertEqual([entry.name for entry in filtered], ["/approval"])
         self.assertEqual(filtered[0].description, "Show or change approval mode")

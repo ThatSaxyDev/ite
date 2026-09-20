@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import webbrowser
 from datetime import date, datetime, timedelta
 
@@ -297,6 +298,30 @@ class SettingsPanel(Widget):
                     yield Vertical(id="settings-heatmap", classes="settings-heatmap")
                 yield Horizontal(classes="heat-legend")
 
+            # Open Island is device-local and therefore available regardless
+            # of the user's Cloud sign-in state.
+            yield Static(
+                "Open Island",
+                id="settings-open-island-title",
+                classes="settings-section-title",
+            )
+            with Container(
+                classes="settings-open-island-card",
+                id="settings-open-island-card",
+            ):
+                with Horizontal(classes="settings-open-island-row"):
+                    self._open_island_status = Static(
+                        "",
+                        classes="settings-open-island-copy",
+                    )
+                    yield self._open_island_status
+                    self._open_island_action = Button(
+                        "Turn on",
+                        id="settings-open-island-action",
+                        variant="default",
+                    )
+                    yield self._open_island_action
+
             # Sign out
             yield Static(
                 "Sign out",
@@ -321,6 +346,7 @@ class SettingsPanel(Widget):
     def on_mount(self) -> None:
         self._account_action.display = False
         self._populate_context()
+        self.refresh_open_island_state()
         self.run_worker(self._load_activity(), exclusive=True)
         self.run_worker(self._load_account(), exclusive=False)
 
@@ -328,6 +354,7 @@ class SettingsPanel(Widget):
         # The agent/session may not have been ready at mount time, and model
         # or approval can change while the panel is hidden. Refresh on open.
         self._populate_context()
+        self.refresh_open_island_state()
         self.run_worker(self._load_account(), exclusive=False)
         self.run_worker(self._load_activity(), exclusive=True)
 
@@ -362,6 +389,19 @@ class SettingsPanel(Widget):
         flow = getattr(self.app, "_run_cloud_login_flow", None)
         if callable(flow):
             self.app.run_worker(flow(), exclusive=False)
+
+    @on(Button.Pressed, "#settings-open-island-action")
+    async def _on_open_island_action_pressed(self, _event: Button.Pressed) -> None:
+        toggle = getattr(self.app, "_set_open_island_enabled", None)
+        if not callable(toggle):
+            return
+        enabled = bool(self.app.config.integrations.open_island.enabled)
+        self._open_island_action.disabled = True
+        try:
+            await toggle(not enabled)
+        finally:
+            self._open_island_action.disabled = False
+            self.refresh_open_island_state()
 
     @on(Button.Pressed, "#settings-signout")
     def _on_signout_pressed(self, _event: Button.Pressed) -> None:
@@ -413,6 +453,25 @@ class SettingsPanel(Widget):
         self._info_tools.update_value(self._format_capability_list(tool_names))
         self._info_agents.update_value(self._format_capability_list(agent_names))
         self._info_skills.update_value(self._format_capability_list(skill_names))
+
+    def refresh_open_island_state(self) -> None:
+        """Render the local Open Island preference and its single action."""
+        enabled = bool(self.app.config.integrations.open_island.enabled)
+        if enabled:
+            if sys.platform == "darwin":
+                self._open_island_status.update(
+                    "Notifications are on. iTE activity and approval requests can appear in Open Island."
+                )
+            else:
+                self._open_island_status.update(
+                    "Notifications are on. Open Island notifications are available on macOS only."
+                )
+            self._open_island_action.label = "Turn off"
+        else:
+            self._open_island_status.update(
+                "Notifications are off. Turn them on to mirror iTE activity in Open Island."
+            )
+            self._open_island_action.label = "Turn on"
 
     def _collect_capabilities(self) -> tuple[list[str], list[str], list[str]]:
         """Return (tools, agents, skills) names, preferring the live session."""

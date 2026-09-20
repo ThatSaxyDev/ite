@@ -841,6 +841,37 @@ def save_voice_settings(
     return config_path
 
 
+def save_open_island_settings(*, enabled: bool) -> Path:
+    """Persist the device-wide Open Island notification preference.
+
+    The bridge is local to the machine running iTE, so this intentionally
+    lives in the system config alongside other device-level preferences.  Any
+    existing socket-path override is retained.
+    """
+    config_dir = get_config_dir()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = get_system_config_path()
+
+    existing: dict[str, Any] = {}
+    if config_path.is_file():
+        try:
+            existing = _parse_toml(config_path)
+        except ConfigError:
+            existing = {}
+
+    integrations = dict(existing.get("integrations", {}) or {})
+    open_island = dict(integrations.get("open_island", {}) or {})
+    open_island["enabled"] = bool(enabled)
+    integrations["open_island"] = open_island
+    existing["integrations"] = integrations
+
+    lines = _render_system_config(existing)
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.chmod(config_path, 0o600)
+    logger.info("Saved Open Island settings to %s", config_path)
+    return config_path
+
+
 def _render_system_config(config: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     top_level_keys = [
@@ -901,6 +932,16 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
         lines.append("[voice]")
         for key, value in voice.items():
             lines.append(f"{key} = {_toml_value(value)}")
+
+    integrations = config.get("integrations")
+    if isinstance(integrations, dict):
+        open_island = integrations.get("open_island")
+        if isinstance(open_island, dict):
+            if lines:
+                lines.append("")
+            lines.append("[integrations.open_island]")
+            for key, value in open_island.items():
+                lines.append(f"{key} = {_toml_value(value)}")
 
     mcp_servers = config.get("mcp_servers")
     if isinstance(mcp_servers, dict):

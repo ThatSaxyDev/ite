@@ -39,7 +39,7 @@ from ite.cloud.services import generate_cloud_session_title
 from ite.commands import build_registry
 from ite.commands.aside import execute_aside, is_aside_command_text
 from ite.config.config import DEFAULT_CONTEXT_WINDOW, ApprovalPolicy, Config
-from ite.config.loader import get_workspace_agents_recommendation, load_config, load_saved_custom_provider, load_theme, remove_saved_custom_provider, save_cloud_settings, save_global_approval_mode, save_onboarding_settings, save_saved_custom_provider, save_system_config, save_theme, save_voice_settings
+from ite.config.loader import get_workspace_agents_recommendation, load_config, load_saved_custom_provider, load_theme, remove_saved_custom_provider, save_cloud_settings, save_global_approval_mode, save_onboarding_settings, save_open_island_settings, save_saved_custom_provider, save_system_config, save_theme, save_voice_settings
 from ite.git.branches import checkout_branch, create_and_checkout, current_branch, is_git_repo, list_local_branches
 from ite.git.remotes import upsert_remote
 from ite.git.working_tree import commit_changes, discard_all, discard_path, git_outbound_state, outbound_commit_subjects, push_current_branch, stage_all, stage_path, unstage_all, unstage_path, working_tree_change_set
@@ -934,6 +934,10 @@ class TurnMixin:
             await self._toggle_hooks_panel()
             return
 
+        if command == "/oi":
+            await self._run_open_island_command_native(args)
+            return
+
         if command == "/publish":
             await self._run_publish_command_native(args)
             return
@@ -1437,6 +1441,81 @@ class TurnMixin:
             f"Hooks {mode}",
             f"Hooks {mode.lower()} and saved to {saved_path.name}",
         )
+
+    async def _run_open_island_command_native(self, args: list[str]) -> None:
+        """Handle `/oi`, `/oi on`, and `/oi off` in the running UI."""
+        action = (args[0] if args else "status").strip().lower()
+        if action in {"status", "info"}:
+            self.post_notice("Open Island", self._open_island_status_text())
+            return
+        if action not in {"on", "off"}:
+            self.post_system(
+                "Open Island",
+                "Use `/oi`, `/oi on`, or `/oi off`.",
+                is_error=True,
+            )
+            return
+
+        enabled = action == "on"
+        await self._set_open_island_enabled(enabled)
+        if enabled:
+            self.post_notice("Open Island enabled", self._open_island_status_text())
+        else:
+            self.post_notice("Open Island disabled", self._open_island_status_text())
+
+    def _live_agents(self) -> list[Agent]:
+        """Return each active session agent once, including non-tabbed startup."""
+        candidates = list(self._session_agents.values())
+        if self.agent is not None:
+            candidates.append(self.agent)
+        seen: set[int] = set()
+        live: list[Agent] = []
+        for agent in candidates:
+            identity = id(agent)
+            if identity not in seen:
+                seen.add(identity)
+                live.append(agent)
+        return live
+
+    async def _set_open_island_enabled(self, enabled: bool) -> None:
+        """Persist the preference and update all live sessions immediately."""
+        await asyncio.to_thread(save_open_island_settings, enabled=enabled)
+        self.config.integrations.open_island.enabled = enabled
+
+        for agent in self._live_agents():
+            agent.config.integrations.open_island.enabled = enabled
+            session = getattr(agent, "session", None)
+            session_config = getattr(session, "config", None)
+            if session_config is not None:
+                session_config.integrations.open_island.enabled = enabled
+            await agent.set_open_island_enabled(enabled)
+
+        self._refresh_open_island_settings()
+
+    def _open_island_status_text(self) -> str:
+        if not self.config.integrations.open_island.enabled:
+            return "Notifications are off. Use `/oi on` to mirror iTE activity."
+        if sys.platform != "darwin":
+            return "Notifications are on, but Open Island is available on macOS only."
+        connected = sum(
+            1
+            for agent in self._live_agents()
+            if getattr(getattr(agent, "open_island_bridge", None), "enabled", False)
+        )
+        if connected:
+            plural = "session" if connected == 1 else "sessions"
+            return f"Notifications are on for {connected} active {plural}."
+        return "Notifications are on and will connect when a session starts."
+
+    def _refresh_open_island_settings(self) -> None:
+        """Refresh the mounted Settings control after a slash-command change."""
+        try:
+            panel = self.query_one("#settings-panel")
+        except NoMatches:
+            return
+        refresh = getattr(panel, "refresh_open_island_state", None)
+        if callable(refresh):
+            refresh()
 
 
     async def _run_workboard_command_native(
@@ -2558,4 +2637,3 @@ class TurnMixin:
         await self._clear_inflight_turn_ui(preserve_streaming_message=True)
         self._set_loading_state("idle", busy=False)
         await self._broadcast_remote_state()
-

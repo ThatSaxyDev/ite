@@ -3231,6 +3231,32 @@ ActivityModal .usage-summary-body {
     content-align: center middle;
 }
 
+#settings-panel .settings-open-island-card {
+    height: auto;
+    padding: 1 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-open-island-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-open-island-copy {
+    height: auto;
+    width: 1fr;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel #settings-open-island-action {
+    width: 16;
+    min-width: 16;
+    margin-left: 1;
+}
+
 #settings-panel .settings-signout-card {
     height: auto;
     padding: 1 1;
