@@ -818,7 +818,12 @@ def _cloud_payload_message(payload: dict[str, Any]) -> str:
 
 
 def get_bundled_models_result(config: Config) -> BundledModelsResult:
-    auth = get_bundled_access_status(config)
+    # The server filters this catalog for the signed-in account. In particular,
+    # a Free account may receive models explicitly made available to it, even
+    # though it does not have the account-wide Pro entitlement. Still fetch
+    # account metadata here so the runtime can keep its plan state current.
+    entitlement_result = get_cloud_entitlements_result(config)
+    auth = entitlement_result.auth
     if not auth.is_valid:
         return BundledModelsResult(models=[], auth=auth, message=auth.message)
 

@@ -361,7 +361,7 @@ class CloudAuthTests(unittest.TestCase):
         self.assertEqual(status.state, CloudSessionState.NO_ENTITLEMENT)
         self.assertIn("iTE Pro", status.message)
 
-    def test_bundled_models_require_bundled_entitlement_before_listing(self) -> None:
+    def test_bundled_models_are_listed_without_a_pro_entitlement(self) -> None:
         with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
             "ite.cloud.auth._get_json",
             side_effect=[
@@ -373,12 +373,25 @@ class CloudAuthTests(unittest.TestCase):
                         "entitlements": {"bundledInference": False},
                     },
                 ),
+                (
+                    200,
+                    {
+                        "ok": True,
+                        "models": [
+                            {
+                                "modelName": "minimax/minimax-m2.5:free",
+                                "label": "MiniMax M2.5 (free)",
+                                "available": True,
+                            }
+                        ],
+                    },
+                ),
             ],
         ) as get_json:
             models = get_bundled_models(self.config)
 
-        self.assertEqual(models, [])
-        self.assertEqual(get_json.call_count, 2)
+        self.assertEqual([model["model_name"] for model in models], ["minimax/minimax-m2.5:free"])
+        self.assertEqual(get_json.call_count, 3)
 
     def test_remote_companion_access_falls_back_to_bundled_entitlement(self) -> None:
         with patch("ite.cloud.auth._load_cloud_session", return_value=self.session), patch(
