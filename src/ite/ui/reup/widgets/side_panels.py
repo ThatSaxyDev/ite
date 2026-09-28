@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from textual.app import ComposeResult
-from textual.containers import Horizontal, ScrollableContainer, Vertical
 from textual import events
+from textual.app import ComposeResult
+from textual.containers import Horizontal, ScrollableContainer, Vertical, VerticalScroll
+from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Button, DataTable, Static
+from textual.widgets import Button, DataTable, Static, TextArea
 
 from ..change_tree import ChangedFilesTree
 
@@ -63,6 +64,170 @@ class HooksSidePanel(Widget):
             return
         event.stop()
         self.app.run_worker(self.app._hide_hooks_panel(), exclusive=False)
+
+
+class GoalSidePanel(Widget):
+    """Right-side, click-first lifecycle surface for the current goal."""
+
+    ALLOW_MAXIMIZE = False
+
+    class CloseRequested(Message):
+        pass
+
+    class PauseRequested(Message):
+        pass
+
+    class ResumeRequested(Message):
+        pass
+
+    class EditRequested(Message):
+        pass
+
+    class EditSaved(Message):
+        def __init__(self, objective: str) -> None:
+            self.objective = objective
+            super().__init__()
+
+    class ClearRequested(Message):
+        pass
+
+    def __init__(
+        self,
+        *,
+        goal: dict[str, object] | None,
+        id: str | None = None,
+        classes: str | None = None,
+    ) -> None:
+        super().__init__(id=id, classes=classes)
+        self._goal = dict(goal or {})
+        self._editing = False
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(classes="goal-panel-header"):
+            yield Static("Goal", classes="goal-panel-title")
+            yield Static("", id="goal-panel-status", classes="goal-panel-status")
+            yield Button("Close", id="goal-panel-close", classes="goal-panel-close")
+        with ScrollableContainer(id="goal-panel-body", classes="goal-panel-body"):
+            yield Static("", id="goal-panel-objective", classes="goal-panel-objective")
+            yield Static("", id="goal-panel-detail", classes="goal-panel-detail")
+            with Horizontal(id="goal-panel-actions", classes="goal-panel-actions"):
+                yield Button("Pause", id="goal-panel-pause", variant="primary")
+                yield Button("Edit", id="goal-panel-edit", variant="default")
+                yield Button("Clear", id="goal-panel-clear", variant="error")
+            yield Static("", id="goal-panel-metrics", classes="goal-panel-metrics")
+            yield Static("Todos", classes="goal-panel-section-title")
+            yield Static("", id="goal-panel-todos", classes="goal-panel-todos")
+            yield Static("Activity", classes="goal-panel-section-title")
+            yield Static("", id="goal-panel-events", classes="goal-panel-events")
+        with Vertical(id="goal-panel-editor", classes="goal-panel-editor"):
+            yield Static("Edit goal", classes="goal-panel-section-title")
+            yield TextArea(id="goal-panel-editor-input")
+            with Horizontal(classes="goal-panel-actions"):
+                yield Button("Save", id="goal-panel-save", variant="primary")
+                yield Button("Cancel", id="goal-panel-cancel", variant="default")
+
+    def on_mount(self) -> None:
+        self._render_goal()
+
+    def update_goal(self, goal: dict[str, object] | None) -> None:
+        self._goal = dict(goal or {})
+        self._render_goal()
+
+    def begin_edit(self) -> None:
+        self._editing = True
+        self._render_goal()
+        self.query_one("#goal-panel-editor-input", TextArea).focus()
+
+    def finish_edit(self) -> None:
+        self._editing = False
+        self._render_goal()
+
+    def _render_goal(self) -> None:
+        goal = self._goal
+        status = str(goal.get("status") or "paused")
+        metrics = goal.get("metrics") if isinstance(goal.get("metrics"), dict) else {}
+        objective = str(goal.get("objective") or "No active goal.")
+        elapsed = int(float(metrics.get("active_elapsed_seconds", 0) or 0))
+        work_elapsed = int(float(metrics.get("work_elapsed_seconds", 0) or 0))
+        minutes, seconds = divmod(elapsed, 60)
+        status_label = f"{status.replace('_', ' ')} • {minutes}m {seconds:02d}s"
+        self.query_one("#goal-panel-status", Static).update(status_label)
+        self.query_one("#goal-panel-objective", Static).update(objective)
+
+        detail = (
+            str(goal.get("blocker"))
+            if goal.get("blocker")
+            else "Usage limit reached. Change provider or resume after it resets."
+            if status == "budget_limited"
+            else "Working toward the objective."
+            if status == "active"
+            else "Paused. Resume when you are ready."
+        )
+        self.query_one("#goal-panel-detail", Static).update(detail)
+        self.query_one("#goal-panel-metrics", Static).update(
+            " · ".join(
+                (
+                    f"work {work_elapsed // 60}m",
+                    f"rounds {metrics.get('model_rounds', 0)}",
+                    "tools "
+                    f"{metrics.get('tool_calls_succeeded', 0)}/"
+                    f"{metrics.get('tool_calls_failed', 0)}",
+                    "verify "
+                    f"{metrics.get('verification_passes', 0)}/"
+                    f"{metrics.get('verification_attempts', 0)}",
+                )
+            )
+        )
+        self.query_one("#goal-panel-todos", Static).update(
+            str(goal.get("todos") or "No execution todos yet.")
+        )
+        events = goal.get("events") if isinstance(goal.get("events"), list) else []
+        self.query_one("#goal-panel-events", Static).update(
+            "\n".join(
+                f"• {event.get('summary') or ''!s}"
+                for event in events[-8:]
+                if isinstance(event, dict)
+            )
+            or "No goal activity recorded yet."
+        )
+
+        primary = self.query_one("#goal-panel-pause", Button)
+        primary.label = "Pause" if status == "active" else "Resume"
+        primary.display = status != "completed"
+        self.query_one("#goal-panel-edit", Button).display = status != "completed"
+        body = self.query_one("#goal-panel-body", ScrollableContainer)
+        editor = self.query_one("#goal-panel-editor", Vertical)
+        body.display = not self._editing
+        editor.display = self._editing
+        if self._editing:
+            editor_input = self.query_one("#goal-panel-editor-input", TextArea)
+            if not editor_input.text:
+                editor_input.text = objective
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        event.stop()
+        button_id = event.button.id
+        if button_id == "goal-panel-close":
+            self.post_message(self.CloseRequested())
+        elif button_id == "goal-panel-pause":
+            if str(self._goal.get("status")) == "active":
+                self.post_message(self.PauseRequested())
+            else:
+                self.post_message(self.ResumeRequested())
+        elif button_id == "goal-panel-edit":
+            self.post_message(self.EditRequested())
+        elif button_id == "goal-panel-save":
+            objective = self.query_one(
+                "#goal-panel-editor-input", TextArea
+            ).text
+            self.post_message(
+                self.EditSaved(objective)
+            )
+        elif button_id == "goal-panel-cancel":
+            self._editing = False
+            self._render_goal()
+        elif button_id == "goal-panel-clear":
+            self.post_message(self.ClearRequested())
 
 
 class ChangeReviewSidePanel(Widget):

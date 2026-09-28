@@ -1,9 +1,29 @@
 # Goal Mode Implementation Plan
 
-**Status:** Proposed implementation plan  
+**Status:** MVP implemented locally; ready for broader integration QA
 **Owner:** iTE runtime / Reup  
 **Scope:** Persistent, evidence-driven `/goal` mode for a single iTE session (thread)  
 **Last reviewed:** 2026-09-28
+
+## Delivery status
+
+The current implementation covers the durable, single-thread Goal-mode MVP:
+
+- `GoalState`, the bounded event ledger, elapsed/work metrics, goal history, and
+  backwards-compatible session snapshots;
+- `/goal`, `/goal pause`, `/goal resume`, `/goal edit`, and `/goal clear`;
+- the same lifecycle controls from the right-side Reup Goal panel, including
+  safe turn cancellation and clear confirmation;
+- a live top-bar Goal badge and count-up timer;
+- goal-aware model context, evidence-backed completion/blocker reporting, safe
+  idle-boundary continuation, and removal of the active-goal `max_turns` cap;
+- a definitive bundled-usage stop that leaves the goal resumable; and
+- focused persistence, tool, and mounted-panel tests.
+
+The remaining post-MVP work is broader interaction QA: narrow-terminal panel
+fallback, richer automatic file/verification accounting, and exercising real
+provider quota payloads end-to-end. Those are refinements, not prerequisites
+for the lifecycle contract described below.
 
 ## 1. Outcome
 
@@ -90,7 +110,7 @@ Badge states:
 | paused | `Goal • paused` in muted color. |
 | blocked | `Goal • needs input` in warning color. |
 | budget_limited | `Goal • usage limit` in warning/error color. |
-| completed | Do not occupy the permanent header slot; show a short completion notice with a `View goal` action, and retain it in Goal details. |
+| completed | `Goal • complete` in muted color; it remains a compact entry point to inspect or clear the completed goal. |
 
 Do not put the full objective or lifecycle buttons in the header. The top bar is status, not a toolbar: it must stay slim, preserve workspace metadata, and act only as the persistent entry point to the panel. Use a compact `#goal-toggle` `Button` styled as an inline status token—transparent, borderless, content-width, one row high—rather than a large header button. This retains mouse and keyboard activation without adding heavy chrome.
 

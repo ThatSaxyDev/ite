@@ -14,6 +14,9 @@ class SessionRunState:
     is_turn_running: bool = False
     turn_had_error: bool = False
     turn_made_progress: bool = False
+    goal_pause_requested: bool = False
+    goal_turn_started_at_monotonic: float | None = None
+    goal_turn_had_tool_progress: bool = False
     context_meter_floor_pct: int | None = None
     auto_resume_payload: dict[str, Any] | None = None
     failure_recovery_payload: dict[str, Any] | None = None

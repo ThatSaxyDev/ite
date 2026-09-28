@@ -535,6 +535,39 @@ class ThreadsMixin:
         self.set_settings_active(True)
 
 
+    def _refresh_goal_toggle(self) -> None:
+        try:
+            goal_toggle = self.query_one("#goal-toggle", Button)
+        except NoMatches:
+            return
+        session = self.agent.session if self.agent and self.agent.session else None
+        goal = getattr(session, "goal_state", None)
+        goal_toggle.display = (not self._cloud_signed_out) and goal is not None
+        if goal is None:
+            return
+        status = str(getattr(goal.status, "value", goal.status))
+        elapsed = int(goal.active_elapsed_seconds())
+        minutes, seconds = divmod(elapsed, 60)
+        if status == "active":
+            goal_toggle.label = f"Goal • {minutes}m {seconds:02d}s"
+        elif status == "blocked":
+            goal_toggle.label = "Goal • needs input"
+        elif status == "budget_limited":
+            goal_toggle.label = "Goal • usage limit"
+        elif status == "completed":
+            goal_toggle.label = "Goal • complete"
+        else:
+            goal_toggle.label = "Goal • paused"
+        for state in (
+            "active",
+            "paused",
+            "blocked",
+            "budget_limited",
+            "completed",
+        ):
+            goal_toggle.set_class(status == state, f"goal-{state}")
+
+
     def refresh_header(self, *, refresh_session_tabs: bool = True) -> None:
         current_workspace_key = str(Path(self.config.cwd).resolve())
         if (
@@ -556,6 +589,7 @@ class ThreadsMixin:
             plan_badge.update(self._plan_badge_renderable())
             cwd_name = os.path.basename(self.config.cwd) or self.config.cwd
             meta.update(f"WORKSPACE: {cwd_name}")
+        self._refresh_goal_toggle()
         self._update_composer_meta_line()
         self.run_worker(self._refresh_change_review_source(), exclusive=False)
         if refresh_session_tabs:

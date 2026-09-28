@@ -17,6 +17,7 @@ from ite.hooks.hook_system import HookSystem
 from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
 from ite.memory.session_memory import SessionMemoryManager
 from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.goal_outcome import GoalOutcomeTool
 from ite.tools.builtin.skills import SkillsTool
 from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
@@ -26,6 +27,7 @@ from ite.tools.builtin.subagent_runtime_tools import SubagentMetricsTool
 from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
+from ite.agent.goal import GoalState, GoalStatus
 from ite.agent.subagent_runtime import SubagentRuntime
 from ite.skills import SkillDefinition
 from ite.skills import SkillManager
@@ -74,6 +76,7 @@ class Session:
         self.skill_manager = SkillManager(self.config.cwd, trust_manager=self.skill_trust_manager)
         self.active_skill_refs: list[str] = []
         self._sync_memory_tool_session()
+        self._sync_goal_outcome_tool_session()
         self._sync_skills_tool_session()
         self.subagent_runtime = SubagentRuntime(
             config=self.config,
@@ -112,6 +115,8 @@ class Session:
         self.show_planning_todos: bool = False
         self.planning_seed_ids: list[str] = []
         self.execution_seed_ids: list[str] = []
+        self.goal_state: GoalState | None = None
+        self.goal_history: list[dict[str, Any]] = []
         self.pending_attachment_paths: list[str] = []
         self.change_history = ChangeHistory(self.config.cwd)
         self.runtime_status = RuntimeStatus()
@@ -181,6 +186,7 @@ class Session:
             session_memory_provider=self._load_session_memory,
             compact_artifact_provider=self._load_compact_artifact,
             skill_provider=self._load_skill_context,
+            goal_provider=self.export_goal_state,
         )
         self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
@@ -232,6 +238,7 @@ class Session:
         self.memory_manager.set_session_id(session_id)
         self.session_memory_manager.set_session_id(session_id)
         self._sync_memory_tool_session()
+        self._sync_goal_outcome_tool_session()
         self._sync_skills_tool_session()
         self.subagent_runtime.session_id = session_id
         self._sync_subagent_runtime_tools()
@@ -284,6 +291,11 @@ class Session:
         tool = self.tool_registry.get("memory")
         if isinstance(tool, MemoryTool):
             tool.set_session_id(self.session_id)
+
+    def _sync_goal_outcome_tool_session(self) -> None:
+        tool = self.tool_registry.get("goal_outcome")
+        if isinstance(tool, GoalOutcomeTool):
+            tool.set_session(self)
 
     def _sync_skills_tool_session(self) -> None:
         tool = self.tool_registry.get("skills")
@@ -539,12 +551,104 @@ class Session:
             "active_skills": list(self.active_skill_refs),
             "todos_state": self.export_todos_state(),
             "show_planning_todos": self.show_planning_todos,
+            "goal_state": self.export_goal_state(),
+            "goal_history": list(self.goal_history),
             "change_history_state": self.export_change_history_state(),
             "subagent_runtime_state": self.export_subagent_runtime_state(),
         }
 
     def export_subagent_runtime_state(self) -> dict[str, Any]:
         return self.subagent_runtime.export_state()
+
+    def export_goal_state(self) -> dict[str, Any] | None:
+        if self.goal_state is None:
+            return None
+        return self.goal_state.to_dict()
+
+    def restore_goal_state(
+        self,
+        state: dict[str, Any] | None,
+        history: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.goal_history = [
+            dict(entry) for entry in (history or []) if isinstance(entry, dict)
+        ]
+        if not isinstance(state, dict):
+            self.goal_state = None
+            return
+        goal = GoalState.from_dict(state)
+        if goal.status is GoalStatus.ACTIVE:
+            # A persisted active interval may have been serialized while iTE was
+            # shutting down. Its accumulated value is already in the snapshot;
+            # never count downtime after restoration as autonomous work.
+            goal.status = GoalStatus.PAUSED
+            goal.active_started_at = None
+            goal.add_event(
+                "paused",
+                "Goal restored as paused after iTE was not running.",
+            )
+        self.goal_state = goal
+
+    def create_goal(self, objective: str) -> GoalState:
+        if self.goal_state is not None:
+            raise ValueError("A goal already exists for this thread.")
+        self.goal_state = GoalState.create(objective)
+        return self.goal_state
+
+    def pause_goal(self, *, reason: str = "Paused by user.") -> GoalState:
+        goal = self._require_goal()
+        goal.pause(reason=reason)
+        return goal
+
+    def resume_goal(self) -> GoalState:
+        goal = self._require_goal()
+        goal.resume()
+        return goal
+
+    def edit_goal(self, objective: str) -> GoalState:
+        goal = self._require_goal()
+        goal.edit(objective)
+        return goal
+
+    def block_goal(self, blocker: str) -> GoalState:
+        goal = self._require_goal()
+        goal.block(blocker)
+        return goal
+
+    def limit_goal_budget(self, details: dict[str, Any]) -> GoalState:
+        goal = self._require_goal()
+        goal.limit_budget(details)
+        return goal
+
+    def record_goal_evidence(
+        self, summary: str, *, evidence: dict[str, Any] | None = None
+    ) -> GoalState:
+        goal = self._require_goal()
+        goal.record_evidence(summary, evidence=evidence)
+        return goal
+
+    def complete_goal(
+        self, summary: str, *, evidence: dict[str, Any] | None = None
+    ) -> GoalState:
+        goal = self._require_goal()
+        goal.complete(summary, evidence=evidence)
+        return goal
+
+    def clear_goal(self) -> dict[str, Any]:
+        goal = self._require_goal()
+        if goal.status is GoalStatus.ACTIVE:
+            goal.pause(reason="Goal cleared by user.")
+        snapshot = goal.to_dict()
+        snapshot["cleared_at"] = datetime.now().astimezone().isoformat()
+        self.goal_history.append(snapshot)
+        self.goal_history = self.goal_history[-20:]
+        self.goal_state = None
+        return snapshot
+
+    def _require_goal(self) -> GoalState:
+        if self.goal_state is None:
+            raise ValueError("This thread has no goal.")
+        return self.goal_state
 
     def restore_subagent_runtime_state(self, state: dict[str, Any] | None) -> None:
         self.subagent_runtime.restore_state(state)

@@ -62,7 +62,12 @@ from .adapters.registry import StreamingCommandOutput, build_command_context
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
 from .widgets.state import SessionRunState, ShellSessionCardState
-from .widgets.side_panels import CommandsSidePanel, HooksSidePanel, ChangeReviewSidePanel
+from .widgets.side_panels import (
+    ChangeReviewSidePanel,
+    CommandsSidePanel,
+    GoalSidePanel,
+    HooksSidePanel,
+)
 from .widgets.thread_switcher import ThreadSwitcherRow, ThreadSwitcherSidePanel
 from .widgets.tool_cards import CompactToolCard, ShellToolCard, ToolCardStack
 from .widgets.remote_bridge import RemoteBridgeCard, RemoteBridgeField, UpdateCommandBox
@@ -228,6 +233,7 @@ class TurnMixin:
                 if session
                 else False,
                 "plan_phase": str(session.plan_phase) if session else "idle",
+                "goal": session.export_goal_state() if session else None,
                 "active_turn_id": int(run_state.active_turn_id),
                 "is_turn_running": bool(run_state.is_turn_running),
                 "activity_label": str(self._top_state_text or ""),
@@ -723,6 +729,7 @@ class TurnMixin:
         if hasattr(resumed, "restore_active_skills"):
             resumed.restore_active_skills(snapshot.active_skills)
         resumed.restore_todos_state(snapshot.todos_state)
+        resumed.restore_goal_state(snapshot.goal_state, snapshot.goal_history)
         resumed.restore_change_history_state(snapshot.change_history_state)
         if hasattr(resumed, "restore_subagent_runtime_state"):
             resumed.restore_subagent_runtime_state(snapshot.subagent_runtime_state)
@@ -910,6 +917,10 @@ class TurnMixin:
 
         if command == "/plan":
             await self._run_plan_command_native(args)
+            return
+
+        if command == "/goal":
+            await self._run_goal_command_native(args)
             return
 
         if command == "/workboard":
@@ -1403,6 +1414,83 @@ class TurnMixin:
         await self._broadcast_remote_state()
 
 
+    async def _run_goal_command_native(self, args: list[str]) -> None:
+        await self.ensure_agent()
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None:
+            self.post_system("Goal", "No active session.", is_error=True)
+            return
+
+        if not args:
+            if session.goal_state is None:
+                self.post_system(
+                    "Goal",
+                    "No goal is active. Use `/goal <objective>` to start one.",
+                )
+                return
+            await self._show_goal_panel()
+            return
+
+        action = args[0].lower()
+        if action == "pause" and len(args) == 1:
+            await self._pause_goal_from_ui()
+            return
+        if action == "resume" and len(args) == 1:
+            if await self._resume_goal_from_ui():
+                self.post_notice("Goal", "Goal resumed.")
+            return
+        if action == "clear" and len(args) == 1:
+            await self._clear_goal_from_ui()
+            return
+        if action == "edit":
+            objective = " ".join(args[1:]).strip()
+            if not objective:
+                self.post_system("Goal", "Use `/goal edit <objective>`.", is_error=True)
+                return
+            if not await self._pause_goal_from_ui(reason="Paused to edit the goal."):
+                return
+            try:
+                session.edit_goal(objective)
+            except ValueError as exc:
+                self.post_system("Goal", str(exc), is_error=True)
+                return
+            await self._persist_goal_state()
+            await self._refresh_goal_surfaces()
+            self.post_notice("Goal", "Goal updated and paused. Use `/goal resume` to continue.")
+            return
+
+        if session.goal_state is not None:
+            self.post_system(
+                "Goal",
+                "A goal already exists. Use `/goal edit` or `/goal clear`.",
+                is_error=True,
+            )
+            return
+
+        objective = " ".join(args).strip()
+        try:
+            session.create_goal(objective)
+        except ValueError as exc:
+            self.post_system("Goal", str(exc), is_error=True)
+            return
+        await self._persist_goal_state()
+        await self._refresh_goal_surfaces()
+        await self._show_goal_panel()
+        self.post_notice("Goal", "Goal created. Starting work.")
+        await self._dispatch_payload(
+            {
+                "message": (
+                    "Work toward the active goal below. Use the available tools to "
+                    "make concrete progress and verify the result before claiming it is done.\n\n"
+                    f"Goal: {objective}"
+                ),
+                "display_message": "",
+                "attachments": [],
+                "suppress_user_echo": True,
+            }
+        )
+
+
     async def _run_hooks_command_native(self, args: list[str]) -> None:
         """Handle /hooks on|off - persist and notify, don't open panel."""
         arg = args[0].lower()
@@ -1810,6 +1898,7 @@ class TurnMixin:
             self._last_rendered_plan_text = None
         run_state.turn_had_error = False
         run_state.turn_made_progress = False
+        run_state.goal_turn_had_tool_progress = False
         run_state.last_error_message = None
         run_state.retryable_turn_payload = None
         if not suppress_user_echo:
@@ -1867,6 +1956,9 @@ class TurnMixin:
             )
         )
         run_state.is_turn_running = True
+        goal = getattr(active_agent.session, "goal_state", None)
+        if goal is not None and goal.status.value == "active":
+            run_state.goal_turn_started_at_monotonic = time.monotonic()
         self._cancel_usage_idle_poll()
         if self._active_session_id() == session_id:
             self._send_meta_frame = 0
@@ -1880,6 +1972,7 @@ class TurnMixin:
 
         try:
             await run_state.active_turn_task
+            self._settle_goal_turn_work(session_id)
             run_state.active_turn_task = None
             run_state.is_turn_running = False
             if self._active_session_id() == session_id:
@@ -1905,6 +1998,7 @@ class TurnMixin:
             await self._broadcast_remote_state()
             completed_normally = not run_state.turn_had_error
         except asyncio.CancelledError:
+            self._settle_goal_turn_work(session_id)
             if self._active_session_id() == session_id:
                 run_state.active_turn_task = None
                 run_state.is_turn_running = False
@@ -1916,6 +2010,7 @@ class TurnMixin:
                 await self._broadcast_remote_state()
             return
         finally:
+            self._settle_goal_turn_work(session_id)
             run_state.active_turn_task = None
             run_state.is_turn_running = False
             if self._active_session_id() == session_id:
@@ -1943,6 +2038,7 @@ class TurnMixin:
             if not self._cloud_signed_out:
                 self._prefetch_cloud_caches()
             run_state.failure_recovery_payload = None
+            await self._queue_goal_continuation_if_ready(session_id)
             await self._dispatch_queued_payload_if_ready()
         elif (
             self._active_session_id() == session_id
@@ -2004,6 +2100,109 @@ class TurnMixin:
                 ).cleanup_turn(attachment_turn_id)
 
 
+    def _goal_session_for_id(self, session_id: str) -> Session | None:
+        session = self._open_sessions.get(session_id)
+        if session is not None:
+            return session
+        if self.agent and self.agent.session and self.agent.session.session_id == session_id:
+            return self.agent.session
+        return None
+
+
+    def _settle_goal_turn_work(self, session_id: str) -> None:
+        run_state = self._run_state(session_id)
+        started_at = run_state.goal_turn_started_at_monotonic
+        run_state.goal_turn_started_at_monotonic = None
+        if started_at is None:
+            return
+        session = self._goal_session_for_id(session_id)
+        goal = getattr(session, "goal_state", None)
+        if goal is None:
+            return
+        goal.metrics.work_elapsed_seconds += max(0.0, time.monotonic() - started_at)
+
+
+    def _record_goal_event_metrics(self, session_id: str, event: AgentEvent) -> None:
+        session = self._goal_session_for_id(session_id)
+        goal = getattr(session, "goal_state", None)
+        if goal is None:
+            return
+        if event.type == AgentEventType.TEXT_COMPLETE and event.data.get("final", True):
+            goal.metrics.model_rounds += 1
+        elif event.type == AgentEventType.TOOL_CALL_START:
+            goal.metrics.tool_calls_started += 1
+        elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+            if event.data.get("success", False):
+                goal.metrics.tool_calls_succeeded += 1
+                self._run_state(session_id).goal_turn_had_tool_progress = True
+            else:
+                goal.metrics.tool_calls_failed += 1
+
+    def _goal_usage_limit_details(self, error_message: str) -> dict[str, Any] | None:
+        """Recognize a definitive provider-quota stop, not transient throttling."""
+        normalized = str(error_message or "").lower()
+        quota_markers = (
+            "quota_exhausted",
+            "request_blocked_quota",
+            "bundled usage is unavailable",
+            "usage limit exhausted",
+            "usage quota exceeded",
+            "insufficient credits",
+        )
+        if not any(marker in normalized for marker in quota_markers):
+            return None
+        return {"reason": str(error_message).strip(), "provider": "current"}
+
+    async def _limit_goal_for_usage_error(
+        self, session_id: str, error_message: str
+    ) -> bool:
+        details = self._goal_usage_limit_details(error_message)
+        if details is None:
+            return False
+        session = self._goal_session_for_id(session_id)
+        goal = getattr(session, "goal_state", None)
+        if goal is None or goal.status.value != "active":
+            return False
+        session.limit_goal_budget(details)
+        await self._persist_goal_state()
+        await self._refresh_goal_surfaces()
+        return True
+
+    async def _queue_goal_continuation_if_ready(self, session_id: str) -> None:
+        session = self._goal_session_for_id(session_id)
+        goal = getattr(session, "goal_state", None)
+        run_state = self._run_state(session_id)
+        if (
+            goal is None
+            or goal.status.value != "active"
+            or run_state.goal_pause_requested
+            or run_state.is_turn_running
+            or run_state.auto_resume_payload is not None
+            or run_state.failure_recovery_payload is not None
+            or self._queued_turn_payload is not None
+        ):
+            return
+        if not run_state.goal_turn_had_tool_progress:
+            session.block_goal(
+                "iTE stopped without a successful tool result. Review the latest "
+                "response and resume when there is a concrete next action."
+            )
+            await self._persist_goal_state()
+            await self._refresh_goal_surfaces()
+            return
+        goal.metrics.continuation_count += 1
+        self._queued_turn_payload = {
+            "message": (
+                "Continue the active goal. Take the next highest-value scoped "
+                "action, verify progress, and use goal_outcome to record evidence, "
+                "a blocker, or completion."
+            ),
+            "display_message": "",
+            "attachments": [],
+            "suppress_user_echo": True,
+        }
+
+
     async def handle_agent_event(
         self, event: AgentEvent, session_id: str, turn_id: int
     ) -> None:
@@ -2011,6 +2210,7 @@ class TurnMixin:
         if turn_id != run_state.active_turn_id:
             return
         await self._broadcast_remote_agent_event(session_id, turn_id, event)
+        self._record_goal_event_metrics(session_id, event)
         if self._telegram_service is not None and self._telegram_service.running:
             self._telegram_service.set_plan_only(self._is_plan_only_phase())
             self._telegram_service.handle_agent_event(event, session_id, turn_id)
@@ -2093,9 +2293,14 @@ class TurnMixin:
             run_state.turn_had_error = True
             run_state.context_meter_floor_pct = None
             error_message = str(event.data.get("error", "Unknown error"))
+            goal_stopped_for_usage = await self._limit_goal_for_usage_error(
+                session_id, error_message
+            )
             self._mark_retryable_turn_failure(session_id, error_message)
             scheduled_recovery = False
             should_attempt_recovery = (
+                not goal_stopped_for_usage
+                and
                 run_state.retryable_turn_payload is not None
                 and run_state.turn_made_progress
                 and run_state.failure_recovery_attempts < 1
@@ -2116,7 +2321,7 @@ class TurnMixin:
                         run_state.silent_recovery_active = True
                         scheduled_recovery = True
                         self._set_loading_state("continuing", busy=True)
-            else:
+            elif not goal_stopped_for_usage:
                 if run_state.retryable_turn_payload is not None:
                     retry_payload = self._build_silent_retry_payload(session_id)
                     if (

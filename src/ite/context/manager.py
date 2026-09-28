@@ -34,6 +34,7 @@ class ContextManager:
         session_memory_provider: Callable[[], str | None] | None = None,
         compact_artifact_provider: Callable[[str | None], str | None] | None = None,
         skill_provider: Callable[[], dict[str, Any]] | None = None,
+        goal_provider: Callable[[], dict[str, Any] | None] | None = None,
     ) -> None:
         self.config = config
         self._user_memory = user_memory
@@ -42,6 +43,7 @@ class ContextManager:
         self._session_memory_provider = session_memory_provider
         self._compact_artifact_provider = compact_artifact_provider
         self._skill_provider = skill_provider
+        self._goal_provider = goal_provider
         self._model_name = self.config.model_name
         self._conversation_log = ConversationLog()
         self._latest_usage = TokenUsage()
@@ -338,6 +340,28 @@ class ContextManager:
                 }
             )
 
+        goal = self._goal_provider() if self._goal_provider else None
+        if isinstance(goal, dict) and goal.get("status") == "active":
+            objective = str(goal.get("objective") or "").strip()
+            evidence = str(goal.get("latest_evidence") or "").strip()
+            goal_prompt = (
+                "# Active Goal\n\n"
+                f"Objective: {objective}\n\n"
+                "Work toward this outcome with concrete, scoped actions. Do not treat "
+                "a status update as completion. Verify the result before claiming it "
+                "is done; if an external decision is required, explain the blocker "
+                "precisely. Use the goal_outcome tool to record evidence, a blocker, "
+                "or verified completion."
+            )
+            if evidence:
+                goal_prompt += f"\n\nLatest recorded evidence: {evidence}"
+            layers.append(
+                {
+                    "name": "active_goal",
+                    "messages": [{"role": "system", "content": goal_prompt}],
+                }
+            )
+
         controls_prompt = get_controls_prompt(controls if isinstance(controls, dict) else {})
         if controls_prompt:
             layers.append(
@@ -401,6 +425,7 @@ class ContextManager:
                 "system_prompt",
                 "response_controls",
                 "session_memory",
+                "active_goal",
                 "durable_memory",
             }:
                 for message in layer_messages:

@@ -1532,7 +1532,13 @@ class Agent:
         turn_num = 0
         current_visual_budget: int | None = None
 
-        while turn_num < max_turns:
+        while (
+            turn_num < max_turns
+            or (
+                session.goal_state is not None
+                and session.goal_state.status.value == "active"
+            )
+        ):
             if self.session is not session:
                 yield AgentEvent.agent_error("Session changed while turn was running.")
                 return
@@ -2385,7 +2391,11 @@ class Agent:
             session.context_manager.microcompact_tool_outputs()
             session.context_manager.prune_tool_outputs()
 
-        yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
+        if (
+            session.goal_state is None
+            or session.goal_state.status.value != "active"
+        ):
+            yield AgentEvent.agent_error(f"Maximum turns ({max_turns}) reached")
 
     def _determine_plan_question_target(self, message: str) -> int:
         text = (message or "").strip().lower()

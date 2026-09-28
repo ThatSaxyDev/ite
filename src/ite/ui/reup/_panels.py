@@ -61,7 +61,12 @@ from .adapters.registry import StreamingCommandOutput, build_command_context
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
 from .widgets.state import SessionRunState, ShellSessionCardState
-from .widgets.side_panels import CommandsSidePanel, HooksSidePanel, ChangeReviewSidePanel
+from .widgets.side_panels import (
+    ChangeReviewSidePanel,
+    CommandsSidePanel,
+    GoalSidePanel,
+    HooksSidePanel,
+)
 from .widgets.thread_switcher import ThreadSwitcherRow, ThreadSwitcherSidePanel
 from .widgets.tool_cards import CompactToolCard, ShellToolCard, ToolCardStack
 from .widgets.remote_bridge import RemoteBridgeCard, RemoteBridgeField, UpdateCommandBox
@@ -542,6 +547,8 @@ class PanelsMixin:
             return
         await self._hide_thread_switcher_panel(remember=False)
         await self._hide_hooks_panel()
+        await self._hide_change_review_panel()
+        await self._hide_goal_panel()
         self.screen.query("HelpPanel").remove()
         commands = sorted(
             [
@@ -584,6 +591,7 @@ class PanelsMixin:
         await self._hide_commands_panel()
         await self._hide_thread_switcher_panel(remember=False)
         await self._hide_change_review_panel()
+        await self._hide_goal_panel()
         self.screen.query("HelpPanel").remove()
         panel = HooksSidePanel(id="hooks-panel")
         self._hooks_panel = panel
@@ -625,6 +633,7 @@ class PanelsMixin:
 
     async def _show_change_review_panel(self) -> None:
         await self._hide_hooks_panel()
+        await self._hide_goal_panel()
         await self._refresh_change_review_source(force=True)
         if not self._change_review_change_set or not getattr(
             self._change_review_change_set, "changes", None
@@ -651,6 +660,216 @@ class PanelsMixin:
             pass
         self._apply_change_review_panel_state()
         self._maybe_focus_prompt()
+
+    def _goal_panel_is_open(self) -> bool:
+        panel = self._goal_panel
+        return bool(panel is not None and panel.is_mounted)
+
+    def _goal_panel_payload(self) -> dict[str, Any] | None:
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None:
+            return None
+        payload = session.export_goal_state()
+        if payload is None:
+            return None
+        todos_state = session.export_todos_state()
+        execution = (
+            todos_state.get("execution", []) if isinstance(todos_state, dict) else []
+        )
+        todo_lines = [
+            f"{'✓' if item.get('completed') else '•'} {item.get('content', '')}"
+            for item in execution
+            if isinstance(item, dict) and str(item.get("content", "")).strip()
+        ]
+        payload["todos"] = "\n".join(todo_lines) or "No execution todos yet."
+        return payload
+
+    async def _toggle_goal_panel(self) -> None:
+        if self._goal_panel_is_open():
+            await self._hide_goal_panel()
+            return
+        await self._show_goal_panel()
+
+    async def _show_goal_panel(self) -> None:
+        payload = self._goal_panel_payload()
+        if payload is None:
+            self.post_notice("Goal", "No goal is active in this thread.")
+            return
+        await self._hide_commands_panel()
+        await self._hide_hooks_panel()
+        await self._hide_change_review_panel()
+        await self._hide_thread_switcher_panel(remember=False)
+        self.screen.query("HelpPanel").remove()
+        panel = GoalSidePanel(goal=payload, id="goal-panel")
+        self._goal_panel = panel
+        await self.screen.mount(panel)
+
+    async def _hide_goal_panel(self) -> None:
+        panel = self._goal_panel
+        self._goal_panel = None
+        if panel is None:
+            return
+        try:
+            await panel.remove()
+        except Exception:
+            pass
+        self._maybe_focus_prompt()
+
+    async def _refresh_goal_panel(self) -> None:
+        panel = self._goal_panel
+        if panel is None or not panel.is_mounted:
+            return
+        panel.update_goal(self._goal_panel_payload())
+
+    def _tick_goal_display(self) -> None:
+        session = self.agent.session if self.agent and self.agent.session else None
+        goal = getattr(session, "goal_state", None)
+        if goal is None:
+            return
+        if goal.status.value == "active" or self._goal_panel_is_open():
+            self._refresh_goal_toggle()
+            if self._goal_panel_is_open():
+                self.run_worker(self._refresh_goal_panel(), exclusive=False)
+
+    async def _persist_goal_state(self) -> None:
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None:
+            return
+        snapshot = SessionSnapshot(
+            **session.snapshot_kwargs(workspace_path=str(Path(self.config.cwd).resolve()))
+        )
+        SessionManager().save_session(snapshot)
+
+    async def _refresh_goal_surfaces(self) -> None:
+        self.refresh_header()
+        await self._refresh_goal_panel()
+        await self._broadcast_remote_state()
+
+    async def _pause_goal_from_ui(self, *, reason: str = "Paused by user.") -> bool:
+        await self.ensure_agent()
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None or session.goal_state is None:
+            self.post_notice("Goal", "No goal is active in this thread.")
+            return False
+        if str(session.goal_state.status.value) != "active":
+            return True
+        run_state = self._run_state()
+        run_state.goal_pause_requested = True
+        if run_state.is_turn_running:
+            await self.cancel_active_turn()
+        try:
+            session.pause_goal(reason=reason)
+        except ValueError as exc:
+            self.post_notice("Goal", str(exc))
+            return False
+        finally:
+            run_state.goal_pause_requested = False
+        await self._persist_goal_state()
+        await self._refresh_goal_surfaces()
+        return True
+
+    async def _resume_goal_from_ui(self) -> bool:
+        await self.ensure_agent()
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None or session.goal_state is None:
+            self.post_notice("Goal", "No goal is active in this thread.")
+            return False
+        try:
+            session.resume_goal()
+        except ValueError as exc:
+            self.post_notice("Goal", str(exc))
+            return False
+        await self._persist_goal_state()
+        await self._refresh_goal_surfaces()
+        if not self._is_turn_running and self._queued_turn_payload is None:
+            await self._dispatch_payload(
+                {
+                    "message": (
+                        "Resume the active goal. Take the next highest-value scoped "
+                        "action and use goal_outcome to record evidence, a blocker, "
+                        "or verified completion."
+                    ),
+                    "display_message": "",
+                    "attachments": [],
+                    "suppress_user_echo": True,
+                }
+            )
+        return True
+
+    async def _clear_goal_from_ui(self) -> None:
+        confirmed = await self._open_modal(
+            ConfirmModal(
+                title="Clear goal?",
+                body="This stops the current goal and keeps a compact history summary.",
+                yes_label="Clear",
+                no_label="Cancel",
+                primary="no",
+            )
+        )
+        if not confirmed:
+            return
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None or session.goal_state is None:
+            return
+        if str(session.goal_state.status.value) == "active":
+            if not await self._pause_goal_from_ui(reason="Goal cleared by user."):
+                return
+        session.clear_goal()
+        await self._persist_goal_state()
+        await self._hide_goal_panel()
+        await self._refresh_goal_surfaces()
+
+    @on(GoalSidePanel.CloseRequested)
+    async def on_goal_panel_close_requested(
+        self, _event: GoalSidePanel.CloseRequested
+    ) -> None:
+        await self._hide_goal_panel()
+
+    @on(GoalSidePanel.PauseRequested)
+    async def on_goal_panel_pause_requested(
+        self, _event: GoalSidePanel.PauseRequested
+    ) -> None:
+        await self._pause_goal_from_ui()
+
+    @on(GoalSidePanel.ResumeRequested)
+    async def on_goal_panel_resume_requested(
+        self, _event: GoalSidePanel.ResumeRequested
+    ) -> None:
+        await self._resume_goal_from_ui()
+
+    @on(GoalSidePanel.EditRequested)
+    async def on_goal_panel_edit_requested(
+        self, _event: GoalSidePanel.EditRequested
+    ) -> None:
+        if await self._pause_goal_from_ui(reason="Paused to edit the goal."):
+            panel = self._goal_panel
+            if panel is not None:
+                panel.begin_edit()
+
+    @on(GoalSidePanel.EditSaved)
+    async def on_goal_panel_edit_saved(
+        self, event: GoalSidePanel.EditSaved
+    ) -> None:
+        session = self.agent.session if self.agent and self.agent.session else None
+        if session is None or session.goal_state is None:
+            return
+        try:
+            session.edit_goal(event.objective)
+        except ValueError as exc:
+            self.post_notice("Goal", str(exc))
+            return
+        await self._persist_goal_state()
+        await self._refresh_goal_surfaces()
+        panel = self._goal_panel
+        if panel is not None:
+            panel.finish_edit()
+            panel.update_goal(self._goal_panel_payload())
+
+    @on(GoalSidePanel.ClearRequested)
+    async def on_goal_panel_clear_requested(
+        self, _event: GoalSidePanel.ClearRequested
+    ) -> None:
+        await self._clear_goal_from_ui()
 
 
     def get_system_commands(self, screen) -> Iterable[SystemCommand]:
@@ -2123,6 +2342,11 @@ class PanelsMixin:
     async def on_hooks_toggle_pressed(self, _event: Button.Pressed) -> None:
         await self._toggle_hooks_panel()
 
+    @on(Button.Pressed, "#goal-toggle")
+
+    async def on_goal_toggle_pressed(self, _event: Button.Pressed) -> None:
+        await self._toggle_goal_panel()
+
     @on(Button.Pressed, "#changes-toggle")
 
     async def on_changes_toggle_pressed(self, _event: Button.Pressed) -> None:
@@ -2509,4 +2733,3 @@ class PanelsMixin:
     def on_change_review_discard_all(self, event: events.Click) -> None:
         event.stop()
         self.run_worker(self._run_change_review_discard_all(), exclusive=False)
-

@@ -317,7 +317,12 @@ from .widgets.state import SessionRunState, ShellSessionCardState
 from .adapters.tui_adapter import ReupTUIAdapter
 from .widgets.tool_cards import CompactToolCard, ShellToolCard, ToolCardStack
 from .widgets.remote_bridge import RemoteBridgeCard, RemoteBridgeField, UpdateCommandBox
-from .widgets.side_panels import CommandsSidePanel, HooksSidePanel, ChangeReviewSidePanel
+from .widgets.side_panels import (
+    ChangeReviewSidePanel,
+    CommandsSidePanel,
+    GoalSidePanel,
+    HooksSidePanel,
+)
 from .widgets.thread_switcher import ThreadSwitcherRow, ThreadSwitcherSidePanel
 from .widgets.system_commands import ReupSystemCommandsProvider
 from ._helpers import _is_transient_voice_error, insert_voice_text_into_widget, redact_sensitive_command_text, _skills_action_title
@@ -356,6 +361,13 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
     on_change_review_stage_file = PanelsMixin.on_change_review_stage_file
     on_change_review_unstage_file = PanelsMixin.on_change_review_unstage_file
     on_changes_toggle_pressed = PanelsMixin.on_changes_toggle_pressed
+    on_goal_panel_clear_requested = PanelsMixin.on_goal_panel_clear_requested
+    on_goal_panel_close_requested = PanelsMixin.on_goal_panel_close_requested
+    on_goal_panel_edit_requested = PanelsMixin.on_goal_panel_edit_requested
+    on_goal_panel_edit_saved = PanelsMixin.on_goal_panel_edit_saved
+    on_goal_panel_pause_requested = PanelsMixin.on_goal_panel_pause_requested
+    on_goal_panel_resume_requested = PanelsMixin.on_goal_panel_resume_requested
+    on_goal_toggle_pressed = PanelsMixin.on_goal_toggle_pressed
     on_cloud_exit_pressed = CloudMixin.on_cloud_exit_pressed
     on_cloud_sign_in_pressed = CloudMixin.on_cloud_sign_in_pressed
     on_cloud_skip_sign_in_pressed = CloudMixin.on_cloud_skip_sign_in_pressed
@@ -580,6 +592,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._remote_port_preference: int = 0
         self._commands_panel: CommandsSidePanel | None = None
         self._change_review_panel: ChangeReviewSidePanel | None = None
+        self._goal_panel: GoalSidePanel | None = None
         self._hooks_panel: HooksSidePanel | None = None
         self._hooks_snapshot_key: tuple[Any, ...] | None = None
         self._hooks_panel_layout_key: tuple[Any, ...] | None = None
@@ -626,6 +639,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                 yield Static("New thread", id="title")
                 with Horizontal(id="header-meta-group"):
                     yield Static("", id="plan-badge")
+                    yield Button("", id="goal-toggle", variant="default")
                     yield Static("", id="header-meta")
                 yield Button("/changes", id="changes-toggle", variant="default")
                 yield Button("/hooks", id="hooks-toggle", variant="default")
@@ -822,6 +836,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._apply_change_review_panel_state()
         self._apply_hooks_panel_state()
         self.set_interval(0.15, self._tick_top_indicator)
+        self.set_interval(1.0, self._tick_goal_display)
         self.set_interval(4.5, self._tick_aside_gerund)
         self.set_interval(0.35, self._tick_live_context_meter)
         self.set_interval(0.35, self._poll_hooks_panel)

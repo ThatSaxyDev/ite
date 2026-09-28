@@ -89,6 +89,7 @@ def build_registry() -> CommandRegistry:
     from ite.commands.remote import register as register_remote
     from ite.commands.hooks import register as register_hooks
     from ite.commands.flow import register as register_flow
+    from ite.commands.goal import register as register_goal
     from ite.commands.open_island import register as register_open_island
 
     from ite.commands.init import register as register_init
@@ -115,5 +116,6 @@ def build_registry() -> CommandRegistry:
     register_remote(registry)
     register_hooks(registry)
     register_flow(registry)
+    register_goal(registry)
     register_open_island(registry)
     return registry

@@ -132,6 +132,8 @@ class SessionSnapshot:
     active_skills: list[str] | None = None
     todos_state: dict[str, Any] | None = None
     show_planning_todos: bool = False
+    goal_state: dict[str, Any] | None = None
+    goal_history: list[dict[str, Any]] | None = None
     change_history_state: dict[str, Any] | None = None
     subagent_runtime_state: dict[str, Any] | None = None
 
@@ -161,6 +163,8 @@ class SessionSnapshot:
             "active_skills": self.active_skills,
             "todos_state": self.todos_state,
             "show_planning_todos": self.show_planning_todos,
+            "goal_state": self.goal_state,
+            "goal_history": self.goal_history,
             "change_history_state": self.change_history_state,
             "subagent_runtime_state": self.subagent_runtime_state,
         }
@@ -192,6 +196,8 @@ class SessionSnapshot:
             active_skills=list(data.get("active_skills") or []),
             todos_state=data.get("todos_state"),
             show_planning_todos=bool(data.get("show_planning_todos", False)),
+            goal_state=data.get("goal_state"),
+            goal_history=list(data.get("goal_history") or []),
             change_history_state=data.get("change_history_state"),
             subagent_runtime_state=data.get("subagent_runtime_state"),
         )
