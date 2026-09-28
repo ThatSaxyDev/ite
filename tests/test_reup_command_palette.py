@@ -1179,8 +1179,8 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 model={
                     "name": "deepseek-v4-pro",
                     "source_kind": "bundled",
-                    "context_window": 1000000,
-                    "context_window_source": "bundled_provider_api",
+                    "context_window": 200000,
+                    "context_window_source": "provider_fixed_default",
                 },
             )
         )

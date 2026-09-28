@@ -1549,6 +1549,55 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_ensure_agent_syncs_context_window_after_catalog_race(self) -> None:
+        async def run_test() -> None:
+            app = ReupApp(
+                Config(
+                    cwd=self.cwd,
+                    api_key="",
+                    base_url="",
+                    model={
+                        "name": "deepseek-v4-pro",
+                        "source_kind": "bundled",
+                        "context_window": 200000,
+                    },
+                )
+            )
+
+            class StartupAgent:
+                def __init__(self, session) -> None:
+                    self.session = session
+
+                async def __aenter__(self):
+                    app._bundled_models_cache = [
+                        {
+                            "model_name": "deepseek-v4-pro",
+                            "context_window": 1000000,
+                            "context_window_source": "bundled_provider_api",
+                            "available": True,
+                        }
+                    ]
+                    # Simulate the catalog response arriving during agent startup,
+                    # before the agent has been assigned to the app.
+                    app._sync_bundled_context_window()
+                    return self
+
+            with (
+                patch.object(
+                    app,
+                    "_build_session_agent",
+                    side_effect=lambda session: StartupAgent(session),
+                ),
+                patch.object(app, "_remember_open_session"),
+                patch.object(app, "_broadcast_remote_state", AsyncMock()),
+            ):
+                await app.ensure_agent()
+
+            assert app.agent is not None
+            self.assertEqual(app.agent.session.config.model.context_window, 1000000)
+
+        asyncio.run(run_test())
+
     def test_bootstrap_posts_workspace_hint_when_agents_file_is_missing(self) -> None:
         async def run_test() -> None:
             app = self._app()

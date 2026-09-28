@@ -529,6 +529,11 @@ class TurnMixin:
             agent = self._build_session_agent(fresh)
             await agent.__aenter__()
             self.agent = agent
+            # The bundled-model catalog can return while agent startup is
+            # awaiting. At that point the catalog updates app config, but this
+            # freshly-created session still has the earlier context window.
+            self._sync_bundled_context_window()
+            self._update_composer_meta_line()
             if agent.session is not None:
                 self._remember_open_session(agent.session, agent=agent)
             await self._broadcast_remote_state()
@@ -747,6 +752,7 @@ class TurnMixin:
             agent=resumed_agent,
         )
         self.agent = resumed_agent
+        self._sync_bundled_context_window()
         self.refresh_header()
         await self._hydrate_chat_from_snapshot(restored_messages)
         self._set_loading_state("idle", busy=False)
