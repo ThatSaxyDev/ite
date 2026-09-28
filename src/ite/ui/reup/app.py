@@ -593,6 +593,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._commands_panel: CommandsSidePanel | None = None
         self._change_review_panel: ChangeReviewSidePanel | None = None
         self._goal_panel: GoalSidePanel | None = None
+        self._goal_clear_confirmation_open: bool = False
         self._hooks_panel: HooksSidePanel | None = None
         self._hooks_snapshot_key: tuple[Any, ...] | None = None
         self._hooks_panel_layout_key: tuple[Any, ...] | None = None

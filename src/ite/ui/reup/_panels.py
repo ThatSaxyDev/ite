@@ -797,27 +797,33 @@ class PanelsMixin:
         return True
 
     async def _clear_goal_from_ui(self) -> None:
-        confirmed = await self._open_modal(
-            ConfirmModal(
-                title="Clear goal?",
-                body="This stops the current goal and keeps a compact history summary.",
-                yes_label="Clear",
-                no_label="Cancel",
-                primary="no",
+        if self._goal_clear_confirmation_open:
+            return
+        self._goal_clear_confirmation_open = True
+        try:
+            confirmed = await self._open_modal(
+                ConfirmModal(
+                    title="Clear goal?",
+                    body="This stops the current goal and keeps a compact history summary.",
+                    yes_label="Clear",
+                    no_label="Cancel",
+                    primary="no",
+                )
             )
-        )
-        if not confirmed:
-            return
-        session = self.agent.session if self.agent and self.agent.session else None
-        if session is None or session.goal_state is None:
-            return
-        if str(session.goal_state.status.value) == "active":
-            if not await self._pause_goal_from_ui(reason="Goal cleared by user."):
+            if not confirmed:
                 return
-        session.clear_goal()
-        await self._persist_goal_state()
-        await self._hide_goal_panel()
-        await self._refresh_goal_surfaces()
+            session = self.agent.session if self.agent and self.agent.session else None
+            if session is None or session.goal_state is None:
+                return
+            if str(session.goal_state.status.value) == "active":
+                if not await self._pause_goal_from_ui(reason="Goal cleared by user."):
+                    return
+            session.clear_goal()
+            await self._persist_goal_state()
+            await self._hide_goal_panel()
+            await self._refresh_goal_surfaces()
+        finally:
+            self._goal_clear_confirmation_open = False
 
     @on(GoalSidePanel.CloseRequested)
     async def on_goal_panel_close_requested(
@@ -866,10 +872,10 @@ class PanelsMixin:
             panel.update_goal(self._goal_panel_payload())
 
     @on(GoalSidePanel.ClearRequested)
-    async def on_goal_panel_clear_requested(
+    def on_goal_panel_clear_requested(
         self, _event: GoalSidePanel.ClearRequested
     ) -> None:
-        await self._clear_goal_from_ui()
+        self.run_worker(self._clear_goal_from_ui(), exclusive=False)
 
 
     def get_system_commands(self, screen) -> Iterable[SystemCommand]:

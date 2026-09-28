@@ -40,6 +40,7 @@ TOOL_ICONS: dict[str, str] = {
     "git_push": "\U0001f680",
     "todos": "\u2611\ufe0f",
     "memory": "\U0001f9e0",
+    "goal_outcome": "\U0001f3af",
     "shell": "\u25ab\ufe0f",
     "shell_start": "\u25ab\ufe0f",
     "shell_poll": "\u25ab\ufe0f",
@@ -154,6 +155,25 @@ def activity_title(
         return "Checking skills" if running else ("Skills ready" if done else "Skills check failed")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else ("Memory retry needed" if recoverable else "Memory update failed"))
+    if name == "goal_outcome":
+        action = str(metadata.get("action") or "").strip().lower()
+        if action == "complete":
+            return (
+                "Checking completion evidence"
+                if running
+                else ("Goal completed" if done else "Goal completion needs evidence")
+            )
+        if action == "report_blocked":
+            return (
+                "Recording a blocker"
+                if running
+                else ("Goal blocked" if done else "Could not record blocker")
+            )
+        return (
+            "Recording goal evidence"
+            if running
+            else ("Progress recorded" if done else "Could not record progress")
+        )
     if name == "read_json":
         return "Reading JSON" if running else ("JSON loaded" if done else "JSON read failed")
     if name == "edit_json":
@@ -257,6 +277,32 @@ def describe_tool_activity(
         if success:
             return f"Completed reading {path}."
         return f"Failed to read {path}."
+
+    if name == "goal_outcome":
+        action = str(args.get("action") or metadata.get("action") or "").strip()
+        if action == "complete":
+            if stage == "start":
+                return "Checking the evidence before completing this goal."
+            return (
+                "Recorded the evidence and completed this goal."
+                if success
+                else "Goal completion needs concrete evidence."
+            )
+        if action == "report_blocked":
+            if stage == "start":
+                return "Recording what is blocking this goal."
+            return (
+                "Recorded the blocker; this goal now needs your input."
+                if success
+                else "Could not record the blocker."
+            )
+        if stage == "start":
+            return "Recording verified progress for this goal."
+        return (
+            "Recorded verified progress for this goal."
+            if success
+            else "Could not record this progress."
+        )
 
     if name == "write_file":
         path = _path(args, metadata)

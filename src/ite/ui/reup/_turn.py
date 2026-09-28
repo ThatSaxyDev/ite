@@ -2132,11 +2132,33 @@ class TurnMixin:
         elif event.type == AgentEventType.TOOL_CALL_START:
             goal.metrics.tool_calls_started += 1
         elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+            is_verification = self._is_goal_verification_event(event)
+            if is_verification:
+                goal.metrics.verification_attempts += 1
             if event.data.get("success", False):
                 goal.metrics.tool_calls_succeeded += 1
+                if is_verification:
+                    goal.metrics.verification_passes += 1
                 self._run_state(session_id).goal_turn_had_tool_progress = True
             else:
                 goal.metrics.tool_calls_failed += 1
+
+    def _is_goal_verification_event(self, event: AgentEvent) -> bool:
+        name = str(event.data.get("name") or "").strip().lower()
+        if name in {"run_tests", "run_linter", "run_typecheck"}:
+            return True
+        if name not in {"shell", "shell_start"}:
+            return False
+        call_id = str(event.data.get("call_id") or "")
+        arguments = self._tool_args_by_call_id.get(call_id, {})
+        command = str(arguments.get("command") or "").lower()
+        return bool(
+            re.search(
+                r"\b(pytest|unittest|ruff|mypy|pyright|nox|tox)\b"
+                r"|\b(?:npm|pnpm|yarn)\s+(?:run\s+)?test\b",
+                command,
+            )
+        )
 
     def _goal_usage_limit_details(self, error_message: str) -> dict[str, Any] | None:
         """Recognize a definitive provider-quota stop, not transient throttling."""

@@ -44,13 +44,21 @@ class GoalOutcomeTool(Tool):
 
         if params.action == "record_evidence":
             session.record_goal_evidence(params.summary, evidence=params.evidence)
-            return ToolResult.success_result("Goal evidence recorded.")
+            return ToolResult.success_result(
+                "Goal evidence recorded.", metadata={"action": params.action}
+            )
         if params.action == "report_blocked":
             session.block_goal(params.summary)
-            return ToolResult.success_result("Goal marked as blocked.")
+            return ToolResult.success_result(
+                "Goal marked as blocked.", metadata={"action": params.action}
+            )
         if not params.evidence:
             return ToolResult.error_result(
-                "Completion requires at least one concrete evidence reference."
+                "Completion requires at least one concrete evidence reference.",
+                metadata={"action": params.action},
             )
         session.complete_goal(params.summary, evidence=params.evidence)
-        return ToolResult.success_result("Goal completed with recorded evidence.")
+        return ToolResult.success_result(
+            "Goal completed with recorded evidence.",
+            metadata={"action": params.action},
+        )

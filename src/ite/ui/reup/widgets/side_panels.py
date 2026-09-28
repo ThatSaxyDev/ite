@@ -148,7 +148,6 @@ class GoalSidePanel(Widget):
         metrics = goal.get("metrics") if isinstance(goal.get("metrics"), dict) else {}
         objective = str(goal.get("objective") or "No active goal.")
         elapsed = int(float(metrics.get("active_elapsed_seconds", 0) or 0))
-        work_elapsed = int(float(metrics.get("work_elapsed_seconds", 0) or 0))
         minutes, seconds = divmod(elapsed, 60)
         status_label = f"{status.replace('_', ' ')} • {minutes}m {seconds:02d}s"
         self.query_one("#goal-panel-status", Static).update(status_label)
@@ -159,25 +158,39 @@ class GoalSidePanel(Widget):
             if goal.get("blocker")
             else "Usage limit reached. Change provider or resume after it resets."
             if status == "budget_limited"
+            else "Completed with recorded evidence."
+            if status == "completed"
             else "Working toward the objective."
             if status == "active"
             else "Paused. Resume when you are ready."
         )
         self.query_one("#goal-panel-detail", Static).update(detail)
-        self.query_one("#goal-panel-metrics", Static).update(
-            " · ".join(
-                (
-                    f"work {work_elapsed // 60}m",
-                    f"rounds {metrics.get('model_rounds', 0)}",
-                    "tools "
-                    f"{metrics.get('tool_calls_succeeded', 0)}/"
-                    f"{metrics.get('tool_calls_failed', 0)}",
-                    "verify "
-                    f"{metrics.get('verification_passes', 0)}/"
-                    f"{metrics.get('verification_attempts', 0)}",
-                )
+        completed_tools = int(metrics.get("tool_calls_succeeded", 0) or 0)
+        failed_tools = int(metrics.get("tool_calls_failed", 0) or 0)
+        verification_attempts = int(metrics.get("verification_attempts", 0) or 0)
+        verification_passes = int(metrics.get("verification_passes", 0) or 0)
+        metric_lines: list[str] = []
+        if completed_tools:
+            metric_lines.append(
+                f"{completed_tools} tool step"
+                f"{'s' if completed_tools != 1 else ''} completed."
             )
-        )
+        if failed_tools:
+            metric_lines.append(
+                f"{failed_tools} tool step"
+                f"{'s' if failed_tools != 1 else ''} failed; "
+                "see the conversation for details."
+            )
+        if verification_attempts:
+            metric_lines.append(
+                f"Verification: {verification_passes} passed of "
+                f"{verification_attempts} run."
+            )
+        elif status == "completed":
+            metric_lines.append("No verification command was recorded.")
+        metrics_widget = self.query_one("#goal-panel-metrics", Static)
+        metrics_widget.display = bool(metric_lines)
+        metrics_widget.update("\n".join(metric_lines))
         self.query_one("#goal-panel-todos", Static).update(
             str(goal.get("todos") or "No execution todos yet.")
         )

@@ -14,7 +14,9 @@ from ite.agent.session_manager import SessionSnapshot
 from ite.client.response import TokenUsage
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.goal_outcome import GoalOutcomeTool
+from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.widgets.side_panels import GoalSidePanel
+from ite.ui.tool_narrative import activity_title, describe_tool_activity
 
 
 def _session_with_goal_fields() -> Session:
@@ -119,7 +121,23 @@ def test_goal_outcome_requires_completion_evidence() -> None:
 
     assert not missing_evidence.success
     assert completed.success
+    assert completed.metadata == {"action": "complete"}
     assert session.goal_state.status is GoalStatus.COMPLETED
+
+
+def test_goal_outcomes_use_human_readable_tool_copy() -> None:
+    assert activity_title(
+        "goal_outcome",
+        stage="complete",
+        success=True,
+        metadata={"action": "complete"},
+    ) == "Goal completed"
+    assert describe_tool_activity(
+        "goal_outcome",
+        {"action": "complete"},
+        stage="complete",
+        success=True,
+    ) == "Recorded the evidence and completed this goal."
 
 
 def test_goal_side_panel_renders_active_controls() -> None:
@@ -153,6 +171,23 @@ def test_goal_side_panel_renders_active_controls() -> None:
             goal.pause()
             panel.update_goal(goal.to_dict())
             assert panel.query_one("#goal-panel-pause", Button).label == "Resume"
+            goal.resume()
+            goal.metrics.work_elapsed_seconds = 187
+            goal.metrics.tool_calls_succeeded = 44
+            goal.metrics.tool_calls_failed = 3
+            goal.metrics.verification_attempts = 1
+            goal.metrics.verification_passes = 1
+            goal.complete("Goal verified", evidence={"test": "passed"})
+            panel.update_goal(goal.to_dict())
+            assert "Completed with recorded evidence." in panel.query_one(
+                "#goal-panel-detail", Static
+            ).render().plain
+            metrics = panel.query_one("#goal-panel-metrics", Static).render().plain
+            assert "iTE worked for" not in metrics
+            assert "44 tool steps completed." in metrics
+            assert "3 tool steps failed; see the conversation for details." in metrics
+            assert "Verification: 1 passed of 1 run." in metrics
+            assert not panel.query_one("#goal-panel-pause", Button).display
 
     asyncio.run(run())
 
@@ -179,5 +214,63 @@ def test_goal_side_panel_emits_clickable_pause_request() -> None:
         async with app.run_test() as pilot:
             await pilot.click("#goal-panel-pause")
             assert app.pause_requested
+
+    asyncio.run(run())
+
+
+def test_goal_clear_modal_does_not_block_pointer_events() -> None:
+    goal = GoalState.create("Clear from the panel")
+
+    class GoalClearModalApp(App[None]):
+        CSS_PATH = str(
+            Path(__file__).parents[1] / "src/ite/ui/reup/reup.tcss"
+        )
+
+        def __init__(self) -> None:
+            super().__init__()
+            self._goal_clear_confirmation_open = False
+            self.clear_result: bool | None = None
+
+        def compose(self) -> ComposeResult:
+            yield GoalSidePanel(goal=goal.to_dict(), id="goal-panel")
+
+        async def _open_confirmation(self) -> bool:
+            future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+            self.push_screen(
+                ConfirmModal(
+                    title="Clear goal?",
+                    body="Keeps a compact history summary.",
+                    yes_label="Clear",
+                    no_label="Cancel",
+                    primary="no",
+                ),
+                callback=lambda result: future.set_result(bool(result)),
+            )
+            return await future
+
+        async def _clear_goal_from_ui(self) -> None:
+            if self._goal_clear_confirmation_open:
+                return
+            self._goal_clear_confirmation_open = True
+            try:
+                self.clear_result = await self._open_confirmation()
+            finally:
+                self._goal_clear_confirmation_open = False
+
+        @on(GoalSidePanel.ClearRequested)
+        def on_goal_panel_clear_requested(
+            self, _event: GoalSidePanel.ClearRequested
+        ) -> None:
+            self.run_worker(self._clear_goal_from_ui(), exclusive=False)
+
+    async def run() -> None:
+        app = GoalClearModalApp()
+        async with app.run_test() as pilot:
+            await pilot.click("#goal-panel-clear")
+            await pilot.pause()
+            assert isinstance(app.screen, ConfirmModal)
+            await pilot.click("#no")
+            await pilot.pause()
+            assert app.clear_result is False
 
     asyncio.run(run())
