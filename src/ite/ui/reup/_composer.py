@@ -1190,7 +1190,7 @@ class ComposerMixin:
 
     async def action_interrupt_or_quit(self) -> None:
         if self._is_turn_running:
-            await self.cancel_active_turn()
+            await self._stop_turn_from_composer()
         else:
             self.post_notice("Exit", "Use `/exit` or `/quit` to close iTE.")
 
@@ -1201,9 +1201,20 @@ class ComposerMixin:
 
     async def _activate_send_stop_control(self) -> None:
         if self._is_turn_running:
-            await self.cancel_active_turn()
+            await self._stop_turn_from_composer()
             return
         await self.handle_send()
+
+
+    async def _stop_turn_from_composer(self) -> None:
+        """Handle an explicit composer stop without losing an active goal's state."""
+        session = self.agent.session if self.agent and self.agent.session else None
+        goal = session.goal_state if session is not None else None
+        if goal is not None and goal.status.value == "active":
+            paused = await self._pause_goal_from_ui(reason="Paused from the composer.")
+            if paused:
+                return
+        await self.cancel_active_turn()
 
 
     def action_toggle_voice_input(self) -> None:
@@ -2469,4 +2480,3 @@ class ComposerMixin:
             selected_option="",
             free_text=value,
         )
-

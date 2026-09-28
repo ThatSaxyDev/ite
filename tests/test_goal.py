@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -14,6 +16,7 @@ from ite.agent.session_manager import SessionSnapshot
 from ite.client.response import TokenUsage
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.goal_outcome import GoalOutcomeTool
+from ite.ui.reup._composer import ComposerMixin
 from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.widgets.side_panels import GoalSidePanel
 from ite.ui.tool_narrative import activity_title, describe_tool_activity
@@ -34,6 +37,44 @@ def test_active_elapsed_excludes_paused_time() -> None:
 
     assert goal.status is GoalStatus.PAUSED
     assert goal.active_elapsed_seconds(now=started + timedelta(hours=3)) == 75
+
+
+def test_composer_stop_pauses_an_active_goal_before_cancelling_turn() -> None:
+    async def run() -> None:
+        pause_goal = AsyncMock(return_value=True)
+        cancel_turn = AsyncMock()
+        app = SimpleNamespace(
+            agent=SimpleNamespace(
+                session=SimpleNamespace(goal_state=GoalState.create("Pause on stop"))
+            ),
+            _pause_goal_from_ui=pause_goal,
+            cancel_active_turn=cancel_turn,
+        )
+
+        await ComposerMixin._stop_turn_from_composer(app)
+
+        pause_goal.assert_awaited_once_with(reason="Paused from the composer.")
+        cancel_turn.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_composer_stop_cancels_normally_without_an_active_goal() -> None:
+    async def run() -> None:
+        pause_goal = AsyncMock(return_value=True)
+        cancel_turn = AsyncMock()
+        app = SimpleNamespace(
+            agent=SimpleNamespace(session=SimpleNamespace(goal_state=None)),
+            _pause_goal_from_ui=pause_goal,
+            cancel_active_turn=cancel_turn,
+        )
+
+        await ComposerMixin._stop_turn_from_composer(app)
+
+        pause_goal.assert_not_awaited()
+        cancel_turn.assert_awaited_once()
+
+    asyncio.run(run())
 
 
 def test_session_goal_edit_pauses_and_clear_keeps_history() -> None:
