@@ -1,0 +1,521 @@
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import click
+from rich.console import Console
+
+from ite import __version__
+from ite.config.config import Config
+from ite.config.loader import (
+    ensure_workspace_layout,
+    load_config,
+    save_mcp_server_config,
+)
+
+
+console = Console()
+
+
+class _HintingMixin:
+    _hint_map = {
+        "c": "Use `ite` to start.",
+        "chat": "Use `ite` to start.",
+    }
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        try:
+            return super().parse_args(ctx, args)
+        except click.NoSuchOption as exc:
+            option_name = str(exc.option_name or "").strip()
+            hint = self._hint_map.get(option_name)
+            if hint:
+                rendered = (
+                    f"-{option_name}" if len(option_name) == 1 else f"--{option_name}"
+                )
+                raise click.UsageError(f"No such option '{rendered}'. {hint}") from None
+            raise
+
+
+class IteGroup(_HintingMixin, click.Group):
+    pass
+
+
+def _load_runtime_config(
+    *,
+    workspace_dir: Path,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+) -> Config:
+    ensure_workspace_layout(workspace_dir)
+    try:
+        config = load_config(cwd=workspace_dir)
+    except Exception as exc:
+        console.print(f"[error]Configuration error: {exc}[/error]")
+        raise click.Abort() from exc
+
+    if api_key:
+        config.api_key = api_key
+    if base_url:
+        config.base_url = base_url
+    if model:
+        config.model.name = model
+    return config
+
+
+def _run_upgrade() -> None:
+    from ite.update_check import detect_install_method
+
+    method = detect_install_method()
+
+    if method == "uv":
+        cmd = ["uv", "tool", "upgrade", "ite-agent"]
+        console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+        result = subprocess.run(cmd)
+    elif method == "pipx":
+        cmd = ["pipx", "upgrade", "ite-agent"]
+        console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+        result = subprocess.run(cmd)
+    elif sys.platform == "win32":
+        cmd = [
+            "powershell",
+            "-Command",
+            "irm https://ite.kiishi.space/install.ps1 | iex",
+        ]
+        console.print(f"[dim]Running: {' '.join(cmd)}[/dim]")
+        result = subprocess.run(cmd)
+    else:
+        console.print(
+            "[dim]Running: curl -fsSL https://ite.kiishi.space/install.sh | bash[/dim]"
+        )
+        curl_proc = subprocess.Popen(
+            ["curl", "-fsSL", "https://ite.kiishi.space/install.sh"],
+            stdout=subprocess.PIPE,
+        )
+        result = subprocess.run(["bash"], stdin=curl_proc.stdout)
+        curl_proc.stdout.close()
+        curl_proc.wait()
+
+    if result.returncode != 0:
+        raise click.ClickException(
+            f"Upgrade exited with code {result.returncode}"
+        )
+
+
+def _run_main_app(
+    *,
+    workspace_dir: Path,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    resume_last: bool,
+) -> None:
+    config = _load_runtime_config(
+        workspace_dir=workspace_dir,
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+    if resume_last:
+        config.resume_last_session = True
+
+    errors = config.validate()
+    if errors:
+        setup_missing_errors = {"missing_api_key", "missing_base_url", "missing_model"}
+        real_errors = [error for error in errors if error not in setup_missing_errors]
+        if real_errors:
+            for error in real_errors:
+                console.print(f"[error]{error}[/error]")
+            raise click.Abort()
+
+    from ite.ui.reup import run_reup
+
+    run_reup(config)
+
+
+@click.group(cls=IteGroup, invoke_without_command=True)
+@click.version_option(version=__version__, prog_name="ite")
+@click.option(
+    "--cwd",
+    "-w",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Current working directory",
+)
+@click.option("--model", "-m", help="Model name to use")
+@click.option("--api-key", "-k", help="API key for the LLM provider")
+@click.option("--base-url", "-u", help="Base URL for the OpenAI-compatible API")
+@click.option(
+    "--resume-last",
+    is_flag=True,
+    help="Resume the most recent saved session for this workspace on startup.",
+)
+@click.option("--upgrade", is_flag=True, help="Upgrade iTE to the latest version.")
+@click.pass_context
+def main(
+    ctx: click.Context,
+    cwd: Path | None,
+    model: str | None,
+    api_key: str | None,
+    base_url: str | None,
+    resume_last: bool,
+    upgrade: bool,
+) -> None:
+    workspace_dir = cwd or Path.cwd()
+    ctx.ensure_object(dict)
+    ctx.obj["workspace_dir"] = workspace_dir
+    ctx.obj["model"] = model
+    ctx.obj["api_key"] = api_key
+    ctx.obj["base_url"] = base_url
+    if ctx.invoked_subcommand is None:
+        if upgrade:
+            _run_upgrade()
+            return
+        _run_main_app(
+            workspace_dir=workspace_dir,
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            resume_last=resume_last,
+        )
+
+
+@main.group("mcp")
+def mcp_group() -> None:
+    """Manage persisted MCP server definitions."""
+
+
+@main.group("remote")
+def remote_group() -> None:
+    """Run iTE as a cloud runtime for the mobile app."""
+
+
+@remote_group.group("host")
+def remote_host_group() -> None:
+    """Manage this machine's enrollment as an iTE Cloud host."""
+
+
+@remote_host_group.command("enroll")
+@click.option("--name", default="", help="Display name for this machine.")
+@click.option(
+    "--api-url",
+    default="",
+    help="Cloud API URL. Defaults to the URL already in your cloud session.",
+)
+@click.pass_context
+def remote_host_enroll(ctx: click.Context, name: str, api_url: str) -> None:
+    """Enroll this machine as a host.
+
+    Needs a one-time terminal sign-in (`ite cloud login`). After enrolling, the
+    machine authenticates as itself and `ite remote serve` needs no login.
+    """
+    from ite.cloud.auth import get_cloud_session
+
+    from ite.remote.enrollment import enroll_host
+
+    config = _load_runtime_config(
+        workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
+        model=None,
+        api_key=None,
+        base_url=None,
+    )
+    session = get_cloud_session(config)
+    if session is None:
+        raise click.ClickException(
+            "Enrolling a host needs a one-time sign-in. Run `ite cloud login` first."
+        )
+    resolved_url = (
+        api_url.strip().rstrip("/")
+        or str(session.api_url or "").strip().rstrip("/")
+        or str(config.cloud_api_url or "").strip().rstrip("/")
+    )
+    identity = enroll_host(
+        api_url=resolved_url,
+        access_token=session.access_token,
+        name=name,
+    )
+    console.print(f"[bold green]Host enrolled.[/bold green] id={identity.host_id}")
+    console.print(f"API: {identity.api_url}")
+
+
+@remote_host_group.command("status")
+def remote_host_status() -> None:
+    """Show whether this machine is enrolled as a host."""
+    from ite.remote.host_identity import load_host_identity
+
+    identity = load_host_identity()
+    if identity is None:
+        console.print("[yellow]Not enrolled.[/yellow] Run `ite remote host enroll`.")
+        return
+    console.print(f"Host id: [bold]{identity.host_id}[/bold]")
+    console.print(f"API: {identity.api_url}")
+    console.print(f"Name: {identity.name} ({identity.platform})")
+
+
+@remote_host_group.command("forget")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+def remote_host_forget(yes: bool) -> None:
+    """Delete this machine's stored host credential."""
+    from ite.remote.host_identity import clear_host_identity, load_host_identity
+
+    if load_host_identity() is None:
+        console.print("[dim]Nothing to forget.[/dim]")
+        return
+    if not yes:
+        click.confirm("Delete this machine's host credential?", abort=True)
+    clear_host_identity()
+    console.print("[bold]Host credential removed.[/bold]")
+
+
+@remote_group.command("serve")
+@click.option(
+    "--base-dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    help="Where per-user runtime directories live. Defaults to /var/lib/ite on root.",
+)
+def remote_serve(base_dir: Path | None) -> None:
+    """Serve every provisioned user on this machine.
+
+    Runs the host supervisor: it holds one control connection to iTE Cloud and
+    starts an isolated runtime process per user on demand. It does not run agent
+    work itself, and it needs no user sign-in once this machine is enrolled.
+    """
+    import asyncio
+    import logging
+
+    from ite.remote.host_identity import load_host_identity
+    from ite.remote.supervisor import HostSupervisor, default_base_dir, ensure_base_dir
+
+    # Without this, the supervisor's own INFO logs are invisible and a failed
+    # provisioning looks identical to nothing happening at all.
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+
+    identity = load_host_identity()
+    if identity is None:
+        raise click.ClickException(
+            "This machine is not enrolled as a host. Run `ite remote host enroll` first."
+        )
+
+    directory = ensure_base_dir(base_dir or default_base_dir())
+    supervisor = HostSupervisor(identity, base_dir=directory)
+    console.print(f"Host supervisor starting. Base dir: {directory}")
+    console.print(
+        f"Per-project runtime logs: {directory}/users/<user>/projects/<project>/runtime.log"
+    )
+    try:
+        asyncio.run(supervisor.run())
+    except KeyboardInterrupt:
+        pass
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@remote_group.command("child", hidden=True)
+def remote_child() -> None:
+    """Run one provisioned runtime process.
+
+    Internal entry point. `ite remote serve` starts this as an isolated child
+    with a cloud-issued runtime token; it is not meant to be run by hand.
+    """
+    from ite.remote.child import main as run_child
+
+    raise SystemExit(run_child())
+
+
+@main.group("cloud")
+def cloud_group() -> None:
+    """Manage the iTE Cloud session."""
+
+
+@cloud_group.command("login")
+@click.option(
+    "--open-browser",
+    is_flag=True,
+    help="Try to open a browser. Off by default so this works on headless hosts.",
+)
+@click.pass_context
+def cloud_login(ctx: click.Context, open_browser: bool) -> None:
+    """Sign in to iTE Cloud.
+
+    Prints the sign-in URL and waits for approval, so it works over SSH or on a
+    server with no browser.
+    """
+    from ite.cloud import CloudAuthError, CloudConnectionError, ensure_cloud_auth
+
+    config = _load_runtime_config(
+        workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
+        model=None,
+        api_key=None,
+        base_url=None,
+    )
+    try:
+        ensure_cloud_auth(console, config, open_browser=open_browser)
+    except CloudConnectionError as exc:
+        raise click.ClickException(f"Cloud API unreachable: {exc}") from exc
+    except CloudAuthError as exc:
+        raise click.ClickException(f"Cloud login failed: {exc}") from exc
+    console.print("[bold green]iTE Cloud session is active.[/bold green]")
+
+
+@cloud_group.command("status")
+@click.pass_context
+def cloud_status(ctx: click.Context) -> None:
+    """Show the current iTE Cloud session status."""
+    from ite.cloud import get_cloud_entitlements_result
+
+    config = _load_runtime_config(
+        workspace_dir=Path(ctx.obj.get("workspace_dir") or Path.cwd()),
+        model=None,
+        api_key=None,
+        base_url=None,
+    )
+    result = get_cloud_entitlements_result(config)
+    auth = result.auth
+    console.print(f"[bold]{auth.state}[/bold]")
+    if auth.message:
+        console.print(f"[dim]{auth.message}[/dim]")
+
+    # The account identity matters: runtimes are scoped per cloud account, so a
+    # runtime signed in with a different email than the mobile app is invisible
+    # to it no matter how healthy the connection looks.
+    user = result.user or {}
+    email = str(user.get("email") or "").strip()
+    if email:
+        console.print(f"Account: [bold]{email}[/bold]")
+    elif auth.is_valid:
+        console.print("[dim]Account: unavailable (could not reach /auth/me)[/dim]")
+
+    if auth.is_valid and result.entitlements:
+        remote_ok = bool(
+            result.entitlements.get("remoteCompanion")
+            or result.entitlements.get("proAccess")
+        )
+        if remote_ok:
+            console.print("Remote access: [bold green]enabled[/bold green]")
+        else:
+            console.print(
+                "Remote access: [bold red]not enabled[/bold red] "
+                "[dim](iTE Remote requires Pro)[/dim]"
+            )
+
+
+@cloud_group.command("logout")
+def cloud_logout() -> None:
+    """Clear the stored iTE Cloud session."""
+    from ite.cloud import clear_cloud_auth
+
+    if clear_cloud_auth():
+        console.print("[bold green]Cloud session cleared.[/bold green]")
+    else:
+        console.print("[dim]No local cloud session was present.[/dim]")
+
+
+@mcp_group.command("add", context_settings={"ignore_unknown_options": True})
+@click.argument("server")
+@click.argument("target", required=False)
+@click.argument("target_args", nargs=-1, type=str)
+@click.option("--url", "url_value", help="Remote MCP server URL.")
+@click.option(
+    "--command", "command_value", help="stdio command to launch the MCP server."
+)
+@click.option("--transport", help="Explicit MCP transport override.")
+@click.option("--arg", "command_args", multiple=True, help="Repeatable stdio argument.")
+@click.option(
+    "--scope",
+    type=click.Choice(["global", "workspace", "user", "local", "project"]),
+    default="global",
+    show_default=True,
+)
+@click.pass_context
+def mcp_add(
+    ctx: click.Context,
+    server: str,
+    target: str | None,
+    target_args: tuple[str, ...],
+    url_value: str | None,
+    command_value: str | None,
+    transport: str | None,
+    command_args: tuple[str, ...],
+    scope: str,
+) -> None:
+    workspace_dir = Path(ctx.obj.get("workspace_dir") or Path.cwd())
+    ensure_workspace_layout(workspace_dir)
+    normalized_scope = _normalize_mcp_scope(scope)
+
+    payload: dict[str, Any] = {}
+    inferred_args = list(command_args or ())
+
+    if url_value and command_value:
+        raise click.ClickException("Use either --url or --command, not both.")
+
+    if url_value:
+        payload["url"] = url_value
+    elif command_value:
+        payload["command"] = command_value
+    elif target:
+        if target.startswith(("http://", "https://")):
+            payload["url"] = target
+        else:
+            payload["command"] = target
+            inferred_args.extend(target_args)
+    else:
+        raise click.ClickException(
+            "Provide a URL or command. Example: `ite mcp add figma https://mcp.figma.com/mcp`"
+        )
+
+    if "url" in payload and target_args:
+        raise click.ClickException("Unexpected extra arguments after URL target.")
+    if "command" in payload and inferred_args:
+        payload["args"] = inferred_args
+    if transport:
+        payload["transport"] = _normalize_mcp_transport(transport)
+
+    try:
+        path = save_mcp_server_config(
+            cwd=workspace_dir,
+            scope=normalized_scope,
+            server=server,
+            config=payload,
+        )
+    except Exception as exc:
+        raise click.ClickException(
+            f"Failed to save MCP server '{server}': {exc}"
+        ) from exc
+    console.print(
+        f"[success]Saved MCP server[/success] [cyan]{server}[/cyan] "
+        f"[dim]to {normalized_scope} config ({path})[/dim]"
+    )
+
+
+def _normalize_mcp_transport(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "http": "streamable_http",
+        "https": "streamable_http",
+        "streamable-http": "streamable_http",
+        "streamable_http": "streamable_http",
+        "stdio": "stdio",
+        "sse": "sse",
+        "ws": "ws",
+        "websocket": "ws",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _normalize_mcp_scope(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    aliases = {
+        "user": "global",
+        "global": "global",
+        "workspace": "workspace",
+        "local": "workspace",
+        "project": "workspace",
+    }
+    return aliases.get(normalized, normalized)
+
+
+if __name__ == "__main__":
+    main()

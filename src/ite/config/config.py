@@ -1,0 +1,399 @@
+from __future__ import annotations
+from pydantic import field_validator, model_validator
+from typing import Any, ClassVar
+import os
+import socket
+import re
+from pathlib import Path
+from pydantic import BaseModel, Field
+from enum import Enum
+
+DEFAULT_BASE_URL = "http://localhost:11434/v1"
+DEFAULT_API_KEY = "ollama"
+DEFAULT_MODEL_NAME = ""
+DEFAULT_CONTEXT_WINDOW = 256_000
+FIXED_PROVIDER_CONTEXT_WINDOW = 200_000
+DEFAULT_CLOUD_API_URL = "https://api.kiishi.space"
+DEFAULT_CLOUD_CLIENT_ID = "ite-cli"
+DEFAULT_VOICE_GROQ_API_KEY = ""
+
+
+def default_cloud_device_name() -> str:
+    hostname = str(socket.gethostname() or "").strip()
+    if hostname:
+        return hostname
+    return DEFAULT_CLOUD_CLIENT_ID
+
+
+class ModelConfig(BaseModel):
+    name: str = Field(default=DEFAULT_MODEL_NAME)
+    temperature: float = Field(default=1, ge=0.0, le=2.0)
+    context_window: int = DEFAULT_CONTEXT_WINDOW
+    context_window_source: str | None = None
+    source_kind: str | None = None
+    supports_vision: bool = True
+    reasoning_effort: str | None = None
+
+
+class ShellEnvironmentPolicy(BaseModel):
+    ignore_default_excludes: bool = False
+    exclude_patterns: list[str] = Field(
+        default_factory=lambda: ["*KEY*", "*SECRET*", "*TOKEN*"]
+    )
+
+    set_vars: dict[str, str] = Field(default_factory=dict)
+
+
+class MCPServerConfig(BaseModel):
+    enabled: bool = True
+    auto_connect: bool = False
+    startup_timeout_sec: float = 10
+    context_resolution: dict[str, list[str]] = Field(default_factory=dict)
+
+    # stdio transport
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: Path | None = None
+
+    # http/sse transport
+    url: str | None = None
+    transport: str = "auto"
+    headers: dict[str, str] = Field(default_factory=dict)
+    auth: str | None = None
+    sse_read_timeout_sec: float | None = None
+    oauth_timeout_sec: float = 300
+    oauth_scopes: list[str] = Field(default_factory=list)
+    oauth_client_name: str = "iTE MCP Client"
+    oauth_callback_port: int | None = None
+
+    # Client credentials auth (OAuth 2.0 client_credentials grant)
+    client_credentials_url: str | None = None
+    client_credentials_client_id: str | None = None
+    client_credentials_client_secret: str | None = None
+    client_credentials_scope: str = ""
+    client_credentials_refresh_buffer_sec: int = 300
+
+    _ENV_VAR_PATTERN: ClassVar[re.Pattern[str]] = re.compile(
+        r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))"
+    )
+
+    @field_validator("command", "url", "auth", mode="before")
+    @classmethod
+    def expand_string_env_vars(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return os.path.expandvars(value)
+        return value
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def expand_list_env_vars(cls, value: Any) -> Any:
+        if not isinstance(value, list):
+            return value
+        return [os.path.expandvars(item) if isinstance(item, str) else item for item in value]
+
+    @field_validator("env", "headers", mode="before")
+    @classmethod
+    def expand_mapping_env_vars(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        return {
+            str(key): os.path.expandvars(item) if isinstance(item, str) else item
+            for key, item in value.items()
+        }
+
+    @field_validator("context_resolution", mode="before")
+    @classmethod
+    def normalize_context_resolution(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        normalized: dict[str, list[str]] = {}
+        for key, item in value.items():
+            if isinstance(item, list):
+                normalized[str(key)] = [str(part) for part in item if str(part).strip()]
+            elif isinstance(item, str) and item.strip():
+                normalized[str(key)] = [item.strip()]
+        return normalized
+
+    @field_validator("cwd", mode="before")
+    @classmethod
+    def expand_cwd_env_vars(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return Path(os.path.expandvars(value))
+        return value
+
+    @property
+    def effective_transport(self) -> str:
+        if self.transport != "auto":
+            return self.transport
+        if self.command:
+            return "stdio"
+        if self.url and self.url.rstrip("/").endswith("/sse"):
+            return "sse"
+        return "streamable_http"
+
+    @model_validator(mode="after")
+    def validate_transport(self) -> MCPServerConfig:
+        has_command = self.command is not None
+        has_url = self.url is not None
+
+        if not has_command and not has_url:
+            raise ValueError(
+                "MCP Server must have either 'command' (stdio) or 'url' (http/sse)"
+            )
+
+        if has_command and has_url:
+            raise ValueError("MCP Server must have only one of command or url set")
+
+        transport = self.effective_transport
+        if has_command and transport != "stdio":
+            raise ValueError(
+                "MCP Server using 'command' must use transport 'stdio' or 'auto'"
+            )
+        if has_url and transport not in {"sse", "streamable_http", "ws"}:
+            raise ValueError(
+                "MCP Server using 'url' must use transport 'sse', "
+                "'streamable_http', 'ws', or 'auto'"
+            )
+        if transport == "ws" and (self.headers or self.auth):
+            raise ValueError(
+                "WebSocket MCP transport does not support configured headers or auth"
+            )
+        if self.auth == "oauth" and not has_url:
+            raise ValueError("OAuth MCP auth requires a URL-based MCP server")
+        if self.auth != "oauth" and (
+            self.oauth_scopes or self.oauth_callback_port is not None
+        ):
+            raise ValueError(
+                "OAuth-specific MCP settings require auth = 'oauth'"
+            )
+
+        client_credentials_fields_set = any(
+            getattr(self, field) not in (None, "")
+            for field in (
+                "client_credentials_url",
+                "client_credentials_client_id",
+                "client_credentials_client_secret",
+                "client_credentials_scope",
+            )
+        ) or self.client_credentials_refresh_buffer_sec != 300
+
+        if client_credentials_fields_set and self.auth != "client_credentials":
+            raise ValueError(
+                "client_credentials_* MCP settings require auth = 'client_credentials'"
+            )
+
+        if self.auth == "client_credentials" and not self.client_credentials_url:
+            raise ValueError(
+                "auth = 'client_credentials' requires client_credentials_url"
+            )
+
+        return self
+
+    def unresolved_env_vars(self) -> list[str]:
+        names: set[str] = set()
+        for value in [self.command, self.url, self.auth, *(self.args or [])]:
+            names.update(self._extract_unresolved_env_var_names(value))
+        for mapping in (self.env, self.headers):
+            for item in mapping.values():
+                names.update(self._extract_unresolved_env_var_names(item))
+        if self.cwd is not None:
+            names.update(self._extract_unresolved_env_var_names(str(self.cwd)))
+        return sorted(names)
+
+    @classmethod
+    def _extract_unresolved_env_var_names(cls, value: Any) -> set[str]:
+        if not isinstance(value, str):
+            return set()
+        names: set[str] = set()
+        for match in cls._ENV_VAR_PATTERN.finditer(value):
+            names.add(match.group(1) or match.group(2) or "")
+        names.discard("")
+        return names
+
+
+class ApprovalPolicy(str, Enum):
+    ON_REQUEST = "on_request"
+    ON_FAILURE = "on_failure"
+    AUTO = "auto"
+    AUTO_EDIT = "auto_edit"
+    NEVER = "never"
+    YOLO = "yolo"
+
+
+class HookTrigger(str, Enum):
+    BEFORE_AGENT = "before_agent"
+    AFTER_AGENT = "after_agent"
+    BEFORE_TOOL = "before_tool"
+    AFTER_TOOL = "after_tool"
+    ON_ERROR = "on_error"
+
+
+class HookConfig(BaseModel):
+    name: str
+    trigger: HookTrigger
+    command: str | None = None
+    script: str | None = None
+    timeout_sec: float = 30
+    enabled: bool = True
+    blocking: bool = False
+
+    @model_validator(mode="after")
+    def validate_hook(self) -> HookConfig:
+        if not self.command and not self.script:
+            raise ValueError("Hook must have either 'command' or 'script'")
+
+        return self
+
+
+class SandboxPolicy(BaseModel):
+    enabled: bool = True
+    git_sandbox: bool = False
+    allowed_paths: list[Path] = Field(default_factory=list)
+
+
+class VoiceConfig(BaseModel):
+    enabled: bool = True
+    groq_api_key: str | None = DEFAULT_VOICE_GROQ_API_KEY
+
+    @model_validator(mode="after")
+    def resolve_default_key(self) -> "VoiceConfig":
+        if not str(self.groq_api_key or "").strip():
+            self.groq_api_key = DEFAULT_VOICE_GROQ_API_KEY
+        return self
+
+
+class ToolOptimizerConfig(BaseModel):
+    enabled: bool = True
+    compact_descriptions: bool = True
+    compact_read_output: bool = True
+    line_range_edit: bool = True
+
+
+class OpenIslandConfig(BaseModel):
+    """Opt-in mirroring of iTE sessions into the Open Island notch overlay.
+
+    macOS-only in practice. Disabled by default: the integration performs
+    socket I/O, so it must be a deliberate choice rather than a surprise.
+    """
+
+    enabled: bool = False
+    socket_path: Path | None = None
+
+
+class IntegrationsConfig(BaseModel):
+    open_island: OpenIslandConfig = Field(default_factory=OpenIslandConfig)
+
+
+class Config(BaseModel):
+    model: ModelConfig = Field(default_factory=ModelConfig)
+    cwd: Path = Field(default=Path.cwd())
+    shell_environment: ShellEnvironmentPolicy = Field(
+        default_factory=ShellEnvironmentPolicy
+    )
+    sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
+    voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    tool_optimizer: ToolOptimizerConfig = Field(
+        default_factory=ToolOptimizerConfig
+    )
+    integrations: IntegrationsConfig = Field(default_factory=IntegrationsConfig)
+    hooks_enabled: bool = False
+    hooks: list[HookConfig] = Field(default_factory=list)
+    approval: ApprovalPolicy = ApprovalPolicy.AUTO
+
+    max_turns: int = 100
+    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+
+    max_tool_output_tokens: int = 50_000
+
+    allowed_tools: list[str] | None = Field(
+        None,
+        description="If set only these tools will be available to the agent",
+    )
+
+    developer_instructions: str | None = None
+    user_instructions: str | None = None
+
+    debug: bool = False
+
+    # Credentials — loaded from config.toml, overridden by env vars / CLI flags
+    api_key: str | None = None
+    base_url: str | None = None
+    cloud_auth_enabled: bool = True
+    cloud_api_url: str | None = DEFAULT_CLOUD_API_URL
+    cloud_client_id: str = DEFAULT_CLOUD_CLIENT_ID
+    cloud_device_name: str = Field(default_factory=default_cloud_device_name)
+    onboarding_completed: bool = False
+    resume_last_session: bool = False
+
+    @model_validator(mode="after")
+    def resolve_credentials(self) -> "Config":
+        """Env vars override config file values."""
+        if env_key := os.environ.get("API_KEY"):
+            self.api_key = env_key
+        if env_url := os.environ.get("BASE_URL"):
+            self.base_url = env_url
+        if env_cloud_enabled := os.environ.get("ITE_CLOUD_AUTH_ENABLED"):
+            self.cloud_auth_enabled = env_cloud_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        if env_cloud_api := os.environ.get("ITE_CLOUD_API_URL"):
+            self.cloud_api_url = env_cloud_api
+        if env_cloud_client := os.environ.get("ITE_CLOUD_CLIENT_ID"):
+            self.cloud_client_id = env_cloud_client
+        if env_cloud_device := os.environ.get("ITE_CLOUD_DEVICE_NAME"):
+            self.cloud_device_name = env_cloud_device
+        if voice_key := (
+            os.environ.get("ITE_VOICE_GROQ_API_KEY") or os.environ.get("GROQ_API_KEY")
+        ):
+            self.voice.groq_api_key = voice_key
+        if voice_enabled := os.environ.get("ITE_VOICE_ENABLED"):
+            self.voice.enabled = voice_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        return self
+
+    @property
+    def model_name(self) -> str:
+        return self.model.name
+
+    @model_name.setter
+    def model_name(self, value: str) -> None:
+        self.model.name = value
+
+    @property
+    def temperature(self) -> float:
+        return self.model.temperature
+
+    @temperature.setter
+    def temperature(self, value: float) -> None:
+        self.model.temperature = value
+
+    def validate(self) -> list[str]:
+        errors: list[str] = []
+
+        if not self.api_key:
+            errors.append("missing_api_key")
+        if not self.base_url:
+            errors.append("missing_base_url")
+        if not self.model.name:
+            errors.append("missing_model")
+
+        if not self.cwd.exists():
+            errors.append(f"Working directory does not exist: {self.cwd}")
+
+        return errors
+
+    @property
+    def needs_setup(self) -> bool:
+        """True if essential credentials are missing."""
+        return not self.api_key or not self.base_url or not self.model.name
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(mode="json")

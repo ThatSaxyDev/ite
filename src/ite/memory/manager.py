@@ -1,0 +1,1030 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import os
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from ite.config.loader import get_data_dir
+from ite.memory.intent import (
+    extract_preference_controls,
+    is_memory_probe,
+    parse_explicit_memory_instruction,
+)
+from ite.memory.response_intent import resolve_response_intent
+
+VALID_STORES = ("short_term", "long_term", "episodic", "semantic")
+MAX_EPISODIC_ENTRIES = 50
+DURABLE_MEMORY_TYPES = ("user", "feedback", "project", "reference")
+logger = logging.getLogger(__name__)
+
+
+def _project_hash(cwd: str | Path) -> str:
+    return hashlib.sha256(str(Path(cwd).resolve()).encode("utf-8")).hexdigest()[:12]
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return " ".join(text.split())
+
+
+def _make_summary(value: str, limit: int = 140) -> str:
+    text = _normalize_text(value)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def _hotness_score(access_count: int, updated_at: str | None) -> float:
+    freq = 1.0 / (1.0 + math.exp(-math.log1p(max(access_count, 0))))
+    if not updated_at:
+        return 0.0
+    try:
+        updated = datetime.fromisoformat(updated_at)
+    except ValueError:
+        return 0.0
+
+    now = datetime.now(timezone.utc)
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    age_days = max((now - updated).total_seconds() / 86400.0, 0.0)
+    decay_rate = math.log(2) / 7.0
+    recency = math.exp(-decay_rate * age_days)
+    return freq * recency
+
+
+def _lexical_score(query: str, haystack: str) -> float:
+    query = _normalize_text(query).lower()
+    haystack = _normalize_text(haystack).lower()
+    if not query or not haystack:
+        return 0.0
+
+    score = 0.0
+    if query in haystack:
+        score += 0.75
+
+    tokens = [token for token in query.split() if len(token) > 2]
+    if not tokens:
+        return min(score, 1.0)
+
+    matches = sum(1 for token in tokens if token in haystack)
+    score += min(matches / max(len(tokens), 1), 1.0) * 0.5
+    return min(score, 1.0)
+
+
+def _query_profile(query: str) -> dict[str, bool]:
+    text = _normalize_text(query).lower()
+    return {
+        "has_query": bool(text),
+        "wants_memory": any(
+            token in text
+            for token in (
+                "remember",
+                "memory",
+                "last time",
+                "previous",
+                "decide",
+                "decided",
+                "focus",
+                "focused",
+                "working on",
+                "session",
+            )
+        ),
+    }
+
+
+def _updated_sort_key(record: dict[str, Any]) -> tuple[int, str]:
+    updated_at = str(record.get("updated_at") or "")
+    return (1 if updated_at else 0, updated_at)
+
+
+def _infer_memory_type(
+    store: str,
+    key: str,
+    value: str,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    if isinstance(metadata, dict):
+        explicit = str(metadata.get("memory_type", "")).strip().lower()
+        if explicit in DURABLE_MEMORY_TYPES:
+            return explicit
+
+    normalized_key = _normalize_text(key).lower()
+    normalized_value = _normalize_text(value).lower()
+    combined = f"{normalized_key} {normalized_value}"
+
+    if store == "long_term":
+        if extract_preference_controls(value) or "conditional_preferences" in (metadata or {}):
+            return "user"
+        feedback_markers = (
+            "when reviewing",
+            "when explaining",
+            "when debugging",
+            "when editing",
+            "when writing code",
+            "prefer that you",
+            "i prefer",
+        )
+        if any(marker in combined for marker in feedback_markers):
+            return "feedback"
+        return "user"
+
+    if store == "semantic":
+        reference_markers = (
+            "use ",
+            "command",
+            "cli",
+            "tests",
+            "lint",
+            "formatter",
+            "typecheck",
+            "api",
+            "schema",
+            "endpoint",
+            "protocol",
+            "tool",
+            "docs",
+        )
+        if normalized_key.startswith(("ref_", "reference_", "guide_", "command_", "tool_")):
+            return "reference"
+        if any(marker in combined for marker in reference_markers):
+            return "reference"
+        return "project"
+
+    return "project"
+
+
+def _infer_scope(store: str, memory_type: str) -> str:
+    if store == "long_term":
+        return "user"
+    if store == "semantic":
+        return "workspace"
+    if store == "short_term":
+        return "session"
+    if memory_type == "user":
+        return "user"
+    return "workspace"
+
+
+def _derive_title(key: str, value: str, *, limit: int = 72) -> str:
+    label = _normalize_text(key).replace("_", " ").replace("-", " ").strip()
+    if not label:
+        label = _make_summary(value, limit=limit)
+    if len(label) > limit:
+        label = label[: limit - 3].rstrip() + "..."
+    return label
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
+def _format_durable_record(record: dict[str, Any]) -> dict[str, Any]:
+    memory_type = str(record.get("memory_type", "")).strip() or "project"
+    return {
+        "key": str(record.get("key", "")).strip(),
+        "type": memory_type,
+        "scope": str(record.get("scope", "")).strip() or "workspace",
+        "title": str(record.get("title", "")).strip() or _derive_title(
+            str(record.get("key", "")).strip(),
+            str(record.get("value", "")).strip(),
+        ),
+        "summary": str(record.get("summary", "")).strip(),
+        "body": str(record.get("body") or record.get("value") or "").strip(),
+        "why": str(record.get("why", "")).strip(),
+        "how_to_apply": str(record.get("how_to_apply", "")).strip(),
+        "source": str(record.get("source", "")).strip(),
+        "confidence": float(record.get("confidence", 0.8) or 0.8),
+        "created_at": str(record.get("created_at", "")).strip(),
+        "updated_at": str(record.get("updated_at", "")).strip(),
+    }
+
+
+def _desired_durable_types(query: str) -> tuple[str, ...]:
+    text = _normalize_text(query).lower()
+    intent = resolve_response_intent(query)
+    desired: list[str] = []
+
+    if any(
+        token in text
+        for token in (
+            "test",
+            "tests",
+            "tool",
+            "tools",
+            "command",
+            "commands",
+            "run ",
+            "use ",
+            "how do we",
+            "what should we use",
+        )
+    ):
+        desired.append("reference")
+
+    if any(context in intent.contexts for context in ("architecture", "implementation", "explanation")):
+        desired.append("project")
+
+    if any(
+        token in text
+        for token in (
+            "preference",
+            "prefer",
+            "how should you answer",
+            "how do i like",
+            "style",
+        )
+    ):
+        desired.extend(["user", "feedback"])
+
+    if not desired:
+        desired.extend(["reference", "project"])
+
+    return tuple(dict.fromkeys(desired))
+
+
+def _durable_type_boost(memory_type: str, desired_types: tuple[str, ...]) -> float:
+    if memory_type not in DURABLE_MEMORY_TYPES:
+        return 0.0
+    if memory_type not in desired_types:
+        return 0.0
+    rank = desired_types.index(memory_type)
+    return max(0.0, 0.22 - (rank * 0.06))
+
+
+class MemoryManager:
+    def __init__(
+        self,
+        cwd: str | Path,
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        self.cwd = Path(cwd).resolve()
+        self._session_id = session_id
+        self._degraded_mode = False
+        self._degraded_reason: str | None = None
+        self._fallback_entries: dict[str, dict[str, dict[str, Any]]] = {
+            "short_term": {},
+            "long_term": {},
+            "semantic": {},
+        }
+        self._fallback_episodes: list[dict[str, Any]] = []
+
+    @property
+    def session_id(self) -> str | None:
+        return self._session_id
+
+    def set_session_id(self, session_id: str | None) -> None:
+        self._session_id = session_id
+
+    @property
+    def degraded_mode(self) -> bool:
+        return self._degraded_mode
+
+    @property
+    def degraded_reason(self) -> str | None:
+        return self._degraded_reason
+
+    @property
+    def persistent_available(self) -> bool:
+        return not self._degraded_mode
+
+    def _activate_degraded_mode(
+        self,
+        reason: str,
+        *,
+        store: str | None = None,
+        entries: dict[str, dict[str, Any]] | None = None,
+        episodes: list[dict[str, Any]] | None = None,
+    ) -> None:
+        if not self._degraded_mode:
+            logger.warning("Memory manager entering degraded mode: %s", reason)
+        self._degraded_mode = True
+        self._degraded_reason = self._degraded_reason or reason
+        if store in self._fallback_entries and entries is not None:
+            self._fallback_entries[store] = {key: dict(value) for key, value in entries.items()}
+        if episodes is not None:
+            self._fallback_episodes = [dict(episode) for episode in episodes[-MAX_EPISODIC_ENTRIES:]]
+
+    def _safe_store_path(self, store: str) -> Path | None:
+        if self._degraded_mode:
+            return None
+        try:
+            return self._store_path(store)
+        except OSError as exc:
+            self._activate_degraded_mode(f"persistent storage unavailable for {store}: {exc}")
+            return None
+
+    def _safe_legacy_semantic_path(self) -> Path | None:
+        if self._degraded_mode:
+            return None
+        try:
+            return self._legacy_semantic_path()
+        except OSError as exc:
+            self._activate_degraded_mode(f"legacy semantic storage unavailable: {exc}")
+            return None
+
+    def _memory_root(self) -> Path:
+        root = get_data_dir() / "memory"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _session_root(self) -> Path:
+        root = self._memory_root() / "sessions"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _project_root(self) -> Path:
+        root = self._memory_root() / "projects" / _project_hash(self.cwd)
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _store_path(self, store: str) -> Path:
+        if store == "long_term":
+            return self._memory_root() / "long_term.json"
+        if store == "semantic":
+            return self._project_root() / "semantic.json"
+        if store == "episodic":
+            return self._project_root() / "episodic.json"
+        if store == "short_term":
+            if self._session_id:
+                session_dir = self._session_root() / self._session_id
+                session_dir.mkdir(parents=True, exist_ok=True)
+                return session_dir / "short_term.json"
+            return self._memory_root() / "short_term.json"
+        raise ValueError(f"Unknown store: {store}")
+
+    def _legacy_semantic_path(self) -> Path:
+        return self._memory_root() / "projects" / f"{_project_hash(self.cwd)}.json"
+
+    def _atomic_write_json(self, path: Path, data: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_path, path)
+            os.chmod(path, 0o600)
+        finally:
+            if tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+
+    def _load_json(self, path: Path, *, default: dict[str, Any]) -> dict[str, Any]:
+        if not path.exists():
+            return default
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return default
+        if not isinstance(data, dict):
+            return default
+        return data
+
+    def _normalize_record(
+        self,
+        key: str,
+        value: str | dict[str, Any],
+        *,
+        scope: str,
+        default_source: str = "memory_tool",
+    ) -> dict[str, Any]:
+        if isinstance(value, str):
+            memory_type = _infer_memory_type(scope, key, value)
+            record = {
+                "key": key,
+                "value": value,
+                "title": _derive_title(key, value),
+                "summary": _make_summary(value),
+                "body": _normalize_text(value),
+                "scope": _infer_scope(scope, memory_type),
+                "memory_type": memory_type,
+                "why": "",
+                "how_to_apply": "",
+                "confidence": 0.8,
+                "created_at": None,
+                "updated_at": None,
+                "access_count": 0,
+                "source": "legacy",
+            }
+        else:
+            record = dict(value)
+            inferred_type = _infer_memory_type(
+                scope,
+                key,
+                str(record.get("value", "")),
+                record,
+            )
+            record.setdefault("key", key)
+            record.setdefault("value", str(record.get("value", "")))
+            record.setdefault(
+                "title",
+                _derive_title(key, str(record.get("value", ""))),
+            )
+            record.setdefault("summary", _make_summary(str(record.get("value", ""))))
+            record.setdefault("body", _normalize_text(str(record.get("value", ""))))
+            record.setdefault("scope", _infer_scope(scope, inferred_type))
+            record.setdefault("memory_type", inferred_type)
+            record.setdefault("why", "")
+            record.setdefault("how_to_apply", "")
+            record.setdefault("confidence", 0.8)
+            record.setdefault("created_at", record.get("updated_at"))
+            if not _has_value(record.get("created_at")):
+                record["created_at"] = str(record.get("updated_at") or "")
+            record.setdefault("updated_at", None)
+            record.setdefault("access_count", 0)
+            record.setdefault("source", default_source)
+            record.setdefault("conditional_preferences", [])
+        return record
+
+    def _load_entries(self, store: str) -> dict[str, dict[str, Any]]:
+        if self._degraded_mode:
+            return {
+                key: dict(value)
+                for key, value in self._fallback_entries.get(store, {}).items()
+            }
+
+        path = self._safe_store_path(store)
+        if path is None:
+            return {
+                key: dict(value)
+                for key, value in self._fallback_entries.get(store, {}).items()
+            }
+        data = self._load_json(path, default={"entries": {}})
+
+        if store == "semantic" and not data.get("entries"):
+            legacy_path = self._safe_legacy_semantic_path()
+            legacy = (
+                self._load_json(legacy_path, default={"entries": {}})
+                if legacy_path is not None
+                else {"entries": {}}
+            )
+            if legacy.get("entries"):
+                data = legacy
+
+        entries = data.get("entries", {})
+        if not isinstance(entries, dict):
+            return {}
+
+        normalized: dict[str, dict[str, Any]] = {}
+        for key, value in entries.items():
+            normalized[str(key)] = self._normalize_record(str(key), value, scope=store)
+        return normalized
+
+    def _save_entries(self, store: str, entries: dict[str, dict[str, Any]]) -> None:
+        normalized_entries = {
+            key: dict(value)
+            for key, value in entries.items()
+        }
+        if self._degraded_mode:
+            self._fallback_entries[store] = normalized_entries
+            return
+
+        path = self._safe_store_path(store)
+        if path is None:
+            self._fallback_entries[store] = normalized_entries
+            return
+
+        try:
+            self._atomic_write_json(
+                path,
+                {"entries": normalized_entries},
+            )
+        except OSError as exc:
+            self._activate_degraded_mode(
+                f"failed to persist {store} entries: {exc}",
+                store=store,
+                entries=normalized_entries,
+            )
+
+    def _normalize_episode(self, value: dict[str, Any]) -> dict[str, Any]:
+        summary = str(value.get("summary", "")).strip()
+        return {
+            "summary": summary,
+            "detail": str(value.get("detail", summary)).strip(),
+            "timestamp": str(value.get("timestamp") or _now_iso()),
+            "session_id": value.get("session_id"),
+            "workspace_id": str(value.get("workspace_id") or self.cwd),
+            "source": str(value.get("source") or "memory_tool"),
+            "access_count": int(value.get("access_count", 0) or 0),
+        }
+
+    def _load_episodes(self) -> list[dict[str, Any]]:
+        if self._degraded_mode:
+            return [dict(episode) for episode in self._fallback_episodes]
+
+        path = self._safe_store_path("episodic")
+        if path is None:
+            return [dict(episode) for episode in self._fallback_episodes]
+
+        data = self._load_json(path, default={"episodes": []})
+        episodes = data.get("episodes", [])
+        if not isinstance(episodes, list):
+            episodes = []
+
+        normalized: list[dict[str, Any]] = []
+        for episode in episodes:
+            if isinstance(episode, dict):
+                normalized.append(self._normalize_episode(episode))
+        return normalized
+
+    def _save_episodes(self, episodes: list[dict[str, Any]]) -> None:
+        normalized = [dict(episode) for episode in episodes[-MAX_EPISODIC_ENTRIES:]]
+        if self._degraded_mode:
+            self._fallback_episodes = normalized
+            return
+
+        path = self._safe_store_path("episodic")
+        if path is None:
+            self._fallback_episodes = normalized
+            return
+
+        try:
+            self._atomic_write_json(
+                path,
+                {"episodes": normalized},
+            )
+        except OSError as exc:
+            self._activate_degraded_mode(
+                f"failed to persist episodic memory: {exc}",
+                episodes=normalized,
+            )
+
+    def set_entry(
+        self,
+        store: str,
+        key: str,
+        value: str,
+        *,
+        source: str = "memory_tool",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        entries = self._load_entries(store)
+        if store == "long_term":
+            entries = self._supersede_overlapping_long_term_preferences(
+                entries,
+                key=key,
+                value=value,
+                metadata=metadata,
+            )
+        existing = entries.get(key, {})
+        record = self._normalize_record(key, existing or value, scope=store, default_source=source)
+        record["value"] = value
+        record["body"] = _normalize_text(value)
+        record["title"] = _derive_title(key, value)
+        record["summary"] = _make_summary(value)
+        record["memory_type"] = _infer_memory_type(store, key, value, metadata)
+        record["scope"] = _infer_scope(store, str(record.get("memory_type", "")))
+        if not _has_value(record.get("created_at")):
+            record["created_at"] = _now_iso()
+        record["updated_at"] = _now_iso()
+        record["source"] = source
+        if metadata:
+            for meta_key, meta_value in metadata.items():
+                record[meta_key] = meta_value
+        entries[key] = record
+        self._save_entries(store, entries)
+        return record
+
+    def _supersede_overlapping_long_term_preferences(
+        self,
+        entries: dict[str, dict[str, Any]],
+        *,
+        key: str,
+        value: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        conditional_specs = list((metadata or {}).get("conditional_preferences") or [])
+        if conditional_specs:
+            updated_entries = dict(entries)
+            new_pairs = {
+                (str(spec.get("condition", "")), control_key)
+                for spec in conditional_specs
+                for control_key in dict(spec.get("controls", {}))
+            }
+            for existing_key, record in list(updated_entries.items()):
+                if existing_key == key:
+                    continue
+                existing_specs = list(record.get("conditional_preferences") or [])
+                if not existing_specs:
+                    continue
+                existing_pairs = {
+                    (str(spec.get("condition", "")), control_key)
+                    for spec in existing_specs
+                    for control_key in dict(spec.get("controls", {}))
+                }
+                if new_pairs.intersection(existing_pairs):
+                    del updated_entries[existing_key]
+            return updated_entries
+
+        new_controls = extract_preference_controls(value)
+        if not new_controls:
+            return entries
+
+        updated_entries = dict(entries)
+        control_keys = set(new_controls)
+        for existing_key, record in list(updated_entries.items()):
+            if existing_key == key:
+                continue
+            existing_controls = extract_preference_controls(str(record.get("value", "")))
+            if not existing_controls:
+                continue
+            if control_keys.intersection(existing_controls):
+                del updated_entries[existing_key]
+        return updated_entries
+
+    def get_entry(self, store: str, key: str, *, increment_access: bool = True) -> dict[str, Any] | None:
+        entries = self._load_entries(store)
+        record = entries.get(key)
+        if record is None:
+            return None
+        if increment_access:
+            record["access_count"] = int(record.get("access_count", 0) or 0) + 1
+            record["updated_at"] = str(record.get("updated_at") or _now_iso())
+            entries[key] = record
+            self._save_entries(store, entries)
+        return record
+
+    def delete_entry(self, store: str, key: str) -> bool:
+        entries = self._load_entries(store)
+        if key not in entries:
+            return False
+        del entries[key]
+        self._save_entries(store, entries)
+        return True
+
+    def list_entries(self, store: str) -> list[dict[str, Any]]:
+        return [entries for _, entries in sorted(self._load_entries(store).items())]
+
+    def latest_entry(self, store: str) -> dict[str, Any] | None:
+        entries = self.list_entries(store)
+        if not entries:
+            return None
+        entries.sort(key=_updated_sort_key, reverse=True)
+        return entries[0]
+
+    def clear_store(self, store: str) -> int:
+        if store == "episodic":
+            episodes = self._load_episodes()
+            self._save_episodes([])
+            return len(episodes)
+        entries = self._load_entries(store)
+        self._save_entries(store, {})
+        return len(entries)
+
+    def append_episode(
+        self,
+        summary: str,
+        *,
+        detail: str | None = None,
+        source: str = "session",
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        episodes = self._load_episodes()
+        entry = self._normalize_episode(
+            {
+                "summary": summary,
+                "detail": detail or summary,
+                "timestamp": _now_iso(),
+                "session_id": session_id or self._session_id,
+                "workspace_id": str(self.cwd),
+                "source": source,
+            }
+        )
+        episodes.append(entry)
+        self._save_episodes(episodes)
+        return entry
+
+    def list_episodes(self) -> list[dict[str, Any]]:
+        return self._load_episodes()
+
+    def clear_session_short_term(self, session_id: str | None = None) -> None:
+        target = session_id or self._session_id
+        if self._degraded_mode:
+            if target is None or target == self._session_id:
+                self._fallback_entries["short_term"] = {}
+            return
+        if not target:
+            legacy_path = self._memory_root() / "short_term.json"
+            if legacy_path.exists():
+                try:
+                    legacy_path.unlink()
+                except OSError:
+                    pass
+            return
+
+        session_file = self._session_root() / target / "short_term.json"
+        if session_file.exists():
+            try:
+                session_file.unlink()
+            except OSError:
+                pass
+
+    def load_prompt_memory(self, current_user_text: str | None = None, *, limit: int = 5) -> dict[str, Any] | None:
+        query = current_user_text or ""
+        profile = _query_profile(query)
+        intent = resolve_response_intent(query)
+        desired_durable_types = _desired_durable_types(query)
+        candidates: list[dict[str, Any]] = []
+        controls = self._build_active_controls(query)
+
+        for store in ("short_term", "semantic", "long_term"):
+            for record in self.list_entries(store):
+                if store == "long_term" and extract_preference_controls(str(record.get("value", ""))):
+                    continue
+                base = _lexical_score(query, f"{record.get('key', '')} {record.get('summary', '')} {record.get('value', '')}")
+                hotness = _hotness_score(
+                    int(record.get("access_count", 0) or 0),
+                    str(record.get("updated_at") or ""),
+                )
+                memory_type = str(record.get("memory_type", "")).strip() or _infer_memory_type(
+                    store,
+                    str(record.get("key", "")),
+                    str(record.get("value", "")),
+                    record,
+                )
+                store_boost = {
+                    "short_term": 0.25,
+                    "semantic": 0.15,
+                    "long_term": 0.08,
+                }[store]
+                type_boost = 0.0
+                if store in {"long_term", "semantic"}:
+                    type_boost = _durable_type_boost(memory_type, desired_durable_types)
+                candidates.append(
+                    {
+                        "store": store,
+                        "record": record,
+                        "memory_type": memory_type,
+                        "base_score": base,
+                        "score": base + hotness * 0.35 + store_boost + type_boost,
+                    }
+                )
+
+        for episode in self.list_episodes():
+            summary_text = str(episode.get("summary", "") or "")
+            lowered_summary = summary_text.lower()
+            if parse_explicit_memory_instruction(summary_text) is not None:
+                continue
+            if is_memory_probe(summary_text):
+                continue
+            if "for this session only, remember" in lowered_summary:
+                continue
+            if "remember this for this workspace" in lowered_summary:
+                continue
+            if _is_low_value_episode(summary_text):
+                continue
+            base = _lexical_score(query, f"{episode.get('summary', '')} {episode.get('detail', '')}")
+            hotness = _hotness_score(
+                int(episode.get("access_count", 0) or 0),
+                str(episode.get("timestamp") or ""),
+            )
+            candidates.append(
+                {
+                    "store": "episodic",
+                    "record": episode,
+                    "base_score": base,
+                    "score": base + hotness * 0.35 + 0.1,
+                }
+            )
+
+        selected: list[dict[str, Any]] = []
+        if candidates:
+            candidates.sort(key=lambda item: item["score"], reverse=True)
+            seen: set[str] = set()
+            lane_counts = {
+                "short_term": 0,
+                "episodic": 0,
+                "user": 0,
+                "feedback": 0,
+                "project": 0,
+                "reference": 0,
+            }
+            for candidate in candidates:
+                record = candidate["record"]
+                store = str(candidate["store"])
+                base_score = float(candidate.get("base_score", 0.0) or 0.0)
+                memory_type = str(candidate.get("memory_type", "")).strip()
+
+                if profile["has_query"]:
+                    if store == "short_term":
+                        if lane_counts["short_term"] >= 2:
+                            continue
+                        if base_score < 0.12 and not profile["wants_memory"]:
+                            continue
+                    elif store in {"semantic", "long_term"}:
+                        threshold = 0.08 if memory_type in desired_durable_types else 0.14
+                        if base_score < threshold and not profile["wants_memory"]:
+                            continue
+                        if memory_type in {"user", "feedback"} and lane_counts[memory_type] >= 1:
+                            continue
+                        if memory_type in {"project", "reference"} and lane_counts[memory_type] >= 2:
+                            continue
+                    elif store == "episodic":
+                        if lane_counts["episodic"] >= 2:
+                            continue
+                        if base_score < 0.12 and not profile["wants_memory"]:
+                            continue
+
+                summary = str(record.get("summary") or record.get("value") or "").strip().lower()
+                dedupe_key = f"{store}:{summary}"
+                if not summary or dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                selected.append(candidate)
+                if store == "short_term":
+                    lane_counts["short_term"] += 1
+                elif store == "episodic":
+                    lane_counts["episodic"] += 1
+                elif memory_type in lane_counts:
+                    lane_counts[memory_type] += 1
+                if len(selected) >= limit:
+                    break
+
+        bundle = {
+            "controls": controls,
+            "short_term": {},
+            "long_term": {},
+            "episodic": [],
+            "semantic": {},
+            "durable": [],
+        }
+
+        touched_entry_keys: dict[str, list[str]] = {"short_term": [], "long_term": [], "semantic": []}
+        episodic_updates = self.list_episodes()
+        episodic_dirty = False
+        episodic_lookup = {episode["timestamp"]: episode for episode in episodic_updates}
+
+        for item in selected:
+            store = item["store"]
+            record = item["record"]
+            if store == "episodic":
+                bundle["episodic"].append(
+                    {
+                        "timestamp": record.get("timestamp", ""),
+                        "summary": record.get("summary", ""),
+                    }
+                )
+                episode = episodic_lookup.get(str(record.get("timestamp", "")))
+                if episode is not None:
+                    episode["access_count"] = int(episode.get("access_count", 0) or 0) + 1
+                    episodic_dirty = True
+                continue
+
+            key = str(record.get("key", "")).strip()
+            bundle[store][key] = str(record.get("summary") or record.get("value") or "")
+            if store in {"long_term", "semantic"}:
+                bundle["durable"].append(_format_durable_record(record))
+            if key:
+                touched_entry_keys[store].append(key)
+
+        for store in ("short_term", "long_term", "semantic"):
+            if not touched_entry_keys[store]:
+                continue
+            entries = self._load_entries(store)
+            dirty = False
+            for key in touched_entry_keys[store]:
+                record = entries.get(key)
+                if record is None:
+                    continue
+                record["access_count"] = int(record.get("access_count", 0) or 0) + 1
+                entries[key] = record
+                dirty = True
+            if dirty:
+                self._save_entries(store, entries)
+
+        if episodic_dirty:
+            self._save_episodes(episodic_updates)
+
+        has_data = (
+            bool(bundle["controls"])
+            or any(bundle["short_term"])
+            or any(bundle["long_term"])
+            or any(bundle["semantic"])
+            or bool(bundle["episodic"])
+            or bool(bundle["durable"])
+        )
+        return bundle if has_data else None
+
+    def _build_active_controls(self, query: str | None = None) -> dict[str, Any]:
+        controls: dict[str, Any] = {}
+        sources: dict[str, str] = {}
+        intent = resolve_response_intent(query or "")
+        query_contexts = list(intent.contexts)
+        requested_controls = dict(intent.requested_controls)
+        applied_contexts: list[str] = []
+        entries = sorted(self.list_entries("long_term"), key=_updated_sort_key)
+        touched_keys: list[str] = []
+
+        for record in entries:
+            key = str(record.get("key", "")).strip()
+            summary = str(record.get("summary") or record.get("value") or "").strip()
+            conditional_specs = list(record.get("conditional_preferences") or [])
+            if conditional_specs:
+                matched = False
+                for spec in conditional_specs:
+                    condition = str(spec.get("condition", "")).strip()
+                    if not query_contexts or condition not in query_contexts:
+                        continue
+                    spec_controls = dict(spec.get("controls", {}))
+                    if not spec_controls:
+                        continue
+                    for control_key, control_value in spec_controls.items():
+                        controls[control_key] = control_value
+                        if summary:
+                            sources[control_key] = summary
+                    matched = True
+                    if condition:
+                        applied_contexts.append(condition)
+                if matched and key:
+                    touched_keys.append(key)
+                continue
+
+            record_controls = extract_preference_controls(str(record.get("value", "")))
+            if not record_controls:
+                continue
+            for control_key, control_value in record_controls.items():
+                controls[control_key] = control_value
+                if summary:
+                    sources[control_key] = summary
+            if key:
+                touched_keys.append(key)
+
+        if touched_keys:
+            entries_by_key = self._load_entries("long_term")
+            dirty = False
+            for key in touched_keys:
+                record = entries_by_key.get(key)
+                if record is None:
+                    continue
+                record["access_count"] = int(record.get("access_count", 0) or 0) + 1
+                entries_by_key[key] = record
+                dirty = True
+            if dirty:
+                self._save_entries("long_term", entries_by_key)
+
+        for control_key, control_value in requested_controls.items():
+            controls[control_key] = control_value
+            sources[control_key] = "current request"
+
+        if not controls:
+            return {}
+
+        controls["sources"] = sources
+        if applied_contexts:
+            controls["matched_contexts"] = list(dict.fromkeys(applied_contexts))
+        return controls
+
+    def load_active_controls(self, query: str | None = None) -> dict[str, Any]:
+        return self._build_active_controls(query)
+
+    def debug_prompt_memory(self, query: str | None, *, limit: int = 5) -> dict[str, Any]:
+        return self.load_prompt_memory(query, limit=limit) or {
+            "controls": {},
+            "short_term": {},
+            "long_term": {},
+            "episodic": [],
+            "semantic": {},
+            "durable": [],
+        }
+
+
+def _is_low_value_episode(summary: str) -> bool:
+    lowered = _normalize_text(summary).lower()
+    if not lowered:
+        return True
+
+    noisy_prefixes = (
+        "session exited",
+        "session saved",
+        "context compacted",
+    )
+    if lowered.startswith(noisy_prefixes):
+        noisy_prompt_markers = (
+            "how do i like my responses",
+            "how should you answer",
+            "what are tools in this repo",
+            "what were those phrases again",
+            "what phrase should you remember",
+            "what are we focused on right now",
+        )
+        return any(marker in lowered for marker in noisy_prompt_markers)
+
+    return False

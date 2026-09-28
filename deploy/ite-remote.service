@@ -1,0 +1,68 @@
+[Unit]
+Description=iTE Cloud host supervisor (runs per-user agent runtimes)
+Documentation=https://github.com/kiishi/itetheagt
+# The supervisor needs outbound network to reach the cloud relay. It retries
+# internally, so this is an ordering hint rather than a hard requirement.
+After=network-online.target
+Wants=network-online.target
+
+# A crash loop is usually a real misconfiguration (bad credential, bad path).
+# Stop retrying after repeated fast failures so `systemctl status` shows it
+# rather than hiding it behind endless restarts.
+#
+# These two live in [Unit], not [Service]: systemd ignores them in [Service]
+# and logs "Unknown lvalue", which silently disables the protection.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# Run as root on purpose. Per-user uid isolation (the boundary that stops one
+# tenant reading another's workspace) requires setuid, which needs root. As a
+# non-root user the supervisor degrades to environment isolation only and says
+# so loudly in the log.
+User=root
+Group=root
+
+# The host token is stored via platformdirs, which resolves `~` from HOME. Root's
+# HOME is /root, so without this the service would look for the credential in
+# /root/.local/share/ite-agent/remote_bridge and refuse to start with "not
+# enrolled". Point HOME at the account that ran `ite remote host enroll`.
+#
+# If you prefer the credential to live under /root instead, drop this line and
+# run `sudo ite cloud login` + `sudo ite remote host enroll` once.
+Environment=HOME=/home/kiishi
+
+# Runtime trees default to /var/lib/ite when running as root. Set this explicitly
+# so the layout is obvious and independent of who starts the service.
+# Environment=ITE_RUNTIME_BASE_DIR=/var/lib/ite
+
+# Absolute path to the entry point: systemd has no shell, so `ite` will not be
+# found on PATH (and root's PATH is minimal).
+#
+# This is the curl-install layout (`curl -fsSL https://ite.kiishi.space/install.sh | bash`):
+# it drops the standalone binary at <HOME>/.ite/app/ite/ite and puts a symlink at
+# <HOME>/.ite/bin/ite. Point ExecStart at the real binary, not the symlink:
+# the bundle's `_internal/` directory sits next to it, and re-running the
+# installer replaces the whole `app/` tree.
+#
+# After re-running the installer you MUST `systemctl restart ite-remote`; the
+# old process keeps serving the deleted binaries until it is restarted.
+ExecStart=/home/kiishi/.ite/app/ite/ite remote serve
+
+# Restart on any exit, including a clean one, so the host stays online.
+Restart=always
+RestartSec=10
+
+# Give children time to shut down on `systemctl stop`. The supervisor handles
+# SIGTERM and deprovisions its runtimes; this is the ceiling before SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ite-remote
+
+[Install]
+WantedBy=multi-user.target

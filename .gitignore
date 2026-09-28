@@ -1,9 +1,63 @@
-# Environment variables
-.env
-
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-.venv/
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Environment
+.env
+.venv
+env/
 venv/
+ENV/
+env.bak/
+venv.bak/
+
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project
+.ite/
+.claude/
+data/
+logs/
+run/
+
+# Cloud repos (untracked sub-projects)
+ite-releases/
+ite-cloud-api/
+ite-cloud-web/
+ite_remote/
+ite_admin/
+landing-site/
+kwiksim_mobile/
+claw-code/
+csrc/
+auto-harness/
+
+# External reference clones (GPLv3 — must never be vendored or committed)
+open-vibe-island/

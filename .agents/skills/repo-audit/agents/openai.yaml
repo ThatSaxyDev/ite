@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Audit"
+  short_description: "Review codebases for bugs, risks, and missing tests."
+  default_prompt: "Use repo-audit to review this codebase for potential bugs, security risks, and missing test coverage."
