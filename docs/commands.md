@@ -25,7 +25,9 @@ Type `/help` in iTE to see available commands.
 | `/stats` | Show token usage statistics |
 | `/tools` | List available tools |
 | `/theme` | Change UI theme (re-up UI) |
+| `/login` | Sign in to iTE |
 | `/logout` | Log out of iTE Cloud |
+| `/status` | Show iTE account connection status |
 
 ## Workflow
 
@@ -84,13 +86,10 @@ Type `/help` in iTE to see available commands.
 | `/mcp add <server>` | Copy server config between scopes |
 | `/mcp doctor <server>` | Diagnose MCP server issues |
 
-## Cloud & Subagents
+## Account Usage & Subagents
 
 | Command | Description |
 | ------- | ----------- |
-| `/cloud status` | Show cloud auth status |
-| `/cloud login` | Log in to iTE Cloud |
-| `/cloud logout` | Log out of iTE Cloud |
 | `/usage` | Show usage summary from iTE Cloud |
 | `/activity` | Show recent activity from iTE Cloud |
 | `/subagent list` | List available subagents |

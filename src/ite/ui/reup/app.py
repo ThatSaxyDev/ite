@@ -311,7 +311,7 @@ from ._composer import ComposerMixin
 from ._threads import ThreadsMixin
 from ._turn import TurnMixin
 from ._streaming import StreamingMixin
-from .settings import SettingsPanel
+from .settings import AppFooter, SettingsPanel
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
 from .widgets.state import SessionRunState, ShellSessionCardState
@@ -684,6 +684,9 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                                         "Exit", id="cloud-exit", variant="default"
                                     )
                                 yield Static("", id="signed-out-status")
+                            yield AppFooter(
+                                id="signed-out-footer", classes="signed-out-footer"
+                            )
                         with Container(id="update-required-state"):
                             with Vertical(id="update-required-stack"):
                                 yield Static(

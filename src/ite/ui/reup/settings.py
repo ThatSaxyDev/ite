@@ -118,38 +118,45 @@ class UsageLimitCard(Container):
             self.app.run_worker(opener(), exclusive=False)
 
 
-class SettingsFooter(Horizontal):
-    """The settings footer with the credits line and a clickable link."""
+class FooterLink(Static):
+    """A compact text link used by the application footer."""
 
-    URL = "https://kiishi.space"
+    def __init__(self, label: str, url: str) -> None:
+        super().__init__(label, classes="app-footer-link")
+        self.url = url
 
-    @on(events.Click, "#settings-footer-link")
-    def _on_footer_link_clicked(self, _event: events.Click) -> None:
-        opened = webbrowser.open(self.URL)
+
+class AppFooter(Vertical):
+    """Compact author, product, and social links shared across app surfaces."""
+
+    PORTFOLIO_URL = "https://kiishi.space"
+    GITHUB_URL = "https://github.com/ThatSaxyDev/ite"
+    LINKEDIN_URL = "https://www.linkedin.com/in/david-dedeke-382915281"
+    ITE_X_URL = "https://x.com/itetheagent"
+
+    @on(events.Click, ".app-footer-link")
+    def _on_footer_link_clicked(self, event: events.Click) -> None:
+        url = getattr(event.control, "url", None)
+        if not isinstance(url, str):
+            return
+        opened = webbrowser.open(url)
         if opened:
-            self.app.post_notice("iTE", "Opened kiishi.space in your browser.")
+            self.app.post_notice("iTE", "Opened link in your browser.")
         else:
-            self.app.post_notice(
-                "iTE", "Open https://kiishi.space to learn more."
-            )
+            self.app.post_notice("iTE", f"Open {url} in your browser.")
 
     def compose(self) -> ComposeResult:
         year = date.today().year
-        yield Static(
-            f"Built by ",
-            id="settings-footer-text",
-            classes="settings-footer-text",
-        )
-        yield Static(
-            "Kiishi David",
-            id="settings-footer-link",
-            classes="settings-footer-link",
-        )
-        yield Static(
-            f" ({year}). v{__version__}",
-            id="settings-footer-version",
-            classes="settings-footer-text",
-        )
+        with Horizontal(classes="app-footer-credit"):
+            yield Static("Built by ", classes="app-footer-text")
+            yield FooterLink("Kiishi David", self.PORTFOLIO_URL)
+            yield Static(f" · © {year} · v{__version__}", classes="app-footer-text")
+        with Horizontal(classes="app-footer-links"):
+            yield FooterLink("GitHub", self.GITHUB_URL)
+            yield Static(" · ", classes="app-footer-text")
+            yield FooterLink("LinkedIn", self.LINKEDIN_URL)
+            yield Static(" · ", classes="app-footer-text")
+            yield FooterLink("iTE on X", self.ITE_X_URL)
 
 
 class SettingsPanel(Widget):
@@ -341,7 +348,7 @@ class SettingsPanel(Widget):
                     )
 
             # Footer
-            yield SettingsFooter(classes="settings-footer")
+            yield AppFooter(classes="settings-footer")
 
     def on_mount(self) -> None:
         self._account_action.display = False

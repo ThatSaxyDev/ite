@@ -12,7 +12,6 @@ from ite.cloud import (
     get_activity,
     get_cloud_auth_status,
     get_usage_summary,
-    mark_cloud_signed_out,
 )
 from ite.config.loader import save_cloud_settings
 from rich.panel import Panel
@@ -44,62 +43,40 @@ def _cloud_status_panel(ctx: CommandContext) -> Panel:
     )
 
 
-async def cmd_cloud(ctx: CommandContext, args: list[str]) -> None:
-    subcommand = args[0].lower() if args else "status"
-
-    if subcommand in {"status", "show"}:
-        ctx.console.print()
-        ctx.console.print(_cloud_status_panel(ctx))
-        return
-
-    if subcommand == "login":
-        if not ctx.config.cloud_auth_enabled:
-            ctx.config.cloud_auth_enabled = True
-            save_cloud_settings(enabled=True)
-        auth = get_cloud_auth_status(ctx.config)
-        if auth.state == CloudSessionState.VALID:
-            ctx.console.print("[bold green]Already signed in to iTE Cloud.[/bold green]")
-            return
-        if auth.state == CloudSessionState.NETWORK_ERROR:
-            ctx.console.print(f"[error]{auth.message}[/error]")
-            return
-        if auth.state == CloudSessionState.INVALID:
-            stored_session = getattr(auth, "session", None)
-            if stored_session is not None:
-                ctx.console.print(f"[error]{auth.message}[/error]")
-                return
-            clear_cloud_auth(revoke_remote=False)
-        if auth.state == CloudSessionState.SIGNED_OUT and getattr(auth, "session", None) is not None:
-            ctx.console.print(f"[error]{auth.message}[/error]")
-            return
-        try:
-            ensure_cloud_auth(ctx.console, ctx.config)
-        except CloudConnectionError as exc:
-            ctx.console.print(f"[error]Cloud API unreachable:[/error] {exc}")
-            return
-        except CloudAuthError as exc:
-            ctx.console.print(f"[error]Cloud login failed:[/error] {exc}")
-            return
-        ctx.console.print("[bold green]iTE Cloud session is active.[/bold green]")
-        return
-
-    if subcommand == "logout":
-        cleared = clear_cloud_auth()
-        mark_cloud_signed_out()
-        if cleared:
-            ctx.console.print("[bold green]Cloud session cleared.[/bold green]")
-        else:
-            ctx.console.print("[dim]No local cloud session was present.[/dim]")
-        return
-
-    ctx.console.print(
-        "[error]Unknown /cloud command.[/error] "
-        "[dim]Use /cloud status, /cloud login, or /cloud logout[/dim]"
-    )
+async def cmd_status(ctx: CommandContext, args: list[str]) -> None:
+    ctx.console.print()
+    ctx.console.print(_cloud_status_panel(ctx))
 
 
 async def cmd_login(ctx: CommandContext, args: list[str]) -> None:
-    await cmd_cloud(ctx, ["login"])
+    if not ctx.config.cloud_auth_enabled:
+        ctx.config.cloud_auth_enabled = True
+        save_cloud_settings(enabled=True)
+    auth = get_cloud_auth_status(ctx.config)
+    if auth.state == CloudSessionState.VALID:
+        ctx.console.print("[bold green]Already signed in to iTE Cloud.[/bold green]")
+        return
+    if auth.state == CloudSessionState.NETWORK_ERROR:
+        ctx.console.print(f"[error]{auth.message}[/error]")
+        return
+    if auth.state == CloudSessionState.INVALID:
+        stored_session = getattr(auth, "session", None)
+        if stored_session is not None:
+            ctx.console.print(f"[error]{auth.message}[/error]")
+            return
+        clear_cloud_auth(revoke_remote=False)
+    if auth.state == CloudSessionState.SIGNED_OUT and getattr(auth, "session", None) is not None:
+        ctx.console.print(f"[error]{auth.message}[/error]")
+        return
+    try:
+        ensure_cloud_auth(ctx.console, ctx.config)
+    except CloudConnectionError as exc:
+        ctx.console.print(f"[error]Cloud API unreachable:[/error] {exc}")
+        return
+    except CloudAuthError as exc:
+        ctx.console.print(f"[error]Cloud login failed:[/error] {exc}")
+        return
+    ctx.console.print("[bold green]iTE Cloud session is active.[/bold green]")
 
 
 async def cmd_usage(ctx: CommandContext, args: list[str]) -> None:
@@ -193,9 +170,9 @@ async def cmd_activity(ctx: CommandContext, args: list[str]) -> None:
 def register(registry: CommandRegistry) -> None:
     registry.register(
         Command(
-            name="/cloud",
-            description="Manage iTE Cloud auth and API settings",
-            handler=cmd_cloud,
+            name="/status",
+            description="Show iTE account connection status",
+            handler=cmd_status,
         )
     )
     registry.register(

@@ -322,7 +322,7 @@ class CloudMixin:
                         message
                         or "Could not read iTE Cloud credentials from the OS credential store."
                     )
-                    + " Unlock Keychain Access if needed, then try again. If that keeps failing, run `/cloud login`.",
+                    + " Unlock Keychain Access if needed, then try again. If that keeps failing, run `/login`.",
                     is_error=True,
                 )
             return False
@@ -676,9 +676,7 @@ class CloudMixin:
                 "Back online. Cloud features are available.",
             )
             return
-        self._cloud_signed_out_status_message = (
-            "iTE Cloud is reachable. Sign in to continue."
-        )
+        self._cloud_signed_out_status_message = ""
         self._refresh_signed_out_status()
         if recovered:
             self.post_notice("iTE Cloud", "Back online. You can sign in now.")

@@ -691,7 +691,7 @@ class ReupStartupTests(unittest.TestCase):
             ensure_remote_server.assert_not_awaited()
             post_system.assert_called_once()
             self.assertIn("OS credential store", post_system.call_args.args[1])
-            self.assertIn("/cloud login", post_system.call_args.args[1])
+            self.assertIn("/login", post_system.call_args.args[1])
 
         asyncio.run(run_test())
 
@@ -1029,7 +1029,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    "ite.ui.reup._cloud.is_cloud_api_reachable",
                     return_value=True,
                 ) as is_reachable,
                 patch.object(app, "post_notice") as post_notice,
@@ -1038,10 +1038,7 @@ class ReupStartupTests(unittest.TestCase):
 
             is_reachable.assert_called_once_with(app.config)
             self.assertFalse(app._cloud_network_was_unreachable)
-            self.assertEqual(
-                app._cloud_signed_out_status_message,
-                "iTE Cloud is reachable. Sign in to continue.",
-            )
+            self.assertEqual(app._cloud_signed_out_status_message, "")
             self.assertFalse(app._cloud_network_watch_enabled)
             post_notice.assert_called_once_with(
                 "iTE Cloud",
@@ -1063,7 +1060,7 @@ class ReupStartupTests(unittest.TestCase):
             )
 
             with (
-                patch("ite.ui.reup.app.get_cloud_auth_status", return_value=auth),
+                patch("ite.ui.reup._cloud.get_cloud_auth_status", return_value=auth),
                 patch.object(app, "_set_account_plan_badge_state") as set_badge,
                 patch.object(app, "_prefetch_cloud_caches") as prefetch,
                 patch.object(app, "post_notice") as post_notice,
@@ -1090,10 +1087,10 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    "ite.ui.reup._cloud.is_cloud_api_reachable",
                     return_value=True,
                 ) as is_reachable,
-                patch("ite.ui.reup.app.get_cloud_auth_status") as get_auth_status,
+                patch("ite.ui.reup._cloud.get_cloud_auth_status") as get_auth_status,
                 patch.object(app, "_set_account_plan_badge_state") as set_badge,
                 patch.object(app, "_prefetch_cloud_caches") as prefetch,
                 patch.object(app, "post_notice") as post_notice,
@@ -1120,7 +1117,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    "ite.ui.reup._cloud.is_cloud_api_reachable",
                     return_value=True,
                 ),
                 patch.object(app, "post_notice") as post_notice,
@@ -1150,9 +1147,7 @@ class ReupStartupTests(unittest.TestCase):
         app.config.cloud_auth_enabled = True
         app._cloud_signed_out = True
         app._cloud_network_watch_enabled = False
-        app._cloud_signed_out_status_message = (
-            "iTE Cloud is reachable. Sign in to continue."
-        )
+        app._cloud_signed_out_status_message = ""
 
         self.assertFalse(app._should_probe_cloud_network_recovery())
 
@@ -1203,10 +1198,10 @@ class ReupStartupTests(unittest.TestCase):
             app._account_plan_unavailable = False
             with (
                 patch(
-                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    "ite.ui.reup._cloud.is_cloud_api_reachable",
                     return_value=False,
                 ),
-                patch("ite.ui.reup.app.get_cloud_auth_status") as get_auth_status,
+                patch("ite.ui.reup._cloud.get_cloud_auth_status") as get_auth_status,
                 patch.object(app, "refresh_header") as refresh_header,
                 patch.object(app, "post_notice") as post_notice,
             ):
@@ -1232,10 +1227,10 @@ class ReupStartupTests(unittest.TestCase):
             app._account_plan_unavailable = False
             with (
                 patch(
-                    "ite.ui.reup.app.is_cloud_api_reachable",
+                    "ite.ui.reup._cloud.is_cloud_api_reachable",
                     return_value=False,
                 ),
-                patch("ite.ui.reup.app.get_cloud_auth_status") as get_auth_status,
+                patch("ite.ui.reup._cloud.get_cloud_auth_status") as get_auth_status,
                 patch.object(app, "refresh_header") as refresh_header,
                 patch.object(app, "post_notice") as post_notice,
             ):

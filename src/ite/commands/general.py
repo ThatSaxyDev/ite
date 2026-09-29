@@ -172,7 +172,7 @@ async def cmd_logout(ctx: CommandContext, args: list[str]) -> None:
     if cleared:
         ctx.console.print("[bold green]Cloud session cleared.[/bold green]")
         ctx.console.print(
-            "[dim]Run `ite` again or use `/cloud login` to start sign-in from scratch.[/dim]"
+            "[dim]Run `ite` again or use `/login` to start sign-in from scratch.[/dim]"
         )
         return
     ctx.console.print("[dim]No local cloud session was present.[/dim]")

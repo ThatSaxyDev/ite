@@ -282,18 +282,25 @@
     background: $surface-darken-1;
 }
 
-#settings-panel .settings-footer-text {
+#settings-panel .app-footer-credit,
+#settings-panel .app-footer-links {
+    width: auto;
+    height: auto;
+}
+
+#settings-panel .app-footer-text {
     height: auto;
     width: auto;
     color: $foreground-muted;
     content-align: left middle;
 }
 
-#settings-panel .settings-footer-link {
+#settings-panel .app-footer-link {
     height: auto;
     width: auto;
     color: $accent;
     content-align: left middle;
+    text-style: underline;
 }
 
 #settings-panel #settings-signout {
@@ -475,4 +482,3 @@
     align-vertical: middle;
     margin-top: 1;
 }
-

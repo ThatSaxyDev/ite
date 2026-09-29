@@ -693,6 +693,34 @@
     text-align: center;
 }
 
+#signed-out-footer {
+    dock: bottom;
+    width: 100%;
+    height: auto;
+    align-horizontal: center;
+    padding: 0 2 2 2;
+}
+
+#signed-out-footer .app-footer-credit,
+#signed-out-footer .app-footer-links {
+    width: 100%;
+    height: auto;
+    align-horizontal: center;
+}
+
+#signed-out-footer .app-footer-text {
+    width: auto;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#signed-out-footer .app-footer-link {
+    width: auto;
+    color: $accent;
+    content-align: center middle;
+    text-style: underline;
+}
+
 #signed-out-actions {
     width: 100%;
     height: auto;

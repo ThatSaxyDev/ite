@@ -671,7 +671,7 @@ wheels = [
 
 [[package]]
 name = "ite-agent"
-version = "0.1.40"
+version = "0.2.22"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -697,6 +697,7 @@ dependencies = [
     { name = "textual", extra = ["syntax"] },
     { name = "tiktoken" },
     { name = "tomli" },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -736,6 +737,7 @@ requires-dist = [
     { name = "textual", extras = ["syntax"], specifier = ">=8.2.0" },
     { name = "tiktoken" },
     { name = "tomli" },
+    { name = "websockets", specifier = ">=14" },
 ]
 provides-extras = ["dev"]
 

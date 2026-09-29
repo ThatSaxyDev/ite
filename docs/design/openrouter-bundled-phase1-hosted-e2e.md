@@ -105,7 +105,7 @@ Before pushing the backend:
 Before pushing runtime changes for end-to-end testing:
 
 1. Confirm the runtime build you are testing points at the hosted cloud API.
-2. Confirm `/cloud login` completes against the hosted backend.
+2. Confirm `/login` completes against the hosted backend.
 3. Confirm the hosted backend returns bundled models from `/models/bundled`.
 
 ## Hosted End-to-End Test Plan
@@ -176,7 +176,7 @@ Goal:
 Steps:
 
 1. Launch `ite`.
-2. Run `/cloud login`.
+2. Run `/login`.
 3. Open the model picker.
 4. Verify bundled entries appear as `Bundled`.
 5. Select each bundled model one-by-one across separate prompts:

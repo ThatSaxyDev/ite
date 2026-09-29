@@ -129,7 +129,7 @@ class TurnMixin:
                     message
                     or "Could not read iTE Cloud credentials from the OS credential store."
                 )
-                + " Unlock Keychain Access if needed, then try `/remote on` again. If that keeps failing, run `/cloud login` to refresh the stored credential."
+                + " Unlock Keychain Access if needed, then try `/remote on` again. If that keeps failing, run `/login` to refresh the stored credential."
             )
         if state == CloudSessionState.NETWORK_ERROR:
             return (
@@ -137,14 +137,14 @@ class TurnMixin:
                 or "iTE Cloud is unreachable right now. Your stored session was kept."
             )
         if state == CloudSessionState.SIGNED_OUT:
-            return "Sign in with `/cloud login`, then try `/remote on` again."
+            return "Sign in with `/login`, then try `/remote on` again."
         if state == CloudSessionState.INVALID:
             return (
                 message or "Stored iTE Cloud session is expired or revoked."
-            ) + " Run `/cloud login` to sign in again."
+            ) + " Run `/login` to sign in again."
         return (
             message
-            or "Remote companion requires bundled access. Sign in with `/cloud login` using an account with bundled access, or manage your plan, then try `/remote on` again."
+            or "Remote companion requires bundled access. Sign in with `/login` using an account with bundled access, or manage your plan, then try `/remote on` again."
         )
 
 
@@ -1006,22 +1006,8 @@ class TurnMixin:
             await self._open_model_picker_from_meta()
             return
 
-        if command == "/cloud":
-            subcommand = args[0].lower() if args else "status"
-            if subcommand in {"status", "show"}:
-                await self._run_cloud_status_flow()
-                return
-            if subcommand == "login":
-                await self._run_cloud_login_flow()
-                return
-            if subcommand == "logout":
-                await self._run_cloud_logout_flow()
-                return
-            self.post_system(
-                "iTE Cloud",
-                "Use `/cloud status`, `/cloud login`, or `/cloud logout`.",
-                is_error=True,
-            )
+        if command == "/status":
+            await self._run_cloud_status_flow()
             return
 
         if command == "/refresh":

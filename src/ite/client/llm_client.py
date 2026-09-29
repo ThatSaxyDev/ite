@@ -1290,7 +1290,7 @@ class LLMClient:
         if session is None:
             yield StreamEvent(
                 type=StreamEventType.ERROR,
-                error="Cloud session is missing or expired. Run `/cloud login` and try again.",
+                error="Cloud session is missing or expired. Run `/login` and try again.",
             )
             return
 
@@ -1373,7 +1373,7 @@ class LLMClient:
         session = self._resolve_cloud_session()
         if session is None:
             raise RuntimeError(
-                "Cloud session is missing or expired. Run `/cloud login` and try again."
+                "Cloud session is missing or expired. Run `/login` and try again."
             )
 
         safe_messages = self._sanitize_messages(messages)
