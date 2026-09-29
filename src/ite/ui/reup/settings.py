@@ -815,7 +815,7 @@ class SettingsPanel(Widget):
     def _format_reset(value: str) -> str:
         if value:
             try:
-                dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
+                dt = datetime.fromisoformat(value).astimezone()
                 hour = dt.hour % 12 or 12
                 minute = dt.strftime("%M")
                 period = "am" if dt.hour < 12 else "pm"
