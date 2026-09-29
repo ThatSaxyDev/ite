@@ -529,6 +529,14 @@ class ThreadsMixin:
     def set_settings_active(self, enabled: bool) -> None:
         self._settings_active = enabled
         self._apply_shell_surface()
+        if enabled:
+            try:
+                settings_panel = self.query_one("#settings-panel")
+            except NoMatches:
+                return
+            refresh = getattr(settings_panel, "refresh_cloud_data", None)
+            if callable(refresh):
+                refresh()
 
 
     async def _open_settings_screen(self) -> None:

@@ -354,16 +354,23 @@ class SettingsPanel(Widget):
         self._account_action.display = False
         self._populate_context()
         self.refresh_open_island_state()
-        self.run_worker(self._load_activity(), exclusive=True)
-        self.run_worker(self._load_account(), exclusive=False)
+        self.refresh_cloud_data()
 
     def on_show(self) -> None:
         # The agent/session may not have been ready at mount time, and model
         # or approval can change while the panel is hidden. Refresh on open.
         self._populate_context()
         self.refresh_open_island_state()
-        self.run_worker(self._load_account(), exclusive=False)
-        self.run_worker(self._load_activity(), exclusive=True)
+        self.refresh_cloud_data()
+
+    def refresh_cloud_data(self) -> None:
+        """Refresh settings data without allowing one request to cancel another."""
+        self.run_worker(
+            self._load_account(), group="settings-account", exclusive=True
+        )
+        self.run_worker(
+            self._load_activity(), group="settings-activity", exclusive=True
+        )
 
     def on_resize(self, _event: events.Resize) -> None:
         """Re-render the usage bar so it always fills the card width."""
@@ -537,30 +544,34 @@ class SettingsPanel(Widget):
         """Load cloud account profile, plan state, and usage limits."""
         app = self.app
         signed_out = bool(getattr(app, "_cloud_signed_out", True))
-        entitlements_result = None
-        user: dict[str, object] | None = None
-
-        # Prefer the app's cached cloud user state (populated during startup).
+        cached_user: dict[str, object] | None = None
         email = getattr(app, "_cloud_user_email", None)
         name = getattr(app, "_cloud_user_name", None)
         if email or name:
-            user = {"name": name or "", "email": email or ""}
-        elif not signed_out:
-            try:
-                entitlements_result = await asyncio.to_thread(
-                    get_cloud_entitlements_result, app.config
-                )
-            except Exception:
-                entitlements_result = None
-            candidate = (
-                getattr(entitlements_result, "user", None)
-                if entitlements_result
-                else None
+            cached_user = {"name": name or "", "email": email or ""}
+        cached_pro = getattr(app, "_account_plan_is_pro", None)
+        cached_summary = getattr(app, "_usage_summary_cache", None)
+
+        if signed_out:
+            self._apply_signed_out_profile()
+            self._apply_usage_summary(None)
+            return
+
+        # Render the last verified state first. A later request can refresh it,
+        # but a temporary network failure must not erase it.
+        if cached_user is not None:
+            self._apply_account_profile(cached_user)
+        if isinstance(cached_pro, bool):
+            self._apply_plan_state(cached_pro)
+        if isinstance(cached_summary, dict):
+            self._apply_usage_summary(cached_summary)
+
+        try:
+            entitlements_result = await asyncio.to_thread(
+                get_cloud_entitlements_result, app.config
             )
-            if isinstance(candidate, dict) and (
-                candidate.get("email") or candidate.get("name")
-            ):
-                user = candidate
+        except Exception:
+            entitlements_result = None
 
         auth_valid = bool(
             entitlements_result
@@ -570,37 +581,63 @@ class SettingsPanel(Widget):
             entitlements_result
             and getattr(entitlements_result, "metadata_available", True)
         )
+        if auth_valid and metadata_available:
+            candidate = getattr(entitlements_result, "user", None)
+            if isinstance(candidate, dict) and (
+                candidate.get("email") or candidate.get("name")
+            ):
+                self._cache_cloud_user(candidate)
+                self._apply_account_profile(candidate)
+            elif cached_user is None:
+                self._apply_account_profile(
+                    {"name": "Account profile unavailable", "email": ""}
+                )
 
-        if user is not None:
-            self._apply_account_profile(user)
-        elif signed_out:
-            self._apply_signed_out_profile()
-            self._apply_usage_summary(None)
-            return
-        elif not auth_valid or not metadata_available:
-            self._apply_unavailable_profile()
-        else:
-            self._apply_account_profile(
-                {"name": "Account profile unavailable", "email": ""}
-            )
-
-        # Plan state: prefer the app's cached flag, fall back to entitlements.
-        pro = getattr(app, "_account_plan_is_pro", None)
-        if pro is None and auth_valid and metadata_available:
             entitlements = getattr(entitlements_result, "entitlements", None) or {}
             pro = bool(
                 entitlements.get("proAccess")
                 or entitlements.get("remoteCompanion")
                 or entitlements.get("bundledInference")
             )
-        self._apply_plan_state(pro)
+            self._cache_plan_state(pro)
+            self._apply_plan_state(pro)
+        else:
+            if cached_user is None:
+                self._apply_unavailable_profile()
+            if not isinstance(cached_pro, bool):
+                self._apply_plan_state(None)
 
-        summary = None
+        summary = cached_summary if isinstance(cached_summary, dict) else None
         try:
-            summary = await asyncio.to_thread(get_usage_summary, app.config)
+            refreshed_summary = await asyncio.to_thread(get_usage_summary, app.config)
         except Exception:
-            summary = None
+            refreshed_summary = None
+        if isinstance(refreshed_summary, dict):
+            summary = refreshed_summary
+            self._cache_usage_summary(summary)
         self._apply_usage_summary(summary)
+
+    def _cache_cloud_user(self, user: dict[str, object]) -> None:
+        cache_user = getattr(self.app, "_set_cloud_user_profile", None)
+        if callable(cache_user):
+            cache_user(user)
+            return
+        self.app._cloud_user_email = str(user.get("email") or "") or None
+        self.app._cloud_user_name = str(user.get("name") or "") or None
+
+    def _cache_plan_state(self, pro: bool) -> None:
+        cache_plan = getattr(self.app, "_set_account_plan_badge_state", None)
+        if callable(cache_plan):
+            cache_plan(pro)
+            return
+        self.app._account_plan_is_pro = pro
+
+    def _cache_usage_summary(self, summary: dict[str, object]) -> None:
+        cache_summary = getattr(self.app, "_set_usage_summary_cache", None)
+        if callable(cache_summary):
+            cache_summary(summary)
+            return
+        self.app._usage_summary_cache = summary
 
     def _apply_account_profile(self, user: dict[str, object]) -> None:
         name = str(user.get("name") or "").strip()
@@ -736,10 +773,18 @@ class SettingsPanel(Widget):
         return "Resets soon"
 
     async def _load_activity(self) -> None:
+        cached_payload = getattr(self.app, "_activity_cache", None)
         try:
-            payload = await asyncio.to_thread(get_activity, self.app.config)
+            refreshed_payload = await asyncio.to_thread(get_activity, self.app.config)
         except Exception:
-            payload = None
+            refreshed_payload = None
+        payload = (
+            refreshed_payload
+            if isinstance(refreshed_payload, dict)
+            else cached_payload
+        )
+        if isinstance(refreshed_payload, dict):
+            self.app._activity_cache = refreshed_payload
 
         status = self.query_one("#settings-activity-status", Static)
         daily_tokens = payload.get("dailyTokens") if isinstance(payload, dict) else None

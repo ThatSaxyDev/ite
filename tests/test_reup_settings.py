@@ -21,6 +21,8 @@ class SettingsPanelApp(App[None]):
         self._cloud_user_email: str | None = None
         self._cloud_user_name: str | None = None
         self._account_plan_is_pro: bool | None = None
+        self._usage_summary_cache: dict[str, object] | None = None
+        self._activity_cache: dict[str, object] | None = None
         self.open_island_toggles: list[bool] = []
 
     async def _set_open_island_enabled(self, enabled: bool) -> None:
@@ -99,3 +101,47 @@ class SettingsPanelTests(IsolatedAsyncioTestCase):
                     self.assertEqual(app.open_island_toggles, [True])
                     self.assertTrue(config.integrations.open_island.enabled)
                     self.assertEqual(str(getattr(action, "label", "")), "Turn off")
+
+    async def test_cached_signed_in_account_survives_a_refresh_failure(self) -> None:
+        with TemporaryDirectory() as directory:
+            config = Config(cwd=Path(directory))
+            with (
+                patch(
+                    "ite.ui.reup.settings.get_cloud_entitlements_result",
+                    side_effect=RuntimeError("cloud down"),
+                ),
+                patch(
+                    "ite.ui.reup.settings.get_usage_summary",
+                    side_effect=RuntimeError("cloud down"),
+                ),
+                patch("ite.ui.reup.settings.get_activity", return_value=None),
+                patch.object(SettingsPanel, "on_show", lambda _self: None),
+            ):
+                app = SettingsPanelApp(config)
+                app._cloud_user_name = "Kiishi David"
+                app._cloud_user_email = "kiishi@example.test"
+                app._account_plan_is_pro = False
+                app._usage_summary_cache = {
+                    "quotas": {
+                        "fiveHour": {
+                            "usedUsdCents": 20,
+                            "capUsdCents": 100,
+                        }
+                    }
+                }
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+                    await pilot.pause()
+
+                    panel = app.query_one(SettingsPanel)
+                    account = panel.query_one(".settings-account-name", Static)
+                    plan = panel.query_one(".settings-plan-name", Static)
+                    usage = panel.query_one(".settings-usage-pct", Static)
+                    locked_copy = panel.query_one(
+                        "#settings-activity-locked-copy", Static
+                    )
+
+                    self.assertEqual(self._text(account), "Kiishi David")
+                    self.assertEqual(self._text(plan), "Free plan")
+                    self.assertEqual(self._text(usage), "80% left")
+                    self.assertIn("Unlock streaks", self._text(locked_copy))
