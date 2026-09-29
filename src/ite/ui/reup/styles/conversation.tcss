@@ -407,24 +407,6 @@
     padding: 0;
 }
 
-.block.workboard {
-    border: none;
-    background: $surface;
-    padding: 1 2;
-    margin: 0 2 2 0;
-}
-
-.block.workboard .card-title {
-    color: $text-primary;
-    text-style: bold;
-    margin-bottom: 0;
-}
-
-.block.workboard .card-body {
-    margin-top: 1;
-    padding: 0;
-}
-
 .block.memory {
     border: none;
     background: $surface;
@@ -536,8 +518,7 @@
     border: round $border;
     background: $surface;
     padding: 1 2;
-    margin-top: 1;
-    margin-bottom: 2;
+    margin: 1 2 2 0;
 }
 
 .block.workboard .card-title {
@@ -954,4 +935,3 @@
     background: $surface-darken-1;
     border: round $border;
 }
-
