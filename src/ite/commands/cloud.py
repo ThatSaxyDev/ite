@@ -12,6 +12,7 @@ from ite.cloud import (
     get_activity,
     get_cloud_auth_status,
     get_usage_summary,
+    mark_cloud_signed_out,
 )
 from ite.config.loader import save_cloud_settings
 from rich.panel import Panel
@@ -84,6 +85,7 @@ async def cmd_cloud(ctx: CommandContext, args: list[str]) -> None:
 
     if subcommand == "logout":
         cleared = clear_cloud_auth()
+        mark_cloud_signed_out()
         if cleared:
             ctx.console.print("[bold green]Cloud session cleared.[/bold green]")
         else:

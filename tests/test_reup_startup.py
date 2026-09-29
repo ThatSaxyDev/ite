@@ -437,9 +437,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
                 patch.object(app, "_set_onboarding_state") as set_onboarding_state,
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
-                patch("ite.ui.reup.app.save_cloud_settings") as save_cloud_settings,
+                patch("ite.ui.reup._cloud.save_cloud_settings") as save_cloud_settings,
                 patch(
-                    "ite.ui.reup.app.asyncio.to_thread", side_effect=_to_thread
+                    "ite.ui.reup._cloud.asyncio.to_thread", side_effect=_to_thread
                 ),
                 patch.object(
                     app,
@@ -486,9 +486,9 @@ class ReupStartupTests(unittest.TestCase):
                 patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
                 patch.object(app, "_refresh_empty_state") as refresh_empty_state,
                 patch.object(app, "_open_setup_modal", AsyncMock()) as open_setup_modal,
-                patch("ite.ui.reup.app.save_cloud_settings") as save_cloud_settings,
+                patch("ite.ui.reup._cloud.save_cloud_settings") as save_cloud_settings,
                 patch(
-                    "ite.ui.reup.app.asyncio.to_thread", side_effect=_to_thread
+                    "ite.ui.reup._cloud.asyncio.to_thread", side_effect=_to_thread
                 ),
                 patch.object(
                     app,
@@ -1435,6 +1435,33 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_bootstrap_requires_sign_in_after_explicit_logout(self) -> None:
+        async def run_test() -> None:
+            app = self._app()
+            app.config.cloud_auth_enabled = False
+            app.config.onboarding_completed = True
+
+            with (
+                patch.object(app, "_apply_shell_surface"),
+                patch.object(app, "_set_startup_state") as set_startup_state,
+                patch.object(app, "_set_signed_out_state") as set_signed_out_state,
+                patch.object(app, "_set_loading_state") as set_loading_state,
+                patch.object(app, "_schedule_runtime_update_check"),
+                patch.object(app, "ensure_agent", AsyncMock()) as ensure_agent,
+                patch(
+                    "ite.ui.reup.app.asyncio.to_thread",
+                    AsyncMock(return_value=True),
+                ),
+            ):
+                await app._bootstrap_after_mount()
+
+            set_startup_state.assert_called_once_with(False)
+            set_signed_out_state.assert_called_once_with(True)
+            set_loading_state.assert_called_once_with("idle", busy=False)
+            ensure_agent.assert_not_awaited()
+
+        asyncio.run(run_test())
+
     def test_mount_suppresses_workspace_hint_during_cloud_bootstrap(self) -> None:
         async def run_test() -> None:
             app = self._app()
@@ -1860,8 +1887,8 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch.object(app, "_reset_runtime_after_cloud_logout", AsyncMock()),
-                patch("ite.ui.reup.app.clear_cloud_auth") as clear_auth,
-                patch("ite.ui.reup.app.mark_cloud_signed_out") as mark_signed_out,
+                patch("ite.ui.reup._cloud.clear_cloud_auth") as clear_auth,
+                patch("ite.ui.reup._cloud.mark_cloud_signed_out") as mark_signed_out,
                 patch.object(app, "_set_signed_out_state") as set_signed_out_state,
             ):
                 await app._run_cloud_logout_flow()

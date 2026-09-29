@@ -41,3 +41,13 @@ def test_workboard_card_preserves_the_current_layout() -> None:
             assert body.styles.padding == (0, 0, 0, 0)
 
     asyncio.run(run())
+
+
+def test_signed_out_screen_requires_sign_in() -> None:
+    source = (
+        Path(__file__).parents[1] / "src/ite/ui/reup/app.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="cloud-sign-in"' in source
+    assert 'id="cloud-exit"' in source
+    assert 'id="cloud-skip-sign-in"' not in source

@@ -7,7 +7,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
-from ite.cloud import clear_cloud_auth
+from ite.cloud import clear_cloud_auth, mark_cloud_signed_out
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.memory import MemoryManager
 
@@ -168,6 +168,7 @@ async def cmd_close(ctx: CommandContext, args: list[str]) -> None:
 
 async def cmd_logout(ctx: CommandContext, args: list[str]) -> None:
     cleared = clear_cloud_auth()
+    mark_cloud_signed_out()
     if cleared:
         ctx.console.print("[bold green]Cloud session cleared.[/bold green]")
         ctx.console.print(

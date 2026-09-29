@@ -93,6 +93,7 @@ from ite.cloud import (
     get_usage_summary,
     has_stored_cloud_auth,
     is_cloud_api_reachable,
+    is_cloud_signed_out,
     mark_cloud_signed_out,
 )
 from ite.cloud.services import generate_cloud_session_title
@@ -680,9 +681,6 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                                         "Sign in", id="cloud-sign-in", variant="primary"
                                     )
                                     yield Button(
-                                        "Skip", id="cloud-skip-sign-in", variant="default"
-                                    )
-                                    yield Button(
                                         "Exit", id="cloud-exit", variant="default"
                                     )
                                 yield Static("", id="signed-out-status")
@@ -905,6 +903,16 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
 
     async def _bootstrap_after_mount(self) -> None:
         try:
+            explicitly_signed_out = await asyncio.to_thread(is_cloud_signed_out)
+            if explicitly_signed_out:
+                self._cloud_bootstrap_busy = False
+                self._cloud_network_watch_enabled = True
+                self._set_startup_state(False)
+                self._set_signed_out_state(True)
+                self._set_loading_state("idle", busy=False)
+                self._schedule_runtime_update_check()
+                return
+
             if self.config.cloud_auth_enabled:
                 self._set_startup_phase("Checking iTE Cloud")
                 has_cloud_session = await asyncio.to_thread(
