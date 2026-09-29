@@ -211,6 +211,24 @@ class SettingsPanel(Widget):
                     yield self._usage_pct
                 self._usage_bar = Static("", classes="settings-usage-bar")
                 yield self._usage_bar
+                with Horizontal(classes="settings-usage-head settings-usage-head-secondary"):
+                    with Vertical(classes="settings-usage-text"):
+                        yield Static(
+                            "7-day usage limit",
+                            classes="settings-usage-label",
+                        )
+                        self._seven_day_usage_reset = Static(
+                            "Resets soon", classes="settings-usage-reset"
+                        )
+                        yield self._seven_day_usage_reset
+                    self._seven_day_usage_pct = Static(
+                        "…", classes="settings-seven-day-usage-pct"
+                    )
+                    yield self._seven_day_usage_pct
+                self._seven_day_usage_bar = Static(
+                    "", classes="settings-usage-bar"
+                )
+                yield self._seven_day_usage_bar
 
             # Your plan
             yield Static(
@@ -380,7 +398,13 @@ class SettingsPanel(Widget):
         bar = getattr(self, "_usage_bar", None)
         if bar is None:
             return
-        bar.update(self._build_usage_bar(remaining))
+        bar.update(self._build_usage_bar(remaining, bar))
+        seven_day_remaining = getattr(self, "_seven_day_usage_remaining", None)
+        seven_day_bar = getattr(self, "_seven_day_usage_bar", None)
+        if seven_day_remaining is not None and seven_day_bar is not None:
+            seven_day_bar.update(
+                self._build_usage_bar(seven_day_remaining, seven_day_bar)
+            )
 
     @on(Button.Pressed, "#settings-back")
     def on_back_pressed(self, _event: Button.Pressed) -> None:
@@ -711,28 +735,53 @@ class SettingsPanel(Widget):
     def _apply_usage_summary(self, summary: dict[str, object] | None) -> None:
         if not isinstance(summary, dict):
             self._usage_remaining = None
+            self._seven_day_usage_remaining = None
             self._usage_pct.update("—")
             self._usage_bar.update("")
             self._usage_reset.update("Resets soon")
+            self._seven_day_usage_pct.update("—")
+            self._seven_day_usage_bar.update("")
+            self._seven_day_usage_reset.update("Resets soon")
             return
         quotas = summary.get("quotas") or {}
         if not isinstance(quotas, dict):
             quotas = {}
-        five_hour = quotas.get("fiveHour") or {}
-        if not isinstance(five_hour, dict):
-            five_hour = {}
-        used = float(five_hour.get("usedUsdCents") or 0)
-        cap = max(1.0, float(five_hour.get("capUsdCents") or 1))
-        remaining = max(0, min(100, int(((cap - used) / cap) * 100)))
-        self._usage_remaining = remaining
-        self._usage_pct.update(f"{remaining}% left")
-        self._usage_bar.update(self._build_usage_bar(remaining))
-        reset_raw = str(
-            five_hour.get("fullWindowClearAt") or five_hour.get("nextResetAt") or ""
+        five_hour_remaining = self._apply_usage_window(
+            quotas.get("fiveHour"),
+            percent_widget=self._usage_pct,
+            bar_widget=self._usage_bar,
+            reset_widget=self._usage_reset,
         )
-        self._usage_reset.update(self._format_reset(reset_raw))
+        self._usage_remaining = five_hour_remaining
+        self._seven_day_usage_remaining = self._apply_usage_window(
+            quotas.get("sevenDay"),
+            percent_widget=self._seven_day_usage_pct,
+            bar_widget=self._seven_day_usage_bar,
+            reset_widget=self._seven_day_usage_reset,
+        )
 
-    def _build_usage_bar(self, remaining_percent: int) -> Text:
+    def _apply_usage_window(
+        self,
+        quota: object,
+        *,
+        percent_widget: Static,
+        bar_widget: Static,
+        reset_widget: Static,
+    ) -> int:
+        if not isinstance(quota, dict):
+            quota = {}
+        used = float(quota.get("usedUsdCents") or 0)
+        cap = max(1.0, float(quota.get("capUsdCents") or 1))
+        remaining = max(0, min(100, int(((cap - used) / cap) * 100)))
+        percent_widget.update(f"{remaining}% left")
+        bar_widget.update(self._build_usage_bar(remaining, bar_widget))
+        reset_raw = str(
+            quota.get("fullWindowClearAt") or quota.get("nextResetAt") or ""
+        )
+        reset_widget.update(self._format_reset(reset_raw))
+        return remaining
+
+    def _build_usage_bar(self, remaining_percent: int, bar: Static) -> Text:
         """Render the usage bar the same way the usage summary modal does."""
         from ite.ui.reup.app import ReupApp
 
@@ -742,7 +791,7 @@ class SettingsPanel(Widget):
             styles = app._render_styles()
         filled_color = styles.get("success", "#8AD4A1")
         empty_color = styles.get("disabled", "#3a3a3f")
-        bar_width = self._usage_bar_width()
+        bar_width = self._usage_bar_width(bar)
         used_percent = max(0, min(100, 100 - remaining_percent))
         filled = max(0, min(bar_width, round((used_percent / 100) * bar_width)))
         empty = max(0, bar_width - filled)
@@ -753,9 +802,9 @@ class SettingsPanel(Widget):
             line.append("█" * empty, style=empty_color)
         return line
 
-    def _usage_bar_width(self) -> int:
+    def _usage_bar_width(self, bar: Static) -> int:
         try:
-            w = self._usage_bar.size.width
+            w = bar.size.width
             if w > 0:
                 return w
         except Exception:
@@ -767,7 +816,13 @@ class SettingsPanel(Widget):
         if value:
             try:
                 dt = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
-                return f"Resets {dt.strftime('%a, %b %-d')}"
+                hour = dt.hour % 12 or 12
+                minute = dt.strftime("%M")
+                period = "am" if dt.hour < 12 else "pm"
+                return (
+                    f"Resets {dt.strftime('%a, %b')} {dt.day} "
+                    f"at {hour}:{minute}{period}"
+                )
             except ValueError:
                 pass
         return "Resets soon"

@@ -112,6 +112,12 @@
     align-vertical: middle;
 }
 
+#settings-panel .settings-usage-head-secondary {
+    margin-top: 1;
+    padding-top: 1;
+    border-top: solid $border;
+}
+
 #settings-panel .settings-usage-text {
     height: auto;
     width: 1fr;
@@ -129,6 +135,13 @@
 }
 
 #settings-panel .settings-usage-pct {
+    height: auto;
+    width: auto;
+    color: $foreground;
+    content-align: right middle;
+}
+
+#settings-panel .settings-seven-day-usage-pct {
     height: auto;
     width: auto;
     color: $foreground;

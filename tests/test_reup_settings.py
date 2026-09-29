@@ -137,6 +137,13 @@ class SettingsPanelTests(IsolatedAsyncioTestCase):
                     account = panel.query_one(".settings-account-name", Static)
                     plan = panel.query_one(".settings-plan-name", Static)
                     usage = panel.query_one(".settings-usage-pct", Static)
+                    usage_reset = panel.query_one(".settings-usage-reset", Static)
+                    seven_day_usage = panel.query_one(
+                        ".settings-seven-day-usage-pct", Static
+                    )
+                    seven_day_reset = list(
+                        panel.query(".settings-usage-reset")
+                    )[1]
                     locked_copy = panel.query_one(
                         "#settings-activity-locked-copy", Static
                     )
@@ -144,4 +151,54 @@ class SettingsPanelTests(IsolatedAsyncioTestCase):
                     self.assertEqual(self._text(account), "Kiishi David")
                     self.assertEqual(self._text(plan), "Free plan")
                     self.assertEqual(self._text(usage), "80% left")
+                    self.assertEqual(self._text(seven_day_usage), "100% left")
+                    self.assertEqual(self._text(usage_reset), "Resets soon")
+                    self.assertEqual(self._text(seven_day_reset), "Resets soon")
                     self.assertIn("Unlock streaks", self._text(locked_copy))
+
+    async def test_usage_limits_show_both_windows_and_reset_times(self) -> None:
+        with TemporaryDirectory() as directory:
+            config = Config(cwd=Path(directory))
+            summary = {
+                "quotas": {
+                    "fiveHour": {
+                        "usedUsdCents": 20,
+                        "capUsdCents": 100,
+                        "nextResetAt": "2026-09-30T15:45:00Z",
+                    },
+                    "sevenDay": {
+                        "usedUsdCents": 40,
+                        "capUsdCents": 100,
+                        "fullWindowClearAt": "2026-10-06T08:30:00Z",
+                    },
+                }
+            }
+            with (
+                patch("ite.ui.reup.settings.get_usage_summary", return_value=summary),
+                patch("ite.ui.reup.settings.get_activity", return_value=None),
+                patch.object(SettingsPanel, "on_show", lambda _self: None),
+            ):
+                app = SettingsPanelApp(config)
+                app._usage_summary_cache = summary
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+                    await pilot.pause()
+
+                    panel = app.query_one(SettingsPanel)
+                    labels = [
+                        self._text(widget)
+                        for widget in panel.query(".settings-usage-label")
+                    ]
+                    reset_labels = [
+                        self._text(widget)
+                        for widget in panel.query(".settings-usage-reset")
+                    ]
+                    five_hour = panel.query_one(".settings-usage-pct", Static)
+                    seven_day = panel.query_one(
+                        ".settings-seven-day-usage-pct", Static
+                    )
+
+                    self.assertEqual(labels, ["5-hour usage limit", "7-day usage limit"])
+                    self.assertEqual(self._text(five_hour), "80% left")
+                    self.assertEqual(self._text(seven_day), "60% left")
+                    self.assertTrue(all(" at " in label for label in reset_labels))
