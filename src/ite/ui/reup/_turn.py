@@ -1489,7 +1489,8 @@ class TurnMixin:
                     "Work toward the active goal below. First use goal_progress to "
                     "record a concise plan of concrete milestones. Then make progress, "
                     "record observed proof for each completed milestone, and do not "
-                    "claim completion until every milestone is complete.\n\n"
+                    "claim completion until every milestone is complete. Keep the first "
+                    "plan stable, and use its returned milestone IDs exactly.\n\n"
                     f"Goal: {objective}"
                 ),
                 "display_message": "",

@@ -177,7 +177,15 @@ def activity_title(
         )
     if name == "goal_progress":
         action = str(metadata.get("action") or "").strip().lower()
+        reason = str(metadata.get("reason") or "").strip().lower()
+        if action == "plan_exists":
+            return "Using the current goal plan"
         if action == "complete_milestone":
+            if not running and not done and reason in {
+                "milestone_id_required",
+                "milestone_not_found",
+            }:
+                return "Choose a milestone from the current plan"
             return (
                 "Recording milestone proof"
                 if running
@@ -320,9 +328,16 @@ def describe_tool_activity(
 
     if name == "goal_progress":
         action = str(args.get("action") or metadata.get("action") or "").strip()
+        reason = str(metadata.get("reason") or "").strip().lower()
+        if action == "plan_exists":
+            return "The current goal plan is already recorded; continuing with it."
         if action == "complete_milestone":
             if stage == "start":
                 return "Recording proof for a completed milestone."
+            if not success and reason == "milestone_id_required":
+                return "Choose the exact milestone from the current goal plan first."
+            if not success and reason == "milestone_not_found":
+                return "That milestone is no longer in the current plan. Use the listed IDs."
             return (
                 "Recorded the completed milestone and its proof."
                 if success

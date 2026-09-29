@@ -144,7 +144,7 @@ def test_goal_requires_a_plan_and_proof_before_completion() -> None:
     progress = GoalProgressTool(config=None)
     progress.set_session(session)
 
-    async def run() -> tuple[object, object, object, object]:
+    async def run() -> tuple[object, object, object, object, object]:
         missing_proof = await outcome.execute(
             ToolInvocation(
                 params={"action": "complete", "summary": "Looks finished"},
@@ -178,6 +178,15 @@ def test_goal_requires_a_plan_and_proof_before_completion() -> None:
             )
         )
         milestone = session.goal_state.milestones[0]
+        repeated_plan = await progress.execute(
+            ToolInvocation(
+                params={
+                    "action": "set_plan",
+                    "milestones": ["A different plan that must not replace this one"],
+                },
+                cwd=Path("/tmp"),
+            )
+        )
         await progress.execute(
             ToolInvocation(
                 params={
@@ -213,13 +222,16 @@ def test_goal_requires_a_plan_and_proof_before_completion() -> None:
                 cwd=Path("/tmp"),
             )
         )
-        return missing_proof, missing_plan, plan, completed
+        return missing_proof, missing_plan, plan, repeated_plan, completed
 
-    missing_proof, missing_plan, plan, completed = asyncio.run(run())
+    missing_proof, missing_plan, plan, repeated_plan, completed = asyncio.run(run())
 
     assert not missing_proof.success
     assert not missing_plan.success
     assert plan.success
+    assert repeated_plan.success
+    assert repeated_plan.metadata == {"action": "plan_exists", "count": 1}
+    assert session.goal_state.milestones[0].milestone_id in repeated_plan.output
     assert completed.success
     assert completed.metadata == {"action": "complete"}
     assert session.goal_state.status is GoalStatus.COMPLETED

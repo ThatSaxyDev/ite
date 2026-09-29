@@ -284,6 +284,11 @@ class GoalState:
     def set_milestones(
         self, titles: list[str], *, now: datetime | None = None
     ) -> list[GoalMilestone]:
+        if self.milestones:
+            raise ValueError(
+                "This goal already has a plan. Keep its milestones stable while "
+                "working."
+            )
         cleaned = [title.strip() for title in titles if title.strip()]
         if not cleaned:
             raise ValueError("A goal plan needs at least one milestone.")

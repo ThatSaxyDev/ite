@@ -347,7 +347,8 @@ class ContextManager:
             milestones = goal.get("milestones") if isinstance(goal.get("milestones"), list) else []
             proofs = goal.get("proofs") if isinstance(goal.get("proofs"), list) else []
             milestone_text = "\n".join(
-                f"- {'done' if item.get('completed') else 'pending'}: "
+                f"- {item.get('id') or 'unknown-id'} · "
+                f"{'done' if item.get('completed') else 'pending'}: "
                 f"{item.get('title') or ''}"
                 for item in milestones
                 if isinstance(item, dict) and str(item.get("title") or "").strip()
@@ -361,7 +362,9 @@ class ContextManager:
                 "precisely. Before substantive work, use goal_progress to record one "
                 "to six concrete milestones that cover the objective. Complete each "
                 "milestone with observed proof (a command, CI run, URL, or artifact). "
-                "Use goal_outcome only after every milestone is complete."
+                "Use the exact milestone id shown below when completing work. Do not "
+                "replace an existing plan; use goal_outcome only after every milestone "
+                "is complete."
             )
             if milestone_text:
                 goal_prompt += f"\n\nCurrent milestones:\n{milestone_text}"

@@ -72,6 +72,23 @@ class GoalProgressTool(Tool):
     def set_session(self, session: Any | None) -> None:
         self._session = session
 
+    @staticmethod
+    def _plan_output(milestones: list[Any], *, already_recorded: bool) -> str:
+        heading = (
+            "The goal plan is already recorded. Use these exact milestone ids "
+            "when completing work:"
+            if already_recorded
+            else (
+                "Goal plan recorded. Use these exact milestone ids when "
+                "completing work:"
+            )
+        )
+        lines = [heading]
+        lines.extend(
+            f"- {item.milestone_id}: {item.title}" for item in milestones
+        )
+        return "\n".join(lines)
+
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = GoalProgressParams(**invocation.params)
         session = self._session
@@ -91,27 +108,38 @@ class GoalProgressTool(Tool):
                 return ToolResult.error_result(
                     "A goal plan can have at most six milestones."
                 )
-            if any(item.completed for item in session.goal_state.milestones):
-                return ToolResult.error_result(
-                    "Do not replace a plan after work has been marked complete. "
-                    "Complete the remaining milestones or report a blocker."
+            existing = session.goal_state.milestones
+            if existing:
+                return ToolResult.success_result(
+                    self._plan_output(existing, already_recorded=True),
+                    metadata={"action": "plan_exists", "count": len(existing)},
                 )
             try:
                 milestones = session.set_goal_milestones(params.milestones)
             except ValueError as exc:
                 return ToolResult.error_result(str(exc))
             return ToolResult.success_result(
-                f"Goal plan recorded with {len(milestones)} milestone(s).",
+                self._plan_output(milestones, already_recorded=False),
                 metadata={"action": "set_plan", "count": len(milestones)},
             )
 
         if not params.milestone_id:
             return ToolResult.error_result(
-                "milestone_id is required to complete a milestone."
+                "Choose the exact milestone_id from the recorded goal plan before "
+                "marking work complete.",
+                metadata={
+                    "action": "complete_milestone",
+                    "reason": "milestone_id_required",
+                },
             )
         if not params.evidence:
             return ToolResult.error_result(
-                "Completing a milestone requires at least one observed proof item."
+                "Complete this milestone with at least one observed proof item, such "
+                "as a passing command, CI run, URL, or artifact.",
+                metadata={
+                    "action": "complete_milestone",
+                    "reason": "proof_required",
+                },
             )
         try:
             milestone = session.complete_goal_milestone(
@@ -120,7 +148,16 @@ class GoalProgressTool(Tool):
                 evidence=[item.to_goal_proof() for item in params.evidence],
             )
         except ValueError as exc:
-            return ToolResult.error_result(str(exc))
+            message = str(exc)
+            reason = (
+                "milestone_not_found"
+                if "no longer exists" in message.lower()
+                else "milestone_update_failed"
+            )
+            return ToolResult.error_result(
+                message,
+                metadata={"action": "complete_milestone", "reason": reason},
+            )
         return ToolResult.success_result(
             f"Completed milestone: {milestone.title}",
             metadata={
