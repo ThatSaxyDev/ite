@@ -20,7 +20,7 @@ import webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Literal, cast
+from typing import Any, ClassVar, Iterable, Literal, cast
 from urllib.parse import urlparse
 
 from rich.cells import cell_len
@@ -328,7 +328,16 @@ from .widgets.system_commands import ReupSystemCommandsProvider
 from ._helpers import _is_transient_voice_error, insert_voice_text_into_widget, redact_sensitive_command_text, _skills_action_title
 
 class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, StreamingMixin, App):
-    CSS_PATH = "reup.tcss"
+    CSS_PATH: ClassVar[list[str]] = [
+        "styles/base.tcss",
+        "styles/workspace.tcss",
+        "styles/conversation.tcss",
+        "styles/modals.tcss",
+        "styles/settings.tcss",
+        "styles/modal_details.tcss",
+        "styles/shared.tcss",
+        "styles/update_required.tcss",
+    ]
     TITLE = "iTE"
     BINDINGS = [
         Binding("ctrl+enter", "send", "Send"),

@@ -1,0 +1,375 @@
+SetupModal #continue {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #4edea3;
+    color: #07140f;
+    border: none;
+}
+
+SetupModal #continue:hover {
+    background: #6ae7b5;
+    color: #07140f;
+}
+
+SetupModal .setup-label {
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+SetupModal .setup-body {
+    margin-bottom: 1;
+}
+
+SetupModal Input {
+    margin-bottom: 1;
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+}
+
+SetupModal Select {
+    margin-bottom: 1;
+    height: 3;
+    min-height: 3;
+}
+
+.setup-secret-row {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+.setup-model-row {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+.setup-openrouter-actions {
+    height: auto;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+SetupModal #setup-api-key {
+    width: 1fr;
+    margin-bottom: 0;
+    margin-right: 1;
+}
+
+SetupModal #setup-model-select {
+    width: 1fr;
+    margin-bottom: 0;
+    margin-right: 1;
+}
+
+.setup-eye {
+    width: 5;
+    min-width: 5;
+    height: 3;
+    min-height: 3;
+    border: none;
+    background: #2a2a2c;
+    color: #edf1f7;
+    text-style: bold;
+}
+
+.setup-eye:hover {
+    background: #313337;
+}
+
+.setup-load-models {
+    width: 8;
+    min-width: 8;
+    height: 3;
+    min-height: 3;
+    border: none;
+    background: #2a2a2c;
+    color: #edf1f7;
+    text-style: bold;
+}
+
+.setup-load-models:hover {
+    background: #313337;
+}
+
+.setup-error {
+    color: #f1998e;
+    min-height: 1;
+    margin-bottom: 1;
+}
+
+.setup-help {
+    color: $text-secondary;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.setup-or {
+    width: 1fr;
+    text-align: center;
+    text-style: bold;
+    color: $text-secondary;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.setup-openrouter-signin {
+    width: 1fr;
+    text-align: center;
+}
+
+.setup-status {
+    color: $text-secondary;
+    min-height: 1;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .resume-table,
+BranchPickerModal .resume-table,
+ModelPickerModal .resume-table,
+ThemePickerModal .resume-table,
+ThinkingLevelModal .resume-table,
+AttachPickerModal .resume-table {
+    height: 1fr;
+    background: $surface-darken-1;
+    color: $foreground;
+    border: none;
+}
+
+SessionResumeModal .resume-table > .datatable--header,
+BranchPickerModal .resume-table > .datatable--header,
+ModelPickerModal .resume-table > .datatable--header,
+ThemePickerModal .resume-table > .datatable--header,
+ThinkingLevelModal .resume-table > .datatable--header,
+AttachPickerModal .resume-table > .datatable--header {
+    background: $panel;
+    color: $foreground;
+}
+
+SessionResumeModal .resume-table > .datatable--even-row,
+BranchPickerModal .resume-table > .datatable--even-row,
+ModelPickerModal .resume-table > .datatable--even-row,
+ThemePickerModal .resume-table > .datatable--even-row,
+ThinkingLevelModal .resume-table > .datatable--even-row,
+AttachPickerModal .resume-table > .datatable--even-row {
+    background: $surface;
+}
+
+SessionResumeModal .resume-table > .datatable--odd-row,
+BranchPickerModal .resume-table > .datatable--odd-row,
+ModelPickerModal .resume-table > .datatable--odd-row,
+ThemePickerModal .resume-table > .datatable--odd-row,
+ThinkingLevelModal .resume-table > .datatable--odd-row,
+AttachPickerModal .resume-table > .datatable--odd-row {
+    background: $surface-darken-1;
+}
+
+SessionResumeModal .resume-table > .datatable--cursor,
+SessionResumeModal .resume-table:focus > .datatable--cursor,
+BranchPickerModal .resume-table > .datatable--cursor,
+BranchPickerModal .resume-table:focus > .datatable--cursor,
+ModelPickerModal .resume-table > .datatable--cursor,
+ModelPickerModal .resume-table:focus > .datatable--cursor,
+ThemePickerModal .resume-table > .datatable--cursor,
+ThemePickerModal .resume-table:focus > .datatable--cursor,
+ThinkingLevelModal .resume-table > .datatable--cursor,
+ThinkingLevelModal .resume-table:focus > .datatable--cursor,
+AttachPickerModal .resume-table > .datatable--cursor,
+AttachPickerModal .resume-table:focus > .datatable--cursor {
+    background: $primary-muted;
+    color: $foreground;
+}
+
+SessionResumeModal .resume-table > .datatable--header-cursor,
+BranchPickerModal .resume-table > .datatable--header-cursor,
+ModelPickerModal .resume-table > .datatable--header-cursor,
+ThemePickerModal .resume-table > .datatable--header-cursor,
+ThinkingLevelModal .resume-table > .datatable--header-cursor,
+AttachPickerModal .resume-table > .datatable--header-cursor {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+.attach-root-row {
+    height: 3;
+    min-height: 3;
+    margin-bottom: 1;
+}
+
+AttachPickerModal #attach-root {
+    width: 1fr;
+    margin-right: 1;
+    margin-left: 1;
+}
+
+AttachPickerModal #attach-home,
+AttachPickerModal #attach-up,
+AttachPickerModal #attach-go {
+    width: 8;
+    min-width: 8;
+    border: none;
+    text-style: bold;
+}
+
+AttachPickerModal #attach-home,
+AttachPickerModal #attach-up {
+    background: #2a2a2c;
+    color: #edf1f7;
+}
+
+AttachPickerModal #attach-home:hover,
+AttachPickerModal #attach-up:hover {
+    background: #313337;
+}
+
+AttachPickerModal #attach-go {
+    background: #b7c8e1;
+    color: #111821;
+}
+
+AttachPickerModal #attach-go:hover {
+    background: #cad6ea;
+}
+
+AttachPickerModal #attachment-tree {
+    height: 1fr;
+    background: $surface;
+    color: $foreground;
+    padding: 0 1;
+}
+
+AttachPickerModal #attachment-tree:focus {
+    border: none;
+    background: $surface-darken-1;
+}
+
+AttachPickerModal #attach-preview {
+    color: $foreground-muted;
+    margin-top: 1;
+}
+
+BranchPickerModal #switch {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+BranchPickerModal #switch:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+BranchPickerModal #create {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: $success;
+    color: $button-color-foreground;
+    border: none;
+}
+
+BranchPickerModal #create:hover {
+    background: $success-lighten-1;
+    color: $button-color-foreground;
+}
+
+BranchPickerModal #branch-name,
+RemoteSetupModal #remote-name,
+RemoteSetupModal #remote-url,
+SetupModal Input,
+VoiceSetupModal #voice-groq-api-key {
+    background: $surface-darken-1;
+    color: $foreground;
+    border: round $border;
+}
+
+ModelPickerModal #select {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+ModelPickerModal #select:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+ModelPickerModal #delete {
+    width: 16;
+    min-width: 16;
+    text-style: bold;
+    background: $warning-muted;
+    color: $text-warning;
+    border: none;
+}
+
+ModelPickerModal #delete:hover {
+    background: $warning;
+    color: $foreground;
+}
+
+ThemePickerModal #select,
+ApprovalPickerModal #select,
+ThinkingLevelModal #select {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+ThemePickerModal #select:hover,
+ApprovalPickerModal #select:hover,
+ThinkingLevelModal #select:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+BranchPickerModal #branch-name {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+AttachPickerModal #attach-queue {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #b7c8e1;
+    color: #111821;
+    border: none;
+}
+
+AttachPickerModal #attach-queue:hover {
+    background: #cad6ea;
+    color: #111821;
+}
+
+AttachPickerModal #attach-clear {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: #2a2a2c;
+    color: #edf1f7;
+    border: none;
+}
+
+AttachPickerModal #attach-clear:hover {
+    background: #313337;
+}
+
+#attach-status {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+

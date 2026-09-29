@@ -1,0 +1,840 @@
+.modal {
+    width: 72;
+    max-width: 100%;
+    height: auto;
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+}
+
+ConfirmModal,
+CommitModal,
+PushReviewModal,
+RemoteSetupModal,
+PlanQuestionModal,
+SessionResumeModal,
+BranchPickerModal,
+ModelPickerModal,
+ThemePickerModal,
+ApprovalPickerModal,
+ThinkingLevelModal,
+UsageSummaryModal,
+ContextSummaryModal,
+ActivityModal,
+DayActivityModal,
+AttachPickerModal,
+SetupModal,
+VoiceSetupModal {
+    align: center middle;
+    background: $background-darken-1 62%;
+}
+
+ConfirmModal .confirm-modal {
+    width: 76;
+    height: 12;
+    min-height: 12;
+    max-height: 16;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ConfirmModal .confirm-body {
+    height: 1fr;
+    margin-bottom: 1;
+    color: $foreground;
+}
+
+ConfirmModal .confirm-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+ConfirmModal .confirm-primary {
+    width: auto;
+    min-width: 16;
+    text-style: bold;
+    background: #4edea3;
+    color: #07140f;
+    border: none;
+}
+
+ConfirmModal .confirm-primary:hover {
+    background: #6ae7b5;
+}
+
+ConfirmModal .confirm-secondary {
+    width: auto;
+    min-width: 16;
+    text-style: bold;
+    background: #2a2a2c;
+    color: #edf1f7;
+    border: none;
+}
+
+ConfirmModal .confirm-secondary:hover {
+    background: #313337;
+}
+
+CommitModal .commit-modal {
+    width: 82;
+    height: 20;
+    min-height: 20;
+    max-height: 20;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+CommitModal .commit-body {
+    height: 1fr;
+    min-height: 12;
+}
+
+CommitModal .commit-summary-row,
+CommitModal .commit-toggle-row {
+    height: 2;
+    align-vertical: middle;
+}
+
+CommitModal .commit-label {
+    width: 18;
+    min-width: 18;
+    color: $foreground-muted;
+    text-style: bold;
+}
+
+CommitModal .commit-branch {
+    color: $foreground;
+    text-style: bold;
+}
+
+CommitModal .commit-stats {
+    align-vertical: middle;
+}
+
+CommitModal .commit-toggle-choice {
+    width: auto;
+    min-width: 8;
+    content-align: left middle;
+}
+
+CommitModal .commit-message-header {
+    height: 1;
+    min-height: 1;
+    align-vertical: middle;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+CommitModal .commit-message-label {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+CommitModal .commit-message-row {
+    height: auto;
+    min-height: 3;
+    align-vertical: middle;
+    margin-bottom: 0;
+}
+
+CommitModal #commit-message {
+    width: 1fr;
+    margin-bottom: 0;
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+    margin-top: 0;
+    margin-right: 1;
+}
+
+CommitModal #commit-ai-fill {
+    width: 3;
+    min-width: 3;
+    height: 3;
+    min-height: 3;
+    margin-left: 0;
+    border: none;
+    background: $panel;
+    color: $text-primary;
+    text-style: bold;
+    content-align: center middle;
+}
+
+CommitModal #commit-ai-fill:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+CommitModal .commit-ai-status {
+    width: 1fr;
+    height: 1;
+    min-height: 1;
+    margin-left: 1;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+CommitModal .commit-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+
+CommitModal #commit-confirm {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+CommitModal #commit-confirm:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+CommitModal #commit-push {
+    width: 18;
+    min-width: 18;
+    text-style: bold;
+    background: $success;
+    color: $button-color-foreground;
+    border: none;
+}
+
+CommitModal #commit-push:hover {
+    background: $success-lighten-1;
+    color: $button-color-foreground;
+}
+
+CommitModal #cancel {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: $panel;
+    color: $foreground;
+    border: none;
+}
+
+CommitModal #cancel:hover {
+    background: $panel-lighten-1;
+}
+
+PushReviewModal .push-review-modal {
+    width: 88;
+    height: auto;
+    min-height: 12;
+    max-height: 16;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+PushReviewModal .push-review-body {
+    height: auto;
+    min-height: 6;
+    margin-bottom: 1;
+}
+
+PushReviewModal .push-review-row {
+    height: 2;
+    align-vertical: middle;
+}
+
+PushReviewModal .push-review-label {
+    width: 14;
+    min-width: 14;
+    color: $foreground-muted;
+    text-style: bold;
+}
+
+PushReviewModal .push-review-value {
+    color: $foreground;
+    text-style: bold;
+}
+
+PushReviewModal .push-review-warning {
+    margin-top: 1;
+    margin-bottom: 0;
+    color: $text-warning;
+}
+
+RemoteSetupModal .push-review-row {
+    height: 2;
+    align-vertical: middle;
+}
+
+RemoteSetupModal .push-review-label {
+    width: 14;
+    min-width: 14;
+    color: $foreground-muted;
+    text-style: bold;
+}
+
+RemoteSetupModal .push-review-value {
+    color: $foreground;
+    text-style: bold;
+}
+
+RemoteSetupModal .push-review-warning {
+    margin-top: 1;
+    margin-bottom: 0;
+    color: $text-warning;
+}
+
+PushReviewModal .push-review-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 1;
+}
+
+PushReviewModal #cancel {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: $panel;
+    color: $foreground;
+    border: none;
+}
+
+PushReviewModal #cancel:hover {
+    background: $panel-lighten-1;
+}
+
+PushReviewModal #confirm {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: $success;
+    color: $background;
+    border: none;
+}
+
+PushReviewModal #confirm:hover {
+    background: $success-lighten-1;
+}
+
+RemoteSetupModal .remote-setup-modal {
+    width: 96;
+    height: 22;
+    min-height: 22;
+    max-height: 22;
+    border: heavy #303236;
+    background: #1c1b1d 96%;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+RemoteSetupModal .remote-setup-body {
+    height: 1fr;
+    min-height: 14;
+    margin-bottom: 1;
+}
+
+RemoteSetupModal #remote-name,
+RemoteSetupModal #remote-url {
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+RemoteSetupModal .remote-setup-help {
+    color: #9aa2af;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+RemoteSetupModal .remote-setup-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 1;
+}
+
+RemoteSetupModal #cancel {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: #2a2a2c;
+    color: #edf1f7;
+    border: none;
+}
+
+RemoteSetupModal #cancel:hover {
+    background: #313337;
+}
+
+RemoteSetupModal #confirm {
+    width: 18;
+    min-width: 18;
+    text-style: bold;
+    background: #4edea3;
+    color: #07140f;
+    border: none;
+}
+
+RemoteSetupModal #confirm:hover {
+    background: #6ae7b5;
+}
+
+PlanQuestionModal .plan-modal {
+    width: 88;
+    height: auto;
+    min-height: 12;
+    max-height: 30;
+    border: round #303236;
+    background: #1c1b1d 96%;
+    padding: 1 2;
+}
+
+PlanQuestionModal .modal-title {
+    text-style: bold;
+    color: #b7c8e1;
+    margin-bottom: 1;
+}
+
+PlanQuestionModal .modal-body {
+    color: #dfe4ea;
+    margin-bottom: 1;
+}
+
+PlanQuestionModal .modal-options {
+    margin-bottom: 1;
+}
+
+PlanQuestionModal .modal-options Button {
+    margin-bottom: 1;
+    border: none;
+    background: #2a2a2c;
+    color: #edf1f7;
+    text-style: bold;
+}
+
+PlanQuestionModal .modal-options Button:hover {
+    background: #313337;
+}
+
+PlanQuestionModal .modal-options Button.-primary {
+    background: #4edea3;
+    color: #07140f;
+}
+
+PlanQuestionModal .modal-options Button.-primary:hover {
+    background: #6ae7b5;
+}
+
+PlanQuestionModal #custom-input {
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+PlanQuestionModal #custom-submit {
+    border: none;
+    background: #2a2a2c;
+    color: #edf1f7;
+    text-style: bold;
+}
+
+PlanQuestionModal #custom-submit:hover {
+    background: #313337;
+}
+
+SessionResumeModal .modal {
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+BranchPickerModal .modal {
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ModelPickerModal .modal {
+    width: 108;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ThemePickerModal .theme-picker-modal {
+    width: 96;
+    height: 32;
+    max-height: 86%;
+    min-height: 24;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ApprovalPickerModal .approval-picker-modal {
+    width: 96;
+    height: 20;
+    max-height: 86%;
+    min-height: 14;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ThinkingLevelModal .thinking-level-modal {
+    width: 72;
+    height: 22;
+    max-height: 86%;
+    min-height: 16;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ThinkingLevelModal .modal-footer {
+    margin-top: 1;
+    color: $foreground-muted;
+}
+
+UsageSummaryModal .modal {
+    width: 108;
+    height: 24;
+    max-height: 80%;
+    min-height: 20;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ContextSummaryModal .modal {
+    width: 108;
+    height: auto;
+    max-height: 70%;
+    min-height: 14;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+ActivityModal .modal {
+    width: 108;
+    height: 28;
+    max-height: 82%;
+    min-height: 22;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+DayActivityModal .modal {
+    width: 108;
+    height: auto;
+    max-height: 80%;
+    min-height: 14;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+AttachPickerModal .modal {
+    width: 108;
+    height: 36;
+    max-height: 86%;
+    min-height: 28;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+    overflow: hidden;
+}
+
+SetupModal .modal {
+    width: 86;
+    height: auto;
+    min-height: 18;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+}
+
+VoiceSetupModal .voice-setup-modal {
+    width: 76;
+    height: auto;
+    min-height: 14;
+    border: heavy $border;
+    background: $surface;
+    padding: 1 2;
+}
+
+VoiceSetupModal .voice-setup-label {
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+VoiceSetupModal #voice-groq-api-key {
+    height: 3;
+    min-height: 3;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+VoiceSetupModal #confirm {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+VoiceSetupModal #confirm:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+SessionResumeModal .modal-list,
+BranchPickerModal .modal-list,
+ModelPickerModal .modal-list,
+ThemePickerModal .modal-list,
+ApprovalPickerModal .modal-list,
+ThinkingLevelModal .modal-list,
+ActivityModal .modal-list,
+AttachPickerModal .modal-list {
+    height: 1fr;
+    min-height: 12;
+    max-height: 1fr;
+    margin-top: 1;
+    margin-bottom: 0;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 0;
+    overflow-y: auto;
+}
+
+SessionResumeModal .modal-title,
+BranchPickerModal .modal-title,
+ModelPickerModal .modal-title,
+ThemePickerModal .modal-title,
+ApprovalPickerModal .modal-title,
+ThinkingLevelModal .modal-title,
+UsageSummaryModal .modal-title,
+ContextSummaryModal .modal-title,
+ActivityModal .modal-title,
+DayActivityModal .modal-title,
+AttachPickerModal .modal-title,
+RemoteSetupModal .modal-title,
+SetupModal .modal-title,
+VoiceSetupModal .modal-title {
+    text-align: center;
+    text-style: bold;
+    color: $text-primary;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .modal-body,
+BranchPickerModal .modal-body,
+ModelPickerModal .modal-body,
+ThemePickerModal .modal-body,
+ApprovalPickerModal .modal-body,
+ThinkingLevelModal .modal-body,
+UsageSummaryModal .modal-body,
+ContextSummaryModal .modal-body,
+ActivityModal .modal-body,
+DayActivityModal .modal-body,
+AttachPickerModal .modal-body,
+RemoteSetupModal .modal-body,
+SetupModal .modal-body,
+VoiceSetupModal .modal-body {
+    color: $foreground;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .resume-warning {
+    border: round $warning;
+    background: $warning-muted;
+    color: $text-warning;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+SessionResumeModal .modal-actions,
+BranchPickerModal .modal-actions,
+ModelPickerModal .modal-actions,
+ThemePickerModal .modal-actions,
+ApprovalPickerModal .modal-actions,
+ThinkingLevelModal .modal-actions,
+UsageSummaryModal .modal-actions,
+ContextSummaryModal .modal-actions,
+ActivityModal .modal-actions,
+DayActivityModal .modal-actions,
+AttachPickerModal .modal-actions,
+RemoteSetupModal .modal-actions,
+SetupModal .modal-actions,
+VoiceSetupModal .modal-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+ThinkingLevelModal .modal-actions {
+    margin-top: 1;
+}
+
+SessionResumeModal #resume {
+    width: 14;
+    min-width: 14;
+    text-style: bold;
+    background: $primary;
+    color: $button-color-foreground;
+    border: none;
+}
+
+SessionResumeModal #resume:hover {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+SessionResumeModal #cancel,
+BranchPickerModal #cancel,
+ModelPickerModal #cancel,
+ThemePickerModal #cancel,
+ApprovalPickerModal #cancel,
+ThinkingLevelModal #cancel,
+UsageSummaryModal #cancel,
+ContextSummaryModal #cancel,
+ActivityModal #cancel,
+DayActivityModal #cancel,
+AttachPickerModal #cancel,
+RemoteSetupModal #cancel,
+SetupModal #cancel,
+VoiceSetupModal #cancel,
+SettingsScreen #cancel {
+    width: 12;
+    min-width: 12;
+    text-style: bold;
+    background: $panel;
+    color: $foreground;
+    border: none;
+}
+
+SessionResumeModal #cancel:hover,
+BranchPickerModal #cancel:hover,
+ModelPickerModal #cancel:hover,
+ThemePickerModal #cancel:hover,
+ApprovalPickerModal #cancel:hover,
+ThinkingLevelModal #cancel:hover,
+UsageSummaryModal #cancel:hover,
+ContextSummaryModal #cancel:hover,
+ActivityModal #cancel:hover,
+DayActivityModal #cancel:hover,
+AttachPickerModal #cancel:hover,
+RemoteSetupModal #cancel:hover,
+SetupModal #cancel:hover,
+VoiceSetupModal #cancel:hover,
+SettingsScreen #cancel:hover {
+    background: $panel-lighten-1;
+}
+
+UsageSummaryModal .usage-summary-panel {
+    height: 1fr;
+    min-height: 12;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 1 1;
+}
+
+ContextSummaryModal .usage-summary-panel {
+    height: auto;
+    min-height: 0;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 1 1;
+}
+
+ActivityModal .usage-summary-panel {
+    height: 1fr;
+    min-height: 14;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 1 1;
+}
+
+DayActivityModal .usage-summary-panel {
+    height: auto;
+    min-height: 0;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 1 1;
+}
+
+ActivityModal DataTable {
+    height: 1fr;
+}
+
+UsageSummaryModal .usage-summary-body {
+    height: 1fr;
+}
+
+ContextSummaryModal .usage-summary-body {
+    height: auto;
+}
+
+ActivityModal .usage-summary-body {
+    height: 1fr;
+}
+

@@ -320,7 +320,7 @@ Use the existing seams:
 - Composer queue/compaction continuation: `src/ite/ui/reup/_composer.py`
 - Contextual-panel manager and header-button handlers: `src/ite/ui/reup/_panels.py`
 - Existing side-panel widget conventions: `src/ite/ui/reup/widgets/side_panels.py`
-- Styling: `src/ite/ui/reup/reup.tcss`
+- Styling: `src/ite/ui/reup/styles/`
 - Existing workboard/todos presentation: `src/ite/ui/reup/command_views.py`
 
 #### Reuse the established side-panel architecture

@@ -54,7 +54,7 @@ error message names the markers it looked for and shows the command to run).
 |------|-----|-------|
 | Entry point | `entry-point` | `src/ite/main.py`, `src/ite/config/loader.py` |
 | Agent and runtime | `agent-runtime` | `src/ite/agent/agent.py`, `src/ite/agent/session.py`, `src/ite/tools/registry.py` |
-| Textual UI | `textual-ui` | `src/ite/ui/reup/app.py`, `src/ite/ui/reup/widgets/prompt_area.py`, `src/ite/ui/reup/reup.tcss` |
+| Textual UI | `textual-ui` | `src/ite/ui/reup/app.py`, `src/ite/ui/reup/widgets/prompt_area.py`, `src/ite/ui/reup/styles/` |
 | Tests | `tests` | `tests/`, `tests/test_cli_modes.py` |
 
 ## Changing the tour

@@ -118,7 +118,7 @@ HIDDEN_IMPORTS: list[str] = [
 
 # Data files to include
 DATAS: list[tuple[str, str]] = [
-    (str(PROJECT_ROOT / "src" / "ite" / "ui" / "reup" / "reup.tcss"), "ite/ui/reup"),
+    (str(PROJECT_ROOT / "src" / "ite" / "ui" / "reup" / "styles"), "ite/ui/reup/styles"),
 ]
 
 

@@ -1,19 +1,24 @@
 import asyncio
+from typing import ClassVar
 
 from textual.app import App
 
+from ite.ui.reup.app import ReupApp
 from ite.ui.reup.modals import ApprovalPickerModal, ThinkingLevelModal
 
 
 class TApp(App[None]):
-    CSS_PATH = "src/ite/ui/reup/reup.tcss"
+    CSS_PATH: ClassVar[list[str]] = [
+        f"src/ite/ui/reup/{path}"
+        for path in ReupApp.CSS_PATH
+    ]
 
     def on_mount(self) -> None:
         self.push_screen(ThinkingLevelModal("low", model_label="DeepSeek V4 Pro"))
 
 
 class ApprovalApp(App[None]):
-    CSS_PATH = "src/ite/ui/reup/reup.tcss"
+    CSS_PATH = TApp.CSS_PATH
 
     def on_mount(self) -> None:
         self.push_screen(ApprovalPickerModal("auto"))

@@ -1,0 +1,957 @@
+.aside-thread {
+    height: auto;
+    margin-bottom: 1;
+}
+
+.aside-user-row {
+    width: 100%;
+    height: auto;
+    align-horizontal: right;
+    margin-bottom: 0;
+}
+
+.aside-user-entry {
+    width: auto;
+    max-width: 22;
+    min-height: 1;
+    margin-left: 14;
+    margin-right: 0;
+    margin-bottom: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $foreground;
+    text-align: right;
+    content-align: right middle;
+}
+
+.aside-assistant-body {
+    color: $foreground;
+    padding: 0;
+    margin-bottom: 1;
+    height: auto;
+}
+
+.aside-thinking {
+    color: $foreground-muted;
+    text-style: italic;
+    padding: 0;
+    margin-bottom: 1;
+}
+
+.aside-error {
+    color: $text-error;
+    padding: 0;
+    margin-bottom: 1;
+}
+
+.block {
+    margin: 0 0 2 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    height: auto;
+    max-width: 180;
+}
+
+.block .card-title {
+    color: $text-secondary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.chat-user-row {
+    width: 100%;
+    height: auto;
+    align-horizontal: right;
+    margin: 0 0 2 0;
+    padding: 0;
+}
+
+.chat-user-bubble {
+    width: auto;
+    max-width: 92;
+    min-height: 1;
+    margin-left: 8;
+    margin-right: 2;
+    padding: 1 1;
+    background: $panel;
+    color: $foreground;
+    text-align: right;
+    content-align: right middle;
+}
+
+.chat-loading-indicator {
+    width: 100%;
+    color: $foreground-muted;
+    text-align: center;
+    padding: 1;
+}
+
+.block.assistant {
+    border: none;
+    background: transparent;
+    padding: 0;
+    margin: 1 4 2 0;
+}
+
+.block.assistant .card-title {
+    display: none;
+}
+
+.block.assistant .card-body {
+    margin-top: 0;
+    padding: 0 2 0 0;
+}
+
+.block.system {
+    border: round $border;
+    background: $surface;
+}
+
+.block.system .remote-bridge-card {
+    width: 1fr;
+    height: auto;
+    padding-top: 1;
+}
+
+.block.system .remote-bridge-intro {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.block.system .remote-bridge-field {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    border: round $border;
+    background: $surface-darken-1;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.block.system .remote-bridge-field.emph {
+    border: round $primary;
+    background: $primary-muted;
+}
+
+.block.system .remote-bridge-field.wide {
+    width: 1fr;
+}
+
+.block.system .remote-bridge-field-label {
+    width: 16;
+    padding-right: 2;
+    color: $foreground-muted;
+    text-style: bold;
+    content-align: left middle;
+}
+
+.block.system .remote-bridge-copy {
+    min-width: 8;
+    width: auto;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+.block.system .remote-bridge-copy:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+.block.system .remote-bridge-copy:focus {
+    background: $primary;
+    color: $text-primary;
+}
+
+.block.system .remote-bridge-field-value {
+    width: 1fr;
+    height: auto;
+    color: $foreground;
+    content-align: left middle;
+}
+
+.block.system .remote-bridge-footer {
+    height: auto;
+    color: $foreground-muted;
+    margin-top: 1;
+}
+
+.block.system.error,
+.block.error {
+    border: round $warning;
+    background: $warning-muted;
+}
+
+.block.attachment {
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.attachment .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.attachment .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.block.note {
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.note .card-title {
+    color: $foreground-muted;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.note .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.block.recovery {
+    border: round $warning;
+    background: $warning-muted;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.recovery .card-title {
+    color: $text-warning;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.recovery .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+    color: $foreground;
+}
+
+.block.command {
+    border: none;
+    background: $panel;
+    padding: 1 2 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.command.command-error {
+    background: $warning-muted;
+}
+
+.block.command .card-title {
+    color: $foreground-muted;
+    text-style: none;
+    margin-bottom: 1;
+}
+
+.block.command .card-body {
+    margin-top: 0;
+    padding: 0;
+}
+
+.command-title-row {
+    width: 1fr;
+    height: auto;
+    align-vertical: middle;
+}
+
+.command-kicker {
+    width: auto;
+    margin-right: 2;
+    padding: 0 1;
+    background: $primary-muted;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.block.command.command-error .command-kicker {
+    background: $error-muted;
+    color: $text-error;
+}
+
+.command-name {
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.command-body {
+    color: $foreground;
+}
+
+.command-body Markdown {
+    color: $foreground;
+}
+
+.command-body Markdown H1,
+.command-body Markdown H2,
+.command-body Markdown H3,
+.command-body Markdown Strong {
+    color: $foreground;
+}
+
+.command-body MarkdownFence {
+    background: $surface-darken-1;
+    border: round $border;
+}
+
+.command-body MarkdownBlockQuote {
+    border-left: solid $border;
+    background: $surface-darken-1;
+}
+
+.block.skills {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.skills .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.skills .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.tools {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.tools .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.tools .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.todos {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.todos .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.todos .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.mcp {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.mcp .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.mcp .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.subagents {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.subagents .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.subagents .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.workboard {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.workboard .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.workboard .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.memory {
+    border: none;
+    background: $surface;
+    padding: 1 2;
+    margin: 0 2 2 0;
+}
+
+.block.memory .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.memory .card-body {
+    margin-top: 1;
+    padding: 0;
+}
+
+.block.change {
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.change .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.change .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.block.aside {
+    border: round $border;
+    background: $panel;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.aside .card-title {
+    color: $text-success;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.aside .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.aside-body {
+    layout: vertical;
+    height: auto;
+}
+
+.aside-meta {
+    color: $text-success;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.aside-question {
+    color: $foreground;
+    text-style: italic;
+    margin-bottom: 1;
+}
+
+.aside-answer {
+    color: $foreground;
+}
+
+.activity-indicator {
+    height: auto;
+    min-height: 1;
+    background: transparent;
+    border: none;
+    margin-top: 0;
+    margin-bottom: 2;
+    padding: 0 1;
+    text-style: bold;
+}
+
+.block.plan {
+    border: round $border;
+    background: $surface-darken-1;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.plan .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 0;
+}
+
+.block.plan .card-body {
+    margin-top: 1;
+    padding: 0 1 0 1;
+}
+
+.block.workboard {
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.workboard .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.block.workboard .card-body {
+    margin-top: 0;
+    padding: 0;
+}
+
+.block.sandbox {
+    border: round $border;
+    background: $surface;
+    padding: 1 2;
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.sandbox .card-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.block.sandbox .card-body {
+    margin-top: 0;
+    padding: 0;
+}
+
+.workboard-root {
+    layout: vertical;
+    height: auto;
+}
+
+.workboard-stack {
+    layout: vertical;
+    height: auto;
+}
+
+.workboard-section {
+    layout: vertical;
+    height: auto;
+    border: round $border;
+    background: $surface-darken-1;
+    padding: 1 1 1 1;
+    margin-bottom: 1;
+}
+
+.workboard-section.compact {
+    background: $panel;
+}
+
+.workboard-section.summary {
+    border: round $border;
+    background: $surface-darken-1;
+}
+
+.workboard-section.execution {
+    border: round $success-muted;
+    background: $surface-darken-1;
+}
+
+.workboard-section.planning {
+    border: round $primary-muted;
+    background: $surface-darken-1;
+}
+
+.workboard-section.plan {
+    border: round $border;
+    background: $surface-darken-1;
+    margin-top: 1;
+}
+
+.workboard-section.muted {
+    border: round $border;
+    background: $panel;
+}
+
+.workboard-section-title {
+    color: $foreground;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.workboard-section.summary .workboard-section-title {
+    color: $text-primary;
+}
+
+.workboard-section.execution .workboard-section-title {
+    color: $text-success;
+}
+
+.workboard-section.planning .workboard-section-title {
+    color: $text-primary;
+}
+
+.workboard-section.plan .workboard-section-title {
+    color: $text-primary;
+}
+
+.workboard-section Markdown {
+    layout: stream;
+    margin: 0;
+    padding: 0;
+    color: $foreground;
+}
+
+.workboard-section MarkdownParagraph,
+.workboard-section MarkdownList,
+.workboard-section MarkdownTable,
+.workboard-section MarkdownBlockQuote,
+.workboard-section MarkdownStrong,
+.workboard-section MarkdownEm {
+    color: $foreground;
+}
+
+.workboard-section.plan MarkdownFence {
+    background: $surface-darken-1;
+    border: round $border;
+}
+
+.workboard-empty {
+    color: $foreground-muted;
+}
+
+.plan-body Markdown {
+    layout: stream;
+    margin: 0;
+    padding: 0;
+}
+
+.plan-body MarkdownFence {
+    background: #0e0e10;
+    border: round #303236;
+}
+
+.block.plan.plan-ready {
+    margin-top: 1;
+    margin-bottom: 2;
+}
+
+.block.plan.plan-ready .card-title {
+    margin-bottom: 1;
+}
+
+.plan-ready-body {
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+.block.plan.plan-question .card-title {
+    margin-bottom: 1;
+}
+
+.block.plan.plan-question {
+    height: auto;
+    min-height: 0;
+}
+
+.plan-question-prompt {
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+.plan-question-options {
+    layout: vertical;
+    height: auto;
+    min-height: 0;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.plan-question-option {
+    margin-bottom: 1;
+    border: none;
+    background: $surface-darken-1;
+    color: $foreground;
+    text-style: bold;
+}
+
+.plan-question-option:hover {
+    background: $surface;
+}
+
+.plan-question-option.-primary,
+.plan-question-option.selected {
+    background: $success;
+    color: $text-primary;
+}
+
+.plan-question-option.-primary:hover,
+.plan-question-option.selected:hover {
+    background: $success-lighten-1;
+}
+
+.plan-question-custom-row {
+    height: auto;
+    min-height: 1;
+    margin-top: 0;
+    margin-bottom: 1;
+}
+
+#pq-custom-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#pq-custom-submit {
+    border: none;
+    background: $surface-darken-1;
+    color: $foreground;
+    text-style: bold;
+}
+
+#pq-custom-submit:hover {
+    background: $surface;
+}
+
+.plan-question-status {
+    margin-top: 1;
+    color: $foreground-muted;
+    text-style: bold;
+}
+
+.plan-ready-actions {
+    height: 1;
+    min-height: 1;
+    align-horizontal: right;
+}
+
+.plan-ready-actions Button {
+    height: 1;
+    min-height: 1;
+    border: none;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#plan-ready-keep {
+    background: #2a2a2c;
+    color: #edf1f7;
+    margin-right: 1;
+}
+
+#plan-ready-keep:hover {
+    background: #313337;
+}
+
+#plan-ready-implement {
+    background: #4edea3;
+    color: #07140f;
+}
+
+#plan-ready-implement:hover {
+    background: #6ae7b5;
+}
+
+.block.tool.running {
+    border: none;
+    background: transparent;
+    padding: 0 1;
+    margin-top: 0;
+    margin-bottom: 2;
+}
+
+.block.tool.mcp-card {
+    background: $surface;
+    padding: 1 2;
+}
+
+.block.success {
+    border: none;
+    background: transparent;
+    padding: 0 1;
+    margin-top: 0;
+    margin-bottom: 2;
+}
+
+.block.tool.error {
+    border: none;
+    background: transparent;
+    padding: 0 1;
+    margin-top: 0;
+    margin-bottom: 2;
+}
+
+.block.tool-stack {
+    border: none;
+    background: transparent;
+    padding: 0 1;
+    margin-top: 0;
+    margin-bottom: 2;
+    height: auto;
+}
+
+.tool-stack-header {
+    color: $foreground;
+    text-style: bold;
+}
+
+.tool-stack-body {
+    height: auto;
+    margin-top: 1;
+    padding-left: 2;
+    border-left: solid $border;
+}
+
+.tool-stack-body .block.tool,
+.tool-stack-body .block.success,
+.tool-stack-body .block.tool.error {
+    margin-bottom: 1;
+}
+
+.block.shell-card {
+    background: $surface;
+    padding: 1 2;
+    margin-top: 0;
+    margin-bottom: 2;
+    layout: vertical;
+    height: auto;
+    min-height: 0;
+}
+
+.block.tool.running.shell-card {
+    min-height: 12;
+}
+
+.shell-card-header {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.shell-card-scroll {
+    height: auto;
+    max-height: 18;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.block.tool.running.shell-card .shell-card-scroll {
+    min-height: 8;
+}
+
+/* Streaming command card scrollable body */
+.command-card-scroll {
+    height: auto;
+    max-height: 20;
+    min-height: 2;
+    overflow-y: auto;
+}
+
+.shell-card-body {
+    color: $foreground;
+}
+
+.card-body {
+    margin-top: 1;
+}
+
+.user-body Markdown,
+.assistant-body Markdown {
+    layout: stream;
+    margin: 0;
+    padding: 0;
+}
+
+.assistant-body MarkdownParagraph,
+.assistant-body MarkdownList,
+.assistant-body MarkdownTable,
+.assistant-body MarkdownBlockQuote {
+    color: $foreground;
+}
+
+.assistant-body MarkdownH1 {
+    color: $markdown-h1-color;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownH2 {
+    color: $markdown-h2-color;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownH3 {
+    color: $markdown-h3-color;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownH4,
+.assistant-body MarkdownH5,
+.assistant-body MarkdownH6 {
+    color: $foreground;
+    background: transparent;
+    text-style: bold;
+}
+
+.assistant-body MarkdownTableContent > .header {
+    color: $text-primary;
+}
+
+.user-body MarkdownBlock:last-of-type,
+.assistant-body MarkdownBlock:last-of-type {
+    margin-bottom: 0;
+}
+
+.assistant-body MarkdownFence {
+    background: $surface-darken-1;
+    border: round $border;
+}
+

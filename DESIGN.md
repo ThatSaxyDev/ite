@@ -694,7 +694,7 @@ If a user returns to the session later and the item would feel like noise, it sh
 
 These files are the source of truth for the current Textual UI:
 
-- `src/ite/ui/reup/reup.tcss`
+- `src/ite/ui/reup/styles/`
 - `src/ite/ui/reup/app.py`
 - `src/ite/ui/reup/composer_views.py`
 - `src/ite/ui/reup/change_views.py`

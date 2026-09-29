@@ -72,11 +72,11 @@ STOPS: tuple[Stop, ...] = (
         paths=(
             "src/ite/ui/reup/app.py",
             "src/ite/ui/reup/widgets/prompt_area.py",
-            "src/ite/ui/reup/reup.tcss",
+            "src/ite/ui/reup/styles/base.tcss",
         ),
         why=(
             "This is the only supported runtime surface. app.py is the App class, "
-            "widgets/ holds the reusable pieces it composes, and reup.tcss carries "
+            "widgets/ holds the reusable pieces it composes, and styles/ carries "
             "the visual contract documented in DESIGN.md."
         ),
     ),

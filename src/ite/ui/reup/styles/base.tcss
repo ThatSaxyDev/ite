@@ -1,0 +1,10 @@
+Screen {
+    layout: vertical;
+    background: $background;
+}
+
+Widget {
+    scrollbar-size-horizontal: 1;
+    scrollbar-size-vertical: 1;
+}
+

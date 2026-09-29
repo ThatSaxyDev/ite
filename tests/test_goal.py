@@ -4,6 +4,7 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 from unittest.mock import AsyncMock
 
 from textual import on
@@ -18,6 +19,7 @@ from ite.tools.base import ToolInvocation
 from ite.tools.builtin.goal_outcome import GoalOutcomeTool
 from ite.tools.builtin.goal_progress import GoalProgressTool
 from ite.ui.reup._composer import ComposerMixin
+from ite.ui.reup.app import ReupApp
 from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.widgets.side_panels import GoalSidePanel
 from ite.ui.tool_narrative import activity_title, describe_tool_activity
@@ -281,9 +283,10 @@ def test_goal_side_panel_renders_active_controls() -> None:
     goal = GoalState.create("Render the goal panel")
 
     class GoalPanelApp(App[None]):
-        CSS_PATH = str(
-            Path(__file__).parents[1] / "src/ite/ui/reup/reup.tcss"
-        )
+        CSS_PATH: ClassVar[list[Path]] = [
+            Path(__file__).parents[1] / "src/ite/ui/reup" / path
+            for path in ReupApp.CSS_PATH
+        ]
 
         def compose(self) -> ComposeResult:
             yield GoalSidePanel(goal=goal.to_dict(), id="goal-panel")
@@ -378,9 +381,10 @@ def test_goal_clear_modal_does_not_block_pointer_events() -> None:
     goal = GoalState.create("Clear from the panel")
 
     class GoalClearModalApp(App[None]):
-        CSS_PATH = str(
-            Path(__file__).parents[1] / "src/ite/ui/reup/reup.tcss"
-        )
+        CSS_PATH: ClassVar[list[Path]] = [
+            Path(__file__).parents[1] / "src/ite/ui/reup" / path
+            for path in ReupApp.CSS_PATH
+        ]
 
         def __init__(self) -> None:
             super().__init__()

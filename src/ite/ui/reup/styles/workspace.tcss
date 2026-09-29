@@ -1,0 +1,1364 @@
+#shell {
+    height: 1fr;
+    layout: vertical;
+    background: $background;
+}
+
+#topbar {
+    height: 3;
+    padding: 0 2 0 2;
+    background: $surface;
+    align-vertical: middle;
+}
+
+#brand-mark {
+    width: auto;
+    min-width: 8;
+    height: 2;
+    margin-right: 2;
+    padding: 0 2;
+    background: #4edea3;
+    color: #07140f;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#header-copy {
+    width: 1fr;
+    height: 2;
+    layout: vertical;
+}
+
+#brand-kicker {
+    width: 1fr;
+    color: $text-secondary;
+    text-style: bold;
+}
+
+#header-actions {
+    width: auto;
+    height: 2;
+    align-vertical: middle;
+}
+
+#threads-toggle {
+    width: auto;
+    min-width: 4;
+    height: 1;
+    min-height: 1;
+    margin-right: 1;
+    padding: 0;
+    color: $text-primary;
+    text-style: bold;
+    background: transparent;
+    border: none;
+    content-align: center middle;
+    display: none;
+}
+
+#threads-toggle:hover,
+#threads-toggle:focus {
+    background: transparent;
+    border: none;
+    color: $text-secondary;
+    text-style: bold;
+}
+
+#session-tabs-scroll {
+    height: 3;
+    width: 1fr;
+    background: $surface;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+#session-tabs {
+    height: auto;
+    width: auto;
+    padding: 0 3 0 3;
+    background: transparent;
+}
+
+.session-tab {
+    width: auto;
+    min-width: 12;
+    height: 3;
+    min-height: 3;
+    margin-right: 1;
+    padding: 0 2;
+    background: $panel;
+    color: $foreground;
+    border: none;
+    content-align: center middle;
+}
+
+.session-tab:hover,
+.session-tab:focus {
+    background: $panel-lighten-1;
+    color: $foreground;
+    border: none;
+    text-style: none;
+}
+
+.session-tab-live {
+    background: $warning-muted;
+    color: $text-warning;
+    text-style: bold;
+}
+
+.session-tab-live:hover,
+.session-tab-live:focus {
+    background: $warning;
+    color: $background;
+    border: none;
+    text-style: bold;
+}
+
+.session-tab-live.-primary {
+    background: $success-muted;
+    color: $text-success;
+    text-style: bold;
+}
+
+.session-tab-live.-primary:hover,
+.session-tab-live.-primary:focus {
+    background: $success;
+    color: $background;
+    border: none;
+    text-style: bold;
+}
+
+.session-tab.-primary {
+    background: $primary-muted;
+    color: $text-primary;
+    text-style: bold;
+}
+
+.session-tab.-primary:hover,
+.session-tab.-primary:focus {
+    background: $primary;
+    color: $background;
+    border: none;
+    text-style: bold;
+}
+
+#title {
+    width: auto;
+    max-width: 60;
+    margin-right: 2;
+    text-style: bold;
+    color: $foreground;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#header-meta-group {
+    width: 1fr;
+    height: 1;
+    align-horizontal: right;
+    align-vertical: middle;
+    overflow: hidden;
+}
+
+#header-meta {
+    width: auto;
+    text-align: right;
+    color: $text-secondary;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#plan-badge {
+    width: auto;
+    min-width: 6;
+    height: 1;
+    min-height: 1;
+    margin-right: 1;
+    content-align: center middle;
+}
+
+#plan-badge:hover {
+    text-style: bold underline;
+}
+
+#goal-toggle {
+    width: auto;
+    min-width: 0;
+    height: 1;
+    min-height: 1;
+    margin-right: 1;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: $text-secondary;
+}
+
+#goal-toggle:hover,
+#goal-toggle:focus {
+    text-style: bold underline;
+    background: transparent;
+}
+
+#goal-toggle.goal-active {
+    color: $success;
+}
+
+#goal-toggle.goal-paused {
+    color: $foreground-muted;
+}
+
+#goal-toggle.goal-blocked,
+#goal-toggle.goal-budget_limited {
+    color: $warning;
+}
+
+#aside-toggle {
+    width: auto;
+    min-width: 9;
+    height: 1;
+    min-height: 1;
+    margin-left: 2;
+    padding: 0;
+    color: $text-success;
+    text-style: bold;
+    background: transparent;
+    border: none;
+    content-align: center middle;
+}
+
+#changes-toggle {
+    width: auto;
+    min-width: 10;
+    height: 1;
+    min-height: 1;
+    margin-left: 2;
+    padding: 0;
+    color: $text-primary;
+    text-style: bold;
+    background: transparent;
+    border: none;
+    content-align: center middle;
+}
+
+#hooks-toggle {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    min-height: 1;
+    margin-left: 2;
+    padding: 0;
+    color: $text-warning;
+    text-style: bold;
+    background: transparent;
+    border: none;
+    content-align: center middle;
+}
+
+#chat-panel {
+    height: 1fr;
+    background: $background;
+}
+
+#chat-body {
+    height: 1fr;
+    layout: horizontal;
+    background: $background;
+    padding: 0 2 0 2;
+}
+
+#conversation-shell {
+    width: 1fr;
+    min-width: 72;
+    height: 1fr;
+    background: $background;
+}
+
+#change-review-panel {
+    split: right;
+    width: 48%;
+    min-width: 34;
+    max-width: 160;
+    height: 1fr;
+    background: $surface;
+    padding: 1 2 0 2;
+    border-left: vkey $foreground 30%;
+}
+
+#change-review-header {
+    height: auto;
+    margin-bottom: 2;
+    layout: vertical;
+}
+
+#change-review-header-actions {
+    height: 1;
+    min-height: 1;
+    margin-top: 1;
+    align-vertical: middle;
+}
+
+#change-review-title {
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+#change-review-close {
+    width: 12;
+    min-width: 12;
+    height: 1;
+    min-height: 1;
+    padding: 0 1;
+    background: transparent;
+    color: $foreground;
+    border: none;
+}
+
+.change-review-action {
+    width: auto;
+    min-width: 5;
+    height: 1;
+    min-height: 1;
+    margin-right: 1;
+    padding: 0 1;
+    content-align: center middle;
+    text-style: bold;
+    text-wrap: nowrap;
+}
+
+#change-review-stage-all,
+#change-review-stage-file {
+    color: $foreground;
+    background: $success-muted;
+}
+
+#change-review-stage-all {
+    width: 11;
+    min-width: 11;
+}
+
+#change-review-stage-file {
+    width: 7;
+    min-width: 7;
+}
+
+#change-review-unstage-file {
+    width: 9;
+    min-width: 9;
+    color: $foreground;
+    background: $panel;
+}
+
+#change-review-discard-all,
+#change-review-discard-file {
+    color: $foreground;
+    background: $warning-muted;
+}
+
+#change-review-discard-all {
+    width: 13;
+    min-width: 13;
+}
+
+#change-review-discard-file {
+    width: 9;
+    min-width: 9;
+}
+
+#change-review-commit {
+    width: 8;
+    min-width: 8;
+    color: $foreground;
+    background: $panel;
+}
+
+.change-review-action.-disabled {
+    color: $foreground-muted;
+    background: $surface-darken-1;
+}
+
+#change-review-body {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#change-review-tree {
+    width: 26;
+    min-width: 16;
+    height: 1fr;
+    padding: 0 0 1 0;
+    background: $surface;
+    overflow: auto auto;
+}
+
+#change-review-tree:focus {
+    background-tint: transparent;
+}
+
+#change-review-preview {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 0 1 2;
+    background: transparent;
+    overflow: auto auto;
+}
+
+#change-review-preview-column {
+    width: 1fr;
+    height: 1fr;
+    padding-left: 1;
+}
+
+#change-review-preview-actions {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+    align-vertical: middle;
+}
+
+.change-review-path {
+    color: $foreground;
+    text-style: bold;
+    margin-bottom: 0;
+    width: 1fr;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.change-review-diff {
+    width: auto;
+    height: auto;
+    min-height: 1;
+    overflow: auto auto;
+    padding: 0;
+}
+
+.change-review-empty {
+    color: $foreground-muted;
+    padding: 1 0;
+}
+
+#change-review-panel.compact {
+    padding: 1 1 0 1;
+}
+
+#change-review-panel.compact #change-review-header {
+    margin-bottom: 2;
+}
+
+#change-review-panel.compact #change-review-title {
+    width: 1fr;
+    display: block;
+}
+
+#change-review-panel.compact #change-review-header-actions {
+    margin-top: 1;
+}
+
+#change-review-panel.compact .change-review-action {
+    min-width: 5;
+    padding: 0 1;
+    margin-right: 1;
+}
+
+#change-review-panel.compact #change-review-stage-all {
+    width: 7;
+    min-width: 7;
+}
+
+#change-review-panel.compact #change-review-discard-all {
+    width: 9;
+    min-width: 9;
+}
+
+#change-review-panel.compact #change-review-close {
+    width: 12;
+    min-width: 12;
+    padding: 0 1;
+}
+
+#change-review-panel.compact #change-review-tree {
+    width: 22;
+    min-width: 14;
+}
+
+#change-review-panel.compact #change-review-preview-column {
+    padding-left: 0;
+}
+
+#change-review-panel.compact #change-review-preview {
+    padding-left: 1;
+}
+
+#change-review-panel.narrow {
+    padding: 1 1 0 1;
+}
+
+#change-review-panel.narrow #change-review-header {
+    margin-bottom: 2;
+}
+
+#change-review-panel.narrow #change-review-title {
+    width: 1fr;
+    display: block;
+}
+
+#change-review-panel.narrow #change-review-header-actions {
+    margin-top: 1;
+}
+
+#change-review-panel.narrow .change-review-action {
+    min-width: 5;
+    padding: 0 1;
+    margin-right: 1;
+}
+
+#change-review-panel.narrow #change-review-stage-all {
+    width: 7;
+    min-width: 7;
+}
+
+#change-review-panel.narrow #change-review-discard-all {
+    width: 9;
+    min-width: 9;
+}
+
+#change-review-panel.narrow #change-review-close {
+    width: 12;
+    min-width: 12;
+    padding: 0 1;
+}
+
+#change-review-panel.narrow #change-review-body {
+    layout: vertical;
+    margin-top: 1;
+}
+
+#change-review-panel.narrow #change-review-tree {
+    width: 1fr;
+    min-width: 0;
+    height: 10;
+    min-height: 5;
+    padding-bottom: 0;
+    margin-bottom: 2;
+}
+
+#change-review-panel.narrow #change-review-preview-column {
+    width: 1fr;
+    height: 1fr;
+    padding-left: 0;
+}
+
+#change-review-panel.narrow #change-review-preview-actions {
+    height: 1;
+    min-height: 1;
+    margin-bottom: 1;
+}
+
+#change-review-panel.narrow #change-review-preview-actions .change-review-action {
+    width: 1fr;
+    min-width: 0;
+    margin-right: 1;
+}
+
+#change-review-panel.narrow #change-review-preview {
+    width: 1fr;
+    height: 1fr;
+    padding: 0;
+}
+
+#conversation {
+    height: 1fr;
+    padding: 1 5 0 5;
+}
+
+#empty-state {
+    width: 100%;
+    height: 100%;
+    content-align: center middle;
+    text-align: center;
+    layer: overlay;
+    layers: overlay;
+    dock: top;
+    background: transparent;
+    text-style: bold;
+    text-align: center;
+    text-wrap: wrap;
+    overflow: hidden;
+    padding: 0 8 0 8;
+}
+
+#signed-out-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#signed-out-stack {
+    width: 72;
+    height: auto;
+    max-width: 100%;
+    align-horizontal: center;
+    align-vertical: middle;
+    padding: 0;
+}
+
+#startup-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#startup-stack {
+    width: 72;
+    height: auto;
+    max-width: 100%;
+    align-horizontal: center;
+    align-vertical: middle;
+    padding: 0;
+}
+
+#startup-title {
+    width: 100%;
+    text-style: bold;
+    color: $text-primary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#session-switch-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#session-switch-stack {
+    width: auto;
+    height: auto;
+    align: center middle;
+    padding: 0;
+}
+
+#session-switch-spinner {
+    width: auto;
+    text-style: bold;
+    color: $text-primary;
+    content-align: center middle;
+}
+
+#startup-copy {
+    width: 100%;
+    margin-top: 1;
+    color: $text-secondary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#startup-status {
+    width: 100%;
+    height: 1;
+    margin-top: 2;
+    color: $text-secondary;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
+}
+
+#signed-out-copy {
+    width: 100%;
+    content-align: center middle;
+    text-align: center;
+}
+
+#signed-out-status {
+    width: 100%;
+    height: 1;
+    margin-top: 2;
+    color: $text-secondary;
+    text-style: bold;
+    content-align: center middle;
+    text-align: center;
+}
+
+#signed-out-actions {
+    width: 100%;
+    height: auto;
+    align-horizontal: center;
+    align-vertical: middle;
+    margin-top: 2;
+}
+
+#cloud-sign-in,
+#cloud-skip-sign-in,
+#cloud-exit {
+    width: 18;
+    min-width: 18;
+    height: 3;
+    margin: 0 1;
+    padding: 0 2;
+    border: none;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#cloud-sign-in {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+#cloud-sign-in:hover,
+#cloud-sign-in:focus {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+#cloud-sign-in:disabled {
+    background: $panel;
+    color: $foreground-disabled;
+}
+
+#cloud-skip-sign-in,
+#cloud-exit {
+    background: $panel;
+    color: $foreground;
+}
+
+#cloud-skip-sign-in:hover,
+#cloud-skip-sign-in:focus,
+#cloud-exit:hover,
+#cloud-exit:focus {
+    background: $panel-lighten-1;
+    color: $foreground;
+}
+
+#onboarding-state {
+    display: none;
+    width: 100%;
+    height: 100%;
+    align: center middle;
+    background: $background;
+    padding: 0;
+}
+
+#onboarding-stack {
+    width: 72;
+    max-width: 84;
+    height: auto;
+    align-horizontal: center;
+    align-vertical: middle;
+    padding: 0 4;
+}
+
+#onboarding-title {
+    width: 100%;
+    text-style: bold;
+    color: $text-primary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#onboarding-copy {
+    width: 100%;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-secondary;
+    content-align: center middle;
+    text-align: center;
+}
+
+#onboarding-name,
+#onboarding-role-select,
+#onboarding-role-other,
+#onboarding-use-case-select,
+#onboarding-use-case-other {
+    width: 100%;
+    margin-top: 1;
+    background: $surface-darken-1;
+    color: $foreground;
+    border: round $border;
+}
+
+#onboarding-role-other,
+#onboarding-use-case-other {
+    display: none;
+}
+
+#onboarding-actions {
+    width: 100%;
+    height: auto;
+    align-horizontal: right;
+    margin-top: 2;
+}
+
+#onboarding-skip,
+#onboarding-continue {
+    width: 16;
+    min-width: 16;
+    height: 3;
+    margin-left: 1;
+    padding: 0 2;
+    border: none;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#onboarding-skip {
+    background: $panel;
+    color: $foreground;
+}
+
+#onboarding-skip:hover,
+#onboarding-skip:focus {
+    background: $panel-lighten-1;
+    color: $foreground;
+}
+
+#onboarding-continue {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+#onboarding-continue:hover,
+#onboarding-continue:focus {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+#onboarding-status {
+    width: 100%;
+    height: 1;
+    margin-top: 2;
+    color: $text-secondary;
+    text-style: bold;
+    text-align: center;
+}
+
+#composer {
+    height: 8;
+    border: none;
+    background: transparent;
+    padding: 0 4 0 4;
+    align-vertical: bottom;
+}
+
+#prompt-container {
+    width: 1fr;
+    height: auto;
+    layout: vertical;
+    border: round $border;
+    background: $surface;
+    padding: 0 1 0 1;
+    margin: 0 1 0 1;
+}
+
+#prompt-kicker {
+    display: none;
+}
+
+#prompt-row {
+    width: 1fr;
+    height: auto;
+    layout: horizontal;
+}
+
+#aside-panel {
+    width: 44;
+    min-width: 36;
+    height: 1fr;
+    background: $surface;
+    padding: 1 2 0 2;
+    display: none;
+}
+
+#aside-panel-header {
+    height: 1;
+    margin-bottom: 1;
+    align-vertical: middle;
+}
+
+#aside-panel-title {
+    color: $text-success;
+    text-style: bold;
+}
+
+#aside-panel-body {
+    height: 1fr;
+    padding: 0;
+}
+
+#commands-panel {
+    split: left;
+    width: 48%;
+    min-width: 48;
+    max-width: 84;
+    height: 1fr;
+    background: $surface;
+    border-right: vkey $foreground 30%;
+    padding: 0 1;
+    padding-left: 1;
+    layout: vertical;
+}
+
+#commands-panel .commands-panel-header {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#commands-panel .commands-panel-title {
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#commands-panel .commands-panel-close {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+#commands-panel .commands-panel-close:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+#commands-panel .commands-panel-close:focus {
+    background: $primary;
+    color: $text-primary;
+}
+
+#commands-panel .commands-panel-subtitle {
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
+#commands-panel .commands-panel-table {
+    width: 1fr;
+    height: 1fr;
+}
+
+#hooks-panel {
+    split: right;
+    width: 38%;
+    min-width: 42;
+    max-width: 72;
+    height: 1fr;
+    background: $surface;
+    border-left: vkey $foreground 30%;
+    padding: 0 1;
+    padding-left: 2;
+    layout: vertical;
+}
+
+#hooks-panel .hooks-panel-header {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#hooks-panel .hooks-panel-title {
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#hooks-panel .hooks-panel-close {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+#hooks-panel .hooks-panel-close:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+#hooks-panel .hooks-panel-close:focus {
+    background: $primary;
+    color: $text-primary;
+}
+
+#hooks-panel .hooks-panel-summary {
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
+#hooks-panel .hooks-panel-body {
+    width: 1fr;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+
+#hooks-panel .hooks-section-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#hooks-panel .hooks-trigger-title {
+    color: $foreground-muted;
+    text-style: bold;
+    margin-bottom: 1;
+    padding-left: 1;
+}
+
+#hooks-panel .hooks-config-row {
+    height: auto;
+    min-height: 1;
+    padding: 0 1 0 2;
+    margin-bottom: 1;
+    border-left: solid $primary;
+    color: $foreground;
+}
+
+#hooks-panel .hooks-config-row.disabled {
+    border-left: solid $foreground-muted;
+    color: $foreground-muted;
+}
+
+#hooks-panel .hooks-run-row {
+    height: auto;
+    min-height: 1;
+    padding: 0 1 0 2;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+    border-left: solid $foreground-muted;
+}
+
+#hooks-panel .hooks-runs-list {
+    height: auto;
+}
+
+#hooks-panel .hooks-run-row.running {
+    border-left: solid $warning;
+}
+
+#hooks-panel .hooks-run-row.completed {
+    border-left: solid $success;
+}
+
+#hooks-panel .hooks-run-row.failed,
+#hooks-panel .hooks-run-row.timed_out {
+    border-left: solid $error;
+}
+
+#hooks-panel .hooks-run-row.idle {
+    background: transparent;
+    border-left: solid $foreground-muted;
+}
+
+#hooks-panel .hooks-empty {
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
+#goal-panel {
+    split: right;
+    width: 38%;
+    min-width: 42;
+    max-width: 72;
+    height: 1fr;
+    background: $surface;
+    border-left: vkey $foreground 30%;
+    padding: 0 1;
+    padding-left: 2;
+    layout: vertical;
+}
+
+#goal-panel .goal-panel-header {
+    height: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+    align-vertical: middle;
+}
+
+#goal-panel .goal-panel-title {
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#goal-panel .goal-panel-status {
+    width: auto;
+    margin-right: 1;
+    color: $foreground-muted;
+}
+
+#goal-panel .goal-panel-close {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+#goal-panel .goal-panel-body {
+    width: 1fr;
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+
+#goal-panel .goal-panel-objective {
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#goal-panel .goal-panel-detail,
+#goal-panel .goal-panel-plan,
+#goal-panel .goal-panel-proof {
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
+#goal-panel .goal-panel-actions {
+    height: auto;
+    min-height: 1;
+    margin-bottom: 1;
+}
+
+#goal-panel .goal-panel-actions Button {
+    width: 10;
+    min-width: 10;
+    height: 1;
+    min-height: 1;
+    margin-right: 1;
+    padding: 0 1;
+    border: none;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#goal-panel-pause,
+#goal-panel-save {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+#goal-panel-pause:hover,
+#goal-panel-pause:focus,
+#goal-panel-save:hover,
+#goal-panel-save:focus {
+    background: $primary-lighten-1;
+    color: $button-color-foreground;
+}
+
+#goal-panel-edit,
+#goal-panel-cancel {
+    background: $panel;
+    color: $foreground;
+}
+
+#goal-panel-edit:hover,
+#goal-panel-edit:focus,
+#goal-panel-cancel:hover,
+#goal-panel-cancel:focus {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+#goal-panel-clear {
+    background: $error;
+    color: $button-color-foreground;
+}
+
+#goal-panel-clear:hover,
+#goal-panel-clear:focus {
+    background: $error-lighten-1;
+    color: $button-color-foreground;
+}
+
+#goal-panel .goal-panel-section-title {
+    color: $text-primary;
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#goal-panel .goal-panel-editor {
+    width: 1fr;
+    height: 1fr;
+}
+
+#goal-panel #goal-panel-editor-input {
+    width: 1fr;
+    height: 1fr;
+    margin-bottom: 1;
+}
+
+#thread-switcher-panel {
+    split: left;
+    width: 30;
+    min-width: 24;
+    max-width: 36;
+    height: 1fr;
+    background: $surface;
+    border-right: vkey $foreground 30%;
+    padding: 0 1 1 1;
+    padding-left: 1;
+    layout: vertical;
+}
+
+#thread-switcher-panel .thread-switcher-header {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#thread-switcher-panel .thread-switcher-title {
+    width: 1fr;
+    height: 1;
+    min-height: 1;
+    color: $text-primary;
+    text-style: bold;
+    background: transparent;
+    border: none;
+    padding: 0;
+    text-align: left;
+}
+
+#thread-switcher-panel .thread-switcher-title:hover,
+#thread-switcher-panel .thread-switcher-title:focus {
+    background: transparent;
+    border: none;
+    color: $text-secondary;
+}
+
+#thread-switcher-panel .thread-switcher-close {
+    width: auto;
+    min-width: 8;
+    height: 1;
+    padding: 0 1;
+    border: none;
+    background: $panel;
+    color: $foreground;
+}
+
+#thread-switcher-panel .thread-switcher-close:hover {
+    background: $panel-lighten-1;
+    color: $text-primary;
+}
+
+#thread-switcher-panel .thread-switcher-close:focus {
+    background: $primary;
+    color: $text-primary;
+}
+
+#thread-switcher-panel .thread-switcher-new-chat {
+    width: 1fr;
+    min-height: 3;
+    height: 3;
+    margin-bottom: 1;
+    padding: 0 2;
+    border: none;
+    background: $panel;
+    color: $text-primary;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#thread-switcher-panel .thread-switcher-new-chat:hover,
+#thread-switcher-panel .thread-switcher-new-chat:focus {
+    background: $panel-lighten-1;
+    border: none;
+    color: $text-primary;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+#thread-switcher-panel .thread-switcher-list {
+    width: 1fr;
+    height: 1fr;
+}
+
+#thread-switcher-panel .thread-switcher-item {
+    width: 1fr;
+    min-height: 1;
+    height: 1;
+    margin-bottom: 1;
+    padding: 0 0 0 1;
+    border: none;
+    border-left: solid transparent;
+    background: transparent;
+    color: $foreground;
+    content-align: left middle;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#thread-switcher-panel .thread-switcher-item:hover,
+#thread-switcher-panel .thread-switcher-item:focus {
+    background: transparent;
+    color: $text-primary;
+    border: none;
+    border-left: solid transparent;
+    text-style: bold;
+}
+
+#thread-switcher-panel .thread-switcher-item.current {
+    background: $surface-darken-1;
+    color: $text-primary;
+    text-style: bold;
+    border: none;
+    border-left: solid $primary;
+}
+
+#thread-switcher-panel .thread-switcher-item.live {
+    background: transparent;
+    color: $text-warning;
+    text-style: bold;
+}
+
+#thread-switcher-panel .thread-switcher-account {
+    width: 1fr;
+    height: 3;
+    border-top: solid $foreground 15%;
+    padding-top: 1;
+    margin: 0 1;
+    display: none;
+}
+
+#thread-switcher-panel .thread-switcher-account-icon {
+    width: 3;
+    height: 2;
+    content-align: center middle;
+    background: $primary;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#thread-switcher-panel .thread-switcher-account-email {
+    width: 1fr;
+    height: 2;
+    padding-left: 1;
+    content-align: left middle;
+    color: $foreground;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+

@@ -1,0 +1,167 @@
+.modal-title {
+    text-style: bold;
+    color: $foreground;
+    margin-bottom: 1;
+}
+
+.modal-body {
+    color: $foreground;
+    margin-bottom: 1;
+}
+
+.modal-options {
+    margin-bottom: 1;
+}
+
+.modal-list {
+    height: 16;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    padding: 1;
+    background: $surface-darken-1;
+}
+
+.modal-actions {
+    align-horizontal: right;
+    margin-top: 1;
+}
+
+#prompt {
+    width: 1fr;
+    height: auto;
+    min-height: 2;
+    border: none;
+    background: transparent;
+    color: $foreground;
+    padding: 1 1 0 1;
+}
+
+#prompt:focus {
+    border: none;
+}
+
+#composer-flow-control {
+    display: none;
+    width: auto;
+    min-width: 8;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    margin: 0 0 0 1;
+    color: $success;
+    text-style: bold;
+    text-align: right;
+    text-wrap: nowrap;
+    pointer: pointer;
+}
+
+#composer-flow-control:hover {
+    color: $primary-lighten-1;
+}
+
+#composer-send-control {
+    width: auto;
+    min-width: 8;
+    height: 3;
+    min-height: 3;
+    padding: 1 1 0 1;
+    margin: 0 0 0 1;
+    color: $primary;
+    text-style: bold;
+    text-align: right;
+    text-wrap: nowrap;
+    pointer: pointer;
+}
+
+#composer-send-control:hover {
+    color: $primary-lighten-1;
+}
+
+#composer-gap {
+    height: 1;
+}
+
+#command-palette {
+    display: none;
+    height: auto;
+    min-height: 1;
+    width: 1fr;
+    margin: 0 2 0 2;
+    padding: 0 1 0 1;
+    border: round $border;
+    background: $surface;
+    color: $foreground;
+    pointer: pointer;
+}
+
+#composer-meta-line {
+    height: 1;
+    min-height: 1;
+    width: 1fr;
+    margin: 0 2 0 2;
+    color: $foreground;
+    text-style: bold;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    pointer: pointer;
+}
+
+Footer {
+    background: $surface;
+    color: $foreground-muted;
+}
+
+Markdown {
+    layout: stream;
+    background: transparent;
+}
+
+MarkdownFence {
+    background: $surface-darken-1;
+    border: round $border;
+    padding: 0 1;
+}
+
+MarkdownTable {
+    border: solid $border;
+}
+
+MarkdownBlockQuote {
+    border-left: solid $border;
+    background: $surface;
+    padding: 0 1;
+}
+
+/* Copyable code blocks with copy button */
+CopyableCodeBlock {
+    layout: vertical;
+    width: 1fr;
+    height: auto;
+    padding: 0;
+    margin: 1 0;
+    overflow: scroll hidden;
+    scrollbar-size-horizontal: 0;
+    scrollbar-size-vertical: 0;
+    color: $foreground;
+    background: $surface-darken-1;
+    border: round $border;
+}
+
+CopyableCodeBlock:focus {
+    border: round $primary;
+}
+
+CopyableCodeBlock > .code-header {
+    dock: top;
+    height: 1;
+    width: 1fr;
+    align-horizontal: right;
+    background: $surface;
+    padding: 0 1;
+}
+
+CopyableCodeBlock > .code-content {
+    padding: 0 2;
+}
+

@@ -1,0 +1,478 @@
+#settings-panel {
+    height: 1fr;
+    width: 100%;
+    min-width: 72;
+    background: $background;
+    padding: 0 2 0 2;
+}
+
+#settings-panel .settings-content-shell {
+    height: auto;
+    width: 1fr;
+}
+
+#settings-panel .settings-header {
+    height: auto;
+    align-vertical: middle;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#settings-panel .settings-title {
+    height: auto;
+    width: 1fr;
+    color: $text-primary;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#settings-panel .settings-header-spacer {
+    width: 16;
+    height: auto;
+}
+
+#settings-panel .settings-content-shell {
+    overflow-y: auto;
+    overflow-x: hidden;
+    height: 100%;
+}
+
+#settings-panel .settings-section-title {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel .settings-account {
+    height: auto;
+    align-vertical: middle;
+    align-horizontal: left;
+    padding: 1 0 1 0;
+    margin-bottom: 1;
+}
+
+#settings-panel .settings-account-row {
+    height: auto;
+    align-vertical: middle;
+    align-horizontal: left;
+}
+
+#settings-panel .settings-avatar {
+    width: 6;
+    height: 3;
+    min-width: 6;
+    min-height: 3;
+    content-align: center middle;
+    background: $primary;
+    color: $text-primary;
+    text-style: bold;
+    margin-right: 1;
+}
+
+#settings-panel .settings-account-meta {
+    height: auto;
+    width: auto;
+    min-width: 1fr;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-account-name {
+    height: auto;
+    width: auto;
+    color: $text-primary;
+    text-style: bold;
+    content-align: left middle;
+}
+
+#settings-panel .settings-account-handle {
+    height: auto;
+    width: auto;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel #settings-sign-in {
+    width: 16;
+    min-width: 16;
+    margin-left: 1;
+    display: none;
+}
+
+#settings-panel .settings-usage-card {
+    height: auto;
+    padding: 1 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-usage-head {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-usage-text {
+    height: auto;
+    width: 1fr;
+}
+
+#settings-panel .settings-usage-label {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel .settings-usage-reset {
+    height: auto;
+    color: $foreground-muted;
+}
+
+#settings-panel .settings-usage-pct {
+    height: auto;
+    width: auto;
+    color: $foreground;
+    content-align: right middle;
+}
+
+#settings-panel .settings-usage-bar {
+    height: 1;
+    width: 1fr;
+    margin-top: 1;
+}
+
+#settings-panel .settings-usage-card:hover {
+    border: solid $accent;
+}
+
+#settings-panel .settings-usage-card:focus {
+    border: solid $accent;
+}
+
+#settings-panel .settings-plan-card {
+    height: auto;
+    padding: 1 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-plan-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-plan-text {
+    height: auto;
+    width: 1fr;
+}
+
+#settings-panel .settings-plan-name {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel #settings-plan-action {
+    width: 16;
+    min-width: 16;
+    margin-left: 1;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-stats-row {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+#settings-panel .settings-stat-card {
+    height: auto;
+    padding: 1 1;
+    background: $surface-darken-1;
+    border: solid $border;
+    margin-right: 1;
+}
+
+#settings-panel .settings-stat-card:last-child {
+    margin-right: 0;
+}
+
+#settings-panel .settings-stat-value {
+    height: auto;
+    color: $text-primary;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#settings-panel .settings-stat-label {
+    height: auto;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#settings-panel #settings-activity-locked {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1 2;
+    background: $surface-darken-1;
+    border: solid $border;
+    display: none;
+}
+
+#settings-panel .settings-activity-locked-copy {
+    height: auto;
+    width: 1fr;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#settings-panel .settings-open-island-card {
+    height: auto;
+    padding: 1 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-open-island-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-open-island-copy {
+    height: auto;
+    width: 1fr;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel #settings-open-island-action {
+    width: 16;
+    min-width: 16;
+    margin-left: 1;
+}
+
+#settings-panel .settings-signout-card {
+    height: auto;
+    padding: 1 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+    border: solid $border;
+}
+
+#settings-panel .settings-signout-row {
+    height: auto;
+    align-vertical: middle;
+}
+
+#settings-panel .settings-signout-copy {
+    height: auto;
+    width: 1fr;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel .settings-footer {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1 1;
+    align-vertical: middle;
+    background: $surface-darken-1;
+}
+
+#settings-panel .settings-footer-text {
+    height: auto;
+    width: auto;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel .settings-footer-link {
+    height: auto;
+    width: auto;
+    color: $accent;
+    content-align: left middle;
+}
+
+#settings-panel #settings-signout {
+    width: 16;
+    min-width: 16;
+}
+
+#settings-panel .settings-info {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    padding: 1 1;
+    background: $surface-darken-1;
+}
+
+#settings-panel .settings-info-row {
+    height: 1;
+    width: 1fr;
+    min-height: 1;
+    margin-bottom: 1;
+    border-left: solid transparent;
+    background: transparent;
+}
+
+#settings-panel .settings-info-clickable:hover,
+#settings-panel .settings-info-clickable:focus {
+    background: $surface;
+    border-left: solid $accent;
+}
+
+#settings-panel .settings-info-label {
+    width: 14;
+    color: $foreground-muted;
+    content-align: left middle;
+}
+
+#settings-panel .settings-info-value {
+    width: 1fr;
+    color: $foreground;
+    padding-left: 1;
+    content-align: left middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#settings-panel .settings-info-clickable:hover .settings-info-value,
+#settings-panel .settings-info-clickable:focus .settings-info-value {
+    color: $text-primary;
+    text-style: bold;
+}
+
+#settings-panel .settings-info-multiline {
+    height: auto;
+    min-height: 1;
+}
+
+#settings-panel .settings-info-multiline .settings-info-value {
+    height: auto;
+    text-overflow: clip;
+}
+
+#settings-panel .settings-heatmap-panel {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+    border: solid $border;
+    background: $surface-darken-1;
+    padding: 1 1;
+}
+
+#settings-panel .settings-activity-status {
+    height: 3;
+    color: $foreground-muted;
+    content-align: center middle;
+}
+
+#settings-panel #settings-heatmap {
+    width: auto;
+    height: auto;
+    margin-top: 0;
+}
+
+#settings-panel .heatmap-scroller {
+    width: 1fr;
+    height: 16;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-size-horizontal: 1;
+}
+
+#settings-panel .heat-month-header {
+    height: 1;
+    color: $foreground-muted;
+}
+
+#settings-panel .heat-grid {
+    width: auto;
+    height: auto;
+    margin-top: 0;
+}
+
+#settings-panel .heat-weekday-labels {
+    width: 4;
+    height: auto;
+}
+
+#settings-panel .heat-weekday-label {
+    width: 4;
+    height: 1;
+    margin-bottom: 1;
+    color: $foreground-muted;
+    content-align: right middle;
+    padding-right: 1;
+}
+
+#settings-panel .heat-cell-columns {
+    width: auto;
+    height: auto;
+}
+
+#settings-panel .heat-row {
+    width: auto;
+    height: 1;
+    margin-bottom: 1;
+}
+
+#settings-panel .heat-cell {
+    width: 2;
+    height: 1;
+    margin-right: 1;
+    border: none;
+    background: $panel;
+}
+
+#settings-panel .heat-future {
+    background: transparent;
+}
+
+#settings-panel .heat-l0 {
+    background: $surface;
+}
+
+#settings-panel .heat-l1 {
+    background: $success 25%;
+}
+
+#settings-panel .heat-l2 {
+    background: $success 50%;
+}
+
+#settings-panel .heat-l3 {
+    background: $success 75%;
+}
+
+#settings-panel .heat-l4 {
+    background: $success;
+}
+
+#settings-panel .heat-legend {
+    height: 1;
+    margin-top: 1;
+    align-horizontal: right;
+    width: 100%;
+}
+
+#settings-panel .heat-legend .heat-cell {
+    margin-right: 0;
+}
+
+#settings-panel .heat-legend-label {
+    width: auto;
+    padding: 0 1;
+    color: $foreground-muted;
+}
+
+#settings-panel .settings-actions {
+    height: 3;
+    align-horizontal: left;
+    align-vertical: middle;
+    margin-top: 1;
+}
+
