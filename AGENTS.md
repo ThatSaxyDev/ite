@@ -4,7 +4,7 @@
 
 **iTE** — AI coding agent for the terminal. Users connect a model service, authenticate where needed, and work through the Reup Textual runtime.
 
-- **Package:** `ite-agent` (version 0.2.22)
+- **Package:** `ite-agent` (version 0.2.23)
 - **Install:** `pipx install ite-agent` or `uv tool install ite-agent`
 - **Local editable install:** `uv pip install -e .` from the repo root, or `source .venv/bin/activate && python -m pip install -e .`
 - **Python:** ≥3.11
