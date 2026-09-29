@@ -10,12 +10,13 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.widgets import Button, Static
 
-from ite.agent.goal import GoalState, GoalStatus
+from ite.agent.goal import GoalProof, GoalState, GoalStatus
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionSnapshot
 from ite.client.response import TokenUsage
 from ite.tools.base import ToolInvocation
 from ite.tools.builtin.goal_outcome import GoalOutcomeTool
+from ite.tools.builtin.goal_progress import GoalProgressTool
 from ite.ui.reup._composer import ComposerMixin
 from ite.ui.reup.modals import ConfirmModal
 from ite.ui.reup.widgets.side_panels import GoalSidePanel
@@ -80,11 +81,13 @@ def test_composer_stop_cancels_normally_without_an_active_goal() -> None:
 def test_session_goal_edit_pauses_and_clear_keeps_history() -> None:
     session = _session_with_goal_fields()
     session.create_goal("Implement a durable goal")
+    session.set_goal_milestones(["Implement it", "Verify it"])
     session.pause_goal()
     session.edit_goal("Implement a durable goal panel")
     archived = session.clear_goal()
 
     assert session.goal_state is None
+    assert archived["milestones"] == []
     assert archived["objective"] == "Implement a durable goal panel"
     assert session.goal_history[-1]["goal_id"] == archived["goal_id"]
 
@@ -133,37 +136,94 @@ def test_snapshot_round_trips_goal_fields_and_old_snapshot_defaults() -> None:
     assert legacy.goal_history == []
 
 
-def test_goal_outcome_requires_completion_evidence() -> None:
+def test_goal_requires_a_plan_and_proof_before_completion() -> None:
     session = _session_with_goal_fields()
     session.create_goal("Verify completion")
-    tool = GoalOutcomeTool(config=None)
-    tool.set_session(session)
+    outcome = GoalOutcomeTool(config=None)
+    outcome.set_session(session)
+    progress = GoalProgressTool(config=None)
+    progress.set_session(session)
 
-    async def run() -> tuple[object, object]:
-        missing_evidence = await tool.execute(
+    async def run() -> tuple[object, object, object, object]:
+        missing_proof = await outcome.execute(
             ToolInvocation(
                 params={"action": "complete", "summary": "Looks finished"},
                 cwd=Path("/tmp"),
             )
         )
-        completed = await tool.execute(
+        missing_plan = await outcome.execute(
             ToolInvocation(
                 params={
                     "action": "complete",
                     "summary": "Tests passed",
-                    "evidence": {"command": "pytest", "result": "passed"},
+                    "evidence": [
+                        {
+                            "kind": "command",
+                            "label": "Tests passed",
+                            "reference": "pytest -q",
+                            "status": "passed",
+                        }
+                    ],
                 },
                 cwd=Path("/tmp"),
             )
         )
-        return missing_evidence, completed
+        plan = await progress.execute(
+            ToolInvocation(
+                params={
+                    "action": "set_plan",
+                    "milestones": ["Run the relevant tests"],
+                },
+                cwd=Path("/tmp"),
+            )
+        )
+        milestone = session.goal_state.milestones[0]
+        await progress.execute(
+            ToolInvocation(
+                params={
+                    "action": "complete_milestone",
+                    "milestone_id": milestone.milestone_id,
+                    "summary": "Relevant tests passed",
+                    "evidence": [
+                        {
+                            "kind": "command",
+                            "label": "Relevant tests passed",
+                            "reference": "pytest -q",
+                            "status": "passed",
+                        }
+                    ],
+                },
+                cwd=Path("/tmp"),
+            )
+        )
+        completed = await outcome.execute(
+            ToolInvocation(
+                params={
+                    "action": "complete",
+                    "summary": "Tests passed",
+                    "evidence": [
+                        {
+                            "kind": "command",
+                            "label": "Tests passed",
+                            "reference": "pytest -q",
+                            "status": "passed",
+                        }
+                    ],
+                },
+                cwd=Path("/tmp"),
+            )
+        )
+        return missing_proof, missing_plan, plan, completed
 
-    missing_evidence, completed = asyncio.run(run())
+    missing_proof, missing_plan, plan, completed = asyncio.run(run())
 
-    assert not missing_evidence.success
+    assert not missing_proof.success
+    assert not missing_plan.success
+    assert plan.success
     assert completed.success
     assert completed.metadata == {"action": "complete"}
     assert session.goal_state.status is GoalStatus.COMPLETED
+    assert session.goal_state.proofs[0].reference == "pytest -q"
 
 
 def test_goal_outcomes_use_human_readable_tool_copy() -> None:
@@ -179,6 +239,30 @@ def test_goal_outcomes_use_human_readable_tool_copy() -> None:
         stage="complete",
         success=True,
     ) == "Recorded the evidence and completed this goal."
+    assert activity_title(
+        "goal_progress",
+        stage="complete",
+        success=True,
+        metadata={"action": "set_plan"},
+    ) == "Goal plan recorded"
+    assert describe_tool_activity(
+        "goal_progress",
+        {"action": "set_plan"},
+        stage="complete",
+        success=True,
+    ) == "Recorded the goal plan."
+    assert activity_title(
+        "goal_progress",
+        stage="complete",
+        success=True,
+        metadata={"action": "complete_milestone"},
+    ) == "Milestone completed"
+    assert describe_tool_activity(
+        "goal_progress",
+        {"action": "complete_milestone"},
+        stage="complete",
+        success=True,
+    ) == "Recorded the completed milestone and its proof."
 
 
 def test_goal_side_panel_renders_active_controls() -> None:
@@ -213,21 +297,40 @@ def test_goal_side_panel_renders_active_controls() -> None:
             panel.update_goal(goal.to_dict())
             assert panel.query_one("#goal-panel-pause", Button).label == "Resume"
             goal.resume()
-            goal.metrics.work_elapsed_seconds = 187
-            goal.metrics.tool_calls_succeeded = 44
-            goal.metrics.tool_calls_failed = 3
-            goal.metrics.verification_attempts = 1
-            goal.metrics.verification_passes = 1
-            goal.complete("Goal verified", evidence={"test": "passed"})
+            goal.set_milestones(["Ship the panel", "Verify the panel"])
+            for milestone in goal.milestones:
+                goal.complete_milestone(
+                    milestone.milestone_id,
+                    summary=milestone.title,
+                    evidence=[
+                        GoalProof(
+                            kind="command",
+                            label="Goal panel tests passed",
+                            reference="pytest -q tests/test_goal.py",
+                            status="passed",
+                        )
+                    ],
+                )
+            goal.complete(
+                "Goal verified",
+                evidence=[
+                    GoalProof(
+                        kind="command",
+                        label="Goal panel tests passed",
+                        reference="pytest -q tests/test_goal.py",
+                        status="passed",
+                    )
+                ],
+            )
             panel.update_goal(goal.to_dict())
-            assert "Completed with recorded evidence." in panel.query_one(
-                "#goal-panel-detail", Static
+            detail = panel.query_one("#goal-panel-detail", Static).render().plain
+            assert "Done — completion is supported by the proof below." in detail
+            assert "✓ Ship the panel" in panel.query_one(
+                "#goal-panel-plan", Static
             ).render().plain
-            metrics = panel.query_one("#goal-panel-metrics", Static).render().plain
-            assert "iTE worked for" not in metrics
-            assert "44 tool steps completed." in metrics
-            assert "3 tool steps failed; see the conversation for details." in metrics
-            assert "Verification: 1 passed of 1 run." in metrics
+            assert "Goal panel tests passed" in panel.query_one(
+                "#goal-panel-proof", Static
+            ).render().plain
             assert not panel.query_one("#goal-panel-pause", Button).display
 
     asyncio.run(run())

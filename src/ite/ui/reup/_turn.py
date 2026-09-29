@@ -1486,8 +1486,10 @@ class TurnMixin:
         await self._dispatch_payload(
             {
                 "message": (
-                    "Work toward the active goal below. Use the available tools to "
-                    "make concrete progress and verify the result before claiming it is done.\n\n"
+                    "Work toward the active goal below. First use goal_progress to "
+                    "record a concise plan of concrete milestones. Then make progress, "
+                    "record observed proof for each completed milestone, and do not "
+                    "claim completion until every milestone is complete.\n\n"
                     f"Goal: {objective}"
                 ),
                 "display_message": "",
@@ -2222,8 +2224,8 @@ class TurnMixin:
         self._queued_turn_payload = {
             "message": (
                 "Continue the active goal. Take the next highest-value scoped "
-                "action, verify progress, and use goal_outcome to record evidence, "
-                "a blocker, or completion."
+                "action, update goal_progress with milestones and proof, and use "
+                "goal_outcome only for evidence, a blocker, or final completion."
             ),
             "display_message": "",
             "attachments": [],

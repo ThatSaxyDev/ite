@@ -1139,9 +1139,8 @@ Widget {
 }
 
 #goal-panel .goal-panel-detail,
-#goal-panel .goal-panel-metrics,
-#goal-panel .goal-panel-todos,
-#goal-panel .goal-panel-events {
+#goal-panel .goal-panel-plan,
+#goal-panel .goal-panel-proof {
     color: $foreground-muted;
     margin-bottom: 1;
 }

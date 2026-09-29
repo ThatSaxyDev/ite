@@ -114,11 +114,10 @@ class GoalSidePanel(Widget):
                 yield Button("Pause", id="goal-panel-pause", variant="primary")
                 yield Button("Edit", id="goal-panel-edit", variant="default")
                 yield Button("Clear", id="goal-panel-clear", variant="error")
-            yield Static("", id="goal-panel-metrics", classes="goal-panel-metrics")
-            yield Static("Todos", classes="goal-panel-section-title")
-            yield Static("", id="goal-panel-todos", classes="goal-panel-todos")
-            yield Static("Activity", classes="goal-panel-section-title")
-            yield Static("", id="goal-panel-events", classes="goal-panel-events")
+            yield Static("Plan", classes="goal-panel-section-title")
+            yield Static("", id="goal-panel-plan", classes="goal-panel-plan")
+            yield Static("Proof", classes="goal-panel-section-title")
+            yield Static("", id="goal-panel-proof", classes="goal-panel-proof")
         with Vertical(id="goal-panel-editor", classes="goal-panel-editor"):
             yield Static("Edit goal", classes="goal-panel-section-title")
             yield TextArea(id="goal-panel-editor-input")
@@ -153,55 +152,43 @@ class GoalSidePanel(Widget):
         self.query_one("#goal-panel-status", Static).update(status_label)
         self.query_one("#goal-panel-objective", Static).update(objective)
 
+        milestones = (
+            goal.get("milestones") if isinstance(goal.get("milestones"), list) else []
+        )
+        proofs = goal.get("proofs") if isinstance(goal.get("proofs"), list) else []
         detail = (
             str(goal.get("blocker"))
             if goal.get("blocker")
             else "Usage limit reached. Change provider or resume after it resets."
             if status == "budget_limited"
-            else "Completed with recorded evidence."
+            else "Done — completion is supported by the proof below."
             if status == "completed"
+            else "Preparing a concise plan before work begins."
+            if status == "active" and not milestones
             else "Working toward the objective."
             if status == "active"
             else "Paused. Resume when you are ready."
         )
         self.query_one("#goal-panel-detail", Static).update(detail)
-        completed_tools = int(metrics.get("tool_calls_succeeded", 0) or 0)
-        failed_tools = int(metrics.get("tool_calls_failed", 0) or 0)
-        verification_attempts = int(metrics.get("verification_attempts", 0) or 0)
-        verification_passes = int(metrics.get("verification_passes", 0) or 0)
-        metric_lines: list[str] = []
-        if completed_tools:
-            metric_lines.append(
-                f"{completed_tools} tool step"
-                f"{'s' if completed_tools != 1 else ''} completed."
-            )
-        if failed_tools:
-            metric_lines.append(
-                f"{failed_tools} tool step"
-                f"{'s' if failed_tools != 1 else ''} failed; "
-                "see the conversation for details."
-            )
-        if verification_attempts:
-            metric_lines.append(
-                f"Verification: {verification_passes} passed of "
-                f"{verification_attempts} run."
-            )
-        elif status == "completed":
-            metric_lines.append("No verification command was recorded.")
-        metrics_widget = self.query_one("#goal-panel-metrics", Static)
-        metrics_widget.display = bool(metric_lines)
-        metrics_widget.update("\n".join(metric_lines))
-        self.query_one("#goal-panel-todos", Static).update(
-            str(goal.get("todos") or "No execution todos yet.")
+        plan_lines = [
+            f"{'✓' if item.get('completed') else '•'} {item.get('title') or ''}"
+            for item in milestones
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
+        self.query_one("#goal-panel-plan", Static).update(
+            "\n".join(plan_lines)
+            or "iTE will record the next concrete milestones before it proceeds."
         )
-        events = goal.get("events") if isinstance(goal.get("events"), list) else []
-        self.query_one("#goal-panel-events", Static).update(
-            "\n".join(
-                f"• {event.get('summary') or ''!s}"
-                for event in events[-8:]
-                if isinstance(event, dict)
-            )
-            or "No goal activity recorded yet."
+        proof_lines = [
+            f"{'✓' if item.get('status') == 'passed' else '•'} "
+            f"{item.get('label') or 'Evidence recorded'}\n"
+            f"  {item.get('reference') or ''}"
+            for item in proofs
+            if isinstance(item, dict) and str(item.get("reference") or "").strip()
+        ]
+        self.query_one("#goal-panel-proof", Static).update(
+            "\n".join(proof_lines)
+            or "Proof will appear here as iTE verifies each milestone."
         )
 
         primary = self.query_one("#goal-panel-pause", Button)

@@ -124,8 +124,8 @@ The panel is a compact operational surface, not a dashboard. In visual priority 
 2. the complete objective, wrapped naturally and editable only after selecting `Edit`;
 3. the current decision-critical state: next action while active, exact blocker when blocked, or quota/reset guidance when budget-limited;
 4. one compact action row: state-dependent `Pause` or `Resume`, then `Edit`, then `Clear`;
-5. concise work accounting: active work time, model rounds, tool outcomes, changed files, and verification passes/attempts;
-6. current execution todos and a scrollable, bounded activity/evidence feed with useful test/command excerpts.
+5. a concise, user-visible plan of concrete milestones, rather than raw tool-call accounting;
+6. a proof section containing observed commands, CI runs, live URLs, or artifacts that support milestone and goal completion.
 
 Action semantics:
 
@@ -274,9 +274,9 @@ Goal mode starts iTE's first-class work-accounting system. The initial implement
 | Agent work time | each agent-turn start/end | Separates active effort from paused time. |
 | Model rounds | every successful model response cycle | Shows iteration depth without treating it as a limit. |
 | Continuations | each automatic follow-up payload | Explains autonomous progress. |
-| Tool outcomes | tool start/complete events | Shows whether work is advancing or failing. |
-| Changed files | successful results with diffs or changed paths | Concrete implementation progress. |
-| Verification | test/lint/typecheck/recognized verification tool results | Evidence for completion. |
+| Tool outcomes | tool start/complete events | Debug telemetry only; never presented as user progress. |
+| Goal milestones | `goal_progress` actions | The user-visible plan and remaining work. |
+| Proof | goal milestones/outcome records | Commands, CI runs, URLs, or artifacts that support completion. |
 | Compactions / retries | existing agent events | Makes long-running behavior explainable. |
 
 Use `time.monotonic()` for live work-duration measurement in `SessionRunState`; serialize final accumulated durations as seconds. Use ISO wall-clock timestamps only for display/history. This avoids elapsed-work errors if the system clock changes while a turn runs.

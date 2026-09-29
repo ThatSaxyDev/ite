@@ -672,16 +672,6 @@ class PanelsMixin:
         payload = session.export_goal_state()
         if payload is None:
             return None
-        todos_state = session.export_todos_state()
-        execution = (
-            todos_state.get("execution", []) if isinstance(todos_state, dict) else []
-        )
-        todo_lines = [
-            f"{'✓' if item.get('completed') else '•'} {item.get('content', '')}"
-            for item in execution
-            if isinstance(item, dict) and str(item.get("content", "")).strip()
-        ]
-        payload["todos"] = "\n".join(todo_lines) or "No execution todos yet."
         return payload
 
     async def _toggle_goal_panel(self) -> None:

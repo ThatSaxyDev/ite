@@ -41,6 +41,7 @@ TOOL_ICONS: dict[str, str] = {
     "todos": "\u2611\ufe0f",
     "memory": "\U0001f9e0",
     "goal_outcome": "\U0001f3af",
+    "goal_progress": "\U0001f5fa\ufe0f",
     "shell": "\u25ab\ufe0f",
     "shell_start": "\u25ab\ufe0f",
     "shell_poll": "\u25ab\ufe0f",
@@ -174,6 +175,19 @@ def activity_title(
             if running
             else ("Progress recorded" if done else "Could not record progress")
         )
+    if name == "goal_progress":
+        action = str(metadata.get("action") or "").strip().lower()
+        if action == "complete_milestone":
+            return (
+                "Recording milestone proof"
+                if running
+                else ("Milestone completed" if done else "Milestone needs proof")
+            )
+        return (
+            "Preparing goal plan"
+            if running
+            else ("Goal plan recorded" if done else "Goal plan needs refinement")
+        )
     if name == "read_json":
         return "Reading JSON" if running else ("JSON loaded" if done else "JSON read failed")
     if name == "edit_json":
@@ -302,6 +316,24 @@ def describe_tool_activity(
             "Recorded verified progress for this goal."
             if success
             else "Could not record this progress."
+        )
+
+    if name == "goal_progress":
+        action = str(args.get("action") or metadata.get("action") or "").strip()
+        if action == "complete_milestone":
+            if stage == "start":
+                return "Recording proof for a completed milestone."
+            return (
+                "Recorded the completed milestone and its proof."
+                if success
+                else "This milestone needs observed proof before it can be completed."
+            )
+        if stage == "start":
+            return "Recording the goal plan."
+        return (
+            "Recorded the goal plan."
+            if success
+            else "Could not record the goal plan."
         )
 
     if name == "write_file":

@@ -18,6 +18,7 @@ from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_ins
 from ite.memory.session_memory import SessionMemoryManager
 from ite.tools.builtin.memory import MemoryTool
 from ite.tools.builtin.goal_outcome import GoalOutcomeTool
+from ite.tools.builtin.goal_progress import GoalProgressTool
 from ite.tools.builtin.skills import SkillsTool
 from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
 from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
@@ -27,7 +28,7 @@ from ite.tools.builtin.subagent_runtime_tools import SubagentMetricsTool
 from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
 from ite.tools.builtin.todo import TodosTool
 from ite.agent.change_history import ChangeHistory
-from ite.agent.goal import GoalState, GoalStatus
+from ite.agent.goal import GoalMilestone, GoalProof, GoalState, GoalStatus
 from ite.agent.subagent_runtime import SubagentRuntime
 from ite.skills import SkillDefinition
 from ite.skills import SkillManager
@@ -77,6 +78,7 @@ class Session:
         self.active_skill_refs: list[str] = []
         self._sync_memory_tool_session()
         self._sync_goal_outcome_tool_session()
+        self._sync_goal_progress_tool_session()
         self._sync_skills_tool_session()
         self.subagent_runtime = SubagentRuntime(
             config=self.config,
@@ -239,6 +241,7 @@ class Session:
         self.session_memory_manager.set_session_id(session_id)
         self._sync_memory_tool_session()
         self._sync_goal_outcome_tool_session()
+        self._sync_goal_progress_tool_session()
         self._sync_skills_tool_session()
         self.subagent_runtime.session_id = session_id
         self._sync_subagent_runtime_tools()
@@ -295,6 +298,11 @@ class Session:
     def _sync_goal_outcome_tool_session(self) -> None:
         tool = self.tool_registry.get("goal_outcome")
         if isinstance(tool, GoalOutcomeTool):
+            tool.set_session(self)
+
+    def _sync_goal_progress_tool_session(self) -> None:
+        tool = self.tool_registry.get("goal_progress")
+        if isinstance(tool, GoalProgressTool):
             tool.set_session(self)
 
     def _sync_skills_tool_session(self) -> None:
@@ -621,18 +629,34 @@ class Session:
         return goal
 
     def record_goal_evidence(
-        self, summary: str, *, evidence: dict[str, Any] | None = None
+        self, summary: str, *, evidence: list[GoalProof] | None = None
     ) -> GoalState:
         goal = self._require_goal()
         goal.record_evidence(summary, evidence=evidence)
         return goal
 
     def complete_goal(
-        self, summary: str, *, evidence: dict[str, Any] | None = None
+        self, summary: str, *, evidence: list[GoalProof] | None = None
     ) -> GoalState:
         goal = self._require_goal()
         goal.complete(summary, evidence=evidence)
         return goal
+
+    def set_goal_milestones(self, titles: list[str]) -> list[GoalMilestone]:
+        return self._require_goal().set_milestones(titles)
+
+    def complete_goal_milestone(
+        self,
+        milestone_id: str,
+        *,
+        summary: str,
+        evidence: list[GoalProof],
+    ) -> GoalMilestone:
+        return self._require_goal().complete_milestone(
+            milestone_id,
+            summary=summary,
+            evidence=evidence,
+        )
 
     def clear_goal(self) -> dict[str, Any]:
         goal = self._require_goal()

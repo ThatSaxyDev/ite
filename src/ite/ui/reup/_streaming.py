@@ -2275,7 +2275,10 @@ class StreamingMixin:
                 "mcp_tool": inferred_tool,
             }
         border_style = "#2a6edb"
-        title_text = activity_title(name, stage="start", metadata=mcp_md)
+        title_metadata = dict(mcp_md or {})
+        if name in {"goal_progress", "goal_outcome"}:
+            title_metadata["action"] = arguments.get("action")
+        title_text = activity_title(name, stage="start", metadata=title_metadata)
         narrative = describe_tool_activity(name, arguments, mcp_md, stage="start")
 
         blocks: list[Any] = []
@@ -2427,8 +2430,11 @@ class StreamingMixin:
             policy_redirect=policy_redirect,
             recoverable=recoverable,
         )
+        title_metadata = dict(md) if isinstance(md, dict) else {}
+        if name in {"goal_progress", "goal_outcome"}:
+            title_metadata.setdefault("action", args.get("action"))
         title_text = activity_title(
-            name, stage="complete", success=success, metadata=md
+            name, stage="complete", success=success, metadata=title_metadata
         )
         self._run_state().running_shell_call_ids.discard(call_id)
         self._live_shell_call_state.pop(call_id, None)
@@ -3265,4 +3271,3 @@ class StreamingMixin:
 
         if pin_after_update:
             await self._pin_activity_indicator_to_end()
-

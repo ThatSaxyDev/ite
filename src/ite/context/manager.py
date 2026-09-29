@@ -344,15 +344,35 @@ class ContextManager:
         if isinstance(goal, dict) and goal.get("status") == "active":
             objective = str(goal.get("objective") or "").strip()
             evidence = str(goal.get("latest_evidence") or "").strip()
+            milestones = goal.get("milestones") if isinstance(goal.get("milestones"), list) else []
+            proofs = goal.get("proofs") if isinstance(goal.get("proofs"), list) else []
+            milestone_text = "\n".join(
+                f"- {'done' if item.get('completed') else 'pending'}: "
+                f"{item.get('title') or ''}"
+                for item in milestones
+                if isinstance(item, dict) and str(item.get("title") or "").strip()
+            )
             goal_prompt = (
                 "# Active Goal\n\n"
                 f"Objective: {objective}\n\n"
                 "Work toward this outcome with concrete, scoped actions. Do not treat "
                 "a status update as completion. Verify the result before claiming it "
                 "is done; if an external decision is required, explain the blocker "
-                "precisely. Use the goal_outcome tool to record evidence, a blocker, "
-                "or verified completion."
+                "precisely. Before substantive work, use goal_progress to record one "
+                "to six concrete milestones that cover the objective. Complete each "
+                "milestone with observed proof (a command, CI run, URL, or artifact). "
+                "Use goal_outcome only after every milestone is complete."
             )
+            if milestone_text:
+                goal_prompt += f"\n\nCurrent milestones:\n{milestone_text}"
+            proof_text = "\n".join(
+                f"- {item.get('label') or 'Evidence recorded'}: "
+                f"{item.get('reference') or ''}"
+                for item in proofs[-8:]
+                if isinstance(item, dict) and str(item.get("reference") or "").strip()
+            )
+            if proof_text:
+                goal_prompt += f"\n\nRecorded proof:\n{proof_text}"
             if evidence:
                 goal_prompt += f"\n\nLatest recorded evidence: {evidence}"
             layers.append(

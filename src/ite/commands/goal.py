@@ -16,12 +16,21 @@ def _status_text(ctx: CommandContext) -> str:
         f"Goal: {goal.objective}",
         f"Status: {goal.status.value.replace('_', ' ')}",
         f"Elapsed: {minutes}m {seconds:02d}s",
-        f"Model rounds: {goal.metrics.model_rounds}",
-        (
-            f"Tools: {goal.metrics.tool_calls_succeeded} succeeded, "
-            f"{goal.metrics.tool_calls_failed} failed"
-        ),
     ]
+    if goal.milestones:
+        lines.append("Plan:")
+        lines.extend(
+            f"{'✓' if item.completed else '•'} {item.title}"
+            for item in goal.milestones
+        )
+    else:
+        lines.append("Plan: iTE has not recorded milestones yet.")
+    if goal.proofs:
+        lines.append("Proof:")
+        lines.extend(
+            f"{'✓' if item.status == 'passed' else '•'} {item.label}"
+            for item in goal.proofs[-5:]
+        )
     if goal.blocker:
         lines.append(f"Blocker: {goal.blocker}")
     if goal.latest_evidence:
