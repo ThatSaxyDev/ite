@@ -217,8 +217,8 @@ def _discover_mypyc_modules(python_exe: str) -> tuple[list[str], list[tuple[str,
     binaries: list[tuple[str, str | None]] = []
     for site_packages in _find_site_packages(python_exe):
         for entry in sorted(site_packages.iterdir()):
-            if "__mypyc" in entry.name and entry.suffix == ".so":
-                modname = entry.stem.split(".")[0]  # strip .cpython-*-*.so
+            if "__mypyc" in entry.name and entry.suffix in {".so", ".pyd"}:
+                modname = entry.stem.split(".")[0]  # strip ABI suffix
                 module_names.append(modname)
                 binaries.append((str(entry), "."))
     return module_names, binaries
