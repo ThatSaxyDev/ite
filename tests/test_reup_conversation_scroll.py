@@ -39,6 +39,41 @@ class ConversationTestApp(StreamingMixin, App):
 
 
 class ConversationScrollTests(unittest.TestCase):
+    def test_first_message_stays_at_top_until_content_overflows(self) -> None:
+        class EmptyChatApp(ConversationTestApp):
+            def compose(self) -> ComposeResult:
+                yield ConversationScroll(id="conversation")
+
+        async def check() -> None:
+            app = EmptyChatApp(activity=False)
+            async with app.run_test(size=(80, 20)) as pilot:
+                feed = app.query_one(ConversationScroll)
+                await pilot.pause()
+                first_message = Static("First message")
+                await feed.mount(first_message)
+                await pilot.pause()
+                self.assertEqual(first_message.region.y, feed.content_region.y)
+                self.assertEqual(feed.scroll_offset.y, 0)
+
+                await app.stream_assistant_delta("Short reply.")
+                await pilot.pause()
+                self.assertEqual(first_message.region.y, feed.content_region.y)
+                await pilot.resize_terminal(80, 30)
+                await pilot.pause()
+                self.assertEqual(first_message.region.y, feed.content_region.y)
+
+                await app.stream_assistant_delta("\n\nLonger reply." * 40)
+                await pilot.pause()
+                self.assertGreater(feed.max_scroll_y, 0)
+                self.assertEqual(feed.scroll_y, feed.max_scroll_y)
+
+                await feed.remove_children()
+                await feed.mount(Static("First message in a new chat"))
+                await pilot.pause()
+                self.assertEqual(feed.children[0].region.y, feed.content_region.y)
+
+        asyncio.run(check())
+
     def test_streaming_respects_manual_scroll_and_resumes_at_bottom(self) -> None:
         async def check(activity: bool, mouse: bool) -> None:
             app = ConversationTestApp(activity)
