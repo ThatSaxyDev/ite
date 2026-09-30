@@ -158,12 +158,20 @@ function Install-Artifact {
         }
 
         # Version check
+        $output = $null
         try {
             $output = & $realExePath --version 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "iTE exited with code $LASTEXITCODE."
+            }
             $installedVersion = [regex]::Match($output, '(\d+\.\d+\.\d+)').Groups[1].Value
             Write-Success "iTE v$installedVersion installed to $realExePath"
         } catch {
-            Write-ErrorMsg "iTE installed but failed to launch. The binary may be incompatible with this system."
+            Write-ErrorMsg "iTE installed but failed to launch."
+            if ($output) {
+                $output | ForEach-Object { Write-ErrorMsg "iTE output: $_" }
+            }
+            Write-ErrorMsg "Windows reported: $($_.Exception.Message)"
             throw "iTE installed but failed to launch."
         }
     } finally {
