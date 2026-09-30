@@ -312,6 +312,7 @@ from ._threads import ThreadsMixin
 from ._turn import TurnMixin
 from ._streaming import StreamingMixin
 from .settings import AppFooter, SettingsPanel
+from .widgets.conversation import ConversationScroll
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
 from .widgets.state import SessionRunState, ShellSessionCardState
@@ -660,7 +661,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             with Container(id="chat-panel"):
                 with Horizontal(id="chat-body"):
                     with Container(id="conversation-shell"):
-                        yield VerticalScroll(id="conversation")
+                        yield ConversationScroll(id="conversation")
                         yield Static("", id="empty-state")
                         with Container(id="startup-state"):
                             with Vertical(id="startup-stack"):
@@ -1411,12 +1412,13 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         await self._pin_activity_indicator_to_end()
 
     async def _pin_activity_indicator_to_end(self) -> None:
+        # Keep the indicator last; ConversationScroll owns viewport following
+        # so incoming updates respect the user's scroll position.
         # Skip during bulk hydration - we'll scroll once at the end
         if self._hydrating_from_snapshot:
             return
         conversation = self.query_one("#conversation", VerticalScroll)
         if self._activity_widget is None:
-            conversation.scroll_end(animate=False)
             return
         children = list(conversation.children)
         if children and children[-1] is not self._activity_widget:
@@ -1425,7 +1427,6 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
                 await conversation.mount(self._activity_widget)
             except Exception:
                 pass
-        conversation.scroll_end(animate=False)
 
     async def _dedupe_activity_indicators(
         self, conversation: VerticalScroll | None = None
