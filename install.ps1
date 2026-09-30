@@ -132,29 +132,22 @@ function Install-Artifact {
             exit 1
         }
 
-        # Clear existing install
-        Remove-Item -Recurse -Force "$BinDir\*" -ErrorAction SilentlyContinue
-
-        # Copy all files
-        Copy-Item -Recurse -Force "$($extractedDir.FullName)\*" -Destination $BinDir
-
-        # PyInstaller COLLECT creates a directory named after the executable.
-        # If $ExePath is a directory, the real binary is nested inside it — flatten it.
-        $realExePath = $ExePath
-        if ((Test-Path $ExePath -PathType Container)) {
-            $nestedExe = Join-Path $ExePath (Split-Path $ExePath -Leaf)
-            if (Test-Path $nestedExe -PathType Leaf) {
-                Get-ChildItem -Path $ExePath | ForEach-Object {
-                    $destPath = Join-Path $BinDir $_.Name
-                    if (Test-Path $destPath) {
-                        Remove-Item -Recurse -Force $destPath
-                    }
-                    Move-Item -Path $_.FullName -Destination $BinDir -Force
-                }
-                Remove-Item -Recurse -Force $ExePath
-                $realExePath = Join-Path $BinDir (Split-Path $ExePath -Leaf)
-            }
+        # PyInstaller one-dir archives contain an executable-named bundle
+        # (ite.exe/ite.exe plus its dependencies). Copy the bundle's *contents*
+        # into bin so ite.exe is always a file at the documented install path.
+        $executableName = Split-Path -Path $ExePath -Leaf
+        $bundleDir = Join-Path -Path $extractedDir.FullName -ChildPath $executableName
+        $bundledExePath = Join-Path -Path $bundleDir -ChildPath $executableName
+        if (-not (Test-Path -LiteralPath $bundledExePath -PathType Leaf)) {
+            Write-ErrorMsg "Archive extraction produced unexpected layout: executable not found at $bundledExePath"
+            exit 1
         }
+
+        # Clear existing install, including hidden files left by an interrupted update.
+        Get-ChildItem -Force -LiteralPath $BinDir | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -Force -LiteralPath $bundleDir | Copy-Item -Destination $BinDir -Recurse -Force
+
+        $realExePath = $ExePath
 
         # Verify executable (must be an actual file, not a directory)
         if (-not (Test-Path $realExePath -PathType Leaf)) {
