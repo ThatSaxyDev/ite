@@ -35,7 +35,7 @@ function Get-Target {
         "ARM64" { "arm64" }
         default {
             Write-ErrorMsg "Unsupported architecture: $env:PROCESSOR_ARCHITECTURE"
-            exit 1
+            throw "Unsupported architecture: $env:PROCESSOR_ARCHITECTURE"
         }
     }
     return "win32-$arch"
@@ -50,7 +50,7 @@ function Get-Manifest {
     } catch {
         Write-ErrorMsg "Could not reach release server: $ManifestUrl"
         Write-ErrorMsg "Check your internet connection or try again later."
-        exit 1
+        throw "Could not reach release server."
     }
 }
 
@@ -65,7 +65,7 @@ function Test-ExistingInstall {
             if ($installedVersion -eq $Version) {
                 Write-Success "iTE v$Version is already installed at $ExePath"
                 Add-ToPath
-                exit 0
+                return $true
             } elseif ($installedVersion) {
                 Write-Info "Updating iTE from v$installedVersion to v$Version..."
             } else {
@@ -75,6 +75,8 @@ function Test-ExistingInstall {
             Write-Info "Repairing iTE install..."
         }
     }
+
+    return $false
 }
 
 # ── Download and verify ──────────────────────────────────────
@@ -87,7 +89,7 @@ function Invoke-Download {
     } catch {
         Write-ErrorMsg "Download failed."
         Remove-Item -Force $ArchivePath -ErrorAction SilentlyContinue
-        exit 1
+        throw "Download failed."
     }
 
     if ($Sha256) {
@@ -98,7 +100,7 @@ function Invoke-Download {
             Write-ErrorMsg "Expected: $Sha256"
             Write-ErrorMsg "Got:      $actualHash"
             Remove-Item -Force $ArchivePath -ErrorAction SilentlyContinue
-            exit 1
+            throw "Checksum verification failed."
         }
     }
 }
@@ -121,7 +123,7 @@ function Install-Artifact {
             Expand-Archive -Path $ArchivePath -DestinationPath $tempExtract -Force
         } else {
             Write-ErrorMsg "Unsupported archive type: $ArchiveType"
-            exit 1
+            throw "Unsupported archive type: $ArchiveType"
         }
 
         # Find the extracted directory (ite-{version}-{target}/)
@@ -129,7 +131,7 @@ function Install-Artifact {
 
         if (-not $extractedDir) {
             Write-ErrorMsg "Archive extraction produced unexpected layout."
-            exit 1
+            throw "Archive extraction produced unexpected layout."
         }
 
         # PyInstaller one-dir archives contain an executable-named bundle
@@ -140,7 +142,7 @@ function Install-Artifact {
         $bundledExePath = Join-Path -Path $bundleDir -ChildPath $executableName
         if (-not (Test-Path -LiteralPath $bundledExePath -PathType Leaf)) {
             Write-ErrorMsg "Archive extraction produced unexpected layout: executable not found at $bundledExePath"
-            exit 1
+            throw "Archive extraction produced unexpected layout."
         }
 
         # Clear existing install, including hidden files left by an interrupted update.
@@ -152,7 +154,7 @@ function Install-Artifact {
         # Verify executable (must be an actual file, not a directory)
         if (-not (Test-Path $realExePath -PathType Leaf)) {
             Write-ErrorMsg "Installation failed: executable not found at $realExePath"
-            exit 1
+            throw "Installation failed: executable not found at $realExePath"
         }
 
         # Version check
@@ -162,7 +164,7 @@ function Install-Artifact {
             Write-Success "iTE v$installedVersion installed to $realExePath"
         } catch {
             Write-ErrorMsg "iTE installed but failed to launch. The binary may be incompatible with this system."
-            exit 1
+            throw "iTE installed but failed to launch."
         }
     } finally {
         Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
@@ -212,17 +214,19 @@ function Main {
 
     if (-not $version) {
         Write-ErrorMsg "Could not determine iTE version from manifest."
-        exit 1
+        throw "Could not determine iTE version from manifest."
     }
 
     $asset = $manifest.assets.$target
     if (-not $asset) {
         Write-ErrorMsg "No build available for: $target"
         Write-ErrorMsg "Supported targets: win32-x64"
-        exit 1
+        throw "No build available for: $target"
     }
 
-    Test-ExistingInstall -Version $version
+    if (Test-ExistingInstall -Version $version) {
+        return
+    }
 
     $archiveName = "ite-$version-$target.zip"
     $archivePath = Join-Path $env:TEMP $archiveName
@@ -242,4 +246,10 @@ function Main {
     Write-Host ""
 }
 
-Main
+try {
+    Main
+} catch {
+    # Do not use `exit` here: this script is normally invoked through
+    # `irm ... | iex`, where exit would terminate the caller's PowerShell host.
+    Write-ErrorMsg "Installation stopped: $($_.Exception.Message)"
+}
