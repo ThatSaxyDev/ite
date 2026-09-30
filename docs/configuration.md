@@ -58,9 +58,15 @@ ite
 ```
 
 You'll be prompted for:
+
 - Base URL
 - API Key
 - Model name
+- Context window in tokens, when entering a custom model or when automatic discovery is unavailable
+
+For listed Ollama models, iTE detects and displays the context window automatically. Cloud models use their model metadata; local models use the running allocation or an explicit model context setting. If the effective limit cannot be determined, the field becomes editable. Choosing **Other** also allows manual entry. OpenRouter supplies the limit automatically.
+
+For custom models and other OpenAI-compatible providers, enter the available context window, for example `1000000` for one million tokens. For local Ollama, this must match the context configured on the server. iTE uses the detected or entered limit for the context meter and automatic compaction; entering it does not change the server’s configuration.
 
 Credentials are stored securely and project settings can be customized in `.ite/config.toml`.
 

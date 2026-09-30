@@ -1,39 +1,43 @@
-from typing import Any
+from __future__ import annotations
+
 import hashlib
-from ite.context.compact_artifacts import CompactArtifactManager
-from ite.context.loop_detector import LoopDetector
-from ite.safety.approval import ApprovalManager
-from ite.context.compaction import ChatCompactor
-from ite.tools.mcp.mcp_manager import MCPManager
-from ite.tools.discovery import ToolDiscoveryManager
-from datetime import datetime
+import json
 import uuid
-from ite.tools.registry import create_default_registry
-from ite.tools.registry import refresh_subagent_tools
-from ite.context.manager import ContextManager
-from ite.client.llm_client import LLMClient
-from ite.config.config import Config
-from ite.hooks.hook_system import HookSystem
-from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
-from ite.memory.session_memory import SessionMemoryManager
-from ite.tools.builtin.memory import MemoryTool
-from ite.tools.builtin.goal_outcome import GoalOutcomeTool
-from ite.tools.builtin.goal_progress import GoalProgressTool
-from ite.tools.builtin.skills import SkillsTool
-from ite.tools.builtin.subagent_runtime_tools import CancelSubagentTool
-from ite.tools.builtin.subagent_runtime_tools import ListSubagentsTool
-from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentTool
-from ite.tools.builtin.subagent_runtime_tools import SpawnSubagentsTool
-from ite.tools.builtin.subagent_runtime_tools import SubagentMetricsTool
-from ite.tools.builtin.subagent_runtime_tools import WaitSubagentTool
-from ite.tools.builtin.todo import TodosTool
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+
 from ite.agent.change_history import ChangeHistory
 from ite.agent.goal import GoalMilestone, GoalProof, GoalState, GoalStatus
 from ite.agent.subagent_runtime import SubagentRuntime
-from ite.skills import SkillDefinition
-from ite.skills import SkillManager
-from ite.skills import SkillTrustManager
-from dataclasses import dataclass, field
+from ite.client.llm_client import LLMClient
+from ite.client.response import TokenUsage
+from ite.config.config import Config
+from ite.context.compact_artifacts import CompactArtifactManager
+from ite.context.compaction import ChatCompactor
+from ite.context.loop_detector import LoopDetector
+from ite.context.manager import ContextManager
+from ite.hooks.hook_system import HookSystem
+from ite.memory import MemoryManager, is_memory_probe, parse_explicit_memory_instruction
+from ite.memory.session_memory import SessionMemoryManager
+from ite.safety.approval import ApprovalManager
+from ite.skills import SkillDefinition, SkillManager, SkillTrustManager
+from ite.tools.builtin.goal_outcome import GoalOutcomeTool
+from ite.tools.builtin.goal_progress import GoalProgressTool
+from ite.tools.builtin.memory import MemoryTool
+from ite.tools.builtin.skills import SkillsTool
+from ite.tools.builtin.subagent_runtime_tools import (
+    CancelSubagentTool,
+    ListSubagentsTool,
+    SpawnSubagentsTool,
+    SpawnSubagentTool,
+    SubagentMetricsTool,
+    WaitSubagentTool,
+)
+from ite.tools.builtin.todo import TodosTool
+from ite.tools.discovery import ToolDiscoveryManager
+from ite.tools.mcp.mcp_manager import MCPManager
+from ite.tools.registry import create_default_registry, refresh_subagent_tools
 
 AUTO_NAME_REFRESH_MILESTONES = (1, 3, 6)
 NAME_CONTEXT_FIELD_CHARS = 200
@@ -189,11 +193,87 @@ class Session:
             compact_artifact_provider=self._load_compact_artifact,
             skill_provider=self._load_skill_context,
             goal_provider=self.export_goal_state,
+            tool_schema_provider=self.tool_registry.get_schemas,
+            continuation_state_provider=self._load_continuation_state,
         )
         self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
     def _load_memory(self) -> dict | None:
         return self._load_prompt_memory(None)
+
+    def _load_continuation_state(self) -> str | None:
+        state: dict[str, Any] = {}
+        plan = self.current_plan_text()
+        if plan:
+            state["plan"] = plan
+            state["plan_phase"] = self.plan_phase
+        todos = self.export_todos_state()
+        if todos.get("planning") or todos.get("execution"):
+            state["todos"] = todos
+        runs = self.subagent_runtime.list_runs(statuses={"queued", "running"})
+        if runs:
+            state["active_subagents"] = [
+                {
+                    "run_id": run.run_id,
+                    "subagent": run.subagent,
+                    "goal": run.goal,
+                    "status": run.status,
+                }
+                for run in runs
+            ]
+        if not state:
+            return None
+        return (
+            "# Current runtime task state\nUse these recorded plan/todo IDs and subagent runs to continue; do not restart existing work.\n"
+            + json.dumps(state, ensure_ascii=False)
+        )
+
+    async def compact_context(self, trigger_reason: str) -> dict[str, Any] | None:
+        """Shared manual/automatic boundary commit; failures leave history active."""
+        context = self.context_manager
+        if context is None:
+            return None
+        trigger_tokens = context.estimate_current_context_tokens()
+        preserved = context.select_compaction_tail()
+        focus = self._derive_current_focus()
+        summary, usage = await self.chat_compactor.compact(context)
+        if usage:
+            context.add_usage(usage)
+        if not summary:
+            return None
+        try:
+            preserved = context.fit_compaction_tail(summary, preserved)
+            artifact_id = self.compact_artifact_manager.save_summary(summary)
+            metadata = {
+                "trigger_reason": trigger_reason,
+                "trigger_tokens": trigger_tokens,
+                "context_window": self.config.model.context_window,
+                "summary_chars": len(summary),
+                "summary_artifact_id": artifact_id,
+                "compaction_count": context.compaction_count + 1,
+            }
+            context.replace_with_summary(
+                summary, boundary_metadata=metadata, preserved_messages=preserved
+            )
+        except (OSError, ValueError) as exc:
+            self.chat_compactor.last_error = str(exc)
+            return None
+        label = (
+            "Context compacted manually"
+            if trigger_reason == "manual"
+            else f"Context compacted after {self.turn_count} turns"
+        )
+        self.record_lifecycle_episode(
+            self.build_lifecycle_summary(label, focus_hint=focus),
+            source="context_compaction"
+            if trigger_reason == "threshold"
+            else f"context_compaction_{trigger_reason}",
+        )
+        compacted_tokens = context.estimate_current_context_tokens()
+        context.set_latest_usage(
+            TokenUsage(prompt_tokens=compacted_tokens, total_tokens=compacted_tokens)
+        )
+        return metadata
 
     def _load_prompt_memory(self, current_user_text: str | None) -> dict | None:
         return self.memory_manager.load_prompt_memory(current_user_text)

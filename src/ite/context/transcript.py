@@ -37,6 +37,7 @@ class MessageItem:
         *,
         include_tool_ui: bool = False,
         include_internal_metadata: bool = False,
+        use_pruned_content: bool = True,
     ) -> dict[str, Any]:
         result: dict[str, Any] = {"role": self.role}
 
@@ -47,7 +48,9 @@ class MessageItem:
             result["tool_calls"] = _json_safe(self.tool_calls)
 
         if self.role == "tool":
-            if self.content_parts:
+            if use_pruned_content and self.pruned_at:
+                result["content"] = "[Old tool result content cleared]"
+            elif self.content_parts:
                 result["content"] = self.content_parts
             else:
                 result["content"] = self.content or ""

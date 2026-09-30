@@ -1522,6 +1522,7 @@ class Agent:
         post_compaction_recovery_active = False
         post_compaction_continue_prompt_needed = False
         post_compaction_retry_attempts = 0
+        compaction_streak = 0
         incomplete_response_retries = 0
         incomplete_response_prefix = ""
         discovery_result_cache: dict[
@@ -1551,60 +1552,31 @@ class Agent:
 
             session.context_manager.microcompact_tool_outputs()
             if session.context_manager.needs_compression():
-                trigger_tokens = (
-                    session.context_manager.estimate_current_context_tokens()
-                )
-                context_window = self.config.model.context_window
-                preserved_messages = session.context_manager.select_compaction_tail()
-                yield AgentEvent.context_compacting(trigger_reason="threshold")
-                summary, usage = await session.chat_compactor.compact(
-                    session.context_manager
-                )
-
-                if summary:
-                    lifecycle_focus = session._derive_current_focus()
-                    artifact_id = session.compact_artifact_manager.save_summary(summary)
-                    session.context_manager.replace_with_summary(
-                        summary,
-                        boundary_metadata={
-                            "trigger_reason": "threshold",
-                            "trigger_tokens": trigger_tokens,
-                            "context_window": context_window,
-                            "summary_chars": len(summary),
-                            "summary_artifact_id": artifact_id,
-                            "compaction_count": session.context_manager.compaction_count
-                            + 1,
-                        },
-                        preserved_messages=preserved_messages,
-                    )
-                    session.record_lifecycle_episode(
-                        session.build_lifecycle_summary(
-                            f"Context compacted after {session.turn_count} turns",
-                            focus_hint=lifecycle_focus,
-                        ),
-                        source="context_compaction",
-                    )
-                    compacted_tokens = (
-                        session.context_manager.estimate_current_context_tokens()
-                    )
-                    # Reset latest context pressure to the compacted prompt size.
-                    session.context_manager.set_latest_usage(
-                        TokenUsage(
-                            prompt_tokens=compacted_tokens,
-                            completion_tokens=0,
-                            total_tokens=compacted_tokens,
-                            cached_tokens=0,
-                        )
-                    )
-                    session.context_manager.add_usage(usage)
-                    yield AgentEvent.context_compacted(
-                        trigger_tokens=trigger_tokens,
-                        context_window=context_window,
-                        summary_chars=len(summary),
-                        trigger_reason="threshold",
-                        auto_resume_required=True,
+                compaction_streak += 1
+                if compaction_streak > 3:
+                    yield AgentEvent.agent_error(
+                        "Context repeatedly refilled after compaction. Reduce large tool outputs or loaded instructions before continuing."
                     )
                     return
+                yield AgentEvent.context_compacting(trigger_reason="threshold")
+                boundary = await session.compact_context("threshold")
+                if boundary is None:
+                    yield AgentEvent.agent_error(
+                        "Context compaction failed; conversation preserved. "
+                        + (session.chat_compactor.last_error or "No continuation summary was produced.")
+                    )
+                    return
+                yield AgentEvent.context_compacted(
+                    trigger_tokens=boundary["trigger_tokens"],
+                    context_window=boundary["context_window"],
+                    summary_chars=boundary["summary_chars"],
+                    trigger_reason="threshold",
+                )
+                post_compaction_recovery_active = True
+                post_compaction_continue_prompt_needed = True
+                post_compaction_retry_attempts = 0
+            else:
+                compaction_streak = 0
 
             session.increment_turn()
             turn_num += 1
@@ -1627,7 +1599,6 @@ class Agent:
                         "content": self.POST_COMPACTION_CONTINUE_PROMPT,
                     }
                 )
-                post_compaction_continue_prompt_needed = False
             if latest_user_model_content is not None:
                 for msg in reversed(outbound_messages):
                     if (
@@ -1697,63 +1668,25 @@ class Agent:
                     overflow_compaction_attempted=overflow_compaction_attempted,
                 ):
                     overflow_compaction_attempted = True
-                    trigger_tokens = (
-                        session.context_manager.estimate_current_context_tokens()
-                    )
-                    context_window = self.config.model.context_window
-                    preserved_messages = (
-                        session.context_manager.select_compaction_tail()
-                    )
                     yield AgentEvent.context_compacting(trigger_reason="overflow_retry")
-                    summary, compact_usage = await session.chat_compactor.compact(
-                        session.context_manager
-                    )
-                    if summary:
-                        lifecycle_focus = session._derive_current_focus()
-                        artifact_id = session.compact_artifact_manager.save_summary(
-                            summary
-                        )
-                        session.context_manager.replace_with_summary(
-                            summary,
-                            boundary_metadata={
-                                "trigger_reason": "overflow_retry",
-                                "trigger_tokens": trigger_tokens,
-                                "context_window": context_window,
-                                "summary_chars": len(summary),
-                                "summary_artifact_id": artifact_id,
-                                "compaction_count": session.context_manager.compaction_count
-                                + 1,
-                            },
-                            preserved_messages=preserved_messages,
-                        )
-                        session.record_lifecycle_episode(
-                            session.build_lifecycle_summary(
-                                f"Context compacted after overflow at turn {session.turn_count}",
-                                focus_hint=lifecycle_focus,
-                            ),
-                            source="context_compaction_overflow_retry",
-                        )
-                        compacted_tokens = (
-                            session.context_manager.estimate_current_context_tokens()
-                        )
-                        session.context_manager.set_latest_usage(
-                            TokenUsage(
-                                prompt_tokens=compacted_tokens,
-                                completion_tokens=0,
-                                total_tokens=compacted_tokens,
-                                cached_tokens=0,
-                            )
-                        )
-                        if compact_usage:
-                            session.context_manager.add_usage(compact_usage)
+                    boundary = await session.compact_context("overflow_retry")
+                    if boundary is not None:
                         yield AgentEvent.context_compacted(
-                            trigger_tokens=trigger_tokens,
-                            context_window=context_window,
-                            summary_chars=len(summary),
+                            trigger_tokens=boundary["trigger_tokens"],
+                            context_window=boundary["context_window"],
+                            summary_chars=boundary["summary_chars"],
                             trigger_reason="overflow_retry",
-                            auto_resume_required=True,
                         )
-                        return
+                        post_compaction_recovery_active = True
+                        post_compaction_continue_prompt_needed = True
+                        post_compaction_retry_attempts = 0
+                        turn_num -= 1
+                        continue
+                    yield AgentEvent.agent_error(
+                        "Context overflow recovery failed; conversation preserved. "
+                        + (session.chat_compactor.last_error or stream_error)
+                    )
+                    return
                 if (
                     post_compaction_recovery_active
                     and post_compaction_retry_attempts
@@ -1762,6 +1695,7 @@ class Agent:
                 ):
                     post_compaction_retry_attempts += 1
                     await asyncio.sleep(float(post_compaction_retry_attempts))
+                    turn_num -= 1
                     continue
                 post_compaction_recovery_active = False
                 post_compaction_continue_prompt_needed = False
@@ -1770,6 +1704,8 @@ class Agent:
                 # the same upstream/provider error up to max_turns.
                 return
 
+            overflow_compaction_attempted = False
+            post_compaction_continue_prompt_needed = False
             if session.plan_mode_enabled and session.plan_phase != "executing":
                 # Deterministic planner UX: process at most one structured question per turn.
                 plan_calls = [tc for tc in tool_calls if tc.name == "plan_question"]

@@ -1,18 +1,22 @@
+from __future__ import annotations
+
 import json
+from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
-from ite.client.response import TokenUsage
-from ite.tools.base import Tool
-from ite.config.config import Config
 from typing import Any
-from ite.utils.text import count_tokens
+
+from ite.client.response import TokenUsage
+from ite.config.config import Config
+from ite.context.transcript import ConversationLog, MessageItem
 from ite.prompts.system import (
     get_base_system_prompt,
     get_controls_prompt,
     get_memory_prompt,
     get_session_memory_prompt,
 )
-from typing import Callable
-from ite.context.transcript import ConversationLog, MessageItem
+from ite.tools.base import Tool
+from ite.utils.text import count_tokens
 
 
 class ContextManager:
@@ -20,7 +24,7 @@ class ContextManager:
     PRUNE_MINIMUM_TOKENS = 10_000
     MICROCOMPACT_TRIGGER_BUFFER_TOKENS = 8_000
     MICROCOMPACT_MIN_PRUNE_TOKENS = 4_000
-    COMPACTION_MIN_MESSAGES = 8
+    COMPACTION_MIN_MESSAGES = 1
     COMPACTION_TRIGGER_RATIO = 0.85
     COMPACTION_MIN_RESERVE_TOKENS = 12_000
     COMPACTION_PRESERVE_MAX_MESSAGES = 10
@@ -35,6 +39,8 @@ class ContextManager:
         compact_artifact_provider: Callable[[str | None], str | None] | None = None,
         skill_provider: Callable[[], dict[str, Any]] | None = None,
         goal_provider: Callable[[], dict[str, Any] | None] | None = None,
+        tool_schema_provider: Callable[[], list[dict[str, Any]]] | None = None,
+        continuation_state_provider: Callable[[], str | None] | None = None,
     ) -> None:
         self.config = config
         self._user_memory = user_memory
@@ -44,9 +50,12 @@ class ContextManager:
         self._compact_artifact_provider = compact_artifact_provider
         self._skill_provider = skill_provider
         self._goal_provider = goal_provider
+        self._tool_schema_provider = tool_schema_provider
+        self._continuation_state_provider = continuation_state_provider
         self._model_name = self.config.model_name
         self._conversation_log = ConversationLog()
         self._latest_usage = TokenUsage()
+        self._provider_token_ratio = 1.0
         self._total_usage = TokenUsage()
         self._compaction_count = 0
         self._last_compacted_at: datetime | None = None
@@ -65,6 +74,10 @@ class ContextManager:
     @property
     def latest_usage(self) -> TokenUsage:
         return self._latest_usage
+
+    @property
+    def token_estimate_ratio(self) -> float:
+        return self._provider_token_ratio
 
     @property
     def compaction_count(self) -> int:
@@ -101,7 +114,10 @@ class ContextManager:
                     continue
                 skip_restore_triplet = False
 
-            if msg.get("role") == "system" and msg.get("subtype") != "compact_boundary":
+            if msg.get("role") == "system" and msg.get("subtype") not in {
+                "compact_boundary",
+                "compact_artifact",
+            }:
                 continue
             if (
                 msg.get("role") == "user"
@@ -113,7 +129,9 @@ class ContextManager:
                 and restored_items[-1].subtype == "compact_boundary"
             ):
                 metadata = restored_items[-1].metadata or {}
-                artifact_id = str(metadata.get("summary_artifact_id", "")).strip() or None
+                artifact_id = (
+                    str(metadata.get("summary_artifact_id", "")).strip() or None
+                )
                 artifact_content = (
                     self._compact_artifact_provider(artifact_id)
                     if self._compact_artifact_provider
@@ -129,7 +147,9 @@ class ContextManager:
                                 + artifact_content
                             ),
                             metadata={"summary_artifact_id": artifact_id},
-                            token_count=count_tokens(artifact_content, self._model_name),
+                            token_count=count_tokens(
+                                artifact_content, self._model_name
+                            ),
                         )
                     )
                     skip_restore_triplet = True
@@ -155,6 +175,7 @@ class ContextManager:
                 )
             )
         self._conversation_log.replace_messages(restored_items)
+        self._restore_compaction_metadata()
         self._drop_unresolved_tool_calls()
 
     def set_plan_state(self, enabled: bool, phase: str) -> None:
@@ -231,15 +252,22 @@ class ContextManager:
             if unresolved:
                 dropped += 1
                 if msg.content.strip():
-                    msg.tool_calls = []
-                    msg.token_count = count_tokens(msg.content, self._model_name)
-                    kept.append(msg)
+                    kept.append(
+                        replace(
+                            msg,
+                            tool_calls=[],
+                            token_count=count_tokens(msg.content, self._model_name),
+                        )
+                    )
             else:
                 kept.append(msg)
-            i += 1
+            i = j if unresolved else i + 1
 
         if dropped:
-            self._conversation_log.replace_messages(kept)
+            active_start = self._conversation_log.event_count()
+            for item in kept:
+                self._conversation_log.append(item)
+            self._conversation_log.set_active_start(active_start)
         return dropped
 
     def add_assistant_message(
@@ -403,6 +431,13 @@ class ContextManager:
                 }
             )
 
+        continuation_state = self._continuation_state_provider() if self._continuation_state_provider else None
+        if continuation_state:
+            layers.append({
+                "name": "runtime_state",
+                "messages": [{"role": "system", "content": continuation_state}],
+            })
+
         if compact_state:
             layers.append(
                 {
@@ -449,6 +484,7 @@ class ContextManager:
                 "response_controls",
                 "session_memory",
                 "active_goal",
+                "runtime_state",
                 "durable_memory",
             }:
                 for message in layer_messages:
@@ -473,7 +509,10 @@ class ContextManager:
     def get_snapshot_messages(self) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         for item in self._message_items():
-            if item.role == "system" and item.subtype != "compact_boundary":
+            if item.role == "system" and item.subtype not in {
+                "compact_boundary",
+                "compact_artifact",
+            }:
                 continue
             messages.append(
                 item.to_dict(
@@ -495,7 +534,8 @@ class ContextManager:
         ratio_trigger = int(context_limit * self.COMPACTION_TRIGGER_RATIO)
         reserve_trigger = max(
             0,
-            context_limit - self.COMPACTION_MIN_RESERVE_TOKENS,
+            context_limit
+            - min(self.COMPACTION_MIN_RESERVE_TOKENS, max(1, context_limit // 5)),
         )
         trigger_at = min(ratio_trigger, reserve_trigger)
         return {
@@ -520,6 +560,13 @@ class ContextManager:
 
     def set_latest_usage(self, usage: TokenUsage) -> None:
         self._latest_usage = usage
+        # Providers can tokenize messages differently from the local fallback.
+        # Retain observed undercount while allowing pruning to reduce pressure.
+        self._provider_token_ratio = max(
+            1.0,
+            usage.prompt_tokens
+            / max(1, self._estimate_request_tokens(self.get_prompt_messages())),
+        )
 
     def add_usage(self, usage: TokenUsage) -> None:
         self._total_usage += usage
@@ -527,13 +574,52 @@ class ContextManager:
     def estimate_current_context_tokens(self) -> int:
         """Best-effort token count for the current message context sent to the model."""
         messages = self.get_prompt_messages()
+        return int(self._estimate_request_tokens(messages) * self._provider_token_ratio)
+
+    def _estimate_request_tokens(self, messages: list[dict[str, Any]]) -> int:
         total = 0
         for msg in messages:
             total += count_tokens(
                 json.dumps(msg, ensure_ascii=False),
                 self._model_name,
             )
+        if self._tool_schema_provider:
+            total += count_tokens(
+                json.dumps(self._tool_schema_provider(), ensure_ascii=False),
+                self._model_name,
+            )
         return total
+
+    def fit_compaction_tail(
+        self, summary: str, preserved_messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Leave room for inference; drop whole tool exchanges rather than orphan results."""
+        base = [
+            message
+            for layer in self.get_prompt_layers()
+            if layer["name"] not in {"compact_state", "transcript_tail"}
+            for message in layer["messages"]
+        ]
+        base.append(
+            {"role": "system", "content": self._build_compact_artifact_content(summary)}
+        )
+        trigger = int(self.get_compaction_status()["trigger_at"])
+        # Hysteresis prevents the summary itself immediately triggering another pass.
+        target = min(int(self.config.model.context_window * 0.7), trigger - 256)
+        if self._estimate_request_tokens(base) * self._provider_token_ratio >= target:
+            raise ValueError(
+                "Compaction cannot free enough context: instructions, tool schemas, and summary exceed the continuation budget."
+            )
+        tail = list(preserved_messages)
+        while (
+            tail
+            and self._estimate_request_tokens(base + tail) * self._provider_token_ratio
+            >= target
+        ):
+            tail.pop(0)
+            while tail and tail[0].get("role") == "tool":
+                tail.pop(0)
+        return tail
 
     def select_compaction_tail(self, *, max_messages: int | None = None) -> list[dict[str, Any]]:
         non_system = [item for item in self._message_items() if item.role != "system"]
@@ -583,6 +669,7 @@ class ContextManager:
         boundary_metadata: dict[str, Any] | None = None,
         preserved_messages: list[dict[str, Any]] | None = None,
     ) -> None:
+        preserved_messages = self.fit_compaction_tail(summary, preserved_messages or [])
         pre_compaction_events = self._conversation_log.event_count()
         replacement_items: list[MessageItem] = []
         self._compaction_count += 1
@@ -590,7 +677,9 @@ class ContextManager:
         artifact_id = None
 
         if boundary_metadata:
-            artifact_id = str(boundary_metadata.get("summary_artifact_id", "")).strip() or None
+            artifact_id = (
+                str(boundary_metadata.get("summary_artifact_id", "")).strip() or None
+            )
             boundary_metadata = dict(boundary_metadata)
             boundary_metadata.setdefault(
                 "preserved_tail_messages",
@@ -641,6 +730,9 @@ class ContextManager:
                 MessageItem(
                     role=role,
                     content=str(msg.get("content", "") or ""),
+                    content_parts=msg.get("content")
+                    if isinstance(msg.get("content"), list)
+                    else None,
                     reasoning_content=self._message_reasoning_content(msg, role),
                     tool_call_id=msg.get("tool_call_id"),
                     tool_calls=list(msg.get("tool_calls") or []),
@@ -663,6 +755,26 @@ class ContextManager:
             self._conversation_log.append(item)
         self._conversation_log.set_active_start(active_start)
 
+    def _restore_compaction_metadata(self) -> None:
+        boundaries = [
+            item
+            for item in self._conversation_log.iter_messages(active_only=False)
+            if item.subtype == "compact_boundary"
+        ]
+        self._compaction_count = len(boundaries)
+        self._last_compacted_at = None
+        for item in boundaries:
+            metadata = item.metadata or {}
+            count = metadata.get("compaction_count")
+            if isinstance(count, int):
+                self._compaction_count = max(self._compaction_count, count)
+            try:
+                self._last_compacted_at = datetime.fromisoformat(
+                    str(metadata.get("compacted_at", ""))
+                )
+            except ValueError:
+                pass
+
     def microcompact_tool_outputs(self) -> int:
         status = self.get_compaction_status()
         trigger_at = int(status.get("trigger_at", 0) or 0)
@@ -670,16 +782,24 @@ class ContextManager:
         if trigger_at <= 0 or current_tokens <= 0:
             return 0
 
-        soft_limit = max(0, trigger_at - self.MICROCOMPACT_TRIGGER_BUFFER_TOKENS)
+        buffer_tokens = min(
+            self.MICROCOMPACT_TRIGGER_BUFFER_TOKENS,
+            max(1, self.config.model.context_window // 20),
+        )
+        soft_limit = max(0, trigger_at - buffer_tokens)
         if current_tokens < soft_limit:
             return 0
 
-        target_reduction = max(
+        minimum_prune = min(
             self.MICROCOMPACT_MIN_PRUNE_TOKENS,
+            max(1, self.config.model.context_window // 50),
+        )
+        target_reduction = max(
+            minimum_prune,
             current_tokens - soft_limit,
         )
         return self.prune_tool_outputs(
-            minimum_tokens=self.MICROCOMPACT_MIN_PRUNE_TOKENS,
+            minimum_tokens=minimum_prune,
             target_tokens=target_reduction,
         )
 
@@ -691,6 +811,9 @@ class ContextManager:
             return []
 
         total_tokens = 0
+        protected_tokens = min(
+            self.PRUNE_PROTECT_TOKENS, max(1, self.config.model.context_window // 5)
+        )
         to_prune: list[tuple[MessageItem, int]] = []
         for msg in reversed(message_items):
             if msg.role == "tool" and msg.tool_call_id:
@@ -699,7 +822,7 @@ class ContextManager:
 
                 tokens = msg.token_count or count_tokens(msg.content, self._model_name)
                 total_tokens += tokens
-                if total_tokens > self.PRUNE_PROTECT_TOKENS:
+                if total_tokens > protected_tokens:
                     to_prune.append((msg, tokens))
 
         return to_prune
@@ -714,7 +837,14 @@ class ContextManager:
         if not candidates:
             return 0
 
-        minimum = self.PRUNE_MINIMUM_TOKENS if minimum_tokens is None else minimum_tokens
+        minimum = (
+            min(
+                self.PRUNE_MINIMUM_TOKENS,
+                max(1, self.config.model.context_window // 20),
+            )
+            if minimum_tokens is None
+            else minimum_tokens
+        )
         available_tokens = sum(tokens for _msg, tokens in candidates)
         if available_tokens < minimum:
             return 0
@@ -736,8 +866,9 @@ class ContextManager:
         pruned_count = 0
 
         for msg, _tokens in selected:
-            msg.content = "[Old tool result content cleared]"
-            msg.token_count = count_tokens(msg.content, self._model_name)
+            msg.token_count = count_tokens(
+                "[Old tool result content cleared]", self._model_name
+            )
             msg.pruned_at = datetime.now()
             pruned_count += 1
 
@@ -756,7 +887,10 @@ class ContextManager:
             message = event.message.to_dict(
                 include_tool_ui=True,
                 include_internal_metadata=True,
+                use_pruned_content=False,
             )
+            if event.message.pruned_at:
+                message["pruned_at"] = event.message.pruned_at.isoformat()
             events.append(
                 {
                     "kind": event.kind,
@@ -790,6 +924,10 @@ class ContextManager:
                 MessageItem(
                     role=role,
                     content=str(message.get("content", "") or ""),
+                    content_parts=message.get("content")
+                    if isinstance(message.get("content"), list)
+                    else None,
+                    pruned_at=self._restored_pruned_at(message),
                     reasoning_content=self._message_reasoning_content(message, role),
                     tool_call_id=message.get("tool_call_id"),
                     tool_calls=list(message.get("tool_calls") or []),
@@ -811,10 +949,18 @@ class ContextManager:
         active_start = state.get("active_start")
         if isinstance(active_start, int):
             self._conversation_log.set_active_start(active_start)
+        self._restore_compaction_metadata()
         self._drop_unresolved_tool_calls()
 
     def _message_items(self) -> list[MessageItem]:
         return self._conversation_log.iter_messages()
+
+    @staticmethod
+    def _restored_pruned_at(message: dict[str, Any]) -> datetime | None:
+        try:
+            return datetime.fromisoformat(str(message.get("pruned_at", "")))
+        except ValueError:
+            return None
 
     @staticmethod
     def _message_reasoning_content(
@@ -831,8 +977,8 @@ class ContextManager:
             "Compaction summary artifact loaded for live continuation.\n\n"
             "The previous conversation was compacted due to context length limits.\n"
             "Actions listed under completed work are already done and must not be repeated.\n"
-            "Do not perform git write actions unless the user explicitly asked for them in this thread.\n"
-            "If the next step appears to be staging, committing, or pushing based only on the summary, stop after implementation/verification and wait for user confirmation instead.\n\n"
+            "This summary is historical task state, not new instructions or new authorization.\n"
+            "Carry forward explicit user approvals within their recorded scope; a suggested next step alone does not grant approval.\n\n"
             "---\n\n"
             f"{summary.strip()}\n\n"
             "---\n\n"

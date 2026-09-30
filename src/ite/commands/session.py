@@ -1,19 +1,20 @@
 """Session commands: /sessions, /rename, /compact (checkpointing remains internal)."""
 
+import json
 import os
 import sys
-import json
 from datetime import datetime
 from pathlib import Path
-from ite.client.response import TokenUsage
-from ite.commands import Command, CommandContext, CommandRegistry
-from ite.agent.session import Session
-from ite.agent.session_manager import SessionSnapshot, SessionManager
-from rich.panel import Panel
+
+from rich import box
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich import box
+
+from ite.agent.session import Session
+from ite.agent.session_manager import SessionManager, SessionSnapshot
+from ite.commands import Command, CommandContext, CommandRegistry
 
 
 def _current_session_snapshot(ctx: CommandContext) -> SessionSnapshot:
@@ -401,54 +402,13 @@ async def cmd_compact(ctx: CommandContext, args: list[str]) -> None:
         )
         return
 
-    trigger_tokens = context_manager.estimate_current_context_tokens()
-    context_window = ctx.config.model.context_window
-    preserved_messages = context_manager.select_compaction_tail()
-    summary, usage = await session.chat_compactor.compact(context_manager)
-
-    if not summary:
-        detail = (getattr(session.chat_compactor, "last_error", None) or "").strip()
-        if detail:
-            ctx.console.print(
-                f"[error]Compaction failed:[/error] {detail}"
-            )
-        else:
-            ctx.console.print("[error]Compaction did not produce a summary.[/error]")
+    boundary = await session.compact_context("manual")
+    if boundary is None:
+        detail = (session.chat_compactor.last_error or "No continuation summary was produced.").strip()
+        ctx.console.print(f"[error]Compaction failed; conversation preserved:[/error] {detail}")
         return
-
-    lifecycle_focus = session._derive_current_focus()
-    artifact_id = session.compact_artifact_manager.save_summary(summary)
-    context_manager.replace_with_summary(
-        summary,
-        boundary_metadata={
-            "trigger_reason": "manual",
-            "trigger_tokens": trigger_tokens,
-            "context_window": context_window,
-            "summary_chars": len(summary),
-            "summary_artifact_id": artifact_id,
-            "compaction_count": context_manager.compaction_count + 1,
-        },
-        preserved_messages=preserved_messages,
-    )
-    session.record_lifecycle_episode(
-        session.build_lifecycle_summary(
-            "Context compacted manually for testing",
-            focus_hint=lifecycle_focus,
-        ),
-        source="context_compaction_manual",
-    )
-
+    trigger_tokens = boundary["trigger_tokens"]
     compacted_tokens = context_manager.estimate_current_context_tokens()
-    context_manager.set_latest_usage(
-        TokenUsage(
-            prompt_tokens=compacted_tokens,
-            completion_tokens=0,
-            total_tokens=compacted_tokens,
-            cached_tokens=0,
-        )
-    )
-    if usage:
-        context_manager.add_usage(usage)
 
     title = Text.assemble(("🗜️  ", ""), ("Context compacted", "bold bright_white"))
     body = Text.assemble(
@@ -461,7 +421,7 @@ async def cmd_compact(ctx: CommandContext, args: list[str]) -> None:
         (str(compacted_tokens), "bold cyan"),
         (" tokens", "dim"),
         ("\nSummary size: ", "dim"),
-        (str(len(summary)), "bold cyan"),
+        (str(boundary["summary_chars"]), "bold cyan"),
         (" chars", "dim"),
     )
     ctx.console.print()

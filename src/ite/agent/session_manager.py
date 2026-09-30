@@ -63,7 +63,11 @@ def _compact_messages_for_snapshot(messages: list[dict[str, Any]]) -> list[dict[
         role = entry.get("role")
         content = entry.get("content", "")
 
-        if isinstance(content, str) and len(content) > SNAPSHOT_MAX_MESSAGE_CHARS:
+        if (
+            isinstance(content, str)
+            and len(content) > SNAPSHOT_MAX_MESSAGE_CHARS
+            and entry.get("subtype") != "compact_artifact"
+        ):
             entry["content"] = _truncate_text(
                 content,
                 SNAPSHOT_MAX_MESSAGE_CHARS,

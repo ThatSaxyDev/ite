@@ -35,12 +35,12 @@ from textual.widgets.directory_tree import DirEntry
 from ite.attachments import MAX_ATTACHMENTS
 from ite.auth import openrouter_pkce
 from ite.client.llm_client import LLMClient
+from ite.client.ollama_metadata import discover_context_window
 from ite.config.config import (
     DEFAULT_API_KEY,
     DEFAULT_BASE_URL,
     DEFAULT_CONTEXT_WINDOW,
     DEFAULT_MODEL_NAME,
-    FIXED_PROVIDER_CONTEXT_WINDOW,
     Config,
 )
 from ite.config.loader import save_openrouter_oauth_secret
@@ -64,12 +64,15 @@ OPENROUTER_PREFERRED_MODEL = "stealth/ox-alpha"
 SETUP_MODEL_OTHER = "__other__"
 SETUP_MODEL_SELECT = "__select__"
 RECOMMENDED_OLLAMA_MODELS: tuple[str, ...] = (
-    "kimi-k2.5:cloud",
+    "glm-5.3-flash:cloud",
+    "glm-5.3:cloud",
+    "deepseek-v4.1-flash:cloud",
+    "minimax-m3:cloud",
+    "kimi-k3:cloud",
+    "gemma4:31b-cloud",
+    "gpt-oss:20b-cloud",
     "kimi-k2.6:cloud",
-    "minimax-m2.5:cloud",
     "minimax-m2.7:cloud",
-    "glm-5:cloud",
-    "glm-5.1:cloud",
 )
 HIDDEN_TEXTUAL_THEMES = {
     "ansi_dark",
@@ -2460,6 +2463,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self._validating = False
         self._openrouter_models: list[str] = []
         self._openrouter_context_windows: dict[str, int] = {}
+        self._ollama_context_windows: dict[str, int | None] = {}
+        self._ollama_context_pending: set[str] = set()
+        self._ollama_context_display_model: str | None = None
+        self._ollama_manual_context_windows: dict[str, str] = {}
         self._openrouter_headless: bool = False
         self._openrouter_signin_in_flight: bool = False
         self._openrouter_signed_in: bool = False
@@ -2476,7 +2483,9 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             SETUP_PROVIDER_OPENROUTER: (
                 current_model if inferred_provider == SETUP_PROVIDER_OPENROUTER else ""
             ),
-            SETUP_PROVIDER_GENERIC: current_model,
+            SETUP_PROVIDER_GENERIC: (
+                current_model if inferred_provider == SETUP_PROVIDER_GENERIC else ""
+            ),
         }
         self._provider_manual_model: dict[str, str] = {
             SETUP_PROVIDER_OLLAMA: (
@@ -2488,9 +2497,23 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             SETUP_PROVIDER_OPENROUTER: (
                 current_model if inferred_provider == SETUP_PROVIDER_OPENROUTER else ""
             ),
-            SETUP_PROVIDER_GENERIC: current_model,
+            SETUP_PROVIDER_GENERIC: (
+                current_model if inferred_provider == SETUP_PROVIDER_GENERIC else ""
+            ),
         }
         self._active_provider = inferred_provider
+        context_source = str(config.model.context_window_source or "").strip()
+        known_context = (
+            str(config.model.context_window)
+            if config.model.context_window > 0
+            and context_source not in {"provider_fixed_default", "fallback_default"}
+            and (context_source or config.model.context_window != DEFAULT_CONTEXT_WINDOW)
+            else ""
+        )
+        self._provider_context_window: dict[str, str] = {
+            provider: known_context if provider == inferred_provider else ""
+            for provider in (SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC)
+        }
 
     def _infer_provider(self) -> str:
         base_url = str(self._config.base_url or "").strip().lower()
@@ -2530,14 +2553,14 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ""
             if str(self._config.api_key or "").strip().lower() == DEFAULT_API_KEY
             else (self._config.api_key or ""),
-            current_model,
+            self._provider_manual_model.get(SETUP_PROVIDER_GENERIC, ""),
         )
 
     def _provider_copy(self, provider: str) -> tuple[str, str, str]:
         if provider == SETUP_PROVIDER_OLLAMA:
             return (
                 "Use a model through Ollama.",
-                "Choose a recommended model, or pick Other to enter one yourself. Before you continue, start Ollama.",
+                "Choose a recommended cloud model, or pick Other to enter a local or cloud model. Start Ollama and sign in for cloud access. Cloud usage depends on your plan and available credits.",
                 "Enter the exact model name as Ollama expects it.",
             )
         if provider == SETUP_PROVIDER_OPENROUTER:
@@ -2574,10 +2597,18 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             return None
         if provider == SETUP_PROVIDER_OPENROUTER:
             return self._openrouter_context_windows.get(model_name)
-        if provider == SETUP_PROVIDER_OLLAMA:
-            return FIXED_PROVIDER_CONTEXT_WINDOW
-        if provider == SETUP_PROVIDER_GENERIC:
-            return FIXED_PROVIDER_CONTEXT_WINDOW
+        if provider == SETUP_PROVIDER_OLLAMA and self._ollama_listed_selection():
+            detected = self._ollama_context_windows.get(model_name)
+            if detected:
+                return detected
+        if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}:
+            field = self._safe_query_one("#setup-context-window", Input)
+            value = (
+                field.value
+                if field is not None
+                else self._provider_context_window.get(provider, "")
+            )
+            return self._parse_context_window(value)
         if model_name == str(self._config.model_name or "").strip():
             current = int(self._config.model.context_window or 0)
             return current if current > 0 else None
@@ -2595,16 +2626,21 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 if model_name in self._openrouter_context_windows
                 else "unknown_until_provider_load"
             )
-        if provider == SETUP_PROVIDER_OLLAMA:
-            return "provider_fixed_default"
-        if provider == SETUP_PROVIDER_GENERIC:
-            return "provider_fixed_default"
+        if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}:
+            if (
+                provider == SETUP_PROVIDER_OLLAMA
+                and self._ollama_listed_selection()
+                and self._ollama_context_windows.get(model_name)
+            ):
+                return "ollama_model_api"
+            return "user_configured"
         existing = str(getattr(self._config.model, "context_window_source", "") or "").strip()
         if model_name == str(self._config.model_name or "").strip() and existing:
             return existing
         return "unknown_until_provider_verification"
 
     def _update_model_help_text(self, provider: str) -> None:
+        self._refresh_ollama_context_field(provider)
         _provider_copy, _provider_help, base_model_help = self._provider_copy(provider)
         if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}:
             self.query_one("#setup-model-help", Static).update(base_model_help)
@@ -2653,12 +2689,12 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 if model_name in RECOMMENDED_OLLAMA_MODELS
                 else RECOMMENDED_OLLAMA_MODELS[0]
             )
-        if provider == SETUP_PROVIDER_OPENROUTER:
+        elif provider == SETUP_PROVIDER_OPENROUTER:
             model_options = [("Select a model", SETUP_MODEL_SELECT)]
             model_value = SETUP_MODEL_SELECT
         else:
             model_options = [(model_name, model_name)] if model_name else []
-            model_value = model_name
+            model_value = model_name or SETUP_MODEL_OTHER
         with Container(classes="modal setup-modal"):
             yield Label("Setup iTE", classes="modal-title setup-title")
             yield Static(
@@ -2754,6 +2790,21 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 id="setup-model-input",
             )
             yield Static(model_help, id="setup-model-help", classes="setup-help")
+            yield Static(
+                "Context window (tokens)",
+                id="setup-context-window-label",
+                classes="setup-label",
+            )
+            yield Input(
+                value=self._provider_context_window.get(provider, ""),
+                placeholder="e.g. 1000000",
+                id="setup-context-window",
+            )
+            yield Static(
+                "Enter the token limit available for this model. iTE uses it to time compaction. For Ollama, use the context configured on the server.",
+                id="setup-context-window-help",
+                classes="setup-help",
+            )
             yield Static("", id="setup-status", classes="setup-status")
             yield Static("", id="setup-error", classes="setup-error")
             with Horizontal(classes="modal-actions setup-actions"):
@@ -2763,6 +2814,9 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
     async def on_mount(self) -> None:
         provider = self._infer_provider()
         self._active_provider = provider
+        context_field = self._safe_query_one("#setup-context-window", Input)
+        if context_field is not None:
+            context_field.value = self._provider_context_window.get(provider, "")
         provider_copy, _provider_help, _model_help = self._provider_copy(provider)
         self.query_one("#setup-provider-copy", Static).display = bool(provider_copy)
         self._apply_provider_visibility(provider)
@@ -2801,7 +2855,10 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self._capture_provider_model_state(previous_provider)
         provider = str(event.value or "").strip() or SETUP_PROVIDER_GENERIC
         self._active_provider = provider
-        base_url, api_key, model_name = self._provider_defaults(provider)
+        context_field = self._safe_query_one("#setup-context-window", Input)
+        if context_field is not None:
+            context_field.value = self._provider_context_window.get(provider, "")
+        base_url, api_key, _ = self._provider_defaults(provider)
         provider_copy, provider_help, model_help = self._provider_copy(provider)
         self.query_one("#setup-provider-copy", Static).update(provider_copy)
         self.query_one("#setup-provider-copy", Static).display = bool(provider_copy)
@@ -2810,8 +2867,6 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#setup-api-key", Input).value = api_key
         self.query_one("#setup-model-input", Input).value = (
             self._provider_manual_model.get(provider, "")
-            if provider != SETUP_PROVIDER_GENERIC
-            else (self._provider_manual_model.get(provider, "") or model_name)
         )
         self.query_one("#setup-model-help", Static).update(model_help)
         self.query_one("#setup-status", Static).update("")
@@ -2935,6 +2990,19 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self._provider_manual_model[provider] = event.value
         self._update_model_help_text(provider)
 
+    @on(Input.Changed, "#setup-context-window")
+    def on_context_window_changed(self, event: Input.Changed) -> None:
+        if (
+            self._active_provider == SETUP_PROVIDER_OLLAMA
+            and not event.input.disabled
+            and event.value == event.input.value
+        ):
+            if self._ollama_listed_selection():
+                model_name = self._selected_model_name(SETUP_PROVIDER_OLLAMA)
+                self._ollama_manual_context_windows[model_name] = event.value
+            else:
+                self._provider_context_window[SETUP_PROVIDER_OLLAMA] = event.value
+
     def _set_error(self, message: str) -> None:
         self.query_one("#setup-error", Static).update(message)
 
@@ -2965,6 +3033,9 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         self.query_one("#setup-model-input", Input).disabled = busy
         self.query_one("#setup-toggle-api-key", Button).disabled = busy
         self.query_one("#setup-load-models", Button).disabled = busy
+        context_field = self._safe_query_one("#setup-context-window", Input)
+        if context_field is not None:
+            context_field.disabled = busy
         signin = self._safe_query_one("#setup-openrouter-signin", Button)
         if signin is not None:
             signin.disabled = busy
@@ -2977,6 +3048,54 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         signout = self._safe_query_one("#openrouter-signout", Button)
         if signout is not None:
             signout.disabled = busy
+        self._refresh_ollama_context_field(self._active_provider)
+
+    def _ollama_listed_selection(self) -> bool:
+        select = self._safe_query_one("#setup-model-select", Select)
+        return select is not None and str(select.value) in RECOMMENDED_OLLAMA_MODELS
+
+    def _refresh_ollama_context_field(self, provider: str) -> None:
+        field = self._safe_query_one("#setup-context-window", Input)
+        help_text = self._safe_query_one("#setup-context-window-help", Static)
+        if field is None or help_text is None:
+            return
+        if provider != SETUP_PROVIDER_OLLAMA or not self._ollama_listed_selection():
+            self._ollama_context_display_model = None
+            field.disabled = self._validating
+            if provider == SETUP_PROVIDER_OLLAMA:
+                field.value = self._provider_context_window.get(provider, "")
+            help_text.update("Enter the token limit available for this model. iTE uses it for the context meter and compaction.")
+            return
+        model_name = self._selected_model_name(provider)
+        if self._ollama_context_display_model != model_name:
+            self._ollama_context_display_model = model_name
+            field.value = self._ollama_manual_context_windows.get(model_name, "")
+        if model_name not in self._ollama_context_windows:
+            field.value = ""
+            field.disabled = True
+            help_text.update("Detecting the context window from Ollama…")
+            if self.is_mounted and model_name not in self._ollama_context_pending:
+                self._ollama_context_pending.add(model_name)
+                self.run_worker(self._load_ollama_context_window(model_name), exclusive=False)
+            return
+        detected = self._ollama_context_windows[model_name]
+        field.disabled = self._validating or detected is not None
+        if detected:
+            field.value = str(detected)
+            help_text.update("Context window detected from Ollama. iTE uses this limit for the context meter and compaction.")
+        else:
+            help_text.update("Ollama’s effective context window could not be determined. Enter the token limit available on the server.")
+
+    async def _load_ollama_context_window(self, model_name: str) -> None:
+        try:
+            _error, limit = await self._probe_ollama(
+                base_url=DEFAULT_BASE_URL, model_name=model_name
+            )
+            self._ollama_context_windows[model_name] = limit
+        finally:
+            self._ollama_context_pending.discard(model_name)
+        if self.is_mounted and self._active_provider == SETUP_PROVIDER_OLLAMA:
+            self._refresh_ollama_context_field(SETUP_PROVIDER_OLLAMA)
 
     def _apply_provider_visibility(self, provider: str) -> None:
         show_base_url = provider == SETUP_PROVIDER_GENERIC
@@ -3013,27 +3132,42 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             ("#openrouter-auth-code", Input, show_openrouter_auth_code),
             ("#openrouter-connected-label", Static, show_openrouter_connected),
             ("#openrouter-actions", Horizontal, show_openrouter_connected),
+            (
+                "#setup-context-window-label",
+                Static,
+                provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC},
+            ),
+            (
+                "#setup-context-window",
+                Input,
+                provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC},
+            ),
+            (
+                "#setup-context-window-help",
+                Static,
+                provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC},
+            ),
         ):
             widget = self._safe_query_one(selector, widget_type)
             if widget is not None:
                 widget.display = visible
         if provider == SETUP_PROVIDER_OLLAMA:
-            self._set_model_options(list(RECOMMENDED_OLLAMA_MODELS), preserve_current=True)
+            self._set_model_options(
+                list(RECOMMENDED_OLLAMA_MODELS), preserve_current=True
+            )
         if provider == SETUP_PROVIDER_OPENROUTER:
             self._set_model_options(self._openrouter_models, preserve_current=True)
-        self.query_one("#setup-model-input", Input).display = provider == SETUP_PROVIDER_GENERIC
+        self.query_one("#setup-model-input", Input).display = (
+            provider == SETUP_PROVIDER_GENERIC
+        )
         if provider == SETUP_PROVIDER_GENERIC:
-            self.query_one("#setup-model-input", Input).value = (
-                self.query_one("#setup-model-input", Input).value.strip()
-                or self._config.model_name
-                or DEFAULT_MODEL_NAME
-            )
             self.query_one("#setup-model-help", Static).display = False
         elif provider == SETUP_PROVIDER_OPENROUTER and not self._openrouter_models:
             self.query_one("#setup-model-help", Static).display = False
         self._apply_model_input_visibility(
             str(self.query_one("#setup-model-select", Select).value or "").strip()
         )
+        self._refresh_ollama_context_field(provider)
 
     def _openrouter_hide_pre_signin_controls(self) -> None:
         """Hide the API-key field and sign-in controls once connected.
@@ -3057,6 +3191,13 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                 widget.display = False
 
     def _capture_provider_model_state(self, provider: str) -> None:
+        context_field = self._safe_query_one("#setup-context-window", Input)
+        if (
+            context_field is not None
+            and provider in self._provider_context_window
+            and not (provider == SETUP_PROVIDER_OLLAMA and self._ollama_listed_selection())
+        ):
+            self._provider_context_window[provider] = context_field.value
         manual_value = self.query_one("#setup-model-input", Input).value.strip()
         if provider == SETUP_PROVIDER_GENERIC:
             self._provider_manual_model[provider] = manual_value
@@ -3466,11 +3607,18 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
     async def _probe_ollama(
         self, *, base_url: str, model_name: str
     ) -> tuple[str | None, int | None]:
-        # Local Ollama models use a fixed configured context window in iTE.
-        # Do not block setup on tag-list probing here: users may be entering a
-        # manual model name, using a nonstandard local route, or configuring
-        # Ollama before the daemon is fully reachable.
-        return None, FIXED_PROVIDER_CONTEXT_WINDOW
+        return None, await discover_context_window(base_url, model_name)
+
+    @staticmethod
+    def _parse_context_window(value: str) -> int | None:
+        value = value.strip()
+        if not value or not value.isascii() or not value.isdigit():
+            return None
+        try:
+            tokens = int(value)
+        except ValueError:
+            return None
+        return tokens if tokens > 0 else None
 
     async def _validate_provider_connection(
         self,
@@ -3481,6 +3629,8 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         model_name: str,
     ) -> tuple[str | None, int | None]:
         if provider == SETUP_PROVIDER_OLLAMA:
+            if model_name in self._ollama_context_windows:
+                return None, self._ollama_context_windows[model_name]
             return await self._probe_ollama(base_url=base_url, model_name=model_name)
         return await self._probe_openai_compatible(
             base_url=base_url,
@@ -3500,16 +3650,23 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
             provider,
             self.query_one("#setup-api-key", Input).value,
         )
-        selected_model = str(self.query_one("#setup-model-select", Select).value or "").strip()
+        selected_model = str(
+            self.query_one("#setup-model-select", Select).value or ""
+        ).strip()
         manual_model = self.query_one("#setup-model-input", Input).value.strip()
         if provider == SETUP_PROVIDER_GENERIC:
-            model_name = manual_model or self._config.model_name or DEFAULT_MODEL_NAME
+            model_name = manual_model
         elif selected_model == SETUP_MODEL_OTHER:
             model_name = manual_model or self._config.model_name or DEFAULT_MODEL_NAME
         elif selected_model == SETUP_MODEL_SELECT:
             model_name = ""
         else:
-            model_name = selected_model or manual_model or self._config.model_name or DEFAULT_MODEL_NAME
+            model_name = (
+                selected_model
+                or manual_model
+                or self._config.model_name
+                or DEFAULT_MODEL_NAME
+            )
 
         if provider == SETUP_PROVIDER_OLLAMA:
             # Ollama setup hides the base URL and API key inputs. Force the
@@ -3535,6 +3692,28 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
         if not model_name:
             self._set_error("Model name is required.")
             return
+
+        configured_context_window = None
+        listed_ollama = provider == SETUP_PROVIDER_OLLAMA and self._ollama_listed_selection()
+        if listed_ollama and model_name not in self._ollama_context_windows:
+            self._set_validating(True)
+            try:
+                await self._load_ollama_context_window(model_name)
+            finally:
+                self._set_validating(False)
+        ollama_detected = (
+            self._ollama_context_windows.get(model_name) if listed_ollama else None
+        )
+        if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}:
+            configured_context_window = ollama_detected or self._parse_context_window(
+                self.query_one("#setup-context-window", Input).value
+            )
+            if configured_context_window is None:
+                self._set_error(
+                    "Context window is required. Enter a positive whole number of tokens, for example 1000000."
+                )
+                self.query_one("#setup-context-window", Input).focus()
+                return
 
         parsed = urlparse(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -3571,12 +3750,16 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     if provider == SETUP_PROVIDER_OPENROUTER
                     and detected_context_window is None
                     else (
-                        FIXED_PROVIDER_CONTEXT_WINDOW
+                        configured_context_window
                         if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}
                         else (
                             detected_context_window
-                            if detected_context_window is not None and detected_context_window > 0
-                            else int(self._config.model.context_window or DEFAULT_CONTEXT_WINDOW)
+                            if detected_context_window is not None
+                            and detected_context_window > 0
+                            else int(
+                                self._config.model.context_window
+                                or DEFAULT_CONTEXT_WINDOW
+                            )
                         )
                     )
                 ),
@@ -3585,13 +3768,18 @@ class SetupModal(ModalScreen[dict[str, Any] | None]):
                     if provider == SETUP_PROVIDER_OPENROUTER
                     and model_name in self._openrouter_context_windows
                     else (
-                        "provider_fixed_default"
+                        ("ollama_model_api" if ollama_detected else "user_configured")
                         if provider in {SETUP_PROVIDER_OLLAMA, SETUP_PROVIDER_GENERIC}
                         else (
                             "fallback_default"
                             if provider == SETUP_PROVIDER_OPENROUTER
                             else (
-                                str(getattr(self._config.model, "context_window_source", "") or "").strip()
+                                str(
+                                    getattr(
+                                        self._config.model, "context_window_source", ""
+                                    )
+                                    or ""
+                                ).strip()
                                 or "fallback_default"
                             )
                         )

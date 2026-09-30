@@ -2609,6 +2609,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
     def test_run_command_posts_compaction_notice_flow_for_manual_compact(self) -> None:
         app = self._app()
+        app._command_registry = SimpleNamespace(dispatch=AsyncMock())
         context_manager = SimpleNamespace(
             compaction_count=0,
             latest_usage=SimpleNamespace(prompt_tokens=1234),
@@ -2622,6 +2623,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         with (
             patch.object(app, "ensure_agent", AsyncMock()),
+            patch.object(app, "_ensure_command_registry", AsyncMock()),
             patch.object(
                 app._command_registry,
                 "dispatch",
@@ -2635,7 +2637,11 @@ class ReupCommandPaletteTests(unittest.TestCase):
 
         post_notice.assert_called_once_with("Context", "Compacting context")
         post_system.assert_called_once()
-        self.assertEqual(post_system.call_args.args[0], "Context compacted")
+        self.assertEqual(
+            post_system.call_args.args[0],
+            "Context compacted",
+            str(post_system.call_args),
+        )
         self.assertEqual(post_system.call_args.args[1], "Context compacted.")
         post_command.assert_not_called()
 
@@ -2883,6 +2889,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app = self._app()
             app.agent = SimpleNamespace(
                 session=SimpleNamespace(
+                    session_id="s1",
                     plan_mode_enabled=False,
                     plan_phase="idle",
                 )
@@ -2917,6 +2924,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
             app = self._app()
             app.agent = SimpleNamespace(
                 session=SimpleNamespace(
+                    session_id="s1",
                     plan_mode_enabled=False,
                     plan_phase="idle",
                 )
@@ -2955,6 +2963,31 @@ class ReupCommandPaletteTests(unittest.TestCase):
             )
 
         asyncio.run(run_test())
+
+    def test_context_compacted_in_loop_does_not_queue_another_turn(self) -> None:
+        async def scenario() -> None:
+            app = self._app()
+            app.agent = SimpleNamespace(
+                session=SimpleNamespace(
+                    session_id="s1", plan_mode_enabled=False, plan_phase="idle"
+                )
+            )
+            app._active_session_id = lambda: "s1"
+            state = app._run_state("s1")
+            state.active_turn_id = 1
+            state.is_turn_running = True
+            state.context_meter_floor_pct = 85
+            with (
+                patch.object(app, "_finish_live_compaction_card", new=AsyncMock()),
+                patch.object(app, "refresh_header"),
+            ):
+                await app.handle_agent_event(
+                    AgentEvent.context_compacted(170000, 200000, 1000), "s1", 1
+                )
+            self.assertIsNone(state.auto_resume_payload)
+            self.assertIsNone(state.context_meter_floor_pct)
+
+        asyncio.run(scenario())
 
     def test_auto_resume_payload_dispatches_before_queued_payload(self) -> None:
         app = self._app()
@@ -2996,6 +3029,9 @@ class ReupCommandPaletteTests(unittest.TestCase):
         app._active_session_id = lambda: "s1"  # type: ignore[method-assign]
         app.agent = SimpleNamespace(
             session=SimpleNamespace(
+                session_id="s1",
+                name="Test thread",
+                config=app.config,
                 pending_attachment_paths=[],
                 get_stats=lambda: {"context_used_pct": 0.0},
                 plan_mode_enabled=False,

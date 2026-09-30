@@ -591,6 +591,8 @@ AttachPickerModal .modal {
 SetupModal .modal {
     width: 86;
     height: auto;
+    max-height: 95%;
+    overflow-y: auto;
     min-height: 18;
     border: heavy $border;
     background: $surface;
@@ -837,4 +839,3 @@ ContextSummaryModal .usage-summary-body {
 ActivityModal .usage-summary-body {
     height: 1fr;
 }
-

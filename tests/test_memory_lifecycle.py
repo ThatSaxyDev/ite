@@ -156,17 +156,17 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async for event in agent.run("trigger compaction boundary"):
             events.append(event)
 
-        self.assertEqual(call_turn_counts, [])
-        self.assertEqual(session.turn_count, 0)
+        self.assertEqual(call_turn_counts, [1])
+        self.assertEqual(session.turn_count, 1)
         compacted_index = next(
             idx
             for idx, event in enumerate(events)
             if event.type == AgentEventType.CONTEXT_COMPACTED
         )
-        self.assertTrue(events[compacted_index].data.get("auto_resume_required"))
-        self.assertFalse(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
+        self.assertFalse(events[compacted_index].data.get("auto_resume_required"))
+        self.assertTrue(any(event.type == AgentEventType.TEXT_COMPLETE for event in events))
 
-    async def test_auto_compaction_defers_continuation_to_surface(self) -> None:
+    async def test_auto_compaction_continues_without_surface_restart(self) -> None:
         workspace = self.base_path / "ws-compact-delay"
         workspace.mkdir()
 
@@ -211,11 +211,11 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger delayed compaction boundary"):
                 events.append(event)
 
-        self.assertEqual(call_turn_counts, [])
+        self.assertEqual(call_turn_counts, [1])
         self.assertEqual(sleep_calls, [])
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
 
-    async def test_post_compaction_boundary_does_not_continue_in_agent_loop(self) -> None:
+    async def test_post_compaction_retries_transient_provider_failure(self) -> None:
         workspace = self.base_path / "ws-post-compact-retry"
         workspace.mkdir()
 
@@ -270,12 +270,12 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger post-compact recovery"):
                 events.append(event)
 
-        self.assertEqual(call_count, 0)
-        self.assertEqual(sleep_calls, [])
+        self.assertEqual(call_count, 2)
+        self.assertEqual(sleep_calls, [1.0])
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
-    async def test_post_compaction_continue_prompt_is_deferred_to_surface(self) -> None:
+    async def test_post_compaction_continue_prompt_is_sent_in_loop(self) -> None:
         workspace = self.base_path / "ws-post-compact-continue-prompt"
         workspace.mkdir()
 
@@ -319,13 +319,16 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger continue prompt"):
                 events.append(event)
 
-        self.assertEqual(outbound_payloads, [])
+        self.assertEqual(len(outbound_payloads), 1)
+        self.assertEqual(
+            outbound_payloads[0][-1]["content"], Agent.POST_COMPACTION_CONTINUE_PROMPT
+        )
         compacted_event = next(
             event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED
         )
-        self.assertTrue(compacted_event.data.get("auto_resume_required"))
+        self.assertFalse(compacted_event.data.get("auto_resume_required"))
 
-    async def test_post_compaction_tool_loop_continuation_is_deferred_to_surface(self) -> None:
+    async def test_post_compaction_tool_loop_recovers_without_surface(self) -> None:
         workspace = self.base_path / "ws-post-compact-tool-loop"
         workspace.mkdir()
 
@@ -405,8 +408,8 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
             async for event in agent.run("trigger post-compact tool recovery"):
                 events.append(event)
 
-        self.assertEqual(call_count, 0)
-        self.assertEqual(sleep_calls, [])
+        self.assertEqual(call_count, 3)
+        self.assertEqual(sleep_calls, [1.0])
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
@@ -518,7 +521,7 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async for event in agent.run("trigger overflow retry"):
             events.append(event)
 
-        self.assertEqual(call_count, 1)
+        self.assertEqual(call_count, 2)
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
         compacted_event = next(event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED)
         self.assertEqual(compacted_event.data.get("trigger_reason"), "overflow_retry")
@@ -659,7 +662,7 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async for event in agent.run("trigger transient 503 overflow recovery"):
             events.append(event)
 
-        self.assertEqual(call_count, 1)
+        self.assertEqual(call_count, 2)
         self.assertTrue(any(event.type == AgentEventType.CONTEXT_COMPACTED for event in events))
         compacted_event = next(
             event for event in events if event.type == AgentEventType.CONTEXT_COMPACTED
@@ -667,7 +670,7 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(compacted_event.data.get("trigger_reason"), "overflow_retry")
         self.assertFalse(any(event.type == AgentEventType.AGENT_ERROR for event in events))
 
-    async def test_context_restore_summary_warns_against_git_write_actions(self) -> None:
+    async def test_context_restore_summary_preserves_scoped_approvals(self) -> None:
         workspace = self.base_path / "ws-restore-summary"
         workspace.mkdir()
 
@@ -679,8 +682,8 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
 
         messages = agent.session.context_manager.get_messages()
         content = "\n".join(str(message.get("content", "")) for message in messages)
-        self.assertIn("Do not perform git write actions", content)
-        self.assertIn("wait for user confirmation instead", content)
+        self.assertIn("Carry forward explicit user approvals within their recorded scope", content)
+        self.assertIn("a suggested next step alone does not grant approval", content)
 
     async def test_snapshot_generation_writes_structured_session_memory(self) -> None:
         workspace = self.base_path / "ws-session-memory"
@@ -788,8 +791,158 @@ class MemoryLifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
         episodes = session.memory_manager.list_episodes()
         self.assertTrue(
-            any("Context compacted manually for testing" in ep["summary"] for ep in episodes)
+            any("Context compacted manually" in ep["summary"] for ep in episodes)
         )
+
+    async def test_failed_auto_compaction_preserves_history_and_stops_request(
+        self,
+    ) -> None:
+        workspace = self.base_path / "ws-compaction-fails"
+        workspace.mkdir()
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        await agent.session.initialize()
+        session = agent.session
+        session.context_manager.add_user_message("original constraint")
+
+        async def fail(_context):
+            session.chat_compactor.last_error = "provider unavailable"
+            return None, None
+
+        session.chat_compactor.compact = fail
+        session.context_manager.needs_compression = lambda: True
+
+        async def unexpected_request(*args, **kwargs):
+            raise AssertionError(
+                "must not submit the oversized context after compaction failed"
+            )
+            yield
+
+        session.client.chat_completion = unexpected_request
+        events = [event async for event in agent.run("continue original task")]
+        self.assertTrue(
+            any(
+                event.type == AgentEventType.AGENT_ERROR
+                and "provider unavailable" in str(event.data)
+                for event in events
+            )
+        )
+        self.assertEqual(session.context_manager.compaction_count, 0)
+        self.assertIn(
+            "original constraint", str(session.context_manager.get_prompt_messages())
+        )
+
+    async def test_compaction_artifact_write_failure_does_not_commit_boundary(
+        self,
+    ) -> None:
+        workspace = self.base_path / "ws-compaction-artifact-fails"
+        workspace.mkdir()
+        session = Session(Config(cwd=workspace, api_key="test"))
+        await session.initialize()
+        session.context_manager.add_user_message("original constraint")
+        before = session.context_manager.export_transcript_state()
+
+        async def summarize(_context):
+            return "checkpoint", TokenUsage(total_tokens=9)
+
+        session.chat_compactor.compact = summarize
+        with patch.object(
+            session.compact_artifact_manager,
+            "save_summary",
+            side_effect=OSError("disk full"),
+        ):
+            self.assertIsNone(await session.compact_context("manual"))
+        self.assertEqual(session.context_manager.export_transcript_state(), before)
+        self.assertEqual(session.context_manager.compaction_count, 0)
+        self.assertEqual(session.context_manager.total_usage.total_tokens, 9)
+        self.assertIn("disk full", session.chat_compactor.last_error)
+
+    async def test_overflow_retry_does_not_consume_last_iteration(self) -> None:
+        workspace = self.base_path / "ws-last-iteration-overflow"
+        workspace.mkdir()
+        agent = Agent(Config(cwd=workspace, api_key="test", max_turns=1))
+        await agent.session.initialize()
+        session = agent.session
+        calls = []
+
+        async def complete(messages, tools=None, stream=True):
+            calls.append(messages)
+            if len(calls) == 1:
+                yield StreamEvent(
+                    type=StreamEventType.ERROR,
+                    error="prompt too long; exceeded max context length",
+                )
+            else:
+                yield StreamEvent(
+                    type=StreamEventType.TEXT_DELTA, text_delta=TextDelta("Recovered.")
+                )
+                yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE)
+
+        async def summarize(_context):
+            return "checkpoint", None
+
+        session.client.chat_completion = complete
+        session.chat_compactor.compact = summarize
+        events = [event async for event in agent.run("inspect the task")]
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(
+            any(event.type == AgentEventType.TEXT_COMPLETE for event in events)
+        )
+        self.assertFalse(
+            any(event.type == AgentEventType.AGENT_ERROR for event in events)
+        )
+
+    async def test_repeated_overflow_stops_after_one_recovery(self) -> None:
+        workspace = self.base_path / "ws-repeated-overflow"
+        workspace.mkdir()
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        await agent.session.initialize()
+        session = agent.session
+        calls = []
+
+        async def complete(messages, tools=None, stream=True):
+            calls.append(messages)
+            yield StreamEvent(
+                type=StreamEventType.ERROR,
+                error="prompt too long; exceeded max context length",
+            )
+
+        async def summarize(_context):
+            return "checkpoint", None
+
+        session.client.chat_completion = complete
+        session.chat_compactor.compact = summarize
+        events = [event async for event in agent.run("inspect the task")]
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(session.context_manager.compaction_count, 1)
+        self.assertTrue(
+            any(event.type == AgentEventType.AGENT_ERROR for event in events)
+        )
+
+    async def test_compaction_thrashing_stops_after_three_boundaries(self) -> None:
+        workspace = self.base_path / "ws-compaction-thrashing"
+        workspace.mkdir()
+        agent = Agent(Config(cwd=workspace, api_key="test"))
+        await agent.session.initialize()
+        session = agent.session
+        session.context_manager.needs_compression = lambda: True
+        calls = 0
+        async def complete(messages, tools=None, stream=True):
+            nonlocal calls
+            calls += 1
+            yield StreamEvent(type=StreamEventType.TOOL_CALL_COMPLETE, tool_call=ToolCall(call_id=f"call-{calls}", name="read_file", arguments={"path": f"file-{calls}.py"}))
+            yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE)
+        async def summarize(_context):
+            return "checkpoint", None
+        async def invoke(*args, **kwargs):
+            return ToolResult.success_result("file contents")
+        session.client.chat_completion = complete
+        session.chat_compactor.compact = summarize
+        session.tool_registry.get = lambda _name: SimpleNamespace(validate_params=lambda _params: [])
+        session.tool_registry.invoke = invoke
+        events = [event async for event in agent.run("inspect implementation files")]
+        self.assertEqual(calls, 3)
+        self.assertEqual(session.context_manager.compaction_count, 3)
+        self.assertTrue(any(event.type == AgentEventType.AGENT_ERROR and "repeatedly refilled" in str(event.data) for event in events))
 
     async def test_compact_status_reports_thresholds(self) -> None:
         workspace = self.base_path / "ws-compact-status"

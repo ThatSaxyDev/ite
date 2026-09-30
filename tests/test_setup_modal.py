@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 
@@ -535,7 +535,7 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
     def test_set_model_options_preserves_saved_ollama_selection(self) -> None:
         modal = SetupModal(Config())
         modal._active_provider = "ollama"
-        modal._provider_selected_model["ollama"] = "glm-5:cloud"
+        modal._provider_selected_model["ollama"] = "kimi-k2.6:cloud"
         modal._provider_manual_model["ollama"] = ""
         model_select = SimpleNamespace(value="", set_options=lambda _opts: None)
         model_input = SimpleNamespace(value="", display=False)
@@ -552,7 +552,7 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         ):
             modal._set_model_options(list(RECOMMENDED_OLLAMA_MODELS), preserve_current=True)
 
-        self.assertEqual(model_select.value, "glm-5:cloud")
+        self.assertEqual(model_select.value, "kimi-k2.6:cloud")
 
     async def test_fetch_openrouter_models_returns_only_free_tool_capable_ids(self) -> None:
         modal = SetupModal(Config())
@@ -684,6 +684,7 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
                     "#setup-api-key": api_key_input,
                     "#setup-model-select": model_select,
                     "#setup-model-input": model_input,
+                    "#setup-context-window": SimpleNamespace(value="1000000", disabled=False),
                     "#continue": continue_button,
                     "#cancel": cancel_button,
                     "#setup-toggle-api-key": toggle_button,
@@ -709,55 +710,30 @@ class SetupModalTests(unittest.IsolatedAsyncioTestCase):
         )
         dismiss.assert_called_once()
 
-    async def test_probe_ollama_skips_running_service_check(self) -> None:
+    async def test_probe_ollama_returns_discovered_context(self) -> None:
         modal = SetupModal(Config())
-
-        message, context_window = await modal._probe_ollama(
-            base_url="http://localhost:11434/v1",
-            model_name="qwen2.5-coder:7b",
-        )
-
-        self.assertIsNone(message)
-        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
-
-    async def test_probe_ollama_skips_local_tag_check(self) -> None:
-        modal = SetupModal(Config())
-
-        message, context_window = await modal._probe_ollama(
-            base_url="http://localhost:11434/v1",
-            model_name="qwen2.5-coder:7b",
-        )
-
-        self.assertIsNone(message)
-        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
-
-    async def test_probe_ollama_allows_cloud_model_without_local_tag(self) -> None:
-        modal = SetupModal(Config())
-
         with patch(
-            "ite.ui.reup.modals.httpx.AsyncClient",
-            return_value=_FakeAsyncClient(
-                [_FakeResponse(200, {"models": [{"name": "llama3.2:3b"}]})]
-            ),
+            "ite.ui.reup.modals.discover_context_window",
+            new=AsyncMock(return_value=262144),
+        ) as discover:
+            message, context_window = await modal._probe_ollama(
+                base_url=DEFAULT_BASE_URL, model_name="kimi-k2.6:cloud"
+            )
+        self.assertIsNone(message)
+        self.assertEqual(context_window, 262144)
+        discover.assert_awaited_once_with(DEFAULT_BASE_URL, "kimi-k2.6:cloud")
+
+    async def test_probe_ollama_does_not_guess_unknown_context(self) -> None:
+        modal = SetupModal(Config())
+        with patch(
+            "ite.ui.reup.modals.discover_context_window",
+            new=AsyncMock(return_value=None),
         ):
             message, context_window = await modal._probe_ollama(
-                base_url="http://localhost:11434/v1",
-                model_name="glm-5.1:cloud",
+                base_url=DEFAULT_BASE_URL, model_name="custom-local-model"
             )
-
         self.assertIsNone(message)
-        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
-
-    async def test_probe_ollama_returns_fixed_context_window_for_local_model(self) -> None:
-        modal = SetupModal(Config())
-
-        message, context_window = await modal._probe_ollama(
-            base_url="http://localhost:11434/v1",
-            model_name="gemma4:e4b",
-        )
-
-        self.assertIsNone(message)
-        self.assertEqual(context_window, FIXED_PROVIDER_CONTEXT_WINDOW)
+        self.assertIsNone(context_window)
 
     async def test_probe_openai_compatible_rejects_invalid_key(self) -> None:
         modal = SetupModal(Config())

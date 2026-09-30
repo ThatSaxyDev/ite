@@ -2369,7 +2369,7 @@ class TurnMixin:
 
         if event.type == AgentEventType.CONTEXT_COMPACTED:
             auto_resume_required = bool(event.data.get("auto_resume_required", False))
-            run_state.context_meter_floor_pct = 100
+            run_state.context_meter_floor_pct = 100 if auto_resume_required else None
             if auto_resume_required:
                 run_state.auto_resume_payload = {
                     "message": Agent.POST_COMPACTION_CONTINUE_PROMPT,
