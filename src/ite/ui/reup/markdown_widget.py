@@ -1,11 +1,13 @@
 """Markdown widget with copyable code blocks for Textual."""
 
-from textual.widgets import Markdown
-from textual.widgets._markdown import MarkdownFence, MarkdownBlock
+from __future__ import annotations
+
+from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
-from textual.widgets import Static, Button
-from textual.app import ComposeResult
+from textual.content import Content
+from textual.widgets import Button, Markdown, Static
+from textual.widgets._markdown import MarkdownBlock, MarkdownFence, MarkdownStream
 
 
 class CopyableCodeBlock(MarkdownFence):
@@ -91,6 +93,19 @@ class CopyableCodeBlock(MarkdownFence):
         """
         pass
 
+    def set_content(self, content: Content) -> None:
+        """Update our Static code body when Markdown appends to a fence."""
+        self._content = self._highlighted_code = content
+        if self.is_mounted:
+            self.query_one("#code-content", Static).update(content)
+
+    async def _update_from_block(self, block: MarkdownBlock) -> None:
+        if isinstance(block, MarkdownFence):
+            # Textual reuses the last fence while streaming. Keep the clipboard
+            # source in sync too, rather than copying the first partial chunk.
+            self.code = block.code
+        await super()._update_from_block(block)
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle copy button press."""
         if event.button.id == "copy-btn":
@@ -123,6 +138,23 @@ class CopyableCodeBlock(MarkdownFence):
 
 class CopyableMarkdown(Markdown):
     """Markdown widget with copyable code blocks."""
+
+    _stream: MarkdownStream | None = None
+
+    async def stream_fragment(self, fragment: str) -> None:
+        """Append in the background, combining bursts when rendering is busy."""
+        if self._stream is None:
+            self._stream = Markdown.get_stream(self)
+        await self._stream.write(fragment)
+
+    async def finish_stream(self) -> None:
+        """Flush all queued text before finalization or removal."""
+        if self._stream is not None:
+            stream, self._stream = self._stream, None
+            await stream.stop()
+
+    async def on_unmount(self) -> None:
+        await self.finish_stream()
 
     BLOCKS = {
         **Markdown.BLOCKS,

@@ -9,6 +9,7 @@ from textual.widgets import Static
 
 from ite.ui.reup._streaming import StreamingMixin
 from ite.ui.reup.app import ReupApp
+from ite.ui.reup.markdown_widget import CopyableCodeBlock, CopyableMarkdown
 from ite.ui.reup.widgets.conversation import ConversationScroll
 
 
@@ -63,7 +64,7 @@ class ConversationScrollTests(unittest.TestCase):
                 self.assertEqual(first_message.region.y, feed.content_region.y)
 
                 await app.stream_assistant_delta("\n\nLonger reply." * 40)
-                await pilot.pause()
+                await pilot.pause(0.35)
                 self.assertGreater(feed.max_scroll_y, 0)
                 self.assertEqual(feed.scroll_y, feed.max_scroll_y)
 
@@ -84,7 +85,7 @@ class ConversationScrollTests(unittest.TestCase):
                 self.assertEqual(feed.scroll_y, feed.max_scroll_y)
 
                 await app.stream_assistant_delta("First paragraph.\n\n")
-                await pilot.pause()
+                await pilot.pause(0.35)
                 self.assertEqual(feed.scroll_y, feed.max_scroll_y)
 
                 if mouse:
@@ -112,7 +113,7 @@ class ConversationScrollTests(unittest.TestCase):
                 feed.scroll_to(y=feed.max_scroll_y, animate=False)
                 await pilot.pause()
                 await app.stream_assistant_delta("Another response.\n\n" * 10)
-                await pilot.pause()
+                await pilot.pause(0.35)
                 self.assertEqual(feed.scroll_y, feed.max_scroll_y)
 
                 # Loading a conversation intentionally resets to its latest message.
@@ -121,10 +122,86 @@ class ConversationScrollTests(unittest.TestCase):
                 feed.scroll_end(animate=False)
                 await pilot.pause()
                 await app.stream_assistant_delta("After loading.\n\n" * 10)
-                await pilot.pause()
+                await pilot.pause(0.35)
                 self.assertEqual(feed.scroll_y, feed.max_scroll_y)
 
         for activity in (False, True):
             for mouse in (False, True):
                 with self.subTest(activity=activity, mouse=mouse):
                     asyncio.run(check(activity, mouse))
+
+    def test_stream_keeps_completed_blocks_and_flushes_corrected_final_text(self) -> None:
+        async def check() -> None:
+            app = ConversationTestApp(activity=False)
+            async with app.run_test() as pilot:
+                await app.stream_assistant_delta("Completed paragraph.\n\nNext paragraph")
+                await pilot.pause()
+                markdown = app.query_one(CopyableMarkdown)
+                first_block = markdown.children[0]
+                for fragment in (" continues.", "\n\n", "Last paragraph."):
+                    await app.stream_assistant_delta(fragment)
+                await app.finalize_streaming_message()
+                self.assertIs(markdown.children[0], first_block)
+                self.assertEqual(
+                    markdown.source,
+                    "Completed paragraph.\n\nNext paragraph continues.\n\nLast paragraph.",
+                )
+
+                await app.stream_assistant_delta("An incorrect response.")
+                await app.finalize_streaming_message("The corrected response.")
+                last_markdown = app.query(CopyableMarkdown).last()
+                self.assertEqual(last_markdown.source, "The corrected response.")
+
+        asyncio.run(check())
+
+    def test_incremental_code_fence_updates_display_and_clipboard(self) -> None:
+        async def check() -> None:
+            app = ConversationTestApp(activity=False)
+            async with app.run_test() as pilot:
+                await app.stream_assistant_delta("```python\nprint('first')")
+                await pilot.pause()
+                block = app.query_one(CopyableCodeBlock)
+                await app.stream_assistant_delta("\nprint('second')\n```\n")
+                await app.finalize_streaming_message()
+                self.assertIs(app.query_one(CopyableCodeBlock), block)
+                self.assertEqual(block.code, "print('first')\nprint('second')")
+                self.assertIn("second", str(block.query_one("#code-content", Static).render()))
+                block.action_copy_code()
+                self.assertEqual(app.clipboard, block.code)
+
+        asyncio.run(check())
+
+    def test_follow_moves_in_steps_and_stops_when_user_scrolls_away(self) -> None:
+        async def check() -> None:
+            app = ConversationTestApp(activity=False)
+            async with app.run_test(size=(80, 20)) as pilot:
+                await pilot.pause()
+                feed = app.query_one(ConversationScroll)
+                start = feed.scroll_y
+                await feed.mount(Static("New line\n" * 30))
+                await pilot.pause(0.06)
+                self.assertGreater(feed.scroll_y, start)
+                self.assertLess(feed.scroll_y, feed.max_scroll_y)
+                feed.scroll_to(y=5, animate=False)
+                await feed.mount(Static("More new content\n" * 20))
+                await pilot.pause(0.35)
+                self.assertEqual(feed.scroll_y, 5)
+                feed.scroll_end(animate=False)
+                await pilot.pause()
+                await feed.mount(Static("Latest content\n" * 10))
+                await pilot.pause(0.35)
+                self.assertEqual(feed.scroll_y, feed.max_scroll_y)
+
+        asyncio.run(check())
+
+    def test_follow_respects_disabled_animations(self) -> None:
+        async def check() -> None:
+            app = ConversationTestApp(activity=False)
+            app.animation_level = "none"
+            async with app.run_test(size=(80, 20)) as pilot:
+                feed = app.query_one(ConversationScroll)
+                await feed.mount(Static("New content\n" * 30))
+                await pilot.pause()
+                self.assertEqual(feed.scroll_y, feed.max_scroll_y)
+
+        asyncio.run(check())

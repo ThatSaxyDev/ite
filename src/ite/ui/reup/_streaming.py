@@ -144,10 +144,15 @@ class StreamingMixin:
                 CopyableMarkdown(""),
                 classes="block assistant",
             )
+            self._streaming_widget.styles.opacity = 0.7
             await conversation.mount(self._streaming_widget)
+            if self._streaming_widget.is_mounted:
+                self._streaming_widget.styles.animate(
+                    "opacity", 1.0, duration=0.14, easing="out_cubic", level="basic"
+                )
             self._message_count += 1
             self._refresh_empty_state()
-        await self._update_streaming_markdown(self._streaming_buffer)
+        await self._update_streaming_markdown(self._streaming_buffer, fragment=content)
         await self._pin_activity_indicator_to_end()
 
 
@@ -190,7 +195,9 @@ class StreamingMixin:
             return False
 
 
-    async def _update_streaming_markdown(self, markdown_text: str) -> None:
+    async def _update_streaming_markdown(
+        self, markdown_text: str, *, fragment: str | None = None
+    ) -> None:
         if self._streaming_widget is None:
             return
         try:
@@ -205,7 +212,14 @@ class StreamingMixin:
                     )
                 )
             return
-        await markdown_widget.update(markdown_text)
+        if fragment is not None:
+            await markdown_widget.stream_fragment(fragment)
+        else:
+            await markdown_widget.finish_stream()
+            # Most final events repeat the already streamed text. Only rebuild
+            # when the service supplies a corrected authoritative response.
+            if markdown_widget.source != markdown_text:
+                await markdown_widget.update(markdown_text)
 
 
     def _persist_interrupted_streaming_message(self, text: str) -> None:
@@ -247,6 +261,9 @@ class StreamingMixin:
                 await self.finalize_streaming_message()
                 self._persist_interrupted_streaming_message(interrupted_text)
             else:
+                if self._streaming_widget_has_copyable_markdown():
+                    markdown = self._streaming_widget.query_one(CopyableMarkdown)
+                    await markdown.finish_stream()
                 try:
                     await self._streaming_widget.remove()
                 except Exception:
