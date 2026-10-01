@@ -962,11 +962,19 @@ class StreamingMixin:
                 )
             )
             body_widget = VerticalScroll(body_static, classes="command-card-scroll")
-            card = Container(
-                self._build_command_title_widget(command),
-                body_widget,
-                classes="block command",
-            )
+            if command == "/init":
+                body_widget.add_class("card-body", "workboard-body")
+                card = Container(
+                    Static("Project initialization", classes="card-title workboard-title"),
+                    body_widget,
+                    classes="block workboard init-card",
+                )
+            else:
+                card = Container(
+                    self._build_command_title_widget(command),
+                    body_widget,
+                    classes="block command",
+                )
             conversation = self.query_one("#conversation", VerticalScroll)
             await conversation.mount(card)
             self._streaming_command_cards[command] = (

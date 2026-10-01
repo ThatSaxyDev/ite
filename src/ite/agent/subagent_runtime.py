@@ -54,6 +54,7 @@ class SubagentRun:
     current_activity: str = ""
     last_update_at: str | None = None
     activity_history: list[dict[str, str]] = field(default_factory=list)
+    inspected_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -295,6 +296,11 @@ class SubagentRuntime:
 
             async def _progress(update: dict[str, Any]) -> None:
                 phase = str(update.get("phase") or "").strip()
+                if phase == "file_read":
+                    path = str(update.get("path") or "")
+                    if path and path not in run.inspected_files:
+                        run.inspected_files.append(path)
+                    return
                 if phase == "session_started":
                     child_session_id = str(update.get("child_session_id") or "").strip()
                     if child_session_id:

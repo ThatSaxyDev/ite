@@ -880,6 +880,27 @@
     overflow-y: auto;
 }
 
+.block.workboard.init-card.command-error {
+    border: round $warning-muted;
+}
+
+.block.workboard.init-card.command-error .card-title {
+    color: $text-warning;
+}
+
+.block.workboard.init-card .command-card-scroll {
+    width: 1fr;
+    min-width: 0;
+    overflow-x: hidden;
+    scrollbar-size-horizontal: 0;
+}
+
+.block.workboard.init-card .command-body {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+}
+
 .shell-card-body {
     color: $foreground;
 }

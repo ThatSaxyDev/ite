@@ -268,7 +268,7 @@
 
 #conversation-shell {
     width: 1fr;
-    min-width: 72;
+    min-width: 0;
     height: 1fr;
     background: $background;
 }

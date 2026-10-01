@@ -296,13 +296,16 @@ def _get_agents_md_files(cwd: Path) -> list[tuple[Path, str]]:
     return files
 
 
-def _merge_agents_md_instructions(files: list[tuple[Path, str]]) -> str | None:
+def _merge_agents_md_instructions(
+    files: list[tuple[Path, str]], *, max_bytes: int = AGENTS_MAX_BYTES,
+    strict: bool = False,
+) -> str | None:
     """
     Merge AGENTS.md content with precedence: most specific (deepest) overrides parent.
     Returns None if no files found.
 
-    Enforces AGENTS_MAX_BYTES (32 KiB) combined size limit - truncates silently when exceeded.
-    Later files (cwd files) are preserved when truncating, earlier ones are dropped.
+    Enforce the combined budget, prioritizing the most specific instructions.
+    Report omitted files explicitly; strict mode rejects any omission.
     """
     if not files:
         return None
@@ -315,26 +318,55 @@ Precedence: files are listed from most specific to least specific. Use the first
     parts: list[str] = [header]
     current_size = len(header.encode("utf-8"))
     truncated_files: list[Path] = []
+    loaded_paths: list[Path] = []
 
     # Files are ordered global -> root -> ... -> cwd. Process in reverse so the
     # most specific instructions are both preserved and shown first.
     for index, (file_path, content) in enumerate(reversed(files), start=1):
         separator = f"## Priority {index}: {file_path}\n\n"
         section = separator + content
-        section_bytes = len(section.encode("utf-8"))
+        section_bytes = len(section.encode("utf-8")) + 2  # Joining separator.
 
-        if current_size + section_bytes > AGENTS_MAX_BYTES:
+        if current_size + section_bytes > max_bytes:
             truncated_files.append(file_path)
             continue
 
         parts.append(section)
+        loaded_paths.append(file_path)
         current_size += section_bytes
 
     if truncated_files:
+        omitted = ", ".join(str(path) for path in truncated_files)
+        if strict:
+            raise ValueError(
+                f"Instructions exceed the {max_bytes / 1024:g} KiB combined budget. "
+                f"Files that would be omitted: {omitted}. Increase agents_max_bytes "
+                "in .ite/config.toml or shorten the instructions."
+            )
+        while True:
+            omitted = ", ".join(str(path) for path in truncated_files)
+            notice = (
+                f"[Instruction loading warning: budget {max_bytes} bytes exceeded. "
+                f"These files were NOT loaded: {omitted}. Do not assume their instructions "
+                "are present. Increase agents_max_bytes or shorten the files.]"
+            )
+            if current_size + len(notice.encode("utf-8")) + 2 <= max_bytes:
+                break
+            if not loaded_paths:
+                notice = (
+                    f"[Instruction loading warning: {len(truncated_files)} files were "
+                    "NOT loaded. File paths are recorded in the warning log. Increase "
+                    "agents_max_bytes or shorten the files.]"
+                )
+                break
+            # Make room for the warning by dropping the least specific section.
+            truncated_files.append(loaded_paths.pop())
+            current_size -= len(parts.pop().encode("utf-8")) + 2
         logger.warning(
-            f"AGENTS.md files exceeded {AGENTS_MAX_BYTES} byte limit. "
+            f"AGENTS.md files exceeded {max_bytes} byte limit. "
             f"Skipped: {[str(f) for f in truncated_files]}"
         )
+        parts.append(notice)
 
     return "\n\n".join(parts)
 
@@ -411,12 +443,6 @@ def load_config(
     if "cwd" not in config_dict:
         config_dict["cwd"] = cwd
 
-    if "developer_instructions" not in config_dict:
-        agents_md_files = _get_agents_md_files(cwd)
-        merged_instructions = _merge_agents_md_instructions(agents_md_files)
-        if merged_instructions:
-            config_dict["developer_instructions"] = merged_instructions
-
     config_dict = _drop_invalid_mcp_servers(config_dict)
 
     try:
@@ -426,6 +452,10 @@ def load_config(
     except ConfigError as e:
         raise ConfigError(f"Invalid configuration: {e}") from e
 
+    if "developer_instructions" not in config_dict:
+        config.developer_instructions = _merge_agents_md_instructions(
+            _get_agents_md_files(cwd), max_bytes=config.agents_max_bytes
+        )
     return config
 
 

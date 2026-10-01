@@ -185,6 +185,7 @@ class SubagentTool(Tool):
         terminate_response = "goal"
         child_session_id: str | None = None
         child_turn_count = 0
+        read_calls: dict[str, str] = {}
 
         async def _consume_agent(run_agent: Agent) -> None:
             nonlocal final_response, error, terminate_response, child_session_id, child_turn_count
@@ -203,6 +204,11 @@ class SubagentTool(Tool):
                 if event.type == AgentEventType.TOOL_CALL_START:
                     tool_name = event.data.get("name")
                     tool_calls.append(tool_name)
+                    if tool_name == "read_file":
+                        arguments = event.data.get("arguments", {})
+                        read_calls[str(event.data.get("call_id"))] = str(
+                            next((arguments[key] for key in ("path", "file", "file_path", "filepath", "target") if arguments.get(key)), "")
+                        )
                     if progress_callback is not None:
                         maybe = progress_callback(
                             {
@@ -213,6 +219,17 @@ class SubagentTool(Tool):
                         )
                         if maybe is not None:
                             await maybe
+                elif event.type == AgentEventType.TOOL_CALL_COMPLETE:
+                    path = read_calls.pop(str(event.data.get("call_id")), "")
+                    if path and event.data.get("success") and progress_callback is not None:
+                        candidate = (subagent_config.cwd / path).resolve()
+                        root = subagent_config.cwd.resolve()
+                        if candidate.is_relative_to(root):
+                            maybe = progress_callback({
+                                "phase": "file_read", "path": str(candidate.relative_to(root)),
+                            })
+                            if maybe is not None:
+                                await maybe
                 elif event.type == AgentEventType.TEXT_COMPLETE:
                     if bool(event.data.get("final", True)):
                         final_response = event.data.get("content")
@@ -419,6 +436,14 @@ class SubagentTool(Tool):
         goal: str,
         prior_attempts: list[dict[str, Any]],
     ) -> str:
+        if self.definition.name == "init_investigator" and goal.startswith("INIT_DRAFT_REVISION"):
+            return (
+                "Revise the supplied AGENTS.md draft only. Do not repeat repository "
+                "discovery. Fix the stated validation issues, preserving supported "
+                "facts and maintainer constraints. Remove unsupported commands/paths "
+                "or read only their cited source if essential. Return ONLY complete "
+                "Markdown starting with # AGENTS.md, no commentary or JSON.\n\n" + goal
+            )
         # Special handling for init_investigator to ensure it acts decisively
         init_directive = ""
         if self.definition.name == "init_investigator":
@@ -428,7 +453,7 @@ MANDATORY DIRECTIVE FOR INITIALIZATION:
 - Do NOT ask the user any questions
 - Do NOT say "I need more information" - discover what you can from the files
 - Do NOT apologize or explain your limitations
-- Simply do your best with what you can find and output the AGENTS.md file
+- Return the complete Markdown document specified in your output rules
 """
 
         prompt = f"""You are a specialized sub-agent with a specific task to complete.
@@ -475,12 +500,24 @@ MANDATORY DIRECTIVE FOR INITIALIZATION:
 
         config_dict = self.config.to_dict()
 
-        config_dict["max_turns"] = self.definition.max_turns
+        is_init = self.definition.name == "init_investigator"
+        is_init_revision = is_init and params.goal.startswith("INIT_DRAFT_REVISION")
+        config_dict["max_turns"] = (
+            min(4, self.config.init_max_turns) if is_init_revision
+            else self.config.init_max_turns if is_init else self.definition.max_turns
+        )
+        if is_init:
+            # Initialization only uses local read tools; reconnecting every MCP
+            # server and running hooks adds unrelated startup work.
+            config_dict["mcp_servers"] = {}
+            config_dict["hooks_enabled"] = False
 
         if self.allowed_tools is not None:
             config_dict["allowed_tools"] = self.allowed_tools
         elif self.definition.allowed_tools:
             config_dict["allowed_tools"] = self.definition.allowed_tools
+        if is_init_revision:
+            config_dict["allowed_tools"] = ["read_file"]
 
         subagent_config = Config(**config_dict)
 
@@ -505,6 +542,10 @@ MANDATORY DIRECTIVE FOR INITIALIZATION:
 
         attempt_activities: list[str] = []
         progress_loop = asyncio.get_running_loop()
+        init_deadline = progress_loop.time() + (
+            min(120, self.config.init_timeout_seconds) if is_init_revision
+            else self.config.init_timeout_seconds
+        )
         last_progress_at = progress_loop.time()
 
         async def tracked_progress(update: dict[str, Any]) -> None:
@@ -603,7 +644,10 @@ MANDATORY DIRECTIVE FOR INITIALIZATION:
                         runner_kwargs["progress_callback"] = tracked_progress
                     last_progress_at = progress_loop.time()
                     runner_task = asyncio.create_task(self._run_subagent_agent(**runner_kwargs))
-                    absolute_deadline = progress_loop.time() + self.definition.timeout_seconds
+                    absolute_deadline = (
+                        init_deadline if is_init
+                        else progress_loop.time() + self.definition.timeout_seconds
+                    )
                     inactivity_timeout = max(0.0, float(self.definition.inactivity_timeout_seconds))
 
                     while True:
@@ -636,6 +680,11 @@ MANDATORY DIRECTIVE FOR INITIALIZATION:
                         if inactivity_timeout > 0 and (progress_loop.time() - last_progress_at) >= inactivity_timeout:
                             raise _InactiveSubagentTimeout
                         continue
+                except asyncio.CancelledError:
+                    if "runner_task" in locals() and not runner_task.done():
+                        runner_task.cancel()
+                        await asyncio.gather(runner_task, return_exceptions=True)
+                    raise
                 except asyncio.TimeoutError:
                     terminate_response = "timeout"
                     final_response = "Sub-agent timed out"
@@ -681,6 +730,8 @@ MANDATORY DIRECTIVE FOR INITIALIZATION:
                 should_retry = (
                     attempt_index < self.definition.retry_attempts
                     and self._is_retryable_failure(terminate_response, error)
+                    and (not is_init or progress_loop.time() < init_deadline)
+                    and not is_init_revision
                 )
                 if not should_retry:
                     break
@@ -828,74 +879,45 @@ Return concrete findings and actions in concise bullets.""",
 
 INIT_INVESTIGATOR = SubagentDefinition(
     name="init_investigator",
-    description="Fast-scan codebase investigator that generates AGENTS.md directly for /init command",
-    goal_prompt="""You are an AGENTS.md generator for the /init command.
+    description="Investigates repository evidence and drafts validated project instructions for /init",
+    goal_prompt=r"""Investigate this repository and generate actionable AGENTS.md instructions.
+Work autonomously, using only read-only tools. Stop when coverage is sufficient;
+you do not need to spend the whole turn budget. Never invent paths or commands.
 
-CRITICAL: Your ONLY task is to investigate the project and output the complete AGENTS.md content. Do NOT ask clarifying questions or defer to the user. Generate AGENTS.md based on what you discover.
+COVERAGE:
+- Read existing AGENTS.md, overrides, and contributor/design guidance first.
+  Preserve maintainer constraints when regenerating; obey directory exclusions.
+- Discover workspace/package boundaries, manifests, README, CI and task scripts.
+- Trace entry points and major modules. Sample representative source AND tests
+  across important packages instead of imposing a fixed file sample count.
+- Use targeted grep/glob queries to verify conventions and command definitions.
+- Skip dependencies, build artifacts, generated files, binary files and secrets.
+- For monorepos, cover major packages and reference detailed package guidance.
+- Do not run builds/tests or write files: this command generates instructions.
 
-INVESTIGATION WORKFLOW (scan quickly, max 10 turns):
-1. Use list_dir and glob to understand directory structure
-2. Read key config files to find:
-   - Project name, description from pyproject.toml/package.json/README
-   - Build/test/lint commands from scripts section
-   - Dependencies and tech stack
-3. Sample 2-3 source files to identify code patterns (imports, naming conventions, etc.)
-4. Return the complete AGENTS.md file content
+OUTPUT:
+Return ONLY the complete Markdown document, starting with "# AGENTS.md".
+Do not wrap it in JSON or add an introduction. File-read evidence is recorded by
+runtime tools, so you do not need to construct a separate evidence envelope.
+Include Project Overview, Architecture, and Development Guidelines sections;
+include Configuration when supported. Never invent paths or commands. Commands
+must occur in or be defined by a source file you actually read. Use inline code
+for commands and repository paths so they can be checked. Keep instructions
+focused on working here rather than an exhaustive repository dump. Aim for
+the shortest useful document: a tiny project may need less than 1 KiB; larger
+projects may need 5-10 KiB or more. Length is not a quota. Reference existing
+documentation for lengthy explanations. Do not propose hypothetical restructuring
+or future build tooling; describe the current project and actionable workflow.
+Respect the combined byte budget in your task, leaving room for inherited rules.
+Revise complete sections to fit; never truncate or emit a failure as instructions.
+If evidence is sparse, document what is known without claiming missing tooling.
 
-OUTPUT RULES:
-- Start your response with "# AGENTS.md" as the first line
-- Include these sections: Project Overview, Architecture, Development Guidelines, Configuration
-- Be SPECIFIC: include actual file paths and commands you found
-- Be CONCISE: aim for under 5KB; skip verbose examples
-- Use markdown tables for tool preferences per file type
-- If info is missing, omit the section rather than guess
-
-EXAMPLE OUTPUT START:
-# AGENTS.md
-
-## Project Overview
-
-**Project:** `actual_project_name`
-
-Brief description based on README or package config.
-
-## Architecture
-
-```
-src/
-  package/
-    __init__.py
-    main.py
-```
-
-- Entry point: `src/package/main.py`
-- Main package: `package`
-
-## Development Guidelines
-
-**Build Commands:**
-| Command | Script |
-|---------|--------|
-| Build | `python -m build` |
-| Test | `pytest` |
-
-**Code Patterns:**
-- Imports: `from __future__ import annotations`
-- Constants: UPPER_CASE pattern
-
-## Configuration
-
-- Config: `pyproject.toml`
-- Settings: `[tool.package]`
-
-EXAMPLE OUTPUT END
-
-Be fast. Output ONLY the AGENTS.md file content, starting with "# AGENTS.md".""",
-    allowed_tools=["read_file", "glob", "list_dir"],
-    max_turns=10,
-    timeout_seconds=180,
-    inactivity_timeout_seconds=60,
-    retry_attempts=2,
+""",
+    allowed_tools=["read_file", "glob", "list_dir", "grep"],
+    max_turns=40,
+    timeout_seconds=600,
+    inactivity_timeout_seconds=120,
+    retry_attempts=1,
 )
 
 VERIFICATION_REVIEWER = SubagentDefinition(

@@ -600,9 +600,9 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._thread_history_refreshed_at: dict[str, float] = {}
         self._thread_history_errors: dict[str, str] = {}
         self._thread_history_worker: Worker[None] | None = None
+        self._init_command_worker: Worker[None] | None = None
         self._thread_history_workspace: str | None = None
         self._shutdown_started: bool = False
-        self._sigint_handled: bool = False
         self._suppress_theme_prompt_sync: bool = False
         self._remote_server: RemoteRuntimeServer | None = None
         self._telegram_service: Any = None  # TelegramBotService | None (deferred import)
@@ -876,13 +876,10 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         app = self
 
         def _handle_sigint(signum: int, frame: object) -> None:
-            if app._sigint_handled:
-                os._exit(1)
-            app._sigint_handled = True
             try:
                 loop = asyncio.get_running_loop()
                 loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(app._perform_quit())
+                    lambda: app.run_worker(app.action_interrupt_or_quit(), exclusive=False)
                 )
             except RuntimeError:
                 os._exit(1)

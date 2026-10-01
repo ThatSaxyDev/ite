@@ -34,7 +34,7 @@ async def cmd_remind(ctx: CommandContext, args: list[str]) -> None:
         return
     
     # Full content re-injection
-    merged = _merge_agents_md_instructions(files)
+    merged = _merge_agents_md_instructions(files, max_bytes=ctx.config.agents_max_bytes)
     if merged:
         full_reminder = f"""[AGENTS.md Reference - Refreshed]
 

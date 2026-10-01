@@ -20,6 +20,9 @@ class CommandContext:
     agent: Agent | None
     tui: Any
     console: Console
+    outcome: str = "completed"
+    result: str = ""
+    evidence_files: list[str] = field(default_factory=list)
 
 
 @dataclass

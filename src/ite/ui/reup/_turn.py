@@ -898,6 +898,39 @@ class TurnMixin:
 
     async def run_command(self, command_line: str) -> None:
         parts = command_line.split()
+        if parts and parts[0].lower() == "/init":
+            worker = self._init_command_worker
+            if worker is not None and not worker.is_finished:
+                self.post_notice("Initialization", "Already running. Press Ctrl+C to cancel.")
+                return
+            self._init_command_worker = self.run_worker(
+                self._run_init_command(command_line), group="init-command",
+                exclusive=False, exit_on_error=False,
+            )
+            return
+        await self._run_command_inline(command_line)
+
+    async def _run_init_command(self, command_line: str) -> None:
+        try:
+            await self._run_command_inline(command_line)
+        except asyncio.CancelledError:
+            # Cancellation can arrive during ensure_agent(), before the handler
+            # has a context or card to finalize.
+            pending = next((
+                entry for entry in reversed(self._remote_command_feed)
+                if entry.get("command") == command_line and entry.get("status") == "running"
+            ), None)
+            if pending is not None:
+                self._finish_remote_command_feed_entry(
+                    pending["id"], status="cancelled", output="Initialization cancelled.",
+                )
+                self.post_notice("Initialization", "Cancelled")
+            raise
+        finally:
+            self._init_command_worker = None
+
+    async def _run_command_inline(self, command_line: str) -> None:
+        parts = command_line.split()
         command = parts[0].lower()
         args = parts[1:]
         command_feed_id: str | None = None
@@ -1122,6 +1155,13 @@ class TurnMixin:
         except SystemExit:
             self.exit()
             return
+        except asyncio.CancelledError:
+            if command_feed_id is not None:
+                self._finish_remote_command_feed_entry(
+                    command_feed_id, status="cancelled",
+                    output=ctx.result or "Command cancelled",
+                )
+            raise
         except Exception as exc:
             if command_feed_id is not None:
                 self._finish_remote_command_feed_entry(
@@ -1134,7 +1174,7 @@ class TurnMixin:
 
         if isinstance(output, StreamingCommandOutput):
             output.flush_pending()
-        rendered = output.getvalue().strip()
+        rendered = output.getvalue().strip() or ctx.result
         command_metadata = self._build_remote_command_feed_metadata(
             command,
             args,
@@ -1156,10 +1196,11 @@ class TurnMixin:
             if command_feed_id is not None:
                 self._finish_remote_command_feed_entry(
                     command_feed_id,
-                    status="completed",
+                    status=ctx.outcome,
                     output=rendered,
                     metadata=command_metadata,
                 )
+            return
         if (
             is_manual_compact
             and self.agent

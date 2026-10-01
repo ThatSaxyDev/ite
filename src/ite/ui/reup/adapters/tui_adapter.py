@@ -106,6 +106,24 @@ class ReupTUIAdapter:
             exclusive=False,
         )
 
+    async def begin_command_progress(self, command: str, message: str) -> None:
+        """Mount before updates so fast commands cannot leave an orphan spinner."""
+        await self._app.start_streaming_command_result(command, pending_text=message)
+
+    async def update_command_progress(self, command: str, message: str) -> None:
+        await self._app._update_streaming_command_pending(command, message)
+
+    async def finish_command_progress(
+        self, command: str, message: str, *, status: str
+    ) -> None:
+        """Replace live activity with one compact, theme-aware durable result."""
+        await self._app._update_streaming_command_pending(command, None)
+        await self._app._append_command_result_card(command, message)
+        existing = self._app._streaming_command_cards.get(command)
+        if existing is not None and status == "failed":
+            existing[0].add_class("command-error")
+        self._app.finalize_streaming_command_result(command)
+
     def change_spinner(self, message: str) -> None:
         """Update spinner status - replaces current line with new status (like tool calls)."""
         if not self._spinner_handle:

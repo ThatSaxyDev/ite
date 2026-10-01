@@ -1189,6 +1189,11 @@ class ComposerMixin:
 
 
     async def action_interrupt_or_quit(self) -> None:
+        init_worker = self._init_command_worker
+        if init_worker is not None and not init_worker.is_finished:
+            if not init_worker.is_cancelled:
+                init_worker.cancel()
+            return
         if self._is_turn_running:
             await self._stop_turn_from_composer()
         else:

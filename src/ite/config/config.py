@@ -302,6 +302,9 @@ class Config(BaseModel):
     approval: ApprovalPolicy = ApprovalPolicy.AUTO
 
     max_turns: int = 100
+    init_max_turns: int = Field(default=40, ge=4, le=200)
+    init_timeout_seconds: float = Field(default=600, ge=10, le=3600)
+    agents_max_bytes: int = Field(default=32 * 1024, ge=4096, le=2 * 1024 * 1024)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
     max_tool_output_tokens: int = 50_000
