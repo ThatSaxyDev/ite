@@ -318,3 +318,36 @@ def test_cancelled_open_does_not_create_duplicate_panel() -> None:
                 assert app._thread_switcher_panel_is_open()
 
     asyncio.run(run())
+
+
+def test_first_hamburger_click_before_session_initialization_is_kept() -> None:
+    async def run() -> None:
+        manager = SimpleNamespace(
+            list_sessions=lambda **kw: [
+                {"session_id": "saved", "name": "Saved thread", "turn_count": 1}
+            ]
+        )
+        with patch("ite.ui.reup._threads.SessionManager", return_value=manager):
+            app = ThreadPanelApp()
+            app._open_session_order.clear()
+            app._open_sessions.clear()
+            async with app.run_test(size=(100, 40)) as pilot:
+                await app._sync_thread_switcher_panel()
+                assert not app._thread_switcher_panel_is_open()
+                await pilot.click("#threads-toggle")
+                await pilot.pause()
+                assert app._thread_switcher_panel_is_open()
+                await finish_history(app)
+                panel = app._thread_switcher_panel
+                assert "saved" in panel._row_widgets
+                # Runtime initialization and header refresh must keep that first click.
+                app._open_sessions["current"] = SimpleNamespace(
+                    name="Current thread", turn_count=1
+                )
+                app._open_session_order.append("current")
+                await app._sync_thread_switcher_panel()
+                assert app._thread_switcher_panel is panel
+                assert app._thread_switcher_panel_is_open()
+                assert "current" in panel._row_widgets
+
+    asyncio.run(run())

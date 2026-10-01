@@ -526,13 +526,12 @@ class ThreadsMixin:
         async with self._thread_switcher_sync_lock:
             if not self.is_mounted:
                 return
-            count = len(self._open_session_order)
             self._apply_thread_switcher_button_state()
-            if self._cloud_signed_out or count <= 0 or self._commands_panel_is_open():
-                if count <= 0:
-                    self._thread_switcher_dismissed_count = 0
+            # Saved history is available before the runtime registers a session.
+            # Do not discard a user's early click during that startup window.
+            if self._cloud_signed_out or self._commands_panel_is_open():
                 await self._hide_thread_switcher_panel(
-                    remember=False, dispose=self._cloud_signed_out or count <= 0
+                    remember=False, dispose=self._cloud_signed_out
                 )
                 return
             if force_open:
