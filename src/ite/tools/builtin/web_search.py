@@ -1,6 +1,18 @@
-from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
-from ite.tools.base import ToolMetadata, ToolRiskLevel
+from __future__ import annotations
+
+import asyncio
+
 from pydantic import BaseModel, Field
+
+from ite.tools.base import (
+    Tool,
+    ToolInvocation,
+    ToolKind,
+    ToolMetadata,
+    ToolResult,
+    ToolRiskLevel,
+)
+
 try:
     from ddgs import DDGS
 except Exception:  # pragma: no cover - fallback for older installs
@@ -38,8 +50,8 @@ class WebSearchTool(Tool):
     async def execute(self, invocation: ToolInvocation) -> ToolResult:
         params = WebSearchParams(**invocation.params)
 
-        try:
-            results = DDGS().text(
+        def search() -> list[dict]:
+            return DDGS().text(
                 params.query,
                 region="us-en",
                 safesearch="off",
@@ -48,6 +60,10 @@ class WebSearchTool(Tool):
                 backend="auto",
                 max_results=params.max_results,
             )
+
+        try:
+            # The search client is synchronous, including its initialization.
+            results = await asyncio.to_thread(search)
 
         except Exception as e:
             return ToolResult.error_result(f"Search failed: {e}")

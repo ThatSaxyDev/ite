@@ -1,10 +1,21 @@
-import httpx
-import html2text
-from bs4 import BeautifulSoup
+from __future__ import annotations
+
+import asyncio
 from urllib.parse import urlparse
-from ite.tools.base import ToolResult, ToolInvocation, ToolKind, Tool
-from ite.tools.base import ToolMetadata, ToolRiskLevel
+
+import html2text
+import httpx
+from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
+
+from ite.tools.base import (
+    Tool,
+    ToolInvocation,
+    ToolKind,
+    ToolMetadata,
+    ToolResult,
+    ToolRiskLevel,
+)
 
 
 class WebFetchParams(BaseModel):
@@ -131,7 +142,8 @@ class WebFetchTool(Tool):
             text = raw_text
         else:
             # HTML — convert to clean markdown
-            text = _html_to_markdown(raw_text)
+            # Parsing large pages must not block the UI's event loop.
+            text = await asyncio.to_thread(_html_to_markdown, raw_text)
 
         # Truncate if still too large
         max_size = 60 * 1024  # 60KB
