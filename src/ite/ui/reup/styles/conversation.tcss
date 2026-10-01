@@ -695,6 +695,12 @@
 }
 
 .plan-question-option {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    text-wrap: wrap;
+    text-align: left;
+    content-align: left middle;
     margin-bottom: 1;
     border: none;
     background: $surface-darken-1;

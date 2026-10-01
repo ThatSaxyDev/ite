@@ -616,6 +616,10 @@ Otherwise the table will keep default widget styling and visually break the moda
 
 ### Commit Modal Rule
 
+The commit message uses a soft-wrapping `TextArea` with three to six visible text rows.
+It grows with the message, then scrolls vertically; its horizontal scrollbar stays hidden.
+Preserve explicit line breaks for commit bodies and keep the action row visible as the editor grows.
+
 The commit modal now follows the same token rules as other modals:
 
 - shell from `$surface` and `$border`

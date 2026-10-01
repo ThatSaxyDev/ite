@@ -29,6 +29,7 @@ from textual.widgets import (
     Label,
     Select,
     Static,
+    TextArea,
 )
 from textual.widgets.directory_tree import DirEntry
 
@@ -810,7 +811,10 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                         classes="commit-ai-status",
                     )
                 with Horizontal(classes="commit-message-row"):
-                    yield Input(
+                    yield TextArea(
+                        soft_wrap=True,
+                        show_line_numbers=False,
+                        highlight_cursor_line=False,
                         placeholder="Type a commit message or use ✦ to generate one",
                         id="commit-message",
                     )
@@ -825,7 +829,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
                 yield Button("Cancel", id="cancel", variant="default")
 
     async def on_mount(self) -> None:
-        self.query_one("#commit-message", Input).focus()
+        self.query_one("#commit-message", TextArea).focus()
         self._update_commit_actions()
         self._set_ai_status_idle()
 
@@ -838,9 +842,9 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             toggle()
 
     def _dismiss_with_action(self, action: str) -> None:
-        message = self.query_one("#commit-message", Input).value.strip()
+        message = self.query_one("#commit-message", TextArea).text.strip()
         if not message:
-            self.query_one("#commit-message", Input).focus()
+            self.query_one("#commit-message", TextArea).focus()
             return
         self.dismiss(
             {
@@ -851,7 +855,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         )
 
     def _update_commit_actions(self) -> None:
-        has_message = bool(self.query_one("#commit-message", Input).value.strip())
+        has_message = bool(self.query_one("#commit-message", TextArea).text.strip())
         self.query_one("#commit-confirm", Button).disabled = not has_message
         self.query_one("#commit-push", Button).disabled = not has_message
 
@@ -862,8 +866,8 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
             self._include_unstaged_text()
         )
 
-    @on(Input.Changed, "#commit-message")
-    def on_commit_message_changed(self, _event: Input.Changed) -> None:
+    @on(TextArea.Changed, "#commit-message")
+    def on_commit_message_changed(self, _event: TextArea.Changed) -> None:
         self._update_commit_actions()
 
     @on(Button.Pressed, "#commit-ai-fill")
@@ -899,7 +903,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
     async def _fill_commit_message_from_ai(self) -> None:
         self._generating_commit_message = True
         button = self.query_one("#commit-ai-fill", Button)
-        input_widget = self.query_one("#commit-message", Input)
+        input_widget = self.query_one("#commit-message", TextArea)
         status_widget = self.query_one("#commit-ai-status", Static)
         original_label = button.label
         self._ai_spinner_index = 0
@@ -911,7 +915,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         self._ai_spinner_timer = self.set_interval(0.12, self._tick_ai_spinner)
         self._schedule_ai_status_tick()
         try:
-            input_widget.value = await self._generate_commit_message()
+            input_widget.load_text(await self._generate_commit_message())
             if self._last_ai_error:
                 self._set_ai_status_idle()
             else:
