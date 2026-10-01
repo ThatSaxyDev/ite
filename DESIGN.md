@@ -256,6 +256,8 @@ The thread nav follows these rules:
 - Saved former sessions from `/sessions` should appear in the nav, but `/sessions` itself remains available for users who prefer commands.
 - Row order must remain stable while switching. Selecting a thread must not cause rows to jump around.
 
+Opening the thread panel must not wait for saved-session disk reads. Show cached rows immediately, refresh history in a background worker, and read lightweight session metadata rather than full transcripts. Keep the mounted panel hidden between opens, and reconcile rows without replacing unchanged widgets or losing scroll position. Show a brief loading state during the first history backfill.
+
 Do not put a large `/threads` text button on the right side of the header for this feature. It breaks header alignment and contradicts the left-opening panel.
 
 ### Conversation Area

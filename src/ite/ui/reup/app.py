@@ -44,7 +44,8 @@ from textual.containers import (
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
-from textual.widget import Widget
+from textual.widget import AwaitMount, Widget
+from textual.worker import Worker
 from textual.widgets import (
     Button,
     DataTable,
@@ -591,9 +592,15 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._open_session_workspaces: dict[str, Path] = {}
         self._session_tabs_version: int = 0
         self._thread_switcher_panel: ThreadSwitcherSidePanel | None = None
+        self._thread_switcher_mount: AwaitMount | None = None
         self._thread_switcher_dismissed_count: int = 0
         self._thread_switcher_sync_lock = asyncio.Lock()
         self._thread_nav_order: list[str] = []
+        self._thread_history_cache: dict[str, list[dict[str, Any]]] = {}
+        self._thread_history_refreshed_at: dict[str, float] = {}
+        self._thread_history_errors: dict[str, str] = {}
+        self._thread_history_worker: Worker[None] | None = None
+        self._thread_history_workspace: str | None = None
         self._shutdown_started: bool = False
         self._sigint_handled: bool = False
         self._suppress_theme_prompt_sync: bool = False
@@ -1309,6 +1316,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             )
 
     async def on_unmount(self) -> None:
+        self._clear_thread_history_cache()
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         if self._voice_recorder is not None:
             await self._voice_recorder.cancel()
@@ -1321,6 +1329,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         if self._shutdown_started:
             return
         self._shutdown_started = True
+        self._clear_thread_history_cache()
 
         try:
             await asyncio.wait_for(self.cancel_active_turn(), timeout=1.5)

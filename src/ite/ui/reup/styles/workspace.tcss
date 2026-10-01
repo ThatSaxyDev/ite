@@ -1319,6 +1319,12 @@
     height: 1fr;
 }
 
+#thread-switcher-panel #thread-switcher-history-status {
+    height: auto;
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
 #thread-switcher-panel .thread-switcher-item {
     width: 1fr;
     min-height: 1;

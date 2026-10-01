@@ -77,6 +77,9 @@ class ThreadSwitcherSidePanel(Widget):
             id="thread-switcher-new-chat",
             classes="thread-switcher-new-chat",
         )
+        status = Static("", id="thread-switcher-history-status")
+        status.display = False
+        yield status
         yield VerticalScroll(id="thread-switcher-list", classes="thread-switcher-list")
         with Horizontal(id="thread-switcher-account-footer", classes="thread-switcher-account"):
             yield Static("", id="thread-switcher-account-icon", classes="thread-switcher-account-icon")
@@ -91,6 +94,11 @@ class ThreadSwitcherSidePanel(Widget):
         self._account_image = image
         if self.is_mounted:
             self._update_account_footer()
+
+    def set_history_status(self, text: str) -> None:
+        status = self.query_one("#thread-switcher-history-status", Static)
+        status.update(text)
+        status.display = bool(text)
 
     def _update_account_footer(self) -> None:
         try:
@@ -133,28 +141,48 @@ class ThreadSwitcherSidePanel(Widget):
         previous_ids = [row[0] for row in self._row_snapshot]
         next_ids = [row[0] for row in snapshot]
         if previous_ids != next_ids:
-            await thread_list.remove_children()
-            self._row_widgets = {}
+            next_id_set = set(next_ids)
+            removed = [
+                widget for session_id, widget in self._row_widgets.items()
+                if session_id not in next_id_set
+            ]
+            if removed:
+                await thread_list.remove_children(removed)
+            for session_id in list(self._row_widgets):
+                if session_id not in next_id_set:
+                    del self._row_widgets[session_id]
+            added = []
             for session_id, label, classes in rows:
-                widget = ThreadSwitcherRow(
-                    label,
-                    session_id=session_id,
-                    id=f"thread-switcher-row-{session_id}",
-                    classes=classes,
-                )
-                self._row_widgets[session_id] = widget
-                await thread_list.mount(widget)
-            self._row_snapshot = snapshot
-            return
+                if session_id not in self._row_widgets:
+                    widget = ThreadSwitcherRow(
+                        label,
+                        session_id=session_id,
+                        id=f"thread-switcher-row-{session_id}",
+                        classes=classes,
+                    )
+                    self._row_widgets[session_id] = widget
+                    added.append(widget)
+            if added:
+                await thread_list.mount(*added)
+            current_ids = [sid for sid in previous_ids if sid in next_id_set]
+            current_ids.extend(widget.session_id for widget in added)
+            for index, session_id in enumerate(next_ids):
+                if current_ids[index] != session_id:
+                    thread_list.move_child(
+                        self._row_widgets[session_id],
+                        before=self._row_widgets[current_ids[index]],
+                    )
+                    current_ids.remove(session_id)
+                    current_ids.insert(index, session_id)
         previous_by_id = {
             session_id: (label, classes)
             for session_id, label, classes in self._row_snapshot
         }
         for session_id, label, classes in rows:
             widget = self._row_widgets.get(session_id)
-            if widget is None:
+            if widget is None or session_id not in previous_by_id:
                 continue
-            previous_label, previous_classes = previous_by_id.get(session_id, ("", ""))
+            previous_label, previous_classes = previous_by_id[session_id]
             if label != previous_label:
                 widget.update(label)
             if classes != previous_classes:

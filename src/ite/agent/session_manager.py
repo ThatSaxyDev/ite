@@ -214,10 +214,12 @@ class SessionManager:
         self.sessions_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoints_dir = self.data_dir / "checkpoints"
         self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+        self.metadata_dir = self.data_dir / "session_metadata"
+        self.metadata_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(self.sessions_dir, 0o700)
         os.chmod(self.checkpoints_dir, 0o700)
 
-    def _atomic_write_json(self, file_path: Path, data: dict[str, Any]) -> None:
+    def _atomic_write_json(self, file_path: Path, data: dict[str, Any]) -> os.stat_result:
         tmp_path = file_path.with_name(
             f".{file_path.name}.{os.getpid()}.{uuid4().hex}.tmp"
         )
@@ -227,8 +229,10 @@ class SessionManager:
                 f.flush()
                 os.fsync(f.fileno())
 
+            file_stat = tmp_path.stat()
             os.replace(tmp_path, file_path)
             os.chmod(file_path, 0o600)
+            return file_stat
         finally:
             if tmp_path.exists():
                 try:
@@ -298,7 +302,69 @@ class SessionManager:
 
     def save_session(self, snapShot: SessionSnapshot) -> None:
         file_path = self.sessions_dir / f"{snapShot.session_id}.json"
-        self._atomic_write_json(file_path, snapShot.to_dict())
+        data = snapShot.to_dict()
+        file_stat = self._atomic_write_json(file_path, data)
+        self._write_session_metadata(file_path, data, file_stat)
+
+    @staticmethod
+    def _session_metadata(data: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: data.get(key)
+            for key in (
+                "session_id", "name", "workspace_path", "created_at",
+                "updated_at", "turn_count",
+            )
+        }
+
+    def _write_session_metadata(
+        self, file_path: Path, data: dict[str, Any], file_stat: os.stat_result
+    ) -> None:
+        try:
+            self._atomic_write_json(
+                self.metadata_dir / file_path.name,
+                {
+                    "version": 1,
+                    "mtime_ns": file_stat.st_mtime_ns,
+                    "size": file_stat.st_size,
+                    "inode": file_stat.st_ino,
+                    "session": self._session_metadata(data),
+                },
+            )
+        except OSError:
+            # The index is disposable; failure must not invalidate a saved session.
+            logger.warning("Could not cache session metadata for %s", file_path.name)
+
+    def _load_session_metadata(self, file_path: Path) -> dict[str, Any] | None:
+        try:
+            before = file_path.stat()
+        except FileNotFoundError:
+            return None
+        try:
+            metadata = json.loads((self.metadata_dir / file_path.name).read_text())
+            if (
+                metadata.get("version") == 1
+                and metadata.get("mtime_ns") == before.st_mtime_ns
+                and metadata.get("size") == before.st_size
+                and metadata.get("inode") == before.st_ino
+                and isinstance(metadata.get("session"), dict)
+                and all(key in metadata["session"] for key in REQUIRED_SESSION_FIELDS)
+            ):
+                return metadata["session"]
+        except (OSError, ValueError, AttributeError):
+            pass
+        # Backfill old stores, and detect edits made by older or external clients.
+        data = self._load_session_json(file_path)
+        if data is None:
+            return None
+        try:
+            after = file_path.stat()
+            if (before.st_mtime_ns, before.st_size, before.st_ino) == (
+                after.st_mtime_ns, after.st_size, after.st_ino
+            ):
+                self._write_session_metadata(file_path, data, after)
+        except FileNotFoundError:
+            return None
+        return self._session_metadata(data)
 
     def list_sessions(
         self,
@@ -311,7 +377,7 @@ class SessionManager:
         )
         sessions = []
         for file_path in self.sessions_dir.glob("*.json"):
-            data = self._load_session_json(file_path)
+            data = self._load_session_metadata(file_path)
             if not data:
                 continue
 
@@ -339,10 +405,7 @@ class SessionManager:
 
     def list_workspaces(self) -> list[str]:
         workspaces: set[str] = set()
-        for file_path in self.sessions_dir.glob("*.json"):
-            data = self._load_session_json(file_path)
-            if not data:
-                continue
+        for data in self.list_sessions():
             workspace = data.get("workspace_path")
             if workspace:
                 workspaces.add(str(Path(workspace).resolve()))
@@ -365,7 +428,11 @@ class SessionManager:
         try:
             file_path.unlink()
         except FileNotFoundError:
-            return
+            pass
+        try:
+            (self.metadata_dir / file_path.name).unlink()
+        except FileNotFoundError:
+            pass
 
     def save_checkpoint(self, snapshot: SessionSnapshot) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

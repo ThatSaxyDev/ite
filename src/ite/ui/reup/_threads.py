@@ -352,18 +352,18 @@ class ThreadsMixin:
             elif is_running:
                 state = "running"
             rows_by_session_id[session_id] = (session_id, title, state, "open")
-        sessions = SessionManager().list_sessions(
-            workspace_path=self.config.cwd,
-            include_legacy_unscoped=False,
-        )
+        workspace_key = str(Path(self.config.cwd).resolve())
+        sessions = self._thread_history_cache.get(workspace_key, [])
+        discovered_ids = set(discovered_order)
         for session in sessions:
             session_id = str(session.get("session_id", "") or "").strip()
             if not session_id:
                 continue
             if int(session.get("turn_count", 0) or 0) <= 0:
                 continue
-            if session_id not in discovered_order:
+            if session_id not in discovered_ids:
                 discovered_order.append(session_id)
+                discovered_ids.add(session_id)
             if session_id in open_session_ids:
                 continue
             title = str(session.get("name") or "").strip()
@@ -376,9 +376,11 @@ class ThreadsMixin:
             self._thread_nav_order = [
                 sid for sid in self._thread_nav_order if sid in available
             ]
+            ordered_ids = set(self._thread_nav_order)
             for session_id in discovered_order:
-                if session_id not in self._thread_nav_order:
+                if session_id not in ordered_ids:
                     self._thread_nav_order.append(session_id)
+                    ordered_ids.add(session_id)
         return [
             rows_by_session_id[session_id]
             for session_id in self._thread_nav_order
@@ -396,7 +398,74 @@ class ThreadsMixin:
 
     def _thread_switcher_panel_is_open(self) -> bool:
         panel = self._thread_switcher_panel
-        return bool(panel is not None and panel.is_mounted)
+        return bool(panel is not None and panel.is_mounted and panel.display)
+
+    def _queue_thread_history_refresh(self, *, force: bool = False) -> None:
+        workspace = str(Path(self.config.cwd).resolve())
+        worker = self._thread_history_worker
+        if worker is not None and not worker.is_finished:
+            if self._thread_history_workspace == workspace:
+                return
+            worker.cancel()
+        last_refresh = self._thread_history_refreshed_at.get(workspace)
+        if not force and last_refresh is not None and time.monotonic() - last_refresh < 5:
+            return
+        self._thread_history_workspace = workspace
+        self._thread_history_errors.pop(workspace, None)
+        self._thread_history_worker = self.run_worker(
+            self._refresh_thread_history(workspace),
+            group="thread-history",
+            exclusive=True,
+        )
+
+    async def _refresh_thread_history(self, workspace: str) -> None:
+        def load() -> list[dict[str, Any]]:
+            return SessionManager().list_sessions(
+                workspace_path=workspace, include_legacy_unscoped=False
+            )
+
+        try:
+            sessions = await asyncio.to_thread(load)
+        except (OSError, ValueError, TypeError):
+            logger.exception("Could not refresh saved thread metadata")
+            self._thread_history_errors[workspace] = "Saved threads unavailable. Reopen to retry."
+            if (
+                workspace == str(Path(self.config.cwd).resolve())
+                and self._thread_switcher_panel_is_open()
+            ):
+                self._thread_switcher_panel.set_history_status(
+                    "Saved threads unavailable. Reopen to retry."
+                )
+            return
+        if self._cloud_signed_out or self._shutdown_started or not self.is_mounted:
+            return
+        if workspace != str(Path(self.config.cwd).resolve()):
+            return
+        self._thread_history_cache[workspace] = sessions
+        self._thread_history_errors.pop(workspace, None)
+        self._thread_history_refreshed_at[workspace] = time.monotonic()
+        if self._thread_switcher_panel_is_open():
+            await self._sync_thread_switcher_panel(refresh_history=False)
+
+    def _clear_thread_history_cache(self) -> None:
+        if self._thread_history_worker is not None:
+            self._thread_history_worker.cancel()
+        self._thread_history_worker = None
+        self._thread_history_workspace = None
+        self._thread_history_cache.clear()
+        self._thread_history_refreshed_at.clear()
+        self._thread_history_errors.clear()
+
+    def _forget_saved_thread(self, session_id: str) -> None:
+        # A scan started before deletion must not put the deleted row back.
+        if self._thread_history_worker is not None:
+            self._thread_history_worker.cancel()
+            self._thread_history_worker = None
+        for workspace, sessions in self._thread_history_cache.items():
+            self._thread_history_cache[workspace] = [
+                row for row in sessions if row.get("session_id") != session_id
+            ]
+        self._thread_history_refreshed_at.clear()
 
 
     def _insert_thread_nav_session_at_top(self, session_id: str | None) -> None:
@@ -442,7 +511,8 @@ class ThreadsMixin:
         if self._cloud_signed_out:
             tabs.display = False
             tabs_scroll.display = False
-            await self._hide_thread_switcher_panel(remember=False)
+            self._clear_thread_history_cache()
+            await self._hide_thread_switcher_panel(remember=False, dispose=True)
             return
         tabs.display = False
         tabs_scroll.display = False
@@ -450,7 +520,9 @@ class ThreadsMixin:
         return
 
 
-    async def _sync_thread_switcher_panel(self, *, force_open: bool = False) -> None:
+    async def _sync_thread_switcher_panel(
+        self, *, force_open: bool = False, refresh_history: bool = True
+    ) -> None:
         async with self._thread_switcher_sync_lock:
             if not self.is_mounted:
                 return
@@ -459,30 +531,45 @@ class ThreadsMixin:
             if self._cloud_signed_out or count <= 0 or self._commands_panel_is_open():
                 if count <= 0:
                     self._thread_switcher_dismissed_count = 0
-                await self._hide_thread_switcher_panel(remember=False)
+                await self._hide_thread_switcher_panel(
+                    remember=False, dispose=self._cloud_signed_out or count <= 0
+                )
                 return
             if force_open:
                 self._thread_switcher_dismissed_count = 0
             should_open = force_open or self._thread_switcher_should_auto_open()
             if not should_open and not self._thread_switcher_panel_is_open():
                 return
+            if refresh_history:
+                self._queue_thread_history_refresh(force=force_open)
             threads = self._thread_switcher_threads()
             panel = self._thread_switcher_panel
-            if panel is None or not panel.is_mounted:
+            if panel is None or not panel.is_attached:
                 panel = ThreadSwitcherSidePanel(
                     threads=threads,
                     email=self._cloud_user_email or "",
                     image=self._cloud_user_image,
                     id="thread-switcher-panel",
                 )
-                await self.screen.mount(panel)
                 self._thread_switcher_panel = panel
+                self._thread_switcher_mount = self.screen.mount(panel)
+                await self._thread_switcher_mount
+                # A fast history worker may finish while the panel is mounting.
+                await panel.refresh_threads(self._thread_switcher_threads())
             else:
+                if not panel.is_mounted and self._thread_switcher_mount is not None:
+                    await self._thread_switcher_mount
+                panel.display = True
                 await panel.refresh_threads(threads)
                 panel.refresh_account_info(
                     self._cloud_user_email or "",
                     self._cloud_user_image,
                 )
+            workspace = str(Path(self.config.cwd).resolve())
+            panel.set_history_status(
+                self._thread_history_errors.get(workspace)
+                or ("Loading saved threads…" if workspace not in self._thread_history_cache else "")
+            )
             self._apply_thread_switcher_button_state()
 
 
@@ -496,16 +583,19 @@ class ThreadsMixin:
         )
 
 
-    async def _hide_thread_switcher_panel(self, *, remember: bool = True) -> None:
+    async def _hide_thread_switcher_panel(
+        self, *, remember: bool = True, dispose: bool = False
+    ) -> None:
         if remember:
             self._thread_switcher_dismissed_count = len(self._open_session_order)
         panel = self._thread_switcher_panel
-        self._thread_switcher_panel = None
         if panel is not None:
-            try:
+            if dispose:
+                self._thread_switcher_panel = None
+                self._thread_switcher_mount = None
                 await panel.remove()
-            except Exception:
-                pass
+            else:
+                panel.display = False
         self._apply_thread_switcher_button_state()
         self._maybe_focus_prompt()
 
@@ -1058,6 +1148,7 @@ class ThreadsMixin:
 
         next_session_id = self._neighbor_session_id_for_close(current_session_id)
         SessionManager().delete_session(current_session_id)
+        self._forget_saved_thread(current_session_id)
 
         self._open_sessions.pop(current_session_id, None)
         self._open_session_workspaces.pop(current_session_id, None)

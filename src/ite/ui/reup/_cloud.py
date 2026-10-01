@@ -1333,6 +1333,8 @@ class CloudMixin:
 
 
     async def _reset_runtime_after_cloud_logout(self) -> None:
+        self._clear_thread_history_cache()
+        await self._hide_thread_switcher_panel(remember=False, dispose=True)
         if self._is_turn_running:
             await self.cancel_active_turn()
         if self.agent and self.agent.session and self.agent.session.turn_count > 0:
