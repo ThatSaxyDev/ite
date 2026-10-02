@@ -369,7 +369,7 @@ class CloudMixin:
 
     async def _refresh_bundled_models_cache(self) -> None:
         try:
-            result = await asyncio.to_thread(get_bundled_models_result, self.config)
+            result = await self._cloud_status_request("models", get_bundled_models_result, self.config)
         except Exception:
             return
         if not self._apply_cloud_auth_status(
@@ -440,7 +440,7 @@ class CloudMixin:
 
     async def _refresh_usage_summary_cache(self) -> dict[str, Any] | None:
         try:
-            summary = await asyncio.to_thread(get_usage_summary, self.config)
+            summary = await self._cloud_status_request("usage", get_usage_summary, self.config)
         except Exception:
             self._set_usage_summary_cache(None)
             return None
@@ -467,7 +467,7 @@ class CloudMixin:
 
     async def _refresh_activity_cache(self) -> None:
         try:
-            payload = await asyncio.to_thread(get_activity, self.config)
+            payload = await self._cloud_status_request("activity", get_activity, self.config)
         except Exception:
             return
         self._activity_cache = payload
@@ -475,11 +475,13 @@ class CloudMixin:
 
     async def _cloud_status_request(self, key: str, function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Bound UI waiting; retain unfinished transports to prevent retry pileups."""
-        from ite.cloud.request_budget import run_status_request
+        from ite.cloud.request_budget import run_status_request_async
 
+        if self._cloud_status_closed:
+            raise asyncio.CancelledError
         task = self._cloud_status_tasks.get(key)
         if task is None or task.done():
-            task = asyncio.create_task(asyncio.to_thread(run_status_request, function, *args, **kwargs))
+            task = asyncio.create_task(run_status_request_async(function, *args, **kwargs))
             self._cloud_status_tasks[key] = task
 
             def finished(completed: asyncio.Task[Any]) -> None:
@@ -713,7 +715,7 @@ class CloudMixin:
             return
         self._runtime_update_check_in_flight = True
         try:
-            notice = await asyncio.to_thread(check_runtime_update, self.config)
+            notice = await self._cloud_status_request("update", check_runtime_update, self.config)
             if notice is None:
                 return
             should_show = await asyncio.to_thread(should_show_update_notice, notice)
@@ -887,7 +889,7 @@ class CloudMixin:
             return
         self._usage_refresh_in_flight = True
         try:
-            summary = await asyncio.to_thread(get_usage_summary, self.config)
+            summary = await self._cloud_status_request("usage", get_usage_summary, self.config)
             self._set_usage_summary_cache(summary)
         except Exception:
             self._set_usage_summary_cache(None)
@@ -1210,7 +1212,7 @@ class CloudMixin:
     async def _run_cloud_login_flow(self) -> None:
         if self._cloud_auth_busy:
             return
-        auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
+        auth = await self._cloud_status_request("auth", get_cloud_auth_status, self.config)
         auth_state = auth.state if auth else CloudSessionState.SIGNED_OUT
         if auth_state == CloudSessionState.VALID:
             self._apply_cloud_auth_status(auth)
@@ -1394,7 +1396,7 @@ class CloudMixin:
 
 
     async def _run_cloud_status_flow(self) -> None:
-        auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
+        auth = await self._cloud_status_request("auth", get_cloud_auth_status, self.config)
         if auth.state == CloudSessionState.VALID:
             self._apply_cloud_auth_status(auth)
             self._prefetch_cloud_caches()

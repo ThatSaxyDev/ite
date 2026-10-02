@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
+import textwrap
 import threading
 import unittest
 from pathlib import Path
@@ -15,12 +18,93 @@ from textual.widgets import Static, TextArea
 
 from ite.cloud import auth
 from ite.cloud.auth import CloudAuthStatus, CloudEntitlementsResult, CloudSessionState
-from ite.cloud.request_budget import http_settings, run_status_request
+from ite.cloud.request_budget import (
+    http_settings,
+    run_status_request,
+    run_status_request_async,
+)
 from ite.config.config import Config
 from ite.ui.reup.app import ReupApp
 
 
 class CloudStatusBudgetTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancellation_prevents_worker_from_starting_another_http_request(self):
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        outcomes = []
+
+        def stalled():
+            started.set()
+            release.wait(3)
+            try:
+                http_settings(10, 10)
+            except TimeoutError:
+                outcomes.append("cancelled")
+            finally:
+                finished.set()
+
+        task = asyncio.create_task(run_status_request_async(stalled))
+        while not started.is_set():
+            await asyncio.sleep(0.01)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        release.set()
+        while not finished.is_set():
+            await asyncio.sleep(0.01)
+        self.assertEqual(outcomes, ["cancelled"])
+
+    def test_process_exits_after_tui_closes_with_stalled_cloud_requests(self):
+        script = textwrap.dedent('''
+            import asyncio
+            import threading
+            from unittest.mock import patch
+            from ite.config.config import Config
+            from ite.ui.reup.app import ReupApp
+
+            started = threading.Event()
+            def stalled(*args, **kwargs):
+                started.set()
+                threading.Event().wait(60)
+
+            async def run():
+                app = ReupApp(Config())
+                async def bootstrap():
+                    app._cloud_bootstrap_busy = False
+                    app._set_startup_state(False)
+                with (
+                    patch.object(app, "_bootstrap_after_mount", bootstrap),
+                    patch("ite.ui.reup.settings.SettingsPanel.refresh_cloud_data"),
+                    patch("ite.ui.reup._cloud.get_cloud_entitlements_result", stalled),
+                    patch("ite.ui.reup._cloud.get_bundled_models_result", stalled),
+                    patch("ite.ui.reup._cloud.get_activity", stalled),
+                ):
+                    async with app.run_test(size=(100, 30)) as pilot:
+                        await pilot.pause()
+                        app._prefetch_cloud_caches()
+                        for _ in range(100):
+                            if started.is_set():
+                                break
+                            await asyncio.sleep(0.01)
+                        assert started.is_set()
+                        app.exit()
+                    assert app._cloud_status_closed
+                    assert not app._cloud_status_tasks
+                print("TERMINAL_RETURNED")
+
+            asyncio.run(run())
+        ''')
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("TERMINAL_RETURNED", result.stdout)
+
     def test_status_transport_is_fast_and_normal_retry_policy_is_unchanged(self):
         for function, args in (
             (auth._get_json, ("https://offline.example.test",)),

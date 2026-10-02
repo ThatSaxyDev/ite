@@ -113,7 +113,8 @@ class TurnMixin:
             status, checked_at = self._remote_access_cache
             if now - checked_at < 60:
                 return status
-        status = await asyncio.to_thread(
+        status = await self._cloud_status_request(
+            "remote-access",
             get_remote_companion_access_status,
             self.config,
         )

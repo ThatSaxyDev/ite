@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import sys
 import webbrowser
 from datetime import date, datetime, timedelta
@@ -25,6 +24,7 @@ from ite.cloud import (
     get_cloud_entitlements_result,
     get_usage_summary,
 )
+from ite.cloud.request_budget import run_status_request_async
 from ite.skills.manager import SkillManager
 from ite.skills.trust import SkillTrustManager
 from ite.tools.registry import create_default_registry, refresh_subagent_tools
@@ -606,7 +606,7 @@ class SettingsPanel(Widget):
             self._apply_usage_summary(cached_summary)
 
         try:
-            entitlements_result = await asyncio.to_thread(
+            entitlements_result = await run_status_request_async(
                 get_cloud_entitlements_result, app.config
             )
         except Exception:
@@ -648,7 +648,7 @@ class SettingsPanel(Widget):
 
         summary = cached_summary if isinstance(cached_summary, dict) else None
         try:
-            refreshed_summary = await asyncio.to_thread(get_usage_summary, app.config)
+            refreshed_summary = await run_status_request_async(get_usage_summary, app.config)
         except Exception:
             refreshed_summary = None
         if isinstance(refreshed_summary, dict):
@@ -845,7 +845,7 @@ class SettingsPanel(Widget):
     async def _load_activity(self) -> None:
         cached_payload = getattr(self.app, "_activity_cache", None)
         try:
-            refreshed_payload = await asyncio.to_thread(get_activity, self.app.config)
+            refreshed_payload = await run_status_request_async(get_activity, self.app.config)
         except Exception:
             refreshed_payload = None
         payload = (

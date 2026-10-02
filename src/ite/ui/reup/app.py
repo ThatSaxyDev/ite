@@ -495,6 +495,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
         self._cloud_status_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._cloud_status_closed = False
         self._cloud_network_probe_in_flight: bool = False
         self._cloud_network_last_probe_at: float = 0.0
         self._cloud_network_watch_enabled: bool = False
@@ -1315,6 +1316,12 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
             )
 
     async def on_unmount(self) -> None:
+        self._cloud_status_closed = True
+        cloud_tasks = list(self._cloud_status_tasks.values())
+        for task in cloud_tasks:
+            task.cancel()
+        await asyncio.gather(*cloud_tasks, return_exceptions=True)
+        self._cloud_status_tasks.clear()
         self._clear_thread_history_cache()
         signal.signal(signal.SIGINT, signal.SIG_DFL)
         if self._voice_recorder is not None:
