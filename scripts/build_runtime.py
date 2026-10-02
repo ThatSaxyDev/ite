@@ -375,6 +375,8 @@ def build_target(
     stage_dir.mkdir(parents=True, exist_ok=True)
     # Copy entire COLLECT directory into the staging archive dir
     shutil.copytree(binary_dir, stage_dir / executable, dirs_exist_ok=True)
+    # Keep the MIT notice with the bundle, including after Windows installation.
+    shutil.copy2(PROJECT_ROOT / "LICENSE", stage_dir / executable / "LICENSE")
     # Make the entry point executable
     entry_point = stage_dir / executable / executable
     entry_point.chmod(0o755)

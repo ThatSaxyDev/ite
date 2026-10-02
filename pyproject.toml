@@ -9,6 +9,7 @@ description = "Your AI coding agent for your terminal"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
+license-files = ["LICENSE"]
 keywords = ["ai", "agent", "terminal", "cli", "llm"]
 classifiers = ["Development Status :: 3 - Alpha", "Environment :: Console", "Intended Audience :: Developers", "Programming Language :: Python :: 3", "Topic :: Software Development :: Libraries"]
 dependencies = ["click", "rich", "openai", "pydantic", "tiktoken", "html2text", "beautifulsoup4", "PyYAML", "pypdf", "pdf-inspector", "firecrawl-anydoc", "Pillow", "pytesseract", "ddgs", "tomli", "platformdirs", "fastmcp", "lxml", "textual[syntax]>=8.2.0", "certifi", "cryptography>=46.0.0", "python-telegram-bot[job-queue]>=21.0", "telegramify-markdown>=1.2.0", "websockets>=14"]
