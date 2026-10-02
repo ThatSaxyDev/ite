@@ -1,246 +1,225 @@
-# iTE — codebase overview as of 2026-09-30
+# iTE — codebase overview as of 2026-10-02
 
-> Snapshot taken 2026-09-30 at commit `79eaaa0` ("Preserve conversation scroll position during streaming"), package `ite-agent` v0.2.25.
-> Everything below was read from source, not from marketing copy.
-> `src/ite/ui/reup/legacy/` was deliberately **not** read — it is a pre-refactor archive that `AGENTS.md` forbids loading.
+> Source baseline: `ae2f501a` (main/development synchronization), package `ite-agent` v0.2.31, plus the root cleanup accompanying this document.
+> This is a source review and targeted verification snapshot, not a claim that every feature has been tested end to end.
+> Counts use Git-tracked files and physical lines, excluding `src/ite/ui/reup/legacy/`. That archive was not read.
 
----
+## Product and licensing
 
-## What it is
+iTE is a Python 3.11+ coding agent for the terminal, with a Textual interface, an OpenAI-compatible model client, filesystem and shell tools, and optional cloud and remote integrations. It ships as a Python package and as PyInstaller standalone bundles.
 
-A Python 3.11+ CLI / Textual TUI coding agent, shipped both as a standalone binary and a PyPI package.
+The terminal runtime is open source under the [MIT License](LICENSE). GitHub recognizes the license on the public repository. The hosted web application and backend API are proprietary, separately offered subscription services. Runtime licensing does not grant cloud service access; third-party dependencies and bundled materials retain their own licenses.
 
 ```bash
-curl -fsSL https://ite.kiishi.space/install.sh | bash     # macOS / Linux
-irm https://ite.kiishi.space/install.ps1 | iex             # Windows PowerShell
-pipx install ite-agent                                     # or from PyPI
+curl -fsSL https://ite.kiishi.space/install.sh | bash
+# Windows PowerShell:
+# irm https://ite.kiishi.space/install.ps1 | iex
+pipx install ite-agent
 ```
 
-Scale: **~73k LOC** of source (excluding `legacy/`), **85 test files / ~29k LOC** of tests.
+Installer source now lives in `scripts/install.sh` and `scripts/install.ps1`. The hosted installer URLs remain unchanged: the release publisher copies those files to the cloud web application's `public/` directory.
 
----
+## Repository scale
 
-## Core architecture
+| Area | Tracked files | Physical lines |
+|---|---:|---:|
+| Runtime Python, excluding legacy | 201 | 76,285 |
+| Reup Python, included in runtime total | 37 | 27,539 |
+| Reup stylesheets | 8 | 4,571 |
+| Python files under tests | 106 | 33,991 |
 
-| Layer | Location | What it does |
+These are file and line counts, not executed-test counts or coverage percentages. The builtin tool list contains **48 classes**. Session-specific learning tooling, specialist subagents, discovered custom tools, and connected MCP servers can add to the actual registry; allowlists and learning mode can reduce the schemas exposed to the model.
+
+## Changes since the September 30 snapshot
+
+The previous document described v0.2.25. Source now includes:
+
+- Durable Goal mode with milestone plans, proof records, tool and verification metrics, persisted state, and controlled continuations.
+- Experimental learning mode: the learner writes code while iTE provides conceptual guidance, hints, and review; a guided setup flow manages `learn.md` preferences.
+- One `/permissions` surface replacing separate user-facing approval and sandbox controls.
+- Context compaction improvements and provider-aware context-window discovery, including Ollama metadata.
+- Background saved-thread loading, metadata sidecars, and preserved early thread-switcher interactions.
+- Hierarchical slash-command completion, a command-argument catalog, and paced assistant text display.
+- Evidence-based, cancellable `/init` generation, including positional `force` and `--force` forms.
+- Cloud status request budgets, cached-state handling, and daemon workers that avoid blocking interpreter shutdown.
+- AI-generated Conventional Commit validation and retries, a wrapping commit editor, and Windows installer/runtime packaging fixes.
+- An explicit MIT license, distribution notices, and the root script cleanup.
+
+## Architecture and configuration
+
+| Layer | Source | Responsibility |
 |---|---|---|
-| Entry point | `src/ite/main.py:140` | Click group `IteGroup` → `run_reup(config)` |
-| Agent loop | `src/ite/agent/agent.py:1510` (`_agentic_loop`) | Streaming tool-calling loop; `AgentEvent` generator |
-| Events | `src/ite/agent/events.py:34` | Typed event stream (text deltas, tool start/complete, compaction, plan-ready) |
-| LLM client | `src/ite/client/llm_client.py` (1,640 lines) | OpenAI-compatible abstraction, streaming, retries |
-| Context | `src/ite/context/manager.py`, `compaction.py`, `loop_detector.py` | Token budgeting, auto-compaction, loop detection |
-| Tools | `src/ite/tools/base.py:166` (`Tool` ABC), `registry.py:118` (`invoke`) | 47 registered built-ins + MCP |
-| Safety | `src/ite/safety/approval.py:271`, `sandbox.py:18` | 5 approval modes, path sandbox, git sandbox |
-| UI | `src/ite/ui/reup/` | Textual app, ~24.7k LOC |
+| CLI | [main.py](src/ite/main.py) | Click options, configuration, upgrade dispatch, TUI and remote entry points |
+| Agent | [agent.py](src/ite/agent/agent.py), [events.py](src/ite/agent/events.py) | Streaming model/tool loop and typed events |
+| Session | [session.py](src/ite/agent/session.py), [session_manager.py](src/ite/agent/session_manager.py) | Runtime services, saved sessions, checkpoints, goal and learning state |
+| Model client | [llm_client.py](src/ite/client/llm_client.py) | OpenAI-compatible requests, streaming and retries |
+| Context | [manager.py](src/ite/context/manager.py), [compaction.py](src/ite/context/compaction.py) | Prompt layers, token budgets, continuation summaries and retained transcripts |
+| Tools | [registry.py](src/ite/tools/registry.py), [policy.py](src/ite/tools/policy.py) | Discovery, argument normalization, eligibility and invocation |
+| Permissions | [permissions.py](src/ite/safety/permissions.py), [sandbox.py](src/ite/safety/sandbox.py) | Invocation authorization and path checks |
+| UI | [app.py](src/ite/ui/reup/app.py), [styles](src/ite/ui/reup/styles) | Textual runtime and theme/layout rules |
 
-### CLI surface
+Configuration is layered through `src/ite/config/loader.py`, using global `~/.ite/config.toml`, workspace `.ite/config.toml`, environment settings, and CLI overrides. `src/ite/config/config.py` holds Pydantic models and compatibility handling. `AGENTS.md` provides repository guidance; `DESIGN.md` is the terminal UI contract.
 
-```
-ite                                  # launch Reup TUI
-ite --cwd / --model / --api-key / --base-url / --resume-last / --upgrade
-ite mcp add <server> <url|command>    # persist MCP server definitions
-ite cloud login|status|logout        # iTE Cloud session
-ite remote host enroll|status|forget # enroll this machine as a host
-ite remote serve                     # host supervisor (multi-user runtime)
-ite remote child                     # internal, one provisioned runtime process
-```
+The CLI launches the TUI with `ite`. Options include `--cwd`, `--model`, `--api-key`, `--base-url`, `--resume-last`, and `--upgrade`. Other entry points manage MCP definitions, cloud login/status/logout, host enrollment, the remote supervisor, and internal remote child processes.
 
----
+## Tool inventory and routing
 
-## Tool system
-
-Everything is a `Tool` subclass (`ToolKind`: READ / WRITE / SHELL / NETWORK / MEMORY / MCP).
-
-**47 registered built-ins** across `src/ite/tools/builtin/`:
+The explicit builtin class list in [builtin/__init__.py](src/ite/tools/builtin/__init__.py) covers:
 
 | Category | Tools |
 |---|---|
-| Files | `read_file`, `write_file`, `edit` |
-| Structured config | `read_toml`/`write_toml`, `read_yaml`/`write_yaml`, `read_env`/`write_env`, `read_json`/`edit_json` |
-| Search / nav | `grep`, `glob`, `list_dir` |
-| Shell | `shell`, `shell_start`, `shell_poll`, `shell_send`, `shell_stop` (persistent sessions) |
-| Verification | `run_tests`, `run_linter`, `run_typecheck` (auto-detects project commands) |
+| Files and navigation | `read_file`, `write_file`, `edit`, `grep`, `glob`, `list_dir` |
+| Structured configuration | `read_toml`, `write_toml`, `read_yaml`, `write_yaml`, `read_env`, `write_env`, `read_json`, `edit_json` |
+| Shell sessions | `shell`, `shell_start`, `shell_poll`, `shell_send`, `shell_stop` |
+| Verification | `run_tests`, `run_linter`, `run_typecheck` |
 | Network | `http_request`, `web_search`, `web_fetch` |
-| Media / docs | `read_pdf`, `read_image` (OCR), `read_document` (docx/xlsx/pptx/odt/rtf/epub), `list_archive` |
-| Git | `git_status`, `git_diff`, `git_log` (read) · `git_branch`, `git_commit`, `git_push`, `git_remote` (write) |
-| Agent state | `todos`, `memory`, `goal_progress`, `goal_outcome`, `plan_question` |
+| Documents and media | `read_pdf`, `read_image`, `read_document`, `list_archive` |
+| Git | `git_status`, `git_diff`, `git_log`, `git_branch`, `git_commit`, `git_push`, `git_remote` |
+| State and planning | `todos`, `memory`, `goal_progress`, `goal_outcome`, `plan_question` |
 | Skills | `skills` |
-| Subagent runtime | `spawn_subagent`, `spawn_subagents`, `wait_subagent`, `list_subagents`, `cancel_subagent`, `subagent_metrics` |
+| Async subagents | `spawn_subagent`, `spawn_subagents`, `wait_subagent`, `list_subagents`, `cancel_subagent`, `subagent_metrics` |
 
-### Notable design choices
+Tool metadata drives mutability, planning eligibility, risk, and subagent eligibility. The deterministic selection policy redirects supported structured formats away from generic text operations and restricts mutations during the planning phase. The registry repairs common argument aliases and malformed argument encodings before invoking tools.
 
-- **Structured editors over raw text.** `ToolSelectionPolicy` (`tools/policy.py:17`) actively *blocks* `read_file` / `edit` on `.json` / `.toml` / `.yaml` / `.env` / `.pdf` / office / image targets and redirects to the structured reader. Returns a `PolicyDecision` carrying `reason` + `redirect_to`.
-- **LLM-arg repair.** `registry.py:387` normalizes param aliases (`file`→`path`, `old`→`old_string`) and regex-scrapes malformed `raw_arguments` JSON.
-- **Plan-mode enforcement.** The same policy blocks anything lacking `allowed_in_plan_mode` while planning, except `shell` when `is_safe_command()` passes. It also redirects trivial `subagent_*` lookups back to `grep` (`_looks_like_simple_lookup`, `policy.py:209`).
-- **MCP.** `mcp_manager.py:213` namespaces remote tools as `server__tool`; removal is prefix-based. `MCPTool` derives mutability from `readOnlyHint` / `destructiveHint` and adds a preflight layer that suggests a sibling list/search tool when an identifier param is missing.
-- **Custom tools.** Drop a `.py` in `.ite/tools/`; discovered by reflection (`discovery.py:34`).
-- **Full inventory every turn.** `get_schemas()` (`registry.py:94`) is called on each LLM turn with no filtering — the model sees all 47+ schemas every time, never a trimmed subset.
+`get_schemas()` uses `get_tools()`: configured allowlists and learning mode are applied. The previous claim that every turn always exposes an unfiltered inventory was incorrect. Learning mode exposes its restricted inspection set and adds `learn_progress` through the session.
 
-### Gap: `apply_patch` is registered nowhere
+`web_search` runs the synchronous search client in a worker thread. `web_fetch` uses async HTTP and moves HTML parsing/conversion off the event loop. These changes address UI responsiveness; they do not make every tool nonblocking.
 
-`ApplyPatchTool` (`tools/builtin/apply_patch.py:46`) is implemented, referenced in `registry.py:474` normalization, in `agent.py:1466`, and in `subagent.py:122`'s mutating set — and the system prompt actively instructs the model to prefer it (`prompts/system.py:447`).
+**Confirmed gap:** `ApplyPatchTool` exists in `src/ite/tools/builtin/apply_patch.py`, but is absent from the default builtin list and exports. Normalization and prompt references do not make it available in the default registry. Custom registration is a separate mechanism.
 
-But it is **not** listed in `get_all_builtin_tools()` nor in `builtin/__init__.py`'s `__all__`, so `create_default_registry()` never registers it. **Unreachable in practice.**
+## Goal mode
 
----
+[goal.py](src/ite/agent/goal.py) defines thread-scoped state outside the TUI. Statuses are `active`, `paused`, `blocked`, `budget_limited`, and `completed`. The state records milestones, proof entries, events, a blocker, latest evidence, and elapsed/work/model/tool/verification metrics.
 
-## Subagents
+`/goal <objective>` creates a goal; `/goal` inspects it; `pause`, `resume`, `edit`, and `clear` manage its lifecycle. Edits leave a goal paused. A saved active goal restores as paused after the runtime was not running. Clearing retains bounded goal history.
 
-Two distinct mechanisms:
+`goal_progress` records milestone planning and completion evidence; `goal_outcome` records terminal outcomes. The Reup turn layer schedules continuations when an active goal is eligible, keeps continuation state per thread, and pauses or limits work for user interruptions, approvals, blockers, and usage errors. This is runtime-driven continuation, not a persistent external scheduler.
 
-**1. Synchronous — a subagent *is* a tool.**
-`SubagentTool` (`tools/subagent.py:61`) wraps a `SubagentDefinition` (`name`, `goal_prompt`, `allowed_tools`, `max_turns`, `timeout_seconds`, `inactivity_timeout_seconds`, `retry_attempts`). Tool name is `subagent_<definition.name>`. Execution clones the config with a narrowed allowlist, spins a child `Agent`, and enforces both an absolute deadline *and* a separate inactivity timeout. Retries reuse the child session and feed prior-attempt context forward.
+Sources: [session lifecycle](src/ite/agent/session.py), [goal commands](src/ite/commands/goal.py), [turn orchestration](src/ite/ui/reup/_turn.py), [progress tool](src/ite/tools/builtin/goal_progress.py), [outcome tool](src/ite/tools/builtin/goal_outcome.py).
 
-`supports_subagent_use=False` — subagents cannot spawn subagents, preventing recursion.
+## Learning mode
 
-Six built-ins: `codebase_investigator`, `code_reviewer`, `security_auditor`, `tooling_guardian`, `init_investigator`, `verification_reviewer` (all read-only except the last, which also gets `shell`).
+Learning mode is an experimental capability boundary, not just a different system prompt. [learning.py](src/ite/agent/learning.py) restricts available tools and commands. Source-writing tools, shell execution, arbitrary MCP calls, and subagent execution are not in its inspection allowlist. It supports file/search/structured-read/git-read operations, web research, and `learn_progress`.
 
-**2. Async / batch — fire and poll.**
-`spawn_subagent` / `spawn_subagents` / `wait_subagent` / `list_subagents` / `cancel_subagent` / `subagent_metrics` (`builtin/subagent_runtime_tools.py`) delegate to `agent/subagent_runtime.py`, letting the parent start work and poll later.
+`/learn on` enables it, creates a baseline `learn.md` without overwriting an existing file, and starts with an assistant message inviting a learning objective. `/learn off` restores normal behavior while suspended goals remain paused. Other forms include `status`, `setup`, `init`, `reload`, `hint`, and `review`.
 
-**User-defined subagents** live in `.ite/subagents/*.toml` (project overrides global by name), authored via `/subagent list|create|delete`.
+The guided setup flow collects objective, starting point, pace, and preferences, then offers a profile review. Profile helpers preserve surrounding content, reject malformed section markers and symbolic links, and enforce a 16 KiB UTF-8 limit. Unreadable profiles fall back to built-in preferences. Saved state includes phase, objective, next step, and hint level.
 
----
+Output guards reject common implementation/code patterns. They are conservative heuristics, not a proof that prose cannot disclose a solution. See [commands](src/ite/commands/learn.py), [profile handling](src/ite/agent/learning_profile.py), [setup UI](src/ite/ui/reup/learning_setup.py), and [user guide](docs/learning.md).
 
-## Extensibility
+## Permissions and safety boundaries
 
-- **Skills** — `SKILL.md` bundles with YAML frontmatter plus lazily-loaded `reference/` files. `SkillManager` walks 18 discovery roots (`skills/manager.py:117`) including `~/.agents/skills` plus compat mirrors for Claude, Codex, Cursor, Gemini, OpenCode, Kiro, and Pi (both global and project variants), plus iTE overrides. Workspace trust gating lives in `skills/trust.py`.
-- **Hooks** — user shell commands at `BEFORE_AGENT` / `AFTER_AGENT` / `BEFORE_TOOL` / `AFTER_TOOL` / `ON_ERROR` (`hooks/hook_system.py:56`). Context is injected via env (`ITE_TRIGGER`, `ITE_TOOL_NAME`, `ITE_TOOL_PARAMS`, `ITE_RESPONSE`, `ITE_ERROR`). Timeouts kill the whole process group.
-- **AGENTS.md** scope hierarchy — deeper files override parents; `/init` generates one.
+The current user-facing presets are:
 
----
-
-## Safety / approval gating
-
-Three layers, applied in order:
-
-1. **Policy** — `ApprovalManager.check_approval()` (`safety/approval.py:271`). Non-mutating tools auto-pass. Then: low-risk in-session tools (`todos`, `memory`) → always-confirm tools (`git_commit`, `git_push`) → shell commands routed to `_assess_command_safety()` → non-shell mutations policy-switched by approval mode → default prompt. Command classification is pure regex, compound-aware (`&& || ; |`, `$(...)` unwrapping) with git-subcommand allowlists.
-2. **Tool-level path check** — `Tool._sandbox_check()` (`tools/base.py:231`) → `validate_path()` (`safety/sandbox.py:18`), resolving symlinks against cwd + data dir + `allowed_paths`. Violations surface as tool errors, not exceptions.
-3. **Wiring** — `ApprovalManager` built in `agent/session.py:95`, UI callback attached at `agent/agent.py:91`, threaded through every `tool_registry.invoke(...)`.
-
-`GitSandbox` (`safety/git_sandbox.py:19`) adds optional branch-level isolation: stash WIP → `ite/sandbox-{ts}` → `diff()` / `accept()` / `reject()`, with orphan recovery.
-
----
-
-## Textual UI (`src/ite/ui/reup/`)
-
-`ReupApp` (`app.py:332`) is a mixin stack: `CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, StreamingMixin, App`.
-
-| File | Lines | Role |
-|---|---:|---|
-| `modals.py` | ~3,600 | 18 `ModalScreen` classes (pickers, confirm, commit, setup, activity) |
-| `_streaming.py` | 3,273 | Assistant text streaming + **all** tool-card rendering |
-| `_turn.py` | 2,861 | Turn orchestration, central event router `handle_agent_event:2223`, approvals |
-| `_panels.py` | 2,731 | Panel show/hide, change-review source + diff preview, commit/stage/discard |
-| `_composer.py` | 2,482 | Composer chrome, slash palette, drag-drop, voice, send/queue/steer |
-| `tool_views.py` | 1,746 | Per-tool Rich renderers + syntax/theme utilities |
-| `_cloud.py` | 1,666 | Cloud auth state machine, bundled models, usage polling, shell-surface ladder |
-| `app.py` | 1,653 | `compose()` tree, ~200 state fields, theme tokens, theme re-render |
-| `_threads.py` | 1,298 | Thread registry, header refresh, auto-save, session naming |
-| `widgets/` | ~1,300 | `prompt_area`, `message_row`, `side_panels`, `tool_cards`, `thread_switcher`, `remote_bridge`, `state` |
-| `styles/*.tcss` | 8 files | `base`, `workspace`, `conversation`, `modals`, `settings`, `modal_details`, `shared`, `update_required` |
-
-**Panels are mounted, not composed.** Each `_show_*` mounts onto `self.screen` on demand and hides the others. `aside-panel` is the exception — a persistent right-hand column in the tree.
-
-**Shell state** resolves through `_apply_shell_surface()` (`_cloud.py:973`), a mutual-exclusion priority ladder: startup → required-update → signed-out → onboarding → session-switch → settings → chat.
-
-**Tool cards.** `add_tool_call_start` (`_streaming.py:2248`) picks `ShellToolCard` for shell, `CompactToolCard` (+ `mcp-card` class) for MCP, else plain `CompactToolCard`. Outcome border colors: success `#2f9e63`, policy-redirect `#4d79c7`, recoverable `#a06b15`, failure `#b23a3a`. Completed cards collapse into `ToolCardStack` with read dedupe and recovery demotion. `_tool_completion_state` is what makes theme re-render possible.
-
-**Theme.** The active Textual theme is the single source of truth. `watch_theme` (`app.py:1251`) re-renders completed tool cards, assistant Rich cards, and open panels — per `DESIGN.md` §12, switching is incomplete until historical transcript surfaces repaint.
-
-`DESIGN.md` at the repo root is the binding UI contract: ~750 lines on terminal-specific layout rules, explicit widget sizing, spacing economics, modal consistency, and a 17-item regression checklist.
-
----
-
-## Surfaces beyond the TUI
-
-This package is one of 7 in a monorepo, and the agent has several non-TUI personalities:
-
-- **`src/ite/remote/`** — full multi-user remote runtime. TLS websocket protocol (`security.py:37`), pair-code pairing and trusted-device store (`server.py:135`), per-UID/GID process isolation and orphan reaping (`supervisor.py:145`), cloud relay (`relay.py:55`), GitHub App linkage (`github.py`). Backs the Flutter mobile companion (`ite_remote`) and requires iTE Pro.
-- **`src/ite/cloud/`** — browser OAuth + OS keychain storage (`auth.py:53`, 1,176 lines), entitlements with grace windows, bundled model catalog, usage summaries. Thread-safe refresh.
-- **`src/ite/telegram/`** — a Telegram bot that runs as an asyncio task *inside* the TUI and calls the Agent API directly (not via TLS). Bridges messages to `on_submit_prompt` / `on_cancel_turn` and round-trips inline keyboards for approvals via futures.
-- **`src/ite/integrations/open_island/`** — opt-in (disabled by default) macOS notch-overlay mirroring over a local unix socket (`bridge.py:42`). Plan in `docs/design/open-island-ite-bridge-plan.md`.
-- **`src/ite/voice/`** — speech-to-text, cloud-first with local Groq fallback and a hallucination filter (`transcription.py:126`).
-- **`src/ite/auth/`** — full OpenRouter OAuth2 PKCE flow with loopback callback, headless mode, and Arc-specific browser handling (`openrouter_pkce.py`).
-
----
-
-## Memory
-
-`MemoryManager` (`memory/manager.py:267`) — JSON-backed `short_term` / `long_term` / `episodic` / `semantic` stores, atomic writes, degraded mode.
-
-- Ranking: hotness decay + lexical overlap
-- Long-term preference supersession on overlap
-- Episodic capped at 50, with a low-value filter
-- `memory/intent.py` parses natural-language memory directives, exact-recall probes, conditional preferences
-- `memory/session_memory.py` — per-session working-memory markdown artifact, `0600`, atomic replace, falls back to `.ite/session_memory/` if the data dir is unwritable
-
-The agent short-circuits **before** calling the model on three memory fast paths (`agent.py:298`, `:321`, `:333`).
-
----
-
-## Build & release
-
-`scripts/build_runtime.py` (592 lines) is the single source of truth for artifacts.
-
-- Targets: `darwin-arm64`, `darwin-x64`, `linux-x64` (tar.gz), `win32-x64` (zip)
-- **Generates the PyInstaller spec at build time** into `build/runtime_specs/` — nothing is checked in
-- Auto-harvests `__mypyc*.so` / `.pyd` extensions from site-packages
-- Excludes tkinter, unittest, test, pdb, distutils, setuptools, pip, flet, prompt_toolkit
-- Produces archives + SHA-256 + `dist/manifest.json`
-
-Installers:
-- `install.sh` (399 lines) — detect target → dep check → fetch manifest → idempotency check via `~/.ite/.sha256` stamp (deliberately does not touch existing pipx/uv installs) → resumable download → checksum verify → extract to `~/.ite/`
-- `install.ps1` (263 lines) — Windows equivalent
-
-`.github/workflows/build-runtime.yml` is the only CI workflow.
-
-> ⚠️ **`scripts/github-release.sh` is destructive.** If a release for the version already exists it runs `gh release delete` then recreates it. Verify a version does not already exist before publishing.
-
-> ⚠️ Known bug: `ite --upgrade` fails on Arch with `bash: symbol lookup error: rl_print_keybinding` — the `bash -c` wrapper is constructed in a way that breaks against Arch's readline linkage.
-
-> ⚠️ CI is quota-fragile. v0.2.17 shipped without GitHub Actions because `actions/upload-artifact@v4` hit the artifact storage quota — all 4 build jobs compiled fine, only the upload step failed. Fallback path: bump version in `pyproject.toml` / `src/ite/__init__.py` / `AGENTS.md`, publish to PyPI via twine, build darwin-arm64 locally, create the GH release manually, `PUT` the macOS-only manifest to `ite-cloud-web` via `gh api`. Note the in-app updater hits cloud-api `/runtime/version-check`, not the manifest — so non-macOS users get an install notice that then fails.
-
----
-
-## Design decisions worth knowing
-
-- **`ToolSelectionPolicy` is a hard gate, not a hint.** It returns a `PolicyDecision` and the registry refuses the call. This is why `read_file` on a `pyproject.toml` fails even though `read_file` is an "allowed" tool.
-- **Mutability is a `Tool` property, not a judgment call.** `is_mutating` drives approval gating, plan-mode restrictions, *and* subagent allowlists — three subsystems keyed off one boolean.
-- **Slash commands live in `src/ite/commands/`**, one module per command group (`plan`, `goal`, `skills`, `subagent`, `todos`, `branch`, `publish`, `sandbox`, `remote`, `hooks`, `cloud`, `model`, `session`, `history`, `init`, `flow`, `aside`, `attach`, `csv2json`, `info`, `open_island`, `remind`).
-- **The system prompt is one module.** `src/ite/prompts/system.py` assembles the full prompt, including the instruction that makes the missing `apply_patch` tool matter.
-
----
-
-## Hygiene issues found
-
-| Issue | Location |
+| Preset | Behavior |
 |---|---|
-| ~14.5k lines of dead pre-refactor god-class snapshots, not in the build | `src/ite/ui/reup/legacy/` |
-| Dead packages containing only `__pycache__` | `computer_use/`, `runtime/`, `decisions/providers/` |
-| Hardcoded bot token — should be rotated | `src/ite/telegram/bot.py:32` |
-| Assertion-free "tests" | `tests/test_clipboard.py`, `tests/test_copy_detailed.py` |
-| `app.run()` at import time — launches a Textual app on collection | `tests/test_textual_app.py` |
-| No `conftest.py`, no pytest config; tests are unittest-style via pytest, fixtures hand-rolled per file | `tests/` |
-| Repo-wide `ruff` / `mypy` known-red from pre-existing mixin errors (documented in `docs/design/open-island-*.md`) | — |
-| `scripts/guard_mixin_imports.py` + `scan_*.py` exist as AST guards to keep the mixin split safe | `scripts/` |
+| Ask for approval | Ask before file mutations, commands, internet/integration capabilities, and external file access |
+| Automatic | Allow workspace file tools; ask before commands, internet/integration capabilities, and external access; Git commit/push remain confirmable |
+| Full access | Remove iTE's approval and filesystem restrictions |
 
----
+`/permissions` displays or changes the preset; `ask`, `automatic`, and `full access` are the command forms. The configuration default is Automatic. Older approval policy values remain internally for compatibility and custom configurations.
 
-## Monorepo context
+[Invocation authorization](src/ite/safety/permissions.py) validates parameters, collects path operands, resolves them, and obtains one-operation approval where required. [Path validation](src/ite/safety/sandbox.py) resolves filesystem boundaries and symlinks. Shell, network, arbitrary MCP, and child-agent capabilities receive explicit checks because file-operand checks alone cannot contain them.
 
-`ite/` is one of 7 sub-projects under `itetheagt/`:
+These are **application-level controls, not an operating-system process sandbox**. `GitSandbox` is a separate optional branch-isolation workflow for accepting/rejecting changes and recovering orphaned work. Planning and learning restrictions are enforced in addition to permission presets.
 
-| Sub-project | Language | Entry point |
-|---|---|---|
-| `ite/` | Python ≥3.11 | `src/ite/main.py` |
-| `ite-cloud-api/` | TypeScript 5 (ESM) | `src/index.ts` |
-| `ite-cloud-web/` | React 19 + Vite | `src/main.tsx` |
-| `ite-vscode/` | JavaScript | `extension.js` |
-| `ite-intellij/` | Kotlin / JVM 21 | `src/main/kotlin/...` |
-| `ite_admin/` | Dart 3 (Flutter desktop) | `lib/main.dart` |
-| `ite_remote/` | Dart 3 (Flutter mobile) | `lib/main.dart` |
+## Context, models, and persistence
 
-Sibling directories of note inside this repo: `docs/design/` (21 planning docs incl. `repository-tour.md`), `open-vibe-island/` (GPLv3 reference clone, gitignored), `.agents/skills/` + `.claude/skills/` (checked-in skill bundles), `.ite/` (workspace config, user skills, subagent TOMLs, hook log, pasted attachments).
+Context is assembled from prompt layers including current instructions, memory, skills, goal/runtime state, prior compact state, and the transcript tail. [ChatCompactor](src/ite/context/compaction.py) constructs bounded continuation summaries without first modifying live context, carries prior summaries forward, chunks oversized histories, and reports errors when a summary cannot fit. Tool outputs retain their beginning and end when shortened for compaction; full transcripts remain available separately.
 
+Model configuration records a context-window value and its source. Bundled model metadata updates both app and active session settings. [Ollama discovery](src/ite/client/ollama_metadata.py) reads running allocation or `num_ctx`/model metadata without running inference. It distinguishes an allocated local window from a model's theoretical maximum and has a metadata fallback for cloud models.
 
+[SessionManager](src/ite/agent/session_manager.py) saves JSON atomically and writes compact metadata sidecars. Sidecar validation uses file metadata before reuse, with transcript reads as fallback. [Thread loading](src/ite/ui/reup/_threads.py) uses background workers and workspace-keyed caches, exposes loading/failure state, and avoids repeatedly parsing full saved transcripts on the UI thread.
+
+Memory remains JSON-backed across short-term, long-term, episodic, and semantic stores, with atomic writes and degraded operation. Ranking combines recency/access hotness with lexical overlap; overlapping long-term preferences can supersede old entries. Episodic storage caps entries at 50. Session working memory is a separate markdown artifact with restricted file permissions and fallback storage.
+
+Sources: [memory manager](src/ite/memory/manager.py), [memory intent](src/ite/memory/intent.py), [session memory](src/ite/memory/session_memory.py).
+
+## Subagents and extensions
+
+Five specialist definitions ship in [subagent.py](src/ite/tools/subagent.py): `codebase_investigator`, `code_reviewer`, `tooling_guardian`, `init_investigator`, and `verification_reviewer`. The prior claim that `security_auditor` is a sixth default was incorrect; a workspace definition can supply it separately.
+
+Synchronous specialist tools narrow a child agent's allowlist and enforce absolute and inactivity deadlines, with configured retries. They mark `supports_subagent_use=False` to prevent recursive use through that mechanism. The asynchronous runtime tracks queued/running/completed/failed/cancelled/timed-out runs, reuse, retries, and circuit-breaker metrics. User definitions are loaded from global/workspace `.ite/subagents/*.toml` with workspace overrides.
+
+Custom Python tools are discovered from `.ite/tools/`. Skills are `SKILL.md` bundles with frontmatter and supporting references, discovered from 18 global/project compatibility roots and iTE overrides. Workspace skills have trust controls. MCP tools are namespaced as `server__tool`, derive metadata from server hints, and can be added/started/stopped/diagnosed through commands.
+
+Hooks run shell commands around agent/tool/error lifecycle events, with environment context and process-group timeout handling. Instruction files follow a scoped hierarchy. `/init` runs the read-only `init_investigator`, records actual read evidence, validates draft paths and supported commands, honors an instruction-size budget, and supports cancellation without treating unverified prose as repository evidence.
+
+## Terminal interface
+
+`ReupApp` combines Cloud, Panels, Composer, Threads, Turn, and Streaming mixins. Its Python files range from 1,399 lines in `_threads.py` to 3,801 in `modals.py`; several remain substantial modules despite the earlier split. Eight modular `.tcss` files replace the old single stylesheet.
+
+The interface includes thread switching/history, file attachments, changes/diff review, workboard, goals, settings/model selection, commands, approvals, and transient side questions. Theme changes repaint existing transcript/tool/panel surfaces. Tool results have success/redirect/recoverable/failure treatments, and completed calls can collapse into stacks.
+
+[AssistantTypingBuffer](src/ite/ui/reup/assistant_typing.py) separates display timing from network chunk arrival and accelerates completion for long buffered replies. [Command completion](src/ite/ui/reup/command_completion.py) builds hierarchical choices from registered argument forms, leaving required placeholders non-runnable. The composer now labels file attachment actions explicitly. AI-generated commit subjects are validated as Conventional Commits, with malformed generations retried before acceptance.
+
+Sources: [composer](src/ite/ui/reup/_composer.py), [command catalog](src/ite/commands/help_catalog.py), [commit validation](src/ite/git/commit_messages.py), [layout contract](DESIGN.md).
+
+## Cloud and companion surfaces
+
+Cloud integration manages browser authentication, persisted sessions, entitlement state, model catalogs, activity, and usage. It distinguishes signed-out/offline/denied states and retains useful cached settings during refresh failures.
+
+[Status request budgets](src/ite/cloud/request_budget.py) scope background reads to a five-second deadline, at most two seconds per transport request, and no retries. Async status reads use disposable daemon workers with cancellation flags. Cancelling cannot interrupt blocked urllib/DNS work, but that work no longer holds the default executor open during shutdown. These budgets do not globally alter interactive login, refresh, or transcription requests.
+
+Other runtime surfaces include:
+
+- `src/ite/remote/`: TLS WebSocket pairing/trusted devices, cloud relay, headless hosts, and a supervisor that provisions per-user child processes. Supervisor isolation is platform/privilege-dependent and is distinct from terminal permission presets.
+- `src/ite/telegram/`: an in-process Telegram bridge that forwards prompts and approval responses to the active runtime.
+- `src/ite/integrations/open_island/`: opt-in macOS overlay integration over a local Unix socket.
+- `src/ite/voice/`: OpenAI-compatible audio transcription with retries and a no-speech/hallucination filter; UI/cloud code selects service credentials and routing.
+- `src/ite/auth/`: OpenRouter OAuth PKCE and callback handling.
+
+Source presence is not evidence that every companion service, entitlement, or deployed endpoint works in production. This review did not connect to cloud services or mobile devices.
+
+## Build, release, and root cleanup
+
+[scripts/build_runtime.py](scripts/build_runtime.py) generates the PyInstaller spec and produces `darwin-arm64`, `darwin-x64`, and `linux-x64` tarballs plus a `win32-x64` ZIP, SHA-256 files, and a release manifest. It discovers mypyc `.so`/`.pyd` extensions. Runtime bundles include the MIT notice inside the executable bundle so installation retains it, including on Windows.
+
+`pyproject.toml` declares `license = "MIT"` and `license-files = ["LICENSE"]`. Source and wheel builds were verified to include the complete license and MIT metadata. This does not retroactively replace already published packages or standalone binaries.
+
+The only tracked GitHub Actions workflow is [build-runtime.yml](.github/workflows/build-runtime.yml). It runs on development pushes or manual dispatch and skips a version already published in `ite-releases`. It builds the platform matrix, uploads artifacts with seven-day retention, creates the release, and updates the private web repository's manifest. It is a release pipeline, not a general test/lint/typecheck CI gate.
+
+[scripts/publish-release.sh](scripts/publish-release.sh) now reads installers from `scripts/` and still publishes them at the original web paths. **The manual [github-release.sh](scripts/github-release.sh) deletes an existing same-version release before recreating it**; the workflow's skip-existing behavior is different.
+
+Root cleanup in this snapshot:
+
+- `_eval_optimizer.py` moved to `scripts/_eval_optimizer.py`, with its source import path and usage updated.
+- `_smoke_render.py` moved to `scripts/_smoke_render.py`, with script-relative source/CSS paths and an import-safe entry guard.
+- `install.sh` and `install.ps1` moved to `scripts/`; publisher and installer-test paths updated.
+- `interesting-readme.md` deleted; `README.md` is the main project README.
+
+Historical Arch upgrade and Actions storage-quota reports from the old overview were not reproduced here. They should not be presented as confirmed current failures. The current Unix upgrade implementation pipes a curl subprocess to bash rather than constructing a `bash -c` command.
+
+## Verification and remaining issues
+
+Verified during this cleanup/review:
+
+- The relocated modal smoke script runs headlessly and renders both inspected modals.
+- The relocated optimizer script runs; its schema comparison reports 8,554 original versus 8,159 compact tokens for the builtin list in this environment. This is a synthetic measurement, not a production savings guarantee.
+- Bash syntax checks pass for the installer and publisher. The publisher dry run uses the relocated sources, and an isolated copy check confirms both installers and the manifest land at their expected hosted paths.
+- Source and wheel builds succeed for v0.2.31; all 48 local links in this overview resolve.
+- Nine focused regression files produced **40 passed, 2 failed**, plus 2 passing subtests. The two failures were five-second worker-start timeouts in `test_web_tool_responsiveness.py`.
+- Cloud status regressions produced **9 passed**, with a warning about an unawaited thread-tab refresh coroutine.
+- A separate Goal mode run stopped at its first failure: **3 passed, 1 failed**. Its partial `Session` fixture omits the `learning` field now required by `create_goal`.
+- A larger combined run was interrupted after failures and a stall; it is not counted as a completed verification run. Full-suite collection is also affected by the issues below. Runtime source and the failing test files were unchanged by this cleanup.
+
+Confirmed existing issues and limits:
+
+| Finding | Evidence / consequence |
+|---|---|
+| Default registry lacks `apply_patch` | Implementation exists but the builtin inventory does not register it |
+| Full test collection is not clean | `tests/test_reup_modals.py` imports absent `SettingsScreen` from `settings.py` |
+| Goal regression fixture is incomplete | `tests/test_goal.py` constructs a partial `Session` without `learning`, then calls `create_goal` |
+| Web responsiveness regressions fail locally | HTML conversion and search worker-start assertions time out in `tests/test_web_tool_responsiveness.py`; the failure cause was not repaired or attributed to production performance in this review |
+| Interactive code executes during collection | `tests/test_textual_app.py` calls `app.run()` at import time |
+| Embedded Telegram token literal | `src/ite/telegram/bot.py` contains a default token literal; validity was not checked and its value is intentionally omitted here. Remove it from source and rotate any real exposed credential |
+| Workspace artifacts already tracked | `.ite/` files remain tracked despite the ignore rule; ignoring a path does not untrack existing files |
+| No dedicated test configuration | No tracked pytest config or `conftest.py` was found; automatic collection can import interactive utilities |
+| No fresh repo-wide lint/typecheck result | Historical ruff/mypy failures are not a substitute for running those checks on the current revision |
+| Legacy archive remains | Pre-refactor snapshots were excluded from review and line counts; they are not evidence about the active runtime |
+
+This document distinguishes implemented mechanisms from deployment guarantees. It is not a full security audit, dependency-license audit, benchmark, or coverage report.
+
+## Monorepo boundary
+
+The public runtime lives in `ite/`. Sibling projects include `ite-cloud-api` (TypeScript/Fastify), `ite-cloud-web` (React/Vite), `ite-vscode` (JavaScript), `ite-intellij` (Kotlin/JVM), `ite_admin` (Flutter desktop), and `ite_remote` (Flutter mobile). They have independent builds and project instructions. This snapshot reviews runtime integration points; it does not claim the private cloud stack is MIT-licensed.

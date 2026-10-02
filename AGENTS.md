@@ -16,11 +16,13 @@
 │   └── design/          # Design docs, PRDs, architecture notes
 ├── hooks/               # PyInstaller runtime hooks
 ├── scripts/             # Build, release, and analysis tooling
+│   ├── install.sh       # One-shot macOS/Linux installer (curl pipe)
+│   ├── install.ps1      # One-shot Windows installer (irm pipe)
+│   ├── _eval_optimizer.py # Tool optimizer evaluation
+│   ├── _smoke_render.py # Headless modal layout smoke check
 │   └── decon/           # App deconstruction helpers (from the app.py refactor)
 ├── src/ite/             # Package source
 ├── tests/               # Test suite
-├── install.sh           # One-shot macOS/Linux installer (curl pipe)
-├── install.ps1          # One-shot Windows installer (irm pipe)
 ├── pyproject.toml       # Build config (hatchling)
 ├── uv.lock              # Locked dependencies
 ├── AGENTS.md            # This file

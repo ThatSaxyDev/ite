@@ -25,6 +25,9 @@ The installer detects your OS and architecture, downloads the latest standalone 
 
 Supported targets: `darwin-arm64`, `darwin-x64`, `linux-x64`, `win32-x64`.
 
+Installer source: [macOS / Linux](scripts/install.sh) and
+[Windows PowerShell](scripts/install.ps1).
+
 ## Verifying Integrity
 
 The installer automatically verifies the SHA-256 checksum of every downloaded archive against the [release manifest](https://ite.kiishi.space/releases/manifest.json).

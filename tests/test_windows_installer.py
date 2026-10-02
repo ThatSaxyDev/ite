@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-INSTALLER_PATH = Path(__file__).resolve().parents[1] / "install.ps1"
+INSTALLER_PATH = Path(__file__).resolve().parents[1] / "scripts" / "install.ps1"
 
 
 def test_windows_installer_extracts_the_runtime_bundle_contents() -> None:

@@ -50,14 +50,14 @@ copy_to_web() {
 
     if [ "$DRY_RUN" = "true" ]; then
         info "  [DRY RUN] Would copy:"
-        info "    install.sh → $public_dir/install.sh"
-        info "    install.ps1 → $public_dir/install.ps1"
+        info "    scripts/install.sh → $public_dir/install.sh"
+        info "    scripts/install.ps1 → $public_dir/install.ps1"
         info "    dist/manifest.json → $public_dir/releases/manifest.json"
         return
     fi
 
-    cp "$PROJECT_ROOT/install.sh" "$public_dir/install.sh"
-    cp "$PROJECT_ROOT/install.ps1" "$public_dir/install.ps1"
+    cp "$SCRIPT_DIR/install.sh" "$public_dir/install.sh"
+    cp "$SCRIPT_DIR/install.ps1" "$public_dir/install.ps1"
     mkdir -p "$public_dir/releases"
     cp "$PROJECT_ROOT/dist/manifest.json" "$public_dir/releases/manifest.json"
 

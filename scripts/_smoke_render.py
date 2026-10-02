@@ -1,5 +1,12 @@
+"""Inspect modal layout with python scripts/_smoke_render.py."""
+
 import asyncio
+import sys
+from pathlib import Path
 from typing import ClassVar
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from textual.app import App
 
@@ -9,7 +16,7 @@ from ite.ui.reup.modals import ApprovalPickerModal, ThinkingLevelModal
 
 class TApp(App[None]):
     CSS_PATH: ClassVar[list[str]] = [
-        f"src/ite/ui/reup/{path}"
+        str(PROJECT_ROOT / "src/ite/ui/reup" / path)
         for path in ReupApp.CSS_PATH
     ]
 
@@ -50,4 +57,5 @@ async def main() -> None:
         await dump(app2, "ApprovalPickerModal")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
