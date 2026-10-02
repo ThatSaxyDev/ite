@@ -128,6 +128,7 @@ class SessionSnapshot:
     name_context_hash: str | None = None
     workspace_path: str | None = None
     plan_mode_enabled: bool = False
+    learning_state: dict[str, Any] | None = None
     plan_phase: str = "idle"
     plan_questions_asked: int = 0
     plan_target_questions: int = 3
@@ -159,6 +160,7 @@ class SessionSnapshot:
             "transcript_state": self.transcript_state,
             "total_usage": self.total_usage.__dict__,
             "plan_mode_enabled": self.plan_mode_enabled,
+            "learning_state": self.learning_state,
             "plan_phase": self.plan_phase,
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
@@ -192,6 +194,7 @@ class SessionSnapshot:
             transcript_state=data.get("transcript_state"),
             total_usage=TokenUsage(**data["total_usage"]),
             plan_mode_enabled=bool(data.get("plan_mode_enabled", False)),
+            learning_state=data.get("learning_state"),
             plan_phase=str(data.get("plan_phase", "idle")),
             plan_questions_asked=int(data.get("plan_questions_asked", 0)),
             plan_target_questions=int(data.get("plan_target_questions", 3)),

@@ -233,6 +233,7 @@ class TurnMixin:
                 if session
                 else False,
                 "plan_phase": str(session.plan_phase) if session else "idle",
+                "learning": session.learning.to_dict() if session else None,
                 "goal": session.export_goal_state() if session else None,
                 "active_turn_id": int(run_state.active_turn_id),
                 "is_turn_running": bool(run_state.is_turn_running),
@@ -722,6 +723,7 @@ class TurnMixin:
         resumed.active_plan_text = snapshot.active_plan_text
         resumed.active_skill_refs = list(snapshot.active_skills or [])
         resumed.show_planning_todos = snapshot.show_planning_todos
+        resumed.restore_learning_state(getattr(snapshot, "learning_state", None))
         resumed_agent = self._build_session_agent(resumed)
         await resumed_agent.__aenter__()
 
@@ -934,6 +936,16 @@ class TurnMixin:
         command = parts[0].lower()
         args = parts[1:]
         command_feed_id: str | None = None
+
+        from ite.agent.learning import learning_command_error
+
+        error = learning_command_error(self.agent.session if self.agent else None, command)
+        if error:
+            cast(Any, self).post_system("Learning mode", error, is_error=True)
+            return
+        if command == "/learn":
+            await self._run_learn_command_native(args)
+            return
 
         if command in {"/exit", "/quit"}:
             self.run_worker(self._confirm_quit(), exclusive=False)
@@ -1260,6 +1272,63 @@ class TurnMixin:
                 metadata=command_metadata,
             )
 
+
+    async def _run_learn_command_native(self, args: list[str]) -> None:
+        from ite.commands.learn import cmd_learn
+
+        app = cast(Any, self)
+
+        await app.ensure_agent()
+        if not app.agent or not app.agent.session:
+            app.post_system("Learning mode", "No active session.", is_error=True)
+            return
+        if app._is_turn_running or app._queued_turn_payload is not None:
+            app.post_system("Learning mode", "Wait for the current turn to finish, or stop it first.", is_error=True)
+            return
+        if len(args) == 1 and args[0].lower() == "setup":
+            from ite.agent.learning_profile import LearningPreferences, read_setup_profile
+            from ite.ui.reup.learning_setup import LearningSetupModal
+
+            session = app.agent.session
+            try:
+                session.require_learning_idle()
+                path = session.config.cwd / "learn.md"
+                original = read_setup_profile(path)
+            except (ValueError, OSError) as exc:
+                app.post_system("Learning setup", str(exc), is_error=True)
+                return
+
+            async def setup_finished(saved: bool) -> None:
+                if not saved:
+                    return
+                session.reload_learning_profile()
+                preferences = LearningPreferences.from_profile(session.learning.profile)
+                if preferences.objective and preferences.objective != session.learning.objective:
+                    session.learning.objective = preferences.objective[:500]
+                    session.learning.current_step = ""
+                    session.learning.hint_level = 0
+                app.refresh_header()
+                SessionManager().save_session(SessionSnapshot(**session.snapshot_kwargs(workspace_path=str(session.config.cwd.resolve()))))
+                await app._broadcast_remote_state()
+                app.notify("Learning preferences saved and loaded.", title="Learning setup")
+
+            app.push_screen(LearningSetupModal(path, original, require_idle=session.require_learning_idle), setup_finished)
+            return
+        output = io.StringIO()
+        ctx = build_command_context(config=app.config, agent=app.agent, tui=app._adapter, output_stream=output)
+        await cmd_learn(ctx, args)
+        app.post_system("Learning mode", ctx.result, is_error=ctx.outcome == "failed")
+        app.refresh_header()
+        if ctx.outcome != "failed":
+            session = app.agent.session
+            SessionManager().save_session(SessionSnapshot(**session.snapshot_kwargs(workspace_path=str(session.config.cwd.resolve()))))
+            await app._broadcast_remote_state()
+            if ctx.followup_prompt:
+                await app._dispatch_payload({
+                    "message": ctx.followup_prompt,
+                    "display_message": f"/learn {args[0]}",
+                    "attachments": [],
+                })
 
     async def _run_aside_command_native(self, args: list[str]) -> None:
         await self.ensure_agent()
@@ -2228,6 +2297,8 @@ class TurnMixin:
 
     async def _queue_goal_continuation_if_ready(self, session_id: str) -> None:
         session = self._goal_session_for_id(session_id)
+        if session and session.learning.enabled:
+            return
         goal = getattr(session, "goal_state", None)
         run_state = self._run_state(session_id)
         if (

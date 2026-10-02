@@ -40,3 +40,4 @@ pip install ite-agent            # global pip
 ## Documentation
 
 - [iTE Docs](https://ite.kiishi.space/docs)
+- [Learning mode (experimental)](docs/learning.md) — use `/learn on` to write the code yourself while iTE guides and reviews.

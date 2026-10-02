@@ -23,6 +23,7 @@ class CommandContext:
     outcome: str = "completed"
     result: str = ""
     evidence_files: list[str] = field(default_factory=list)
+    followup_prompt: str | None = None
 
 
 @dataclass
@@ -60,6 +61,14 @@ class CommandRegistry:
 
     async def dispatch(self, command_name: str, args: list[str], ctx: CommandContext) -> bool:
         """Dispatch a command. Returns True if handled."""
+        from ite.agent.learning import learning_command_error
+
+        error = learning_command_error(ctx.agent.session if ctx.agent else None, command_name)
+        if error:
+            ctx.outcome = "failed"
+            ctx.result = error
+            ctx.console.print(error, markup=False)
+            return True
         cmd = self.get(command_name)
         if cmd is None:
             ctx.console.print(
@@ -79,6 +88,7 @@ def build_registry() -> CommandRegistry:
     from ite.commands.publish import register as register_publish
     from ite.commands.model import register as register_model
     from ite.commands.plan import register as register_plan
+    from ite.commands.learn import register as register_learn
     from ite.commands.info import register as register_info
     from ite.commands.history import register as register_history
     from ite.commands.todos import register as register_todos
@@ -106,6 +116,7 @@ def build_registry() -> CommandRegistry:
     register_publish(registry)
     register_model(registry)
     register_plan(registry)
+    register_learn(registry)
     register_info(registry)
     register_history(registry)
     register_todos(registry)

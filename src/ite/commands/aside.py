@@ -54,6 +54,7 @@ def _build_aside_messages(session, question: str) -> list[dict[str, object]]:
 
 
 async def execute_aside(session, question: str) -> AsideResult:
+    learning_at_start = getattr(getattr(session, "learning", None), "enabled", False)
     question_text = question.strip()
     if not question_text:
         return AsideResult(question="", answer="", error="Missing aside question.")
@@ -81,6 +82,11 @@ async def execute_aside(session, question: str) -> AsideResult:
         return AsideResult(question=question_text, answer="", error=error_text)
 
     answer = "".join(response_parts).strip() or "No aside response returned."
+    if learning_at_start or getattr(getattr(session, "learning", None), "enabled", False):
+        from ite.agent.learning import contains_implementation
+
+        if contains_implementation(answer):
+            answer = "I withheld implementation code. Ask about the concept or share your attempt for review."
     return AsideResult(question=question_text, answer=answer)
 
 

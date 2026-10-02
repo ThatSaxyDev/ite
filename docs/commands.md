@@ -36,11 +36,18 @@ Type `/help` in iTE to see available commands.
 | `/plan` | Show plan mode status |
 | `/plan on` | Enable plan mode |
 | `/plan off` | Disable plan mode |
+| `/learn on` / `/learn off` | Enable or leave learning mode; enabling creates a baseline `learn.md` if missing |
+| `/learn` | Show learning objective, next step, and profile |
+| `/learn hint` / `/learn review` | Get a hint or review your attempt |
+| `/learn init` / `/learn reload` | Create or reload your `learn.md` preferences |
+| `/learn setup` | Answer three questions in the TUI, review your profile, and save it |
 | `/todos` | Manage task lists |
 | `/aside` | Ask in side panel without interrupting main flow |
 | `/attach <path>` | Queue files for next message |
 | `/clear` | Clear conversation history |
 | `/workboard` | Show current plan and todos together |
+
+See [Learning mode](learning.md) for the workflow and a TUI walkthrough. While it is active, execution commands, plan mode, and goals are suspended; the learner writes code and runs tests.
 
 ## Version Control & History
 

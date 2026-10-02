@@ -196,6 +196,7 @@ class HeadlessRuntimeHost:
                 "approval_mode": str(self.config.approval.value),
                 "plan_mode_enabled": bool(session.plan_mode_enabled) if session else False,
                 "plan_phase": str(session.plan_phase) if session else "idle",
+                "learning": session.learning.to_dict() if session else None,
                 "active_turn_id": int(run_state.active_turn_id),
                 "is_turn_running": bool(run_state.is_turn_running),
                 "activity_label": str(run_state.activity_label or ""),
@@ -267,6 +268,12 @@ class HeadlessRuntimeHost:
 
     async def _run_command(self, command_line: str) -> None:
         entry_id = self._start_command_feed_entry(command_line)
+        parts = command_line.split()
+        if parts and parts[0].lower() == "/learn" and len(parts) > 1 and parts[1].lower() != "status" and self._run_state.is_turn_running:
+            self._finish_command_feed_entry(
+                entry_id, status="failed", output="Wait for the current turn to finish, or stop it first."
+            )
+            return
         try:
             result = await run_headless_command(
                 command_line=command_line,
@@ -295,8 +302,10 @@ class HeadlessRuntimeHost:
             output=result.output or result.error,
         )
         await self._publish_state()
+        if result.ok and result.followup_prompt and not self._run_state.is_turn_running:
+            await self._start_turn(result.followup_prompt, display_message=command_line)
 
-    async def _start_turn(self, message: str) -> None:
+    async def _start_turn(self, message: str, *, display_message: str | None = None) -> None:
         assert self._session is not None
         self._run_state.active_turn_id += 1
         turn_id = self._run_state.active_turn_id
@@ -307,14 +316,16 @@ class HeadlessRuntimeHost:
         self._run_state.activity_label = "Thinking"
         self._published_activity_label = "Thinking"
         await self._publish_state()
-        self._turn_task = asyncio.create_task(self._run_turn(message, turn_id))
+        self._turn_task = asyncio.create_task(self._run_turn(message, turn_id, display_message=display_message))
 
-    async def _run_turn(self, message: str, turn_id: int) -> None:
+    async def _run_turn(self, message: str, turn_id: int, *, display_message: str | None = None) -> None:
         assert self._agent is not None and self._session is not None
         session_id = str(self._session.session_id)
         pending_execute = False
         try:
             async for event in self._agent.run(message):
+                if event.type == AgentEventType.AGENT_START and display_message:
+                    event.data["message"] = display_message
                 await self._handle_event(event, session_id=session_id, turn_id=turn_id)
                 if event.type == AgentEventType.PLAN_READY:
                     pending_execute = await self._handle_plan_ready(event)

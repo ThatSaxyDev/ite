@@ -325,6 +325,7 @@ async def _resume_session_by_id(ctx: CommandContext, session_id: str) -> None:
     session.active_plan_text = snapshot.active_plan_text
     session.active_skill_refs = list(snapshot.active_skills or [])
     session.show_planning_todos = snapshot.show_planning_todos
+    session.restore_learning_state(getattr(snapshot, "learning_state", None))
 
     await ctx.agent.session.client.close()
     await ctx.agent.session.mcp_manager.shutdown()
@@ -568,6 +569,7 @@ async def cmd_restore(ctx: CommandContext, args: list[str]) -> None:
     session.active_plan_text = snapshot.active_plan_text
     session.active_skill_refs = list(snapshot.active_skills or [])
     session.show_planning_todos = snapshot.show_planning_todos
+    session.restore_learning_state(getattr(snapshot, "learning_state", None))
 
     await ctx.agent.session.client.close()
     await ctx.agent.session.mcp_manager.shutdown()

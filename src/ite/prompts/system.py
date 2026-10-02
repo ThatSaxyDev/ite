@@ -16,6 +16,7 @@ def get_system_prompt(
     plan_mode_enabled: bool = False,
     plan_phase: str = "idle",
     skill_context: dict | None = None,
+    learning_mode_enabled: bool = False,
 ) -> str:
     return "\n\n".join(
         build_system_prompt_layers(
@@ -26,6 +27,7 @@ def get_system_prompt(
             plan_mode_enabled=plan_mode_enabled,
             plan_phase=plan_phase,
             skill_context=skill_context,
+            learning_mode_enabled=learning_mode_enabled,
         )
     )
 
@@ -38,7 +40,10 @@ def build_system_prompt_layers(
     plan_mode_enabled: bool = False,
     plan_phase: str = "idle",
     skill_context: dict | None = None,
+    learning_mode_enabled: bool = False,
 ) -> list[str]:
+    if learning_mode_enabled:
+        return [get_base_system_prompt(config, learning_mode_enabled=True)]
     parts = []
 
     # Identity and role
@@ -91,7 +96,19 @@ def get_base_system_prompt(
     plan_mode_enabled: bool = False,
     plan_phase: str = "idle",
     skill_context: dict | None = None,
+    learning_mode_enabled: bool = False,
 ) -> str:
+    if learning_mode_enabled:
+        from ite.agent.learning import LearningState, learning_prompt
+
+        return "\n\n".join([
+            "# Identity\nYou are iTE, a programming tutor. The learner implements; you guide and review.",
+            learning_prompt(LearningState(enabled=True)),
+            _get_environment_section(config),
+            _get_agents_md_section(),
+            _get_security_section(),
+            _get_developer_instructions_section(config.developer_instructions) if config.developer_instructions else "",
+        ])
     parts = [
         _get_identity_section(),
         _get_environment_section(config),

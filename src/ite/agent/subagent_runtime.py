@@ -72,6 +72,7 @@ class SubagentRuntime:
         self.tool_registry = tool_registry
         self._runs: dict[str, SubagentRun] = {}
         self._threads: dict[str, threading.Thread] = {}
+        self._retired_threads: set[threading.Thread] = set()
         self._cancel_events: dict[str, threading.Event] = {}
         self._completion_events: dict[str, threading.Event] = {}
         self._counter = 0
@@ -126,7 +127,9 @@ class SubagentRuntime:
         bucket[key] = int(bucket.get(key) or 0) + amount
 
     def _cleanup_thread(self, run_id: str) -> None:
-        self._threads.pop(run_id, None)
+        thread = self._threads.pop(run_id, None)
+        if thread is not None and thread.is_alive():
+            self._retired_threads.add(thread)
         self._cancel_events.pop(run_id, None)
         self._completion_events.pop(run_id, None)
 
@@ -594,6 +597,11 @@ class SubagentRuntime:
             "cancelled_run_ids": cancelled,
             "runs": [self._runs[run_id].to_dict() for run_id in selected_ids if run_id in self._runs],
         }
+
+    @property
+    def has_active_workers(self) -> bool:
+        self._retired_threads = {thread for thread in self._retired_threads if thread.is_alive()}
+        return bool(self._retired_threads) or any(thread.is_alive() for thread in self._threads.values())
 
     async def shutdown(self) -> None:
         await self.cancel(run_ids=list(self._threads.keys()))

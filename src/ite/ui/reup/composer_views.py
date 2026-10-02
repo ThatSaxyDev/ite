@@ -32,6 +32,7 @@ def composer_meta_text(
     show_context: bool = True,
     available_width: int | None = None,
     reasoning_label: str | None = None,
+    learning_phase: str | None = None,
 ) -> tuple[
     Text,
     tuple[int, int],
@@ -55,6 +56,9 @@ def composer_meta_text(
 
     status_text = "on" if plan_enabled else "off"
     status_style = f"bold {success}" if plan_enabled else f"bold {error}"
+    if learning_phase is not None:
+        status_text = "guiding" if learning_phase == "guiding" else "your turn"
+        status_style = f"bold {success}"
     branch_style = f"bold {fg}" if branch_label != "no-git" else f"bold {muted}"
 
     def _meter(
@@ -155,7 +159,7 @@ def composer_meta_text(
             (
                 "plan",
                 [
-                    ("plan", f"bold {fg}"),
+                    ("learn" if learning_phase is not None else "plan", f"bold {fg}"),
                     (" ", fg),
                     (status_text, status_style),
                 ],

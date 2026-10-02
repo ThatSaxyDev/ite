@@ -27,6 +27,7 @@ from textual.widgets import Button, Footer, Header, Input, Select, Static, TextA
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
+from ite.agent.learning import is_learning_enabled
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
@@ -144,6 +145,7 @@ class ComposerMixin:
 
 
     def _composer_meta_text(self) -> Text:
+        learning_session = getattr(getattr(self, "agent", None), "session", None)
         plan_enabled = bool(
             self.agent and self.agent.session and self.agent.session.plan_mode_enabled
         )
@@ -216,6 +218,11 @@ class ComposerMixin:
             cwd=Path(self.config.cwd),
             model_name=model_display_name,
             plan_enabled=plan_enabled,
+            learning_phase=(
+                learning_session.learning.phase
+                if learning_session is not None and is_learning_enabled(learning_session)
+                else None
+            ),
             branch_label=branch_label,
             usage_remaining_percent=self._usage_remaining_percent,
             context_used_percent=context_used_percent,
@@ -832,6 +839,10 @@ class ComposerMixin:
 
 
     async def _toggle_plan_mode_from_meta(self) -> None:
+        app = cast(Any, self)
+        if app.agent and is_learning_enabled(app.agent.session):
+            await app._run_learn_command_native([])
+            return
         await self.ensure_agent()
         if not self.agent or not self.agent.session:
             return
@@ -1105,6 +1116,8 @@ class ComposerMixin:
 
         session = self.agent.session
         plan_enabled = bool(session.plan_mode_enabled)
+        if is_learning_enabled(session):
+            return message
         if self._should_suppress_intent_detection(message, plan_enabled=plan_enabled):
             return message
 

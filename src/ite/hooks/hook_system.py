@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from ite.config.config import Config, HookConfig, HookTrigger
@@ -62,6 +63,7 @@ class HookSystem:
         self._recent_runs: list[HookRun] = []
         self._max_recent_runs = 100
         self._background_tasks: set[asyncio.Task[HookRun]] = set()
+        self.execution_suspended: Callable[[], bool] = lambda: False
 
     def configured_hooks(self) -> list[dict[str, Any]]:
         return [
@@ -79,6 +81,7 @@ class HookSystem:
     def snapshot(self) -> dict[str, Any]:
         return {
             "enabled": bool(self.config.hooks_enabled),
+            "suspended": self.execution_suspended(),
             "configured": self.configured_hooks(),
             "runs": [run.to_dict() for run in self._recent_runs],
         }
@@ -140,6 +143,9 @@ class HookSystem:
             else:
                 run.status = "failed"
                 run.error = f"Exited with code {exit_code}"
+        except asyncio.CancelledError:
+            run.status = "cancelled"
+            raise
         except Exception as e:
             run.status = "failed"
             run.error = str(e)
@@ -149,6 +155,8 @@ class HookSystem:
         return run
 
     async def _dispatch_hook(self, hook: HookConfig, env: dict[str, str]) -> None:
+        if self.execution_suspended():
+            return
         if hook.blocking:
             await self._run_hook(hook, env)
             return
@@ -156,6 +164,12 @@ class HookSystem:
         task = asyncio.create_task(self._run_hook(hook, env, run))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+
+    @property
+    def has_running_hooks(self) -> bool:
+        return any(run.status == "running" for run in self._recent_runs) or any(
+            not task.done() for task in self._background_tasks
+        )
 
     async def wait_for_background_hooks(self) -> None:
         if not self._background_tasks:
@@ -187,12 +201,18 @@ class HookSystem:
                 process.returncode,
                 False,
             )
-        except asyncio.TimeoutError:
-            if sys.platform != "win32":
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            else:
-                process.kill()
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            if process.returncode is None:
+                try:
+                    if sys.platform != "win32":
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    else:
+                        process.kill()
+                except ProcessLookupError:
+                    pass
             await process.wait()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             return ("", "", process.returncode, True)
 
     def _build_env(

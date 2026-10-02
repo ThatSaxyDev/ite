@@ -6,6 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from ite.agent.learning import LearningState
 from ite.client.response import TokenUsage
 from ite.config.config import Config
 from ite.context.transcript import ConversationLog, MessageItem
@@ -41,6 +42,7 @@ class ContextManager:
         goal_provider: Callable[[], dict[str, Any] | None] | None = None,
         tool_schema_provider: Callable[[], list[dict[str, Any]]] | None = None,
         continuation_state_provider: Callable[[], str | None] | None = None,
+        learning_provider: Callable[[], LearningState] | None = None,
     ) -> None:
         self.config = config
         self._user_memory = user_memory
@@ -52,6 +54,7 @@ class ContextManager:
         self._goal_provider = goal_provider
         self._tool_schema_provider = tool_schema_provider
         self._continuation_state_provider = continuation_state_provider
+        self._learning_provider = learning_provider
         self._model_name = self.config.model_name
         self._conversation_log = ConversationLog()
         self._latest_usage = TokenUsage()
@@ -329,6 +332,8 @@ class ContextManager:
         return user_memory, session_memory, skill_context
 
     def get_prompt_layers(self, current_user_text: str | None = None) -> list[dict[str, Any]]:
+        learning = self._learning_provider() if self._learning_provider else None
+        learning_enabled = bool(learning and learning.enabled)
         user_memory, session_memory, skill_context = self._load_prompt_state(current_user_text)
         controls = user_memory.get("controls", {}) if isinstance(user_memory, dict) else {}
         compact_state: list[dict[str, Any]] = []
@@ -359,6 +364,7 @@ class ContextManager:
             plan_mode_enabled=self._plan_mode_enabled,
             plan_phase=self._plan_phase,
             skill_context=skill_context,
+            learning_mode_enabled=learning_enabled,
         )
         if base_system_prompt:
             layers.append(
@@ -368,7 +374,7 @@ class ContextManager:
                 }
             )
 
-        goal = self._goal_provider() if self._goal_provider else None
+        goal = self._goal_provider() if self._goal_provider and not learning_enabled else None
         if isinstance(goal, dict) and goal.get("status") == "active":
             objective = str(goal.get("objective") or "").strip()
             evidence = str(goal.get("latest_evidence") or "").strip()
@@ -431,7 +437,7 @@ class ContextManager:
                 }
             )
 
-        continuation_state = self._continuation_state_provider() if self._continuation_state_provider else None
+        continuation_state = self._continuation_state_provider() if self._continuation_state_provider and not learning_enabled else None
         if continuation_state:
             layers.append({
                 "name": "runtime_state",
@@ -463,6 +469,13 @@ class ContextManager:
                 }
             )
 
+        if learning_enabled and learning is not None:
+            from ite.agent.learning import learning_prompt
+
+            layers.append({
+                "name": "learning_state",
+                "messages": [{"role": "system", "content": learning_prompt(learning)}],
+            })
         return layers
 
     def get_prompt_messages(self, current_user_text: str | None = None) -> list[dict[str, Any]]:
@@ -485,6 +498,7 @@ class ContextManager:
                 "session_memory",
                 "active_goal",
                 "runtime_state",
+                "learning_state",
                 "durable_memory",
             }:
                 for message in layer_messages:

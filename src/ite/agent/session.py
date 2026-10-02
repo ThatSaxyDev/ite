@@ -128,6 +128,13 @@ class Session:
         self.runtime_status = RuntimeStatus()
 
         self._turn_count = 0
+        from ite.agent.learning import LearningProgressTool, LearningState
+
+        self.learning = LearningState()
+        self.turn_active = False
+        self.tool_registry.learning_enabled = lambda: self.learning.enabled
+        self.tool_registry.register(LearningProgressTool(config, lambda: self.learning))
+        self.hook_system.execution_suspended = lambda: self.learning.enabled
 
     @property
     def turn_count(self) -> int:
@@ -195,6 +202,7 @@ class Session:
             goal_provider=self.export_goal_state,
             tool_schema_provider=self.tool_registry.get_schemas,
             continuation_state_provider=self._load_continuation_state,
+            learning_provider=lambda: self.learning,
         )
         self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
 
@@ -202,6 +210,8 @@ class Session:
         return self._load_prompt_memory(None)
 
     def _load_continuation_state(self) -> str | None:
+        if self.learning.enabled:
+            return None
         state: dict[str, Any] = {}
         plan = self.current_plan_text()
         if plan:
@@ -631,6 +641,7 @@ class Session:
             "transcript_state": self.context_manager.export_transcript_state(),
             "total_usage": self.context_manager.total_usage,
             "plan_mode_enabled": self.plan_mode_enabled,
+            "learning_state": self.learning.to_dict(),
             "plan_phase": self.plan_phase,
             "plan_questions_asked": self.plan_questions_asked,
             "plan_target_questions": self.plan_target_questions,
@@ -678,6 +689,8 @@ class Session:
         self.goal_state = goal
 
     def create_goal(self, objective: str) -> GoalState:
+        if self.learning.enabled:
+            raise ValueError("Execution goals are suspended in learning mode. Use /learn off first.")
         if self.goal_state is not None:
             raise ValueError("A goal already exists for this thread.")
         self.goal_state = GoalState.create(objective)
@@ -689,6 +702,8 @@ class Session:
         return goal
 
     def resume_goal(self) -> GoalState:
+        if self.learning.enabled:
+            raise ValueError("Execution goals are suspended in learning mode. Use /learn off first.")
         goal = self._require_goal()
         goal.resume()
         return goal
@@ -857,6 +872,8 @@ class Session:
         return ""
 
     def set_plan_mode(self, enabled: bool) -> None:
+        if enabled and self.learning.enabled:
+            raise ValueError("Plan execution is suspended in learning mode. Use /learn off first.")
         self.plan_mode_enabled = enabled
         if enabled:
             # Enabling plan mode always starts a fresh planning cycle.
@@ -870,6 +887,40 @@ class Session:
             self.plan_target_questions = 3
         if self.context_manager:
             self.context_manager.set_plan_state(self.plan_mode_enabled, self.plan_phase)
+
+    def require_learning_idle(self) -> None:
+        if (
+            self.turn_active
+            or self.tool_registry.active_invocations
+            or any(not task.done() for task in self.tool_registry.thread_executions)
+            or self.subagent_runtime.list_runs(statuses={"queued", "running"})
+            or self.subagent_runtime.has_active_workers
+            or self.hook_system.has_running_hooks
+        ):
+            raise ValueError("Wait for the current turn, tools, hooks, and child agents to finish before changing learning mode.")
+
+    def reload_learning_profile(self) -> None:
+        from ite.agent.learning import load_profile
+
+        self.learning.profile, self.learning.profile_notice = load_profile(self.config.cwd)
+
+    def set_learning_mode(self, enabled: bool) -> None:
+        self.require_learning_idle()
+        if enabled:
+            self.set_plan_mode(False)
+            if self.goal_state and self.goal_state.status.value == "active":
+                self.pause_goal(reason="Execution suspended for learning mode.")
+            self.todo_execution_handoff_active = False
+            self.reload_learning_profile()
+        self.learning.enabled = enabled
+        self.learning.phase = "idle"
+
+    def restore_learning_state(self, payload: dict[str, Any] | None) -> None:
+        from ite.agent.learning import LearningState
+
+        self.learning = LearningState.from_dict(payload)
+        if self.learning.enabled:
+            self.set_plan_mode(False)
 
     def set_plan_phase(self, phase: str) -> None:
         self.plan_phase = phase

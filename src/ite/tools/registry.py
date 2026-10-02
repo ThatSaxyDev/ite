@@ -30,6 +30,9 @@ class ToolRegistry:
         self._mcp_tools: dict[str, Tool] = {}
         self._policy = ToolSelectionPolicy()
         self.config = config
+        self.learning_enabled: Callable[[], bool] = lambda: False
+        self.active_invocations = 0
+        self.thread_executions: set[asyncio.Task[ToolResult]] = set()
 
     @property
     def connected_mcp_servers(self) -> list[str]:
@@ -89,7 +92,17 @@ class ToolRegistry:
             allowed_set = set(self.config.allowed_tools)
             tools = [t for t in tools if t.name in allowed_set]
 
+        if self.learning_enabled():
+            tools = [t for t in tools if self.learning_allows(t.name)]
+        else:
+            tools = [t for t in tools if t.name != "learn_progress"]
+
         return tools
+
+    def learning_allows(self, name: str | None) -> bool:
+        from ite.agent.learning import learning_tool_allowed
+
+        return bool(name is not None and name not in self._mcp_tools and learning_tool_allowed(self.get(name)))
 
     def get_schemas(self) -> list[dict[str, Any]]:
         return [tool.to_openai_schema() for tool in self.get_tools()]
@@ -115,7 +128,14 @@ class ToolRegistry:
             plan_phase=plan_phase,
         )
 
-    async def invoke(
+    async def invoke(self, *args: Any, **kwargs: Any) -> ToolResult:
+        self.active_invocations += 1
+        try:
+            return await self._invoke(*args, **kwargs)
+        finally:
+            self.active_invocations -= 1
+
+    async def _invoke(
         self,
         name: str,
         params: dict[str, Any],
@@ -135,6 +155,12 @@ class ToolRegistry:
         progress_callback: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
     ) -> ToolResult:
         started_at = time.perf_counter()
+        if self.learning_enabled() and not self.learning_allows(name):
+            return ToolResult.error_result(
+                "Tool blocked by learning mode. The learner writes code and runs commands. "
+                "Use inspection tools and explain the next step instead.",
+                metadata={"tool_name": name, "policy_blocked": True, "learning_blocked": True},
+            )
         params = self._normalize_params_for_phase(
             tool_name=name,
             params=params,
@@ -330,7 +356,10 @@ class ToolRegistry:
             if tool.kind in {ToolKind.READ, ToolKind.WRITE} and not name.startswith(
                 "subagent_"
             ):
-                result = await asyncio.to_thread(asyncio.run, tool.execute(invocation))
+                execution = asyncio.create_task(asyncio.to_thread(asyncio.run, tool.execute(invocation)))
+                self.thread_executions.add(execution)
+                execution.add_done_callback(self.thread_executions.discard)
+                result = await asyncio.shield(execution)
             else:
                 result = await tool.execute(invocation)
         except Exception as e:

@@ -9,7 +9,7 @@ import re
 import sys
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Awaitable, Callable
+from typing import Any, AsyncGenerator, Awaitable, Callable, cast
 
 from ite.agent.change_history import file_diffs_from_tool_result
 from ite.agent.events import AgentEvent, AgentEventType
@@ -281,9 +281,26 @@ class Agent:
         consumers so that every caller (Reup TUI, remote host) gets the
         integration without duplicating wiring.
         """
-        async for event in self._run_stream(message, user_model_content):
-            self._notify_event_observers(event)
-            yield event
+        session = self.session
+        if session is None:
+            yield AgentEvent.agent_error("Session is not available.")
+            return
+        if session.turn_active:
+            yield AgentEvent.agent_error("A turn is already running in this session.")
+            return
+        session.turn_active = True
+        if session.learning.enabled:
+            session.learning.phase = "guiding"
+            if not session.learning.objective:
+                session.learning.objective = message[:500]
+        try:
+            async for event in self._run_stream(message, user_model_content):
+                self._notify_event_observers(event)
+                yield event
+        finally:
+            session.turn_active = False
+            if session.learning.enabled:
+                session.learning.phase = "awaiting_learner"
 
     async def _run_stream(
         self, message: str, user_model_content: str | list[dict] | None = None
@@ -345,7 +362,9 @@ class Agent:
         session.change_history.begin_batch(message)
         is_execution_handoff = message.strip() == self.PLAN_EXECUTE_PROMPT
         session.todo_execution_handoff_active = is_execution_handoff
-        if session.plan_mode_enabled and not is_execution_handoff:
+        if session.learning.enabled:
+            session.todo_execution_handoff_active = False
+        elif session.plan_mode_enabled and not is_execution_handoff:
             # Each new planning request starts a fresh question cycle.
             session.plan_questions_asked = 0
             session.plan_target_questions = self._determine_plan_question_target(
@@ -726,7 +745,7 @@ class Agent:
         session: Session,
         user_message: str,
     ) -> bool:
-        if not self._has_pending_execution_work(session):
+        if session.learning.enabled or not self._has_pending_execution_work(session):
             return False
 
         intent = resolve_response_intent(user_message)
@@ -1375,6 +1394,8 @@ class Agent:
         *,
         stage: str,
     ) -> AsyncGenerator[AgentEvent, None]:
+        if session.learning.enabled:
+            return
         verification_keywords = (
             "test",
             "tests",
@@ -1478,7 +1499,7 @@ class Agent:
         arguments: dict,
         success: bool,
     ) -> AsyncGenerator[AgentEvent, None]:
-        if not success:
+        if session.learning.enabled or not success:
             return
         if tool_name == "todos":
             return
@@ -1525,6 +1546,8 @@ class Agent:
         compaction_streak = 0
         incomplete_response_retries = 0
         incomplete_response_prefix = ""
+        learning_response_retries = 0
+        learning_feedback: str | None = None
         discovery_result_cache: dict[
             tuple[str, tuple[tuple[str, str], ...]],
             ToolResult,
@@ -1536,7 +1559,8 @@ class Agent:
         while (
             turn_num < max_turns
             or (
-                session.goal_state is not None
+                not session.learning.enabled
+                and session.goal_state is not None
                 and session.goal_state.status.value == "active"
             )
         ):
@@ -1592,6 +1616,8 @@ class Agent:
             outbound_messages = session.context_manager.get_prompt_messages(
                 latest_user_text
             )
+            if session.learning.enabled and learning_feedback:
+                outbound_messages.append({"role": "system", "content": learning_feedback})
             if post_compaction_continue_prompt_needed:
                 outbound_messages.append(
                     {
@@ -1632,7 +1658,7 @@ class Agent:
                         # In plan mode (pre-execution), suppress live text streaming.
                         # This prevents partial/final plan text from rendering before
                         # question flow is complete.
-                        if visible_content and not (
+                        if visible_content and not session.learning.enabled and not (
                             session.plan_mode_enabled
                             and session.plan_phase != "executing"
                         ):
@@ -1750,6 +1776,34 @@ class Agent:
                     controlled_response_text,
                 )
                 incomplete_response_prefix = ""
+            if session.learning.enabled:
+                from ite.agent.learning import contains_implementation
+
+                assert session.context_manager is not None
+                reasoning_content = None
+                if contains_implementation(controlled_response_text):
+                    if usage:
+                        session.context_manager.set_latest_usage(usage)
+                        session.context_manager.add_usage(usage)
+                    if learning_response_retries < 2:
+                        learning_response_retries += 1
+                        learning_feedback = (
+                            "Learning mode rejected implementation syntax in the candidate reply. "
+                            "Answer in prose with one helpful learner action. No code blocks, "
+                            "inline implementation, patches, or pseudocode."
+                        )
+                        continue
+                    controlled_response_text = (
+                        "I withheld a reply containing implementation code. "
+                        "Tell me which concept or error you want help understanding, "
+                        "and we'll work through it without writing the solution."
+                    )
+                    tool_calls = []
+                for call in tool_calls:
+                    if not session.tool_registry.learning_allows(call.name) or (
+                        call.name == "learn_progress" and any(contains_implementation(str(value)) for value in cast(dict[str, Any], call.arguments).values())
+                    ):
+                        call.arguments = cast(Any, {})
             has_visible_response = bool(controlled_response_text.strip())
             if has_visible_response or tool_calls:
                 empty_reply_retries = 0
@@ -1758,6 +1812,7 @@ class Agent:
                 not tool_calls
                 and has_visible_response
                 and not session.plan_mode_enabled
+                and not session.learning.enabled
                 and self._should_force_execution_followthrough(
                     session,
                     latest_user_text,
@@ -1887,7 +1942,7 @@ class Agent:
                         )
                     )
                     # Only retry incomplete responses for code changes, not research requests
-                    if should_retry_incomplete:
+                    if should_retry_incomplete and not session.learning.enabled:
                         intent = resolve_response_intent(latest_user_text)
                         if intent.task_mode != "read_only":
                             incomplete_response_retries += 1
@@ -1937,7 +1992,7 @@ class Agent:
                 session.loop_detector.record_action(
                     "response", text=controlled_response_text
                 )
-                if in_plan_questioning or has_non_read_tool_call:
+                if session.learning.enabled or in_plan_questioning or has_non_read_tool_call:
                     yield AgentEvent.text_complete(
                         controlled_response_text,
                         final=False,
