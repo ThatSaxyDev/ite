@@ -53,7 +53,7 @@ LEARN_COMMANDS = frozenset(
         "/theme",
         "/models",
         "/model",
-        "/approval",
+        "/permissions",
         "/compact",
         "/retry",
         "/exit",

@@ -228,8 +228,8 @@ class ComposerMixin:
             context_used_percent=context_used_percent,
             styles=self._render_styles(),
             show_usage=self._is_bundled_model(),
-            show_context=model_display_name != "select model",
-            available_width=available_width,
+            show_context=False,
+            available_width=max(1, available_width - 16) if available_width else None,
             reasoning_label=(
                 reasoning_effort_display_label(self.config.model.reasoning_effort)
                 if self._is_deepseek_model()
@@ -245,6 +245,17 @@ class ComposerMixin:
         self._composer_context_hitbox = context_hitbox
         self._composer_activity_hitbox = activity_hitbox
         self._composer_flow_hitbox = flow_hitbox
+        from rich.cells import cell_len
+        from ite.safety.permissions import current_mode
+        from ite.config.config import PermissionMode
+
+        mode = current_mode(self.config)
+        label = {PermissionMode.ASK: "ask", PermissionMode.AUTOMATIC: "auto", PermissionMode.FULL: "full access"}.get(mode, "custom")
+        text.append("  ")
+        start = cell_len(text.plain)
+        style = self._render_styles().get("warning" if mode == PermissionMode.FULL else "muted", "")
+        text.append(f"{label} ▾", style=style)
+        self._composer_permissions_hitbox = (start, cell_len(text.plain))
         return text
 
 
@@ -764,6 +775,11 @@ class ComposerMixin:
     @on(events.Click, "#composer-meta-line")
 
     def on_composer_meta_line_click(self, event: events.Click) -> None:
+        permission_start, permission_end = getattr(self, "_composer_permissions_hitbox", (-1, -1))
+        if permission_start <= event.x < permission_end:
+            self.run_worker(self._open_permissions_picker(), exclusive=False)
+            event.stop()
+            return
         attach_start, attach_end = self._composer_attach_hitbox
         model_start, model_end = self._composer_model_hitbox
         reasoning_start, reasoning_end = self._composer_reasoning_hitbox

@@ -5,7 +5,7 @@ import subprocess, sys, time, uuid, webbrowser
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Literal, cast
+from typing import Any, Callable, Iterable, Literal, cast
 from urllib.parse import urlparse
 
 from rich.cells import cell_len
@@ -85,6 +85,7 @@ BUNDLED_CONTEXT_WINDOWS: dict[str, int] = {
     "claude-sonnet-4-5-20250929": 200_000,
 }
 
+CLOUD_STATUS_TIMEOUT_SEC = 6.0
 CLOUD_NETWORK_ONLINE_PROBE_INTERVAL_SEC = 30.0
 CLOUD_NETWORK_OFFLINE_FAILURE_THRESHOLD = 3
 
@@ -472,20 +473,32 @@ class CloudMixin:
         self._activity_cache = payload
 
 
+    async def _cloud_status_request(self, key: str, function: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        """Bound UI waiting; retain unfinished transports to prevent retry pileups."""
+        from ite.cloud.request_budget import run_status_request
+
+        task = self._cloud_status_tasks.get(key)
+        if task is None or task.done():
+            task = asyncio.create_task(asyncio.to_thread(run_status_request, function, *args, **kwargs))
+            self._cloud_status_tasks[key] = task
+
+            def finished(completed: asyncio.Task[Any]) -> None:
+                if self._cloud_status_tasks.get(key) is completed:
+                    self._cloud_status_tasks.pop(key, None)
+                if not completed.cancelled():
+                    completed.exception()
+
+            task.add_done_callback(finished)
+        return await asyncio.wait_for(asyncio.shield(task), timeout=CLOUD_STATUS_TIMEOUT_SEC)
+
     async def _refresh_account_plan_badge(self) -> None:
         if not self.config.cloud_auth_enabled:
             self._set_local_account_plan_state()
             return
         try:
-            result = await asyncio.to_thread(get_cloud_entitlements_result, self.config)
+            result = await self._cloud_status_request("plan", get_cloud_entitlements_result, self.config, allow_cached=False)
         except Exception:
-            if (
-                self._account_plan_is_pro is not None
-                and not self._account_plan_unavailable
-            ):
-                self._cloud_network_watch_enabled = True
-                return
-            self._set_account_plan_badge_state(None, unavailable=True)
+            self._handle_cloud_network_unreachable(immediate=True)
             return
         state = str(getattr(result.auth, "state", "") or "")
         if state == CloudSessionState.NO_ENTITLEMENT:
@@ -493,13 +506,7 @@ class CloudMixin:
             self._set_cloud_user_profile(result.user)
             return
         if state == CloudSessionState.NETWORK_ERROR:
-            if (
-                self._account_plan_is_pro is not None
-                and not self._account_plan_unavailable
-            ):
-                self._cloud_network_watch_enabled = True
-                return
-            self._set_account_plan_badge_state(None, unavailable=True)
+            self._handle_cloud_network_unreachable(immediate=True)
             return
         if not result.auth.is_valid:
             self._set_account_plan_badge_state(None, unavailable=True)
@@ -516,8 +523,13 @@ class CloudMixin:
             or entitlements.get("remoteCompanion")
             or entitlements.get("bundledInference")
         )
+        was_offline = self._account_plan_unavailable
+        self._cloud_network_unreachable_probe_count = 0
+        self._cloud_network_was_unreachable = False
         self._set_account_plan_badge_state(pro)
         self._set_cloud_user_profile(result.user)
+        if was_offline:
+            self.post_notice("iTE Cloud", "Back online. Cloud features are available.")
 
 
     def _set_cloud_user_profile(self, user: dict[str, Any] | None) -> None:
@@ -551,7 +563,7 @@ class CloudMixin:
 
 
     def _cloud_network_recovery_probe_interval(self) -> float:
-        if self._cloud_signed_out or self._account_plan_unavailable:
+        if self._cloud_signed_out or self._account_plan_unavailable or self._cloud_network_unreachable_probe_count:
             return 2.0
         if (
             not self._cloud_signed_out
@@ -569,11 +581,12 @@ class CloudMixin:
             return False
         if self._cloud_network_probe_in_flight:
             return False
+        pending = self._cloud_status_tasks.get("probe")
+        if pending is not None and not pending.done():
+            return False
         if self._cloud_signed_out:
             return self._cloud_network_watch_enabled
-        if self._account_plan_is_pro is not None:
-            return True
-        return self._account_plan_unavailable
+        return True
 
 
     def _maybe_probe_cloud_network_recovery(self) -> None:
@@ -593,10 +606,7 @@ class CloudMixin:
     async def _probe_cloud_network_recovery(self) -> None:
         try:
             if self._cloud_signed_out:
-                reachable = await asyncio.to_thread(
-                    is_cloud_api_reachable,
-                    self.config,
-                )
+                reachable = await self._cloud_status_request("probe", is_cloud_api_reachable, self.config)
                 if reachable:
                     self._handle_cloud_network_reachable()
                 else:
@@ -604,17 +614,14 @@ class CloudMixin:
                 return
 
             if not self._account_plan_unavailable:
-                reachable = await asyncio.to_thread(
-                    is_cloud_api_reachable,
-                    self.config,
-                )
+                reachable = await self._cloud_status_request("probe", is_cloud_api_reachable, self.config)
                 if reachable:
                     self._handle_cloud_network_reachable()
                 else:
                     self._handle_cloud_network_unreachable()
                 return
 
-            auth = await asyncio.to_thread(get_cloud_auth_status, self.config)
+            auth = await self._cloud_status_request("probe", get_cloud_auth_status, self.config)
             if auth.state == CloudSessionState.NETWORK_ERROR:
                 self._handle_cloud_network_unreachable()
                 return
@@ -632,7 +639,7 @@ class CloudMixin:
             self._cloud_network_probe_in_flight = False
 
 
-    def _handle_cloud_network_unreachable(self) -> None:
+    def _handle_cloud_network_unreachable(self, *, immediate: bool = False) -> None:
         if self._cloud_signed_out:
             self._cloud_network_was_unreachable = True
             self._cloud_network_watch_enabled = True
@@ -643,7 +650,9 @@ class CloudMixin:
             return
         self._cloud_network_unreachable_probe_count += 1
         if (
-            not self._account_plan_unavailable
+            not immediate
+            and self._account_plan_is_pro is not None
+            and not self._account_plan_unavailable
             and self._cloud_network_unreachable_probe_count
             < CLOUD_NETWORK_OFFLINE_FAILURE_THRESHOLD
         ):

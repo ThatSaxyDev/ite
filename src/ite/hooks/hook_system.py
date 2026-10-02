@@ -65,6 +65,13 @@ class HookSystem:
         self._background_tasks: set[asyncio.Task[HookRun]] = set()
         self.execution_suspended: Callable[[], bool] = lambda: False
 
+    def is_suspended(self) -> bool:
+        from ite.config.config import PermissionMode
+
+        return self.execution_suspended() or self.config.permissions in {
+            PermissionMode.ASK, PermissionMode.AUTOMATIC
+        }
+
     def configured_hooks(self) -> list[dict[str, Any]]:
         return [
             {
@@ -81,7 +88,7 @@ class HookSystem:
     def snapshot(self) -> dict[str, Any]:
         return {
             "enabled": bool(self.config.hooks_enabled),
-            "suspended": self.execution_suspended(),
+            "suspended": self.is_suspended(),
             "configured": self.configured_hooks(),
             "runs": [run.to_dict() for run in self._recent_runs],
         }
@@ -155,7 +162,7 @@ class HookSystem:
         return run
 
     async def _dispatch_hook(self, hook: HookConfig, env: dict[str, str]) -> None:
-        if self.execution_suspended():
+        if self.is_suspended():
             return
         if hook.blocking:
             await self._run_hook(hook, env)

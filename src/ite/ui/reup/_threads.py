@@ -211,6 +211,7 @@ class ThreadsMixin:
                 "cloud_client_id": self.config.cloud_client_id,
                 "cloud_device_name": self.config.cloud_device_name,
                 "approval": self.config.approval,
+                "permissions": self.config.permissions,
                 "sandbox": self.config.sandbox.model_copy(deep=True),
                 "debug": self.config.debug,
                 "resume_last_session": self.config.resume_last_session,
@@ -253,6 +254,7 @@ class ThreadsMixin:
         self.config.sandbox.allowed_paths = list(merged_allowed_paths)
         session_config.sandbox.allowed_paths = list(merged_allowed_paths)
         session_config.sandbox.enabled = self.config.sandbox.enabled
+        session_config.permissions = self.config.permissions
         return session_config
 
 
@@ -261,6 +263,7 @@ class ThreadsMixin:
         if session_config is None or session_config is self.config:
             return
         self.config.sandbox = session_config.sandbox.model_copy(deep=True)
+        self.config.permissions = session_config.permissions
 
 
     def _sandbox_render_config(self) -> Config:
@@ -810,7 +813,9 @@ class ThreadsMixin:
                 ).strip()
                 or None,
             )
-            save_global_approval_mode(result["approval"])
+            # Provider setup must preserve an explicitly selected permissions preset.
+            if self.config.permissions is None:
+                save_global_approval_mode(result["approval"])
         except Exception as exc:
             self.post_system("Setup failed", str(exc), is_error=True)
             self.exit()
@@ -829,7 +834,13 @@ class ThreadsMixin:
         self.config.model.supports_vision = self._resolve_model_vision_support(
             result["model_name"], source_kind="saved"
         )
-        self.config.approval = ApprovalPolicy(result["approval"])
+        if self.config.permissions is None:
+            selected = Config(
+                approval=ApprovalPolicy(result["approval"]),
+                sandbox=self.config.sandbox.model_copy(deep=True),
+            )
+            self.config.permissions = selected.permissions
+            self.config.approval = selected.approval
         await self._reset_active_provider_client()
         self.refresh_header(refresh_session_tabs=False)
         self.post_notice("Setup complete", "Credentials saved and applied.")

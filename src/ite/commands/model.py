@@ -172,7 +172,10 @@ async def cmd_approval(ctx: CommandContext, args: list[str]) -> None:
 
         old_approval = ctx.config.approval.value
         selected_policy = ApprovalPolicy(new_approval)
+        ctx.config.permissions = None
         ctx.config.approval = selected_policy
+        if ctx.agent and ctx.agent.session:
+            ctx.agent.session.config.permissions = None
         if ctx.agent and ctx.agent.session:
             ctx.agent.session.approval_manager.approval_policy = selected_policy
         save_global_approval_mode(selected_policy)
@@ -301,10 +304,6 @@ def register(registry: CommandRegistry) -> None:
     registry.register(Command(
         name="/config", description="Show current configuration",
         handler=cmd_config,
-    ))
-    registry.register(Command(
-        name="/approval", description="Show or change approval mode",
-        handler=cmd_approval,
     ))
     registry.register(Command(
         name="/theme", description="Choose a Textual theme for this session",

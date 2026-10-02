@@ -13,6 +13,11 @@ async def cmd_sandbox(ctx: CommandContext, args: list[str]) -> None:
         return
 
     sub_cmd = args[0].lower()
+    if sub_cmd in {"on", "off"} or (sub_cmd == "fs" and len(args) > 1 and args[1].lower() in {"on", "off"}):
+        from ite.config.loader import save_global_permission_mode
+
+        ctx.config.permissions = None
+        save_global_permission_mode(None)
 
     if sub_cmd in ("on", "off"):
         # Toggle filesystem sandbox

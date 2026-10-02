@@ -238,7 +238,7 @@ class Tool(abc.ABC):
         except SandboxViolation:
             return ToolResult.error_result(
                 f"Access denied: {path} is outside the project sandbox. "
-                f"Use /sandbox allow <path> to grant access."
+                f"Use /permissions to choose access, or configure trusted paths in .ite/config.toml."
             )
 
     async def get_confirmation(

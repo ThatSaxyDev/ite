@@ -27,8 +27,6 @@ sending. Esc hides suggestions without changing your draft.
 | `/setup` | Configure model provider |
 | `/config` | View current configuration |
 | `/model <name>` | Change model |
-| `/approval <mode>` | Set approval mode: `on_request`, `on_failure`, `auto`, `auto_edit`, `yolo` |
-| `/approval help` | Show all approval modes with descriptions |
 | `/stats` | Show token usage statistics |
 | `/tools` | List available tools |
 | `/theme` | Change UI theme (re-up UI) |
@@ -132,3 +130,12 @@ See [Learning mode](learning.md) for the workflow and a TUI walkthrough. While i
 ---
 
 [Learn about tools →](tools.md)
+
+
+### Permissions
+
+Use `/permissions` or click the composer's permissions label to select Ask for approval, Automatic, or Full access. `/permissions status` shows the current choice. The three access modes are the only editable permissions controls. Automatic is the default. Explicit saved modes are retained; legacy custom rules display Custom.
+
+Automatic permits workspace file tools and asks before commands, internet tools, integrations, and external file access. It uses fixed rules rather than an AI reviewer. Restricted modes suspend hooks; approved commands and integrations still run with your OS permissions. Learn continues to enforce its own execution restrictions.
+
+See [the permissions design and TUI test walkthrough](design/permissions.md) for the complete behavior and test prompts.

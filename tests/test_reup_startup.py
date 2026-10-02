@@ -882,7 +882,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    "ite.ui.reup._cloud.get_cloud_entitlements_result",
                     return_value=result,
                 ),
                 patch.object(app, "refresh_header") as refresh_header,
@@ -903,7 +903,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.get_cloud_entitlements_result"
+                    "ite.ui.reup._cloud.get_cloud_entitlements_result"
                 ) as get_entitlements,
                 patch.object(app, "refresh_header") as refresh_header,
             ):
@@ -922,7 +922,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    "ite.ui.reup._cloud.get_cloud_entitlements_result",
                     side_effect=RuntimeError("cloud down"),
                 ),
                 patch.object(app, "refresh_header") as refresh_header,
@@ -949,7 +949,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    "ite.ui.reup._cloud.get_cloud_entitlements_result",
                     return_value=result,
                 ),
                 patch.object(app, "refresh_header") as refresh_header,
@@ -976,7 +976,7 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    "ite.ui.reup._cloud.get_cloud_entitlements_result",
                     return_value=result,
                 ),
                 patch.object(app, "refresh_header") as refresh_header,
@@ -989,7 +989,7 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_account_plan_badge_preserves_known_state_on_network_error(self) -> None:
+    def test_account_plan_badge_marks_known_state_offline_on_network_error(self) -> None:
         async def run_test() -> None:
             app = self._app()
             app._account_plan_is_pro = True
@@ -1005,17 +1005,16 @@ class ReupStartupTests(unittest.TestCase):
 
             with (
                 patch(
-                    "ite.ui.reup.app.get_cloud_entitlements_result",
+                    "ite.ui.reup._cloud.get_cloud_entitlements_result",
                     return_value=result,
                 ),
                 patch.object(app, "refresh_header") as refresh_header,
             ):
                 await app._refresh_account_plan_badge()
 
-            self.assertTrue(app._account_plan_is_pro)
-            self.assertFalse(app._account_plan_unavailable)
-            self.assertTrue(app._cloud_network_watch_enabled)
-            refresh_header.assert_not_called()
+            self.assertIsNone(app._account_plan_is_pro)
+            self.assertTrue(app._account_plan_unavailable)
+            refresh_header.assert_called_once()
 
         asyncio.run(run_test())
 
@@ -1131,10 +1130,10 @@ class ReupStartupTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
-    def test_network_watcher_is_scoped_to_recovery_states(self) -> None:
+    def test_network_watcher_probes_unknown_and_recovery_states(self) -> None:
         app = self._app()
         app.config.cloud_auth_enabled = True
-        self.assertFalse(app._should_probe_cloud_network_recovery())
+        self.assertTrue(app._should_probe_cloud_network_recovery())
 
         app._account_plan_unavailable = True
         self.assertTrue(app._should_probe_cloud_network_recovery())

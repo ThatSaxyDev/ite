@@ -129,10 +129,14 @@ class ToolRegistry:
         )
 
     async def invoke(self, *args: Any, **kwargs: Any) -> ToolResult:
+        from ite.safety.sandbox import invocation_paths
+
         self.active_invocations += 1
+        token = invocation_paths.set(())
         try:
             return await self._invoke(*args, **kwargs)
         finally:
+            invocation_paths.reset(token)
             self.active_invocations -= 1
 
     async def _invoke(
@@ -252,6 +256,17 @@ class ToolRegistry:
             )
             return result
 
+        if self.config.permissions is not None:
+            from ite.safety.permissions import authorize_invocation
+            from ite.safety.sandbox import invocation_paths
+
+            error, grants = await authorize_invocation(tool, params, cwd, approval_manager)
+            if error:
+                result = ToolResult.error_result(error, metadata={"tool_name": name, "permission_blocked": True, "tool_metadata": metadata.to_dict()})
+                self._emit_telemetry(tool_name=name, params=params, blocked_reason="permission_blocked", result=result, started_at=started_at, tool_metadata=metadata)
+                return result
+            invocation_paths.set(grants)
+
         await hook_system.trigger_before_tool(
             tool_name=name,
             tool_params=params,
@@ -272,7 +287,7 @@ class ToolRegistry:
             if set_plan_phase:
                 set_plan_phase("asking_questions")
 
-        if approval_manager:
+        if approval_manager and self.config.permissions is None:
             confirmation = await tool.get_confirmation(invocation)
 
             if confirmation:

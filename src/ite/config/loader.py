@@ -12,7 +12,7 @@ import tomli
 from platformdirs import user_config_dir, user_data_dir
 from pydantic import ValidationError
 
-from ite.config.config import ApprovalPolicy, Config, MCPServerConfig
+from ite.config.config import ApprovalPolicy, Config, MCPServerConfig, PermissionMode
 from ite.utils.errors import ConfigError
 
 CONFIG_FILE_NAME = "config.toml"
@@ -439,6 +439,16 @@ def load_config(
     # across projects/sessions.
     if "approval" in system_config_dict:
         config_dict["approval"] = system_config_dict["approval"]
+    if "permissions" in system_config_dict:
+        config_dict["permissions"] = system_config_dict["permissions"]
+    elif system_config_dict.get("approval", "auto") != "auto" or not system_config_dict.get("sandbox", {}).get("enabled", True):
+        # Preserve explicit legacy global restrictions while preventing workspace
+        # presets from changing the user's permission level.
+        config_dict["permissions"] = None
+        config_dict["approval"] = system_config_dict.get("approval", "auto")
+        config_dict.setdefault("sandbox", {})["enabled"] = system_config_dict.get("sandbox", {}).get("enabled", True)
+    else:
+        config_dict["permissions"] = PermissionMode.AUTOMATIC.value
 
     if "cwd" not in config_dict:
         config_dict["cwd"] = cwd
@@ -1000,6 +1010,7 @@ def _render_system_config(config: dict[str, Any]) -> list[str]:
 
 def save_global_approval_mode(mode: ApprovalPolicy | str) -> Path:
     """Persist global approval mode in system config.toml."""
+    save_global_permission_mode(None)
     value = mode.value if isinstance(mode, ApprovalPolicy) else str(mode).strip()
     config_dir = get_config_dir()
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -1571,3 +1582,33 @@ def _write_global_mcp_secret_metadata(
 
 def _mcp_keyring_service(server: str) -> str:
     return f"ite.mcp.{server}"
+
+
+def save_global_permission_mode(mode: str | None) -> Path:
+    """Save a preset without replacing unrelated settings or workspace roots."""
+    config_path = get_system_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = config_path.read_text(encoding="utf-8").splitlines() if config_path.exists() else []
+    output = []
+    at_root = True
+    for line in lines:
+        if line.strip().startswith("["):
+            at_root = False
+        if at_root and re.match(r"^\s*permissions\s*=", line):
+            continue
+        output.append(line)
+    if mode is not None:
+        from ite.config.config import PermissionMode
+
+        value = PermissionMode(mode).value
+        output.insert(0, f'permissions = "{value}"')
+    import tempfile
+
+    fd, name = tempfile.mkstemp(prefix=".permissions-", dir=config_path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write("\n".join(output) + "\n")
+        os.replace(name, config_path)
+    finally:
+        Path(name).unlink(missing_ok=True)
+    return config_path

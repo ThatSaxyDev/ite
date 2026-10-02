@@ -212,6 +212,12 @@ class MCPServerConfig(BaseModel):
         return names
 
 
+class PermissionMode(str, Enum):
+    ASK = "ask"
+    AUTOMATIC = "automatic"
+    FULL = "full"
+
+
 class ApprovalPolicy(str, Enum):
     ON_REQUEST = "on_request"
     ON_FAILURE = "on_failure"
@@ -300,6 +306,29 @@ class Config(BaseModel):
     hooks_enabled: bool = False
     hooks: list[HookConfig] = Field(default_factory=list)
     approval: ApprovalPolicy = ApprovalPolicy.AUTO
+    permissions: PermissionMode | None = PermissionMode.AUTOMATIC
+
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_custom_permission_settings(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "permissions" not in data:
+            sandbox = data.get("sandbox", {})
+            enabled = sandbox.get("enabled", True) if isinstance(sandbox, dict) else getattr(sandbox, "enabled", True)
+            if data.get("approval", ApprovalPolicy.AUTO) != ApprovalPolicy.AUTO or not enabled:
+                data = dict(data)
+                data["permissions"] = None
+        return data
+
+    @model_validator(mode="after")
+    def apply_permission_preset(self) -> Config:
+        if self.permissions is not None:
+            self.approval = {
+                PermissionMode.ASK: ApprovalPolicy.ON_REQUEST,
+                PermissionMode.AUTOMATIC: ApprovalPolicy.AUTO,
+                PermissionMode.FULL: ApprovalPolicy.YOLO,
+            }[self.permissions]
+            self.sandbox.enabled = self.permissions != PermissionMode.FULL
+        return self
 
     max_turns: int = 100
     init_max_turns: int = Field(default=40, ge=4, le=200)

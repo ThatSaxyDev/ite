@@ -901,6 +901,9 @@ class TurnMixin:
 
     async def run_command(self, command_line: str) -> None:
         parts = command_line.split()
+        if parts and parts[0].lower() in {"/approval", "/sandbox"}:
+            self.post_notice("Commands", "This command has been removed. Use /permissions.")
+            return
         if parts and parts[0].lower() == "/init":
             worker = self._init_command_worker
             if worker is not None and not worker.is_finished:
@@ -1084,8 +1087,17 @@ class TurnMixin:
             await self._show_commands_panel()
             return
 
-        if command == "/approval" and not args:
-            await self._open_approval_picker_from_meta(args)
+        if command == "/permissions" and args and args[0] in {"ask", "automatic", "full"}:
+            try:
+                for agent in self._session_agents.values():
+                    if agent.session:
+                        agent.session.require_learning_idle()
+            except ValueError:
+                self.post_notice("Permissions", "Wait for running threads, tools, and hooks to finish.")
+                return
+
+        if command == "/permissions" and not args:
+            await self._open_permissions_picker()
             return
 
         if command == "/retry":
@@ -1105,11 +1117,7 @@ class TurnMixin:
             self.post_system("Error", "Agent is not initialized", is_error=True)
             return
 
-        command_config = (
-            self._prepare_sandbox_command_config()
-            if command == "/sandbox"
-            else self.config
-        )
+        command_config = self.config
         live_stream_command = command in {"/init"} or (
             command == "/mcp" and args and args[0].lower() == "start"
         )
@@ -1163,8 +1171,13 @@ class TurnMixin:
                 )
                 return
             await registry.dispatch(command, args, ctx)
-            if command == "/sandbox":
-                self._sync_app_sandbox_from_active_session()
+            if command == "/permissions" and ctx.outcome == "completed" and self.config.permissions is not None:
+                from ite.safety.permissions import apply_mode
+
+                for agent in self._session_agents.values():
+                    if agent.session:
+                        apply_mode(agent.session.config, self.config.permissions)
+                        agent.session.approval_manager.approval_policy = agent.session.config.approval
         except SystemExit:
             self.exit()
             return
@@ -1198,7 +1211,7 @@ class TurnMixin:
             "/attach",
             "/rename",
             "/theme",
-            "/approval",
+            "/permissions",
         }:
             self.refresh_header()
         had_live_output = (
@@ -1236,6 +1249,19 @@ class TurnMixin:
                     )
                 return
         if rendered and not had_live_output:
+            if command == "/permissions":
+                from ite.ui.reup.widgets.permissions_status import PermissionsStatusBody
+
+                await self.add_assistant_card(
+                    "Permissions",
+                    rendered if ctx.outcome == "failed" else PermissionsStatusBody(self.config),
+                    css_class="system error" if ctx.outcome == "failed" else "system",
+                )
+                if ctx.outcome != "failed":
+                    self.query_one("#settings-panel").refresh_permissions_state()
+                if command_feed_id is not None:
+                    self._finish_remote_command_feed_entry(command_feed_id, status=ctx.outcome, output=rendered, metadata=command_metadata)
+                return
             if command == "/skills" and self._post_skills_command_result(
                 args, rendered
             ):

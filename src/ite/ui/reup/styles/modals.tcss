@@ -16,6 +16,7 @@ SessionResumeModal,
 BranchPickerModal,
 ModelPickerModal,
 ThemePickerModal,
+PermissionsPickerModal,
 ApprovalPickerModal,
 ThinkingLevelModal,
 UsageSummaryModal,
@@ -934,3 +935,22 @@ LearningSetupModal #learn-setup-next {
 LearningSetupModal #learn-setup-next:hover {
     background: $primary-lighten-1;
 }
+
+PermissionsPickerModal .permissions-modal {
+    width: 76;
+    max-width: 95%;
+    height: 20;
+    max-height: 90%;
+    background: $surface;
+    border: heavy $border;
+    padding: 1 2;
+}
+PermissionsPickerModal .modal-title { height: 1; text-style: bold; }
+PermissionsPickerModal .modal-body { height: auto; margin-bottom: 1; color: $foreground-muted; }
+PermissionsPickerModal .permissions-content { height: 1fr; min-height: 0; }
+PermissionsPickerModal OptionList { height: auto; background: $surface; border: none; padding: 0; }
+PermissionsPickerModal OptionList > .option-list--option { padding: 0 1 1 1; }
+PermissionsPickerModal OptionList > .option-list--option-highlighted { background: $primary-muted; color: $foreground; }
+PermissionsPickerModal .modal-actions { height: 1; margin-top: 1; align: right middle; }
+PermissionsPickerModal Button { height: 1; min-height: 1; width: 12; min-width: 12; border: none; padding: 0 1; margin-left: 1; background: $panel; color: $foreground; }
+PermissionsPickerModal Button.-primary { background: $primary; color: $text-primary; }

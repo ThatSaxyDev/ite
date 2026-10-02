@@ -494,6 +494,7 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         self._cloud_signed_out: bool = False
         self._cloud_auth_busy: bool = False
         self._cloud_bootstrap_busy: bool = False
+        self._cloud_status_tasks: dict[str, asyncio.Task[Any]] = {}
         self._cloud_network_probe_in_flight: bool = False
         self._cloud_network_last_probe_at: float = 0.0
         self._cloud_network_watch_enabled: bool = False

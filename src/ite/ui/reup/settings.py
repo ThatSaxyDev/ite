@@ -39,7 +39,7 @@ CELL_STRIDE = 3
 _ACTION_FIELDS = {
     "model": "_open_model_picker_from_meta",
     "provider": "_open_setup_modal",
-    "approval": "_open_approval_picker_from_meta",
+    "permissions": "_open_permissions_picker",
 }
 
 
@@ -291,16 +291,12 @@ class SettingsPanel(Widget):
                     "provider", "…", field="provider"
                 )
                 self._info_cwd = SettingsInfoRow("cwd", "…")
-                self._info_approval = SettingsInfoRow(
-                    "approval", "…", field="approval"
-                )
                 self._info_tools = SettingsInfoRow("tools", "…", multiline=True)
                 self._info_agents = SettingsInfoRow("agents", "…", multiline=True)
                 self._info_skills = SettingsInfoRow("skills", "…", multiline=True)
                 yield self._info_model
                 yield self._info_provider
                 yield self._info_cwd
-                yield self._info_approval
                 yield self._info_tools
                 yield self._info_agents
                 yield self._info_skills
@@ -322,6 +318,13 @@ class SettingsPanel(Widget):
                 with HorizontalScroll(classes="heatmap-scroller"):
                     yield Vertical(id="settings-heatmap", classes="settings-heatmap")
                 yield Horizontal(classes="heat-legend")
+
+            yield Static("Permissions", id="settings-permissions-title", classes="settings-section-title")
+            with Container(id="settings-permissions-card", classes="settings-permissions-card"):
+                self._info_permissions = SettingsInfoRow("Access", "…", field="permissions")
+                yield self._info_permissions
+                yield Static("Applies to all workspaces", classes="settings-permissions-scope")
+                yield Button("Change permissions", id="settings-permissions-change", variant="default")
 
             # Open Island is device-local and therefore available regardless
             # of the user's Cloud sign-in state.
@@ -456,6 +459,19 @@ class SettingsPanel(Widget):
         if callable(method):
             self.app.run_worker(method(), exclusive=False)
 
+    def refresh_permissions_state(self) -> None:
+        from ite.config.config import PermissionMode
+        from ite.safety.permissions import LABELS, current_mode
+
+        mode = current_mode(self.app.config)
+        self._info_permissions.update_value(LABELS[mode] if mode else "Custom")
+        self._info_permissions.set_class(mode == PermissionMode.FULL, "permissions-full")
+        self._info_permissions.set_class(mode == PermissionMode.AUTOMATIC, "permissions-automatic")
+
+    @on(Button.Pressed, "#settings-permissions-change")
+    def _on_permissions_change(self) -> None:
+        self.app.run_worker(self.app._open_permissions_picker(), exclusive=False)
+
     def _populate_context(self) -> None:
         config = self.app.config
 
@@ -482,8 +498,7 @@ class SettingsPanel(Widget):
         # CWD
         self._info_cwd.update_value(str(config.cwd))
 
-        # Approval
-        self._info_approval.update_value(config.approval.value)
+        self.refresh_permissions_state()
 
         # Tools / agents / skills — always populated, with a live-session
         # preference and a config-only fallback when no session exists yet.

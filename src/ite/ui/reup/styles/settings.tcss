@@ -495,3 +495,14 @@
     align-vertical: middle;
     margin-top: 1;
 }
+
+#settings-panel .settings-permissions-card {
+    height: auto;
+    padding: 1 1;
+    margin-bottom: 1;
+    background: $surface-darken-1;
+}
+#settings-panel .settings-permissions-scope { height: auto; color: $foreground-muted; margin-bottom: 1; }
+#settings-panel #settings-permissions-change { height: 1; min-height: 1; width: 22; border: none; padding: 0 1; background: $panel; color: $foreground; }
+#settings-panel .permissions-full .settings-info-value { color: $text-warning; text-style: bold; }
+#settings-panel .permissions-automatic .settings-info-value { color: $text-success; text-style: bold; }

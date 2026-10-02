@@ -1,4 +1,8 @@
+from contextvars import ContextVar
 from pathlib import Path
+
+# Exact resolved paths approved for this invocation only; inherited by its worker thread.
+invocation_paths: ContextVar[tuple[Path, ...]] = ContextVar("invocation_paths", default=())
 from ite.config.loader import get_data_dir
 from ite.config.config import SandboxPolicy
 
@@ -38,6 +42,9 @@ def validate_path(
         real_path = resolved_path.resolve()
     except OSError:
         real_path = resolved_path
+
+    if real_path in invocation_paths.get():
+        return resolved_path
 
     real_cwd = cwd.resolve()
 

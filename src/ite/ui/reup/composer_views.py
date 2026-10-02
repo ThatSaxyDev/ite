@@ -521,7 +521,7 @@ def filtered_command_palette(
             "/mcp": "List configured servers",
             "/branch": "Open the branch picker",
             "/attach": "Open the attachment picker",
-            "/approval": "Open the approval picker",
+            "/permissions": "Open the permissions picker",
         }.get(command.name, command.description)
         options.append(SlashCommandOption(
             name=prefix, description=base_description if node is None else node.description,

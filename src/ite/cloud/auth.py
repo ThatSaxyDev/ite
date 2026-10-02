@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 import certifi
 from rich.console import Console
+from ite.cloud.request_budget import http_settings
 
 from ite.config.config import Config
 from ite.config.config import DEFAULT_CLOUD_CLIENT_ID
@@ -345,7 +346,8 @@ def _post_json(
     if access_token:
         headers["authorization"] = f"Bearer {access_token}"
     last_error: Exception | None = None
-    for attempt in range(_CLOUD_HTTP_MAX_RETRIES + 1):
+    _timeout, retries = http_settings(_CLOUD_HTTP_TIMEOUT_SEC, _CLOUD_HTTP_MAX_RETRIES)
+    for attempt in range(retries + 1):
         try:
             request = Request(
                 url,
@@ -355,7 +357,7 @@ def _post_json(
             )
             with urlopen(
                 request,
-                timeout=_CLOUD_HTTP_TIMEOUT_SEC,
+                timeout=http_settings(_CLOUD_HTTP_TIMEOUT_SEC, _CLOUD_HTTP_MAX_RETRIES)[0],
                 context=_SSL_CONTEXT,
             ) as response:
                 body = response.read().decode("utf-8")
@@ -364,24 +366,24 @@ def _post_json(
             body = exc.read().decode("utf-8")
             error_payload = _decode_json_body(body)
             status = int(exc.code)
-            if status >= 500 and attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if status >= 500 and attempt < retries:
                 last_error = exc
                 time.sleep(min(2**attempt, 30))
                 continue
             return status, error_payload
         except (TimeoutError, socket.timeout) as exc:
             last_error = exc
-            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(min(2**attempt, 30))
                 continue
         except URLError as exc:
             last_error = exc
-            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(min(2**attempt, 30))
                 continue
         except OSError as exc:
             last_error = exc
-            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(min(2**attempt, 30))
                 continue
     if isinstance(last_error, (TimeoutError, socket.timeout)):
@@ -404,12 +406,13 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
     if access_token:
         headers["authorization"] = f"Bearer {access_token}"
     last_error: Exception | None = None
-    for attempt in range(_CLOUD_HTTP_MAX_RETRIES + 1):
+    _timeout, retries = http_settings(_CLOUD_HTTP_TIMEOUT_SEC, _CLOUD_HTTP_MAX_RETRIES)
+    for attempt in range(retries + 1):
         try:
             request = Request(url, headers=headers, method="GET")
             with urlopen(
                 request,
-                timeout=_CLOUD_HTTP_TIMEOUT_SEC,
+                timeout=http_settings(_CLOUD_HTTP_TIMEOUT_SEC, _CLOUD_HTTP_MAX_RETRIES)[0],
                 context=_SSL_CONTEXT,
             ) as response:
                 body = response.read().decode("utf-8")
@@ -418,24 +421,24 @@ def _get_json(url: str, access_token: str | None = None) -> tuple[int, dict[str,
             body = exc.read().decode("utf-8")
             error_payload = _decode_json_body(body)
             status = int(exc.code)
-            if status >= 500 and attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if status >= 500 and attempt < retries:
                 last_error = exc
                 time.sleep(min(2**attempt, 30))
                 continue
             return status, error_payload
         except (TimeoutError, socket.timeout) as exc:
             last_error = exc
-            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(min(2**attempt, 30))
                 continue
         except URLError as exc:
             last_error = exc
-            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(min(2**attempt, 30))
                 continue
         except OSError as exc:
             last_error = exc
-            if attempt < _CLOUD_HTTP_MAX_RETRIES:
+            if attempt < retries:
                 time.sleep(min(2**attempt, 30))
                 continue
     if isinstance(last_error, (TimeoutError, socket.timeout)):
@@ -894,7 +897,7 @@ def get_bundled_models(config: Config) -> list[dict[str, Any]]:
     return get_bundled_models_result(config).models
 
 
-def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
+def get_cloud_entitlements_result(config: Config, *, allow_cached: bool = True) -> CloudEntitlementsResult:
     auth = get_cloud_auth_status(config)
     if not auth.is_valid:
         return CloudEntitlementsResult(
@@ -904,8 +907,9 @@ def get_cloud_entitlements_result(config: Config) -> CloudEntitlementsResult:
     session = auth.session
     assert session is not None
 
-    cached_entitlements = _load_cached_cloud_entitlements(
-        config, max_age_seconds=_ENTITLEMENT_GRACE_SECONDS
+    cached_entitlements = (
+        _load_cached_cloud_entitlements(config, max_age_seconds=_ENTITLEMENT_GRACE_SECONDS)
+        if allow_cached else {}
     )
 
     try:

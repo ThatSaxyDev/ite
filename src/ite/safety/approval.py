@@ -330,4 +330,4 @@ class ApprovalManager:
                 result = await result
             return result
 
-        return True
+        return False
