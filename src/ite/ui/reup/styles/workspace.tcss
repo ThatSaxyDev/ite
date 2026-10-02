@@ -968,14 +968,51 @@
     color: $text-primary;
 }
 
-#commands-panel .commands-panel-subtitle {
-    color: $foreground-muted;
-    margin-bottom: 1;
-}
-
 #commands-panel .commands-panel-table {
     width: 1fr;
     height: 1fr;
+    overflow-x: hidden;
+}
+
+#commands-panel .commands-panel-row {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#commands-panel .commands-panel-name {
+    width: 14;
+    height: auto;
+    text-style: bold;
+}
+
+#commands-panel .commands-panel-details {
+    width: 1fr;
+    height: auto;
+}
+
+#commands-panel .commands-panel-description,
+#commands-panel .commands-panel-aliases,
+#commands-panel .commands-panel-option {
+    width: 1fr;
+    height: auto;
+}
+
+#commands-panel .commands-panel-aliases {
+    color: $foreground-muted;
+}
+
+#commands-panel .commands-panel-options {
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+#commands-panel .commands-panel-options > Contents {
+    padding: 0 0 0 1;
+}
+
+#commands-panel .commands-panel-option {
+    margin-bottom: 1;
 }
 
 #hooks-panel {

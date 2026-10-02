@@ -35,6 +35,7 @@ class Command:
     description: str
     handler: Any  # async callable(ctx, args) -> bool
     aliases: list[str] = field(default_factory=list)
+    variants: tuple[tuple[str, str], ...] = ()
 
 
 class CommandRegistry:
@@ -45,6 +46,10 @@ class CommandRegistry:
         self._alias_map: dict[str, str] = {}
 
     def register(self, command: Command) -> None:
+        from ite.commands.help_catalog import COMMAND_VARIANTS
+
+        if not command.variants:
+            command.variants = COMMAND_VARIANTS.get(command.name, ())
         self._commands[command.name] = command
         for alias in command.aliases:
             self._alias_map[alias] = command.name

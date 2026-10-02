@@ -156,12 +156,16 @@ class StreamingMixin:
         await self._pin_activity_indicator_to_end()
 
 
-    async def finalize_streaming_message(self, final_text: str | None = None) -> None:
+    async def finalize_streaming_message(self, final_text: str | None = None, *, animate: bool = True) -> None:
         conversation = self.query_one("#conversation", VerticalScroll)
+        original_widget = self._streaming_widget
         rendered_text = final_text if final_text is not None else self._streaming_buffer
         if self._streaming_widget is not None and rendered_text:
             if self._streaming_widget_has_copyable_markdown():
-                await self._update_streaming_markdown(rendered_text)
+                await self._update_streaming_markdown(
+                    rendered_text,
+                    animate=animate and rendered_text == self._streaming_buffer,
+                )
             else:
                 # Fallback for older in-flight widgets created before streaming used CopyableMarkdown.
                 old_widget = self._streaming_widget
@@ -181,8 +185,9 @@ class StreamingMixin:
                             )
                         )
             await self._pin_activity_indicator_to_end()
-        self._streaming_widget = None
-        self._streaming_buffer = ""
+        if self._streaming_widget is original_widget:
+            self._streaming_widget = None
+            self._streaming_buffer = ""
 
 
     def _streaming_widget_has_copyable_markdown(self) -> bool:
@@ -196,7 +201,7 @@ class StreamingMixin:
 
 
     async def _update_streaming_markdown(
-        self, markdown_text: str, *, fragment: str | None = None
+        self, markdown_text: str, *, fragment: str | None = None, animate: bool = True
     ) -> None:
         if self._streaming_widget is None:
             return
@@ -213,9 +218,11 @@ class StreamingMixin:
                 )
             return
         if fragment is not None:
-            await markdown_widget.stream_fragment(fragment)
+            await markdown_widget.type_fragment(fragment)
         else:
-            await markdown_widget.finish_stream()
+            await markdown_widget.finish_stream(animate=animate)
+            if not markdown_widget.is_mounted:
+                return
             # Most final events repeat the already streamed text. Only rebuild
             # when the service supplies a corrected authoritative response.
             if markdown_widget.source != markdown_text:
@@ -258,12 +265,12 @@ class StreamingMixin:
         if self._streaming_widget is not None:
             if preserve_streaming_message and self._streaming_buffer.strip():
                 interrupted_text = self._streaming_buffer
-                await self.finalize_streaming_message()
+                await self.finalize_streaming_message(animate=False)
                 self._persist_interrupted_streaming_message(interrupted_text)
             else:
                 if self._streaming_widget_has_copyable_markdown():
                     markdown = self._streaming_widget.query_one(CopyableMarkdown)
-                    await markdown.finish_stream()
+                    await markdown.finish_stream(animate=False)
                 try:
                     await self._streaming_widget.remove()
                 except Exception:
@@ -3097,6 +3104,14 @@ class StreamingMixin:
             blocks.append(
                 render_git_log_output(md, theme_variables=self._theme_tokens())
             )
+        elif name == "learn_progress" and success:
+            blocks.append(Text(narrative, style=self._style("muted")))
+            blocks.append(render_args_table(
+                name,
+                {key: md.get(key, args.get(key, "")) for key in ("objective", "current_step")},
+                cwd=self.config.cwd,
+                theme_variables=self._theme_tokens(),
+            ))
         elif name == "todos" and success:
             blocks.append(Text(narrative, style=self._style("muted")))
             todo_blocks, was_truncated = render_todo_payload(

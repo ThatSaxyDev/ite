@@ -504,7 +504,7 @@ class ReupCommandPaletteTests(unittest.TestCase):
                 session=SimpleNamespace(context_manager=context_manager)
             )
 
-            async def finalize_streaming_message() -> None:
+            async def finalize_streaming_message(*, animate: bool = True) -> None:
                 app._streaming_widget = None
                 app._streaming_buffer = ""
 

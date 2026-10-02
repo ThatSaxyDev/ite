@@ -42,6 +42,7 @@ TOOL_ICONS: dict[str, str] = {
     "memory": "\U0001f9e0",
     "goal_outcome": "\U0001f3af",
     "goal_progress": "\U0001f5fa\ufe0f",
+    "learn_progress": "\U0001f4d8",
     "shell": "\u25ab\ufe0f",
     "shell_start": "\u25ab\ufe0f",
     "shell_poll": "\u25ab\ufe0f",
@@ -154,6 +155,8 @@ def activity_title(
         if action == "show":
             return "Inspecting skill" if running else ("Skill ready" if done else "Skill inspection failed")
         return "Checking skills" if running else ("Skills ready" if done else "Skills check failed")
+    if name == "learn_progress":
+        return "Saving your learning step" if running else ("Learning step saved" if done else "Could not save learning step")
     if name == "memory":
         return "Updating memory" if running else ("Memory updated" if done else ("Memory retry needed" if recoverable else "Memory update failed"))
     if name == "goal_outcome":
@@ -252,6 +255,10 @@ def describe_tool_activity(
 ) -> str:
     args = args or {}
     metadata = metadata or {}
+    if name == "learn_progress":
+        if stage == "start":
+            return "Saving your learning goal and next step."
+        return "Saved your learning goal and next step." if success else "Could not save your learning goal and next step."
     redirect = is_policy_redirect(metadata)
     redirect_to = str(metadata.get("redirect_to") or "").strip()
     if redirect and stage != "start" and not success:
@@ -1134,6 +1141,8 @@ def progress_label(
     elif name == "todos":
         scope = str(args.get("scope", "")).strip() or str(md.get("scope", "")).strip()
         label = "Updating planning checklist" if scope == "planning" else "Updating checklist"
+    elif name == "learn_progress":
+        label = "Saving your learning step"
     elif name == "memory":
         label = "Updating memory"
     elif name == "read_json":

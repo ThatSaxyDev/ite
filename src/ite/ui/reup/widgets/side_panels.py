@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer, Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import Button, DataTable, Static, TextArea
+from textual.widgets import Button, Collapsible, Static, TextArea
+
+from ite.commands import Command
 
 from ..change_tree import ChangedFilesTree
 
@@ -16,7 +19,7 @@ class CommandsSidePanel(Widget):
     def __init__(
         self,
         *,
-        commands: list[tuple[str, str]],
+        commands: list[Command],
         id: str | None = None,
         classes: str | None = None,
     ) -> None:
@@ -29,18 +32,25 @@ class CommandsSidePanel(Widget):
             yield Button(
                 "Close", id="commands-panel-close", classes="commands-panel-close"
             )
-        yield Static(
-            "Available slash commands and what they do.",
-            classes="commands-panel-subtitle",
-        )
-        yield DataTable(id="commands-panel-table", classes="commands-panel-table")
-
-    def on_mount(self) -> None:
-        table = self.query_one("#commands-panel-table", DataTable)
-        table.cursor_type = "row"
-        table.add_columns("Command", "Description")
-        for name, description in self._commands:
-            table.add_row(name, description)
+        with VerticalScroll(id="commands-panel-table", classes="commands-panel-table"):
+            for command in self._commands:
+                with Horizontal(classes="commands-panel-row"):
+                    yield Static(command.name, classes="commands-panel-name", markup=False)
+                    with Vertical(classes="commands-panel-details"):
+                        yield Static(command.description, classes="commands-panel-description", markup=False)
+                        if command.aliases:
+                            yield Static(
+                                "Aliases: " + ", ".join(command.aliases),
+                                classes="commands-panel-aliases",
+                                markup=False,
+                            )
+                        if command.variants:
+                            with Collapsible(title="Options", classes="commands-panel-options"):
+                                for arguments, description in command.variants:
+                                    text = Text()
+                                    text.append(f"{command.name} {arguments}", style="bold")
+                                    text.append("\n" + description)
+                                    yield Static(text, classes="commands-panel-option")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id != "commands-panel-close":

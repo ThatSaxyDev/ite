@@ -9,6 +9,8 @@ from textual.content import Content
 from textual.widgets import Button, Markdown, Static
 from textual.widgets._markdown import MarkdownBlock, MarkdownFence, MarkdownStream
 
+from ite.ui.reup.assistant_typing import AssistantTypingBuffer
+
 
 class CopyableCodeBlock(MarkdownFence):
     """A code block with a copy button in the top-right corner."""
@@ -140,6 +142,13 @@ class CopyableMarkdown(Markdown):
     """Markdown widget with copyable code blocks."""
 
     _stream: MarkdownStream | None = None
+    _typing: AssistantTypingBuffer | None = None
+
+    async def type_fragment(self, fragment: str) -> None:
+        """Queue live text for paced display; network producers do not wait for it."""
+        if self._typing is None:
+            self._typing = AssistantTypingBuffer(self.stream_fragment)
+        self._typing.append(fragment)
 
     async def stream_fragment(self, fragment: str) -> None:
         """Append in the background, combining bursts when rendering is busy."""
@@ -147,14 +156,24 @@ class CopyableMarkdown(Markdown):
             self._stream = Markdown.get_stream(self)
         await self._stream.write(fragment)
 
-    async def finish_stream(self) -> None:
+    async def finish_stream(self, *, animate: bool = True) -> None:
         """Flush all queued text before finalization or removal."""
+        if self._typing is not None:
+            typing = self._typing
+            try:
+                if animate:
+                    await typing.finish()
+                else:
+                    await typing.cancel()
+            finally:
+                if self._typing is typing:
+                    self._typing = None
         if self._stream is not None:
             stream, self._stream = self._stream, None
             await stream.stop()
 
     async def on_unmount(self) -> None:
-        await self.finish_stream()
+        await self.finish_stream(animate=False)
 
     BLOCKS = {
         **Markdown.BLOCKS,

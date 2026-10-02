@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import os
 import unittest
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from rich.console import Console
 from textual.widgets import Select, Static, TextArea
 
 from ite.agent.agent import Agent
 from ite.agent.learning_profile import PACES, START
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager
-from ite.client.response import StreamEvent, StreamEventType, TextDelta
+from ite.client.response import StreamEvent, StreamEventType, TextDelta, ToolCall
 from ite.config.config import Config, ModelConfig
 from ite.ui.reup.app import ReupApp
 from ite.ui.reup.learning_setup import LearningSetupModal
@@ -41,9 +43,26 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
             agent = Agent(config, session=session)
             self.addAsyncCleanup(session.client.close)
             provider_inputs = []
+            completion_calls = 0
 
             async def completion(messages, **kwargs):
+                nonlocal completion_calls
+                completion_calls += 1
                 provider_inputs.append(str(messages))
+                if completion_calls == 1:
+                    yield StreamEvent(
+                        type=StreamEventType.TOOL_CALL_COMPLETE,
+                        tool_call=ToolCall(
+                            call_id="learning-progress-display",
+                            name="learn_progress",
+                            arguments={
+                                "objective": "Learn Python edge cases.",
+                                "current_step": "Try the missing input case.",
+                            },
+                        ),
+                    )
+                    yield StreamEvent(type=StreamEventType.MESSAGE_COMPLETE)
+                    return
                 yield StreamEvent(
                     type=StreamEventType.TEXT_DELTA,
                     text_delta=TextDelta(
@@ -307,6 +326,16 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
                             break
                     self.assertGreater(session.turn_count, 0, repr(notices))
                     self.assertFalse(app._is_turn_running)
+                    learning_card = app._tool_widgets["learning-progress-display"]
+                    self.assertEqual(learning_card.title_text, "Learning step saved")
+                    details = StringIO()
+                    console = Console(file=details, width=80, color_system=None)
+                    for block in learning_card._full_blocks:
+                        console.print(block)
+                    self.assertIn("Goal", details.getvalue())
+                    self.assertIn("Next step", details.getvalue())
+                    self.assertNotIn("learn_progress", details.getvalue())
+                    self.assertNotIn("current_step", details.getvalue())
                     self.assertIn(
                         "Help me predict behavior before debugging.",
                         provider_inputs[-1],
@@ -355,3 +384,27 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.pause(0.25)
                     self.assertFalse(app.agent.session.learning.enabled)
                     self.assertIn("plan off", app._composer_meta_text().plain)
+                    normal_session = app.agent.session
+                    normal_session.client.chat_completion = completion
+                    previous_turns = normal_session.turn_count
+                    prompt.load_text(
+                        "Explain how a Python function handles missing input."
+                    )
+                    await pilot.press("enter")
+                    for _ in range(50):
+                        await pilot.pause(0.1)
+                        if (
+                            normal_session.turn_count > previous_turns
+                            and not app._is_turn_running
+                        ):
+                            break
+                    self.assertGreater(normal_session.turn_count, previous_turns)
+                    self.assertFalse(app._is_turn_running)
+                    self.assertIsNone(app._streaming_widget)
+                    self.assertNotIn(
+                        "# Learning mode — runtime enforced", provider_inputs[-1]
+                    )
+                    self.assertIn(
+                        "missing input",
+                        str(normal_session.context_manager.get_snapshot_messages()),
+                    )

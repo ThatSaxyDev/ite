@@ -1,6 +1,6 @@
 # Commands
 
-Type `/help` in iTE to see available commands.
+Type `/help` in iTE to open the Commands panel. Descriptions wrap to the panel width. Expand **Options** beneath a command to see its argument forms and their meanings; aliases appear beside its description.
 
 ## Session Management
 

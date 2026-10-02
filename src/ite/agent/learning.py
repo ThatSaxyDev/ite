@@ -255,7 +255,10 @@ class LearningProgressTool(Tool):
             state.hint_level = 0
         state.objective = params.objective
         state.current_step = params.current_step
-        return ToolResult.success_result("Learning objective and next step retained.")
+        return ToolResult.success_result(
+            "Saved your learning goal and next step.",
+            metadata={"objective": state.objective, "current_step": state.current_step},
+        )
 
 
 def learning_tool_allowed(tool: Tool | None) -> bool:

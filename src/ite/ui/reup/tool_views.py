@@ -220,6 +220,7 @@ def ordered_args(tool_name: str, args: dict[str, Any]) -> list[tuple[str, Any]]:
         "read_yaml": ["path", "key_path"],
         "write_yaml": ["path", "key_path", "operation", "value", "create_missing"],
         "read_env": ["path", "key"],
+        "learn_progress": ["objective", "current_step"],
         "write_env": ["path", "key", "operation", "value"],
     }
 
@@ -926,6 +927,8 @@ def render_args_table(
 
     for key, value in ordered_args(tool_name, args):
         label = _ARG_KEY_LABELS.get(key, key)
+        if tool_name == "learn_progress":
+            label = {"objective": "Goal", "current_step": "Next step"}.get(key, label)
         if label in {"raw", "raw_arguments"}:
             label = "arguments"
         if key in {"path", "cwd"} and isinstance(value, str):

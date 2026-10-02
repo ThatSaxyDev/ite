@@ -551,11 +551,8 @@ class PanelsMixin:
         await self._hide_goal_panel()
         self.screen.query("HelpPanel").remove()
         commands = sorted(
-            [
-                (command.name, command.description)
-                for command in registry.all_commands()
-            ],
-            key=lambda item: item[0].lower(),
+            registry.all_commands(),
+            key=lambda command: command.name.lower(),
         )
         panel = CommandsSidePanel(commands=commands, id="commands-panel")
         self._commands_panel = panel

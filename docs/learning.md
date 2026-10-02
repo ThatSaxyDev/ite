@@ -45,7 +45,7 @@ Learning mode filters the tool catalog and also rejects forbidden calls at execu
 
 You run tests and commands yourself, then share the output. Inspection tools may show existing source or documentation in their output; the tutor should refer to file locations and explain them in prose. In this pilot the tutor avoids quoting source and fenced code blocks, including generated examples.
 
-Learning replies are buffered before display. A conservative syntax guard rejects common implementation formats and requests up to two revised replies. If that fails, iTE explains that it withheld code and asks which concept or error you want help with. Expect less live streaming than ordinary mode. The guard is imperfect: it can reject harmless syntax and cannot prove that prose never gives away a solution. Tutor quality depends on the selected model.
+Learning replies are buffered before display. A conservative syntax guard rejects common implementation formats and requests up to two revised replies. If that fails, iTE explains that it withheld code and asks which concept or error you want help with. Validated replies then use the same paced typing display as ordinary mode. Expect a wait before typing begins while validation completes. The guard is imperfect: it can reject harmless syntax and cannot prove that prose never gives away a solution. Tutor quality depends on the selected model.
 
 ## Try the TUI from this branch
 
@@ -108,3 +108,5 @@ Expect `learn your turn` and the retained objective/step when that thread is res
 ```
 
 The mounted Textual test types commands through the actual composer, walks through guided setup with mouse and keyboard, checks preview/back/cancel/update and stale-file protection, exercises review and waiting, checks save/resume, and resizes to 80×24. Its model response and startup bootstrap are simulated; it does not validate live inference or authentication. Set `ITE_LEARN_SCREENSHOTS` to an output directory to export its setup, light-theme, and wide/narrow TUI screenshots.
+
+For normal-chat typing, interruptions, and thread changes, see the [assistant typing walkthrough](design/assistant-typing.md).

@@ -1331,9 +1331,7 @@ class TurnMixin:
                 intro = CopyableMarkdown("")
                 await app.add_assistant_card("iTE", intro, css_class="assistant")
                 try:
-                    for character in ctx.assistant_message:
-                        await intro.stream_fragment(character)
-                        await asyncio.sleep(0.01)
+                    await intro.type_fragment(ctx.assistant_message)
                 finally:
                     await intro.finish_stream()
             if ctx.followup_prompt:
@@ -2410,7 +2408,8 @@ class TurnMixin:
                 ):
                     self._last_rendered_plan_text = self._normalize_plan_text(content)
             elif content and not plan_only_phase:
-                await self.add_assistant_message(content)
+                await self.stream_assistant_delta(content)
+                await self.finalize_streaming_message(content)
             elif (
                 content
                 and plan_only_phase
