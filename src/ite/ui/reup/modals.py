@@ -2304,7 +2304,7 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
             yield Static("", id="attach-preview")
             yield Static("", id="attach-status")
             with Horizontal(classes="modal-actions resume-actions"):
-                yield Button("Queue", id="attach-queue", variant="primary")
+                yield Button("Attach", id="attach-queue", variant="primary")
                 yield Button("Clear", id="attach-clear", variant="default")
                 yield Button("Cancel", id="cancel", variant="default")
 
