@@ -24,6 +24,15 @@ rather than waiting through the retry policy used by other cloud operations.
 This changes background status checks, not the retry policy for other cloud
 operations or the saved login session.
 
+## Shutdown
+
+Background cloud reads (plan, models, usage, activity, Settings, updates, and
+access checks) run in disposable daemon workers rather than asyncio's default
+executor. Closing the TUI cancels tracked checks and prevents new ones. The
+worker cancellation flag prevents additional HTTP requests after an in-flight
+transport returns. An uninterruptible transport or DNS call cannot keep the
+Python process alive while waiting for the terminal to return.
+
 ## Test in the TUI
 
 Use the local checkout so the installed release does not hide these changes:
@@ -46,6 +55,9 @@ python -m ite.main
 5. Repeat with a server that accepts connections but does not respond.
    Status checking should still stop the header spinner rather than waiting
    for minutes or launching overlapping requests.
+6. With the server still offline, exit through `/exit`. The shell prompt should
+   return without a second Ctrl+C. Repeat immediately after launching iTE and
+   after opening Settings, to cover requests that are still in flight.
 
 Automated coverage is in `tests/test_cloud_status_budget.py`, including the
 mounted Textual header, simulated outage/recovery, cached metadata, timeout

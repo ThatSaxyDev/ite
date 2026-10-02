@@ -75,7 +75,7 @@ async def run_status_request_async(
         error = None
         try:
             result = function(*args, **kwargs)
-        except Exception as exception:
+        except Exception as exception:  # noqa: BLE001 - forward worker errors to the awaiting task
             error = exception
         finally:
             _request_budget.reset(token)
