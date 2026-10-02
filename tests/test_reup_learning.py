@@ -112,7 +112,8 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
                 async with app.run_test(size=(110, 34)) as pilot:
                     await pilot.pause()
                     prompt = app.query_one("#prompt", TextArea)
-                    prompt.load_text("/learn setup")
+                    prompt.load_text("/le se")
+                    await pilot.pause()
                     await pilot.press("enter")
                     await pilot.pause(0.25)
                     self.assertIsInstance(app.screen, LearningSetupModal)

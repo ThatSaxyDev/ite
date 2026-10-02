@@ -336,11 +336,15 @@ class ComposerMixin:
         )
 
 
+    def _command_palette_limit(self) -> int:
+        # Leave room for the chat header, composer controls, and footer.
+        return min(self.COMMAND_PALETTE_MAX_ROWS, max(2, self.size.height - 20)) if self.is_mounted else self.COMMAND_PALETTE_MAX_ROWS
+
     def _command_palette_window(self) -> list[SlashCommandOption]:
         if not self._filtered_command_palette_options:
             return []
         max_rows = min(
-            self.COMMAND_PALETTE_MAX_ROWS, len(self._filtered_command_palette_options)
+            self._command_palette_limit(), len(self._filtered_command_palette_options)
         )
         start = max(0, self._command_palette_index - max_rows + 1)
         end = min(len(self._filtered_command_palette_options), start + max_rows)
@@ -352,8 +356,9 @@ class ComposerMixin:
         return render_command_palette(
             filtered_options=self._filtered_command_palette_options,
             command_palette_index=self._command_palette_index,
-            max_rows=self.COMMAND_PALETTE_MAX_ROWS,
+            max_rows=self._command_palette_limit(),
             styles=self._render_styles(),
+            available_width=(self.query_one("#command-palette").content_size.width or self.query_one("#prompt").content_size.width) if self.is_mounted else None,
         )
 
 
@@ -467,13 +472,13 @@ class ComposerMixin:
             not options or self._command_palette_index < len(options)
         ):
             self._command_palette_rows = min(
-                len(options), self.COMMAND_PALETTE_MAX_ROWS
+                len(options), self._command_palette_limit()
             )
         else:
             self._filtered_command_palette_options = options
             self._command_palette_index = 0
             self._command_palette_rows = min(
-                len(options), self.COMMAND_PALETTE_MAX_ROWS
+                len(options), self._command_palette_limit()
             )
 
         if not self.is_mounted:
@@ -483,6 +488,7 @@ class ComposerMixin:
             palette = self.query_one("#command-palette", Static)
         except Exception:
             return
+        self._command_palette_rows += (2 + int(bool(options[0].parent))) if options else 0
         palette.display = bool(options)
         if options:
             palette.update(self._render_command_palette())
@@ -696,7 +702,7 @@ class ComposerMixin:
         return " ".join(self._attachment_ref_for_path(Path(p)) for p in result.paths)
 
 
-    def _apply_command_palette_selection(self) -> bool:
+    def _apply_command_palette_selection(self, *, complete_only: bool = False) -> bool:
         if self._turn_action_payload is not None:
             if not self._turn_action_options:
                 return False
@@ -711,10 +717,15 @@ class ComposerMixin:
         if self._palette_mode == "attachment":
             self._apply_attachment_palette_selection(option)
             return True
-        self.run_worker(
-            self._execute_command_palette_selection(option.name),
-            exclusive=False,
-        )
+        command_text = option.insert_text or option.name
+        if option.expand or option.requires_input or complete_only:
+            self._replace_prompt_with_command(command_text)
+            self.query_one("#prompt", TextArea).focus()
+        else:
+            self.run_worker(
+                self._execute_command_palette_selection(command_text),
+                exclusive=False,
+            )
         return True
 
 
@@ -743,7 +754,7 @@ class ComposerMixin:
         if event.key == "down":
             return self._move_command_palette_selection(1)
         if event.key in {"tab", "enter"}:
-            return self._apply_command_palette_selection()
+            return self._apply_command_palette_selection(complete_only=event.key == "tab")
         if event.key == "escape":
             self._sync_command_palette("")
             self._resize_composer_for_prompt()
@@ -829,13 +840,23 @@ class ComposerMixin:
     @on(events.Click, "#command-palette")
 
     def on_command_palette_click(self, event: events.Click) -> None:
-        if self._turn_action_payload is None:
+        if self._turn_action_payload is not None:
+            row = max(0, min(len(self._turn_action_options) - 1, event.y))
+            self._command_palette_index = row
+            event.stop()
+            action = ("steer", "queue", "aside", "cancel")[row]
+            self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
             return
-        row = max(0, min(len(self._turn_action_options) - 1, event.y))
-        self._command_palette_index = row
+        window = self._command_palette_window()
+        if not window:
+            return
+        palette = self.query_one("#command-palette")
+        row = event.y - int(bool(palette.styles.border.top[0])) - int(bool(window[0].parent))
+        if row < 0 or row >= len(window):
+            return
         event.stop()
-        action = ("steer", "queue", "aside", "cancel")[row]
-        self.run_worker(self._execute_turn_action_selection(action), exclusive=False)
+        self._command_palette_index = self._filtered_command_palette_options.index(window[row])
+        self._apply_command_palette_selection()
 
 
     async def _toggle_plan_mode_from_meta(self) -> None:
@@ -1605,6 +1626,8 @@ class ComposerMixin:
         prompt_row = self.query_one("#prompt-row", Horizontal)
         prompt_container = self.query_one("#prompt-container", Container)
         composer = self.query_one("#composer", Horizontal)
+        if self._filtered_command_palette_options and self._turn_action_payload is None:
+            self._sync_command_palette(prompt.text)
 
         # Use the wrapped document height so soft-wrapped lines (long single
         # lines that wrap visually) expand the composer. Counting only "\n"

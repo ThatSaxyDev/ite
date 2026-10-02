@@ -10,6 +10,8 @@ from rich.cells import cell_len
 from rich.console import Group
 from rich.text import Text
 
+from .command_completion import ArgumentChoice, argument_choices
+
 
 @dataclass(frozen=True)
 class SlashCommandOption:
@@ -17,6 +19,11 @@ class SlashCommandOption:
     description: str
     insert_text: str | None = None
     attachment_path: str | None = None
+    arguments: tuple[ArgumentChoice, ...] = ()
+    aliases: tuple[str, ...] = ()
+    parent: str | None = None
+    expand: bool = False
+    requires_input: bool = False
 
 
 def composer_meta_text(
@@ -424,7 +431,13 @@ def _flow_control_label(
 
 def build_command_palette_options(command_registry: Any) -> list[SlashCommandOption]:
     options = [
-        SlashCommandOption(name=command.name, description=command.description)
+        SlashCommandOption(
+            name=command.name,
+            description=command.description,
+            arguments=tuple(argument_choices(command.variants)),
+            aliases=tuple(command.aliases),
+            expand=bool(command.variants),
+        )
         for command in command_registry.all_commands()
     ]
     return sorted(options, key=lambda option: option.name.lower())
@@ -447,16 +460,83 @@ def filtered_command_palette(
     *,
     command_palette_options: list[SlashCommandOption],
 ) -> list[SlashCommandOption]:
-    query = extract_slash_query(text)
-    if query is None:
+    raw = (text or "").lstrip()
+    if not raw.startswith("/") or "\n" in raw:
         return []
-    if query == "/":
-        return list(command_palette_options)
-    return [
-        option
-        for option in command_palette_options
-        if option.name.lower().startswith(query)
-    ]
+    parts = raw.split()
+    if not parts:
+        return []
+    if len(parts) == 1 and not raw.endswith(" "):
+        query = parts[0].lower()
+        matches = [option for option in command_palette_options if any(
+            name.lower().startswith(query) for name in (option.name, *option.aliases)
+        )]
+        if len(matches) != 1 or not matches[0].arguments:
+            return matches
+        command = matches[0]
+        command_name = parts[0] if parts[0].lower() in command.aliases else command.name
+        parts = [command_name]
+        raw = command_name + " "
+    else:
+        command = next((option for option in command_palette_options if parts[0].lower() in
+                        (option.name.lower(), *(alias.lower() for alias in option.aliases))), None)
+        if command is None:
+            matches = [option for option in command_palette_options if any(
+                name.lower().startswith(parts[0].lower()) for name in (option.name, *option.aliases)
+            )]
+            if len(matches) != 1:
+                return []
+            command = matches[0]
+            command_name = command.name
+        else:
+            command_name = parts[0]
+        if not command.arguments:
+            return []
+    children = list(command.arguments)
+    prefix = command_name
+    tail = parts[1:]
+    partial = "" if raw.endswith(" ") else (tail.pop() if tail else "")
+    node = None
+    for token in tail:
+        node = next((child for child in children if child.label.lower() == token.lower()), None)
+        if node is None:
+            matches = [child for child in children if child.children and child.label.lower().startswith(token.lower())]
+            if len(matches) != 1:
+                return []  # Free arguments belong to the user, not to completion.
+            node = matches[0]
+        children = node.children
+        prefix = " ".join((command_name, *node.tokens))
+    matches = [child for child in children if child.label.lower().startswith(partial.lower())]
+    if partial and len(matches) == 1 and matches[0].children:
+        node = matches[0]
+        children = node.children
+        prefix = " ".join((command_name, *node.tokens))
+        partial = ""
+    options = []
+    bare_allowed = command.name not in {"/aside", "/rename", "/subagent"}
+    if not partial and ((node is None and bare_allowed) or (node is not None and node.runnable)) and children:
+        base_description = {
+            "/learn": "Show learning status",
+            "/plan": "Show plan mode status",
+            "/mcp": "List configured servers",
+            "/branch": "Open the branch picker",
+            "/attach": "Open the attachment picker",
+            "/approval": "Open the approval picker",
+        }.get(command.name, command.description)
+        options.append(SlashCommandOption(
+            name=prefix, description=base_description if node is None else node.description,
+            insert_text=prefix, parent=prefix,
+        ))
+    for child in children:
+        if not child.label.lower().startswith(partial.lower()):
+            continue
+        insert = " ".join((command_name, *child.tokens))
+        options.append(SlashCommandOption(
+            name=f"{prefix} {child.label}", description=child.description,
+            insert_text=insert, parent=prefix, expand=bool(child.children),
+            requires_input=not child.runnable and not child.children,
+        ))
+    return options
 
 
 def command_palette_window(
@@ -480,13 +560,14 @@ def render_command_palette(
     command_palette_index: int,
     max_rows: int,
     styles: dict[str, str] | None = None,
+    available_width: int | None = None,
 ) -> Text:
     theme = styles or {}
     fg = theme.get("fg", "#edf1f7")
     muted = theme.get("muted", "#8c93a1")
     primary = theme.get("primary", "#4edea3")
     selected_fg = theme.get("background", "#07120d")
-    text = Text()
+    text = Text(no_wrap=True, overflow="ellipsis")
     window = command_palette_window(
         filtered_options=filtered_options,
         command_palette_index=command_palette_index,
@@ -495,13 +576,24 @@ def render_command_palette(
     if not window:
         return text
     start = filtered_options.index(window[0])
+    parent = window[0].parent
+    if parent:
+        text.append(f"{parent}  ·  Enter selects · Tab fills\n", style=muted)
     for idx, option in enumerate(window, start=start):
         selected = idx == command_palette_index
         line_style = f"bold {selected_fg} on {primary}" if selected else f"bold {fg}"
         desc_style = f"bold {selected_fg} on {primary}" if selected else muted
-        text.append(option.name.ljust(14), style=line_style)
+        label = option.name
+        if parent:
+            label = "  " + ("Run command" if option.name == parent else option.name[len(parent):].strip())
+        label = label.ljust(14)
+        description = option.description
+        if available_width is not None:
+            remaining = max(0, available_width - cell_len(label) - 2)
+            description = description[:remaining] if len(description) <= remaining else description[:max(0, remaining - 1)] + ("…" if remaining else "")
+        text.append(label, style=line_style)
         text.append("  ", style=line_style)
-        text.append(option.description, style=desc_style)
+        text.append(description, style=desc_style)
         if idx < start + len(window) - 1:
             text.append("\n")
     return text

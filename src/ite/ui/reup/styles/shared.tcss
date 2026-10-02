@@ -84,6 +84,7 @@
 
 #command-palette {
     display: none;
+    text-wrap: nowrap;
     height: auto;
     min-height: 1;
     width: 1fr;

@@ -2,6 +2,13 @@
 
 Type `/help` in iTE to open the Commands panel. Descriptions wrap to the panel width. Expand **Options** beneath a command to see its argument forms and their meanings; aliases appear beside its description.
 
+The composer also suggests arguments. Once only one command matches (for example,
+`/le` for `/learn`), its options appear automatically beneath the parent command.
+Use ↑/↓ to choose, Enter to run a complete option, or Tab to fill it in for editing.
+Nested options work the same way: `/mcp e` reveals the `env` actions. Options needing
+an argument fill only the command prefix; type the required name or path before
+sending. Esc hides suggestions without changing your draft.
+
 ## Session Management
 
 | Command | Description |
