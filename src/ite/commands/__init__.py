@@ -24,6 +24,7 @@ class CommandContext:
     result: str = ""
     evidence_files: list[str] = field(default_factory=list)
     followup_prompt: str | None = None
+    assistant_message: str | None = None
 
 
 @dataclass

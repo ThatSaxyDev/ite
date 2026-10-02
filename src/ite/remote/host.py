@@ -302,6 +302,12 @@ class HeadlessRuntimeHost:
             output=result.output or result.error,
         )
         await self._publish_state()
+        if result.ok and result.assistant_message and self._session is not None:
+            await self._handle_event(
+                AgentEvent.text_complete(result.assistant_message),
+                session_id=str(self._session.session_id),
+                turn_id=self._run_state.active_turn_id,
+            )
         if result.ok and result.followup_prompt and not self._run_state.is_turn_running:
             await self._start_turn(result.followup_prompt, display_message=command_line)
 

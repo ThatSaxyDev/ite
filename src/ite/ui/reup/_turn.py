@@ -1317,12 +1317,25 @@ class TurnMixin:
         output = io.StringIO()
         ctx = build_command_context(config=app.config, agent=app.agent, tui=app._adapter, output_stream=output)
         await cmd_learn(ctx, args)
-        app.post_system("Learning mode", ctx.result, is_error=ctx.outcome == "failed")
+        await app.add_assistant_card(
+            "Learning mode", ctx.result,
+            css_class="system error" if ctx.outcome == "failed" else "system",
+        )
         app.refresh_header()
         if ctx.outcome != "failed":
             session = app.agent.session
             SessionManager().save_session(SessionSnapshot(**session.snapshot_kwargs(workspace_path=str(session.config.cwd.resolve()))))
             await app._broadcast_remote_state()
+            if ctx.assistant_message:
+                # Keep this local stream independent of a model turn's shared buffer.
+                intro = CopyableMarkdown("")
+                await app.add_assistant_card("iTE", intro, css_class="assistant")
+                try:
+                    for character in ctx.assistant_message:
+                        await intro.stream_fragment(character)
+                        await asyncio.sleep(0.01)
+                finally:
+                    await intro.finish_stream()
             if ctx.followup_prompt:
                 await app._dispatch_payload({
                     "message": ctx.followup_prompt,

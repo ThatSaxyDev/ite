@@ -20,6 +20,7 @@ async def cmd_learn(ctx: CommandContext, args: list[str]) -> None:
                 "Use /learn [on|off|status|setup|init|reload|hint|review]."
             )
         if action in {"on", "off"}:
+            was_enabled = session.learning.enabled
             session.set_learning_mode(action == "on")
             profile_creation_notice = ""
             if action == "on":
@@ -40,12 +41,21 @@ async def cmd_learn(ctx: CommandContext, args: list[str]) -> None:
                     )
             ctx.result = (
                 "Learning mode ON · You write the code; iTE guides and reviews.\n"
-                "Commands and tests stay with you. Hooks and delegation are suspended.\n"
                 + profile_creation_notice
                 + session.learning.profile_notice
                 if action == "on"
                 else "Learning mode OFF · Normal agent behavior restored. Suspended goals stay paused."
             )
+            if action == "on" and not was_enabled:
+                ctx.assistant_message = (
+                    "What would you like to build or understand? A short description is enough. "
+                    "You can also run `/learn setup` to personalize your learning goals and preferences."
+                    if not session.learning.objective
+                    else "Continue with your learning request whenever you are ready. You can also run `/learn setup` to personalize your learning goals and preferences."
+                )
+                session.learning.phase = "awaiting_learner"
+                if session.context_manager is not None:
+                    session.context_manager.add_assistant_message(ctx.assistant_message)
         elif action == "setup":
             raise ValueError(
                 "Guided setup is available in the terminal UI. Open iTE and use /learn setup."

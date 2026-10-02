@@ -239,11 +239,25 @@ class LearningModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(path.is_file())
         self.assertIn("baseline teaching preferences", result.result)
         self.assertIn("Review and personalize", result.result)
+        self.assertNotIn("What would you like", result.result)
+        self.assertIn(
+            "What would you like to build or understand?", result.assistant_message
+        )
+        self.assertIn("`/learn setup`", result.assistant_message)
+        self.assertEqual(
+            self.session.context_manager.get_snapshot_messages()[-1]["role"],
+            "assistant",
+        )
+        self.assertEqual(
+            self.session.context_manager.get_snapshot_messages()[-1]["content"],
+            result.assistant_message,
+        )
         self.assertEqual(self.session.learning.profile, path.read_text())
         self.assertIn("Let me make the first attempt", self.session.learning.profile)
         path.write_text("My own learning preferences.")
         result = await self.command("/learn on")
         self.assertEqual(result.outcome, "completed")
+        self.assertIsNone(result.assistant_message)
         self.assertEqual(path.read_text(), "My own learning preferences.")
         self.assertEqual(self.session.learning.profile, path.read_text())
 

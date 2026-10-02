@@ -58,6 +58,7 @@ class HeadlessCommandResult:
     #: Set when the command could not run; shown to the user.
     error: str = ""
     followup_prompt: str | None = None
+    assistant_message: str | None = None
 
     @property
     def has_output(self) -> bool:
@@ -235,6 +236,7 @@ async def run_headless_command(
         output=capture.stream.getvalue().strip(),
         ui_request=tui.ui_request,
         followup_prompt=ctx.followup_prompt,
+        assistant_message=ctx.assistant_message,
     )
 
 

@@ -57,13 +57,25 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
             app = ReupApp(config)
             app.agent = agent
             notices = []
-            original_post = app.post_system
+            intro_fragments = []
+            original_add_card = app.add_assistant_card
 
-            def post(title, body, **kwargs):
-                notices.append(str(body))
-                return original_post(title, body, **kwargs)
+            async def add_card(title, body, css_class="assistant", **kwargs):
+                if "system" in css_class:
+                    notices.append(str(body))
+                if css_class == "assistant" and hasattr(body, "stream_fragment"):
+                    original_fragment = body.stream_fragment
 
-            app.post_system = post
+                    async def record_fragment(fragment):
+                        intro_fragments.append(fragment)
+                        await original_fragment(fragment)
+
+                    body.stream_fragment = record_fragment
+                return await original_add_card(
+                    title, body, css_class=css_class, **kwargs
+                )
+
+            app.add_assistant_card = add_card
 
             async def bootstrap():
                 await app.ensure_agent()
@@ -93,6 +105,27 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press("enter")
                     await pilot.pause(0.25)
                     self.assertTrue(session.learning.enabled)
+                    for _ in range(50):
+                        if "learning goals and preferences." in "".join(
+                            intro_fragments
+                        ):
+                            break
+                        await pilot.pause(0.1)
+                    self.assertGreater(len(intro_fragments), 1)
+                    self.assertTrue(
+                        all(len(fragment) == 1 for fragment in intro_fragments)
+                    )
+                    self.assertEqual(
+                        "".join(intro_fragments),
+                        session.context_manager.get_snapshot_messages()[-1]["content"],
+                    )
+                    self.assertFalse(
+                        any(
+                            "Hooks and delegation" in notice
+                            or "Commands and tests" in notice
+                            for notice in notices
+                        )
+                    )
                     self.assertTrue((workspace / "learn.md").exists())
                     self.assertTrue(
                         any(
@@ -101,6 +134,22 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
                         )
                     )
                     self.assertIn("learn your turn", app._composer_meta_text().plain)
+                    self.assertEqual(len(app.query(".block.assistant")), 1)
+                    feed_cards = list(app.query("#conversation > .block"))
+                    self.assertTrue(feed_cards[-2].has_class("system"))
+                    self.assertTrue(feed_cards[-1].has_class("assistant"))
+                    self.assertLess(feed_cards[-2].region.y, feed_cards[-1].region.y)
+                    self.assertFalse(
+                        any("What would you like" in notice for notice in notices)
+                    )
+                    self.assertEqual(
+                        session.context_manager.get_snapshot_messages()[-1]["role"],
+                        "assistant",
+                    )
+                    self.assertIn(
+                        "What would you like to build or understand?",
+                        session.context_manager.get_snapshot_messages()[-1]["content"],
+                    )
                     self.assertIsNotNone(
                         SessionManager().load_session(session.session_id)
                     )

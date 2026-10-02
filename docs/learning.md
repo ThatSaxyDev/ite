@@ -2,6 +2,10 @@
 
 Learning mode is an experimental way to build with iTE while writing the implementation yourself. iTE explains concepts, reads your workspace, finds documentation, gives hints, and reviews your attempts. It does not edit source or run your commands and tests.
 
+After `/learn on`, you can immediately send a short request such as “I want to make a website” or “Help me understand Python functions.” Setup and a detailed teaching prompt are optional. iTE infers the goal, adapts to evidence of your experience, and asks a focused question if the next step depends on something it does not yet know. It should include practical editor and terminal basics when needed, without assuming that every short request comes from a beginner.
+
+When learning is enabled, the starting question appears as a separate iTE assistant message in the conversation. The command notice contains mode and profile information. The assistant message is retained in the session history, and repeating `/learn on` while already enabled does not repeat it.
+
 ## Commands
 
 | Command | What it does |
