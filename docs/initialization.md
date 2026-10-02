@@ -63,7 +63,7 @@ AGENTS files are useful for rules specific to a subtree.
 To regenerate and overwrite an existing `AGENTS.md`:
 
 ```
-/init --force
+/init force
 ```
 
 Regeneration asks the investigator to preserve existing maintainer constraints.

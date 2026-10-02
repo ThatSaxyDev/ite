@@ -55,8 +55,7 @@ def test_success_activates_instructions_in_one_card(tmp_path, monkeypatch):
     asyncio.run(init_command.cmd_init(ctx, []))
     assert (tmp_path / "AGENTS.md").read_text().startswith("# AGENTS.md\n")
     assert ctx.outcome == "completed"
-    assert "Active in this chat" in ctx.result
-    assert "1 file checked" in ctx.result
+    assert ctx.result == f"Created AGENTS.md\n{tmp_path / 'AGENTS.md'}"
     ctx.agent.session.context_manager.add_system_message.assert_called_once()
     assert "Development Guidelines" in ctx.config.developer_instructions
     ctx.tui.finish_command_progress.assert_awaited_once()
@@ -98,7 +97,7 @@ def test_oversized_draft_does_not_cut_or_replace_existing_file(tmp_path, monkeyp
     monkeypatch.setattr(
         init_command, "_run_init_investigator", AsyncMock(return_value=json.dumps(data))
     )
-    asyncio.run(init_command.cmd_init(ctx, ["--force"]))
+    asyncio.run(init_command.cmd_init(ctx, ["force"]))
     assert ctx.outcome == "failed"
     assert path.read_text() == "Maintainer constraints\n"
     assert "combined budget" in ctx.result
@@ -117,7 +116,7 @@ def test_concurrent_writer_is_protected(tmp_path, monkeypatch, force):
         return response
 
     monkeypatch.setattr(init_command, "_run_init_investigator", investigate)
-    asyncio.run(init_command.cmd_init(ctx, ["--force"] if force else []))
+    asyncio.run(init_command.cmd_init(ctx, ["force"] if force else []))
     assert ctx.outcome == "failed"
     assert path.read_text() == "concurrent edit"
     assert not list(tmp_path.glob(".agents-*"))
@@ -130,7 +129,7 @@ def test_existing_file_requires_force(tmp_path, monkeypatch):
     monkeypatch.setattr(init_command, "_run_init_investigator", investigate)
     asyncio.run(init_command.cmd_init(ctx, []))
     investigate.assert_not_awaited()
-    assert "/init --force" in ctx.result
+    assert "/init force" in ctx.result
 
 
 def test_override_is_reported_without_generating_unused_file(tmp_path, monkeypatch):
@@ -391,6 +390,35 @@ def test_markdown_unknown_command_remains_rejected(tmp_path):
 def test_markdown_missing_repository_path_remains_rejected(tmp_path):
     content = json.loads(draft(tmp_path))["markdown"] + "\nRead `src/missing.py`.\n"
     with pytest.raises(ValueError, match="does not exist"):
+        init_command._validate_draft(content, tmp_path, observed_files=["README.md"])
+
+
+def test_markdown_filenames_under_explicit_directory_are_accepted(tmp_path):
+    content = json.loads(draft(tmp_path))["markdown"]
+    (tmp_path / "public").mkdir()
+    for filename in ("install.sh", "install.ps1"):
+        (tmp_path / "public" / filename).write_text("Installer")
+    content += "\nAssets live in `public/`: `install.sh`, `install.ps1`.\n"
+    validated, _ = init_command._validate_draft(
+        content, tmp_path, observed_files=["README.md"]
+    )
+    assert validated == content
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Assets live in `public/`: `missing.sh`.",
+        "Read `install.sh`.",
+        "Assets live in `../outside/`: `install.sh`.",
+    ],
+)
+def test_markdown_does_not_guess_unstated_or_missing_paths(tmp_path, description):
+    content = json.loads(draft(tmp_path))["markdown"]
+    (tmp_path / "public").mkdir()
+    (tmp_path / "public/install.sh").write_text("Installer")
+    content += f"\n{description}\n"
+    with pytest.raises(ValueError, match="Evidence path does not exist"):
         init_command._validate_draft(content, tmp_path, observed_files=["README.md"])
 
 

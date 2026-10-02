@@ -226,7 +226,28 @@ def _markdown_draft(response: str, cwd: Path, observed: list[str]) -> dict:
                 value,
             )
         ):
-            references.append(re.sub(r":\d+(?:-\d+)?$", "", value))
+            reference = re.sub(r":\d+(?:-\d+)?$", "", value)
+            if "/" not in reference and not (cwd / reference).exists():
+                # A paragraph can list filenames beneath an explicit directory,
+                # e.g. "Assets in `public/`: `install.sh`, `install.ps1`."
+                # Resolve only that stated context, never search the repository
+                # for a coincidentally matching basename.
+                preceding = text[paragraph_start : match.start()]
+                candidates: set[str] = set()
+                for directory in re.findall(r"(?<!`)`([^`\n]+/)`(?!`)", preceding):
+                    candidate = f"{directory}{reference}"
+                    try:
+                        _workspace_path(cwd, candidate, file=True)
+                    except ValueError:
+                        continue
+                    candidates.add(candidate)
+                if len(candidates) == 1:
+                    reference = candidates.pop()
+                elif len(candidates) > 1:
+                    raise ValueError(
+                        f"Ambiguous filename reference: {reference}; use a workspace-relative path."
+                    )
+            references.append(reference)
     return {
         "markdown": text,
         "inspected_files": observed,
@@ -342,11 +363,11 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
     cwd = ctx.config.cwd
     path = cwd / AGENTS_MD_FILE
     try:
-        if any(arg not in {"--force", "-f"} for arg in args):
-            raise ValueError("Usage: /init [--force]")
-        if path.exists() and not ({"--force", "-f"} & set(args)):
+        if any(arg not in {"force", "--force", "-f"} for arg in args):
+            raise ValueError("Usage: /init [force]")
+        if path.exists() and not ({"force", "--force", "-f"} & set(args)):
             ctx.outcome = "completed"
-            message = "AGENTS.md already exists. Use /init --force to regenerate it."
+            message = "AGENTS.md already exists. Use /init force to regenerate it."
             return
         if (cwd / AGENTS_OVERRIDE_FILE).exists():
             raise ValueError(
@@ -370,7 +391,7 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
                 recoverable_response = response
             await _progress(ctx, "Checking draft and repository references")
             try:
-                content, inspected_count = _validate_draft(
+                content, _ = _validate_draft(
                     response, cwd, observed_files=ctx.evidence_files
                 )
                 files = [
@@ -405,12 +426,7 @@ async def cmd_init(ctx: CommandContext, args: list[str]) -> None:
             ctx.config.developer_instructions = merged
         ctx.outcome = "completed"
         verb = "Updated" if original is not None else "Created"
-        message = (
-            f"{verb} AGENTS.md\n"
-            f"{inspected_count} {'file' if inspected_count == 1 else 'files'} checked · "
-            f"{len(content.encode('utf-8')) / 1024:.1f} KiB\n"
-            f"Active in this chat\n{path}"
-        )
+        message = f"{verb} AGENTS.md\n{path}"
     except asyncio.CancelledError:
         ctx.outcome = "cancelled"
         message = "Initialization cancelled. No generated draft was saved."

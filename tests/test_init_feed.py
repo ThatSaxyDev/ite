@@ -9,6 +9,7 @@ import pytest
 from rich.console import Console
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
+from textual.widgets import Link
 
 from ite.commands import CommandContext
 from ite.commands import init as init_command
@@ -100,6 +101,26 @@ def test_init_card_finishes_without_duplicate_or_orphan_spinner(width, status):
     asyncio.run(work())
 
 
+def test_init_success_file_link_opens_file():
+    async def work():
+        app = InitFeedApp()
+        adapter = ReupTUIAdapter(app)
+        async with app.run_test(size=(80, 24)) as pilot:
+            await adapter.begin_command_progress("/init", "Inspecting repository")
+            await adapter.finish_command_progress(
+                "/init",
+                "Updated AGENTS.md\n/tmp/AGENTS.md",
+                status="completed",
+            )
+            await pilot.pause()
+            with patch.object(app, "open_url") as open_url:
+                await pilot.click(".init-file-link")
+                open_url.assert_called_once_with("file:///tmp/AGENTS.md")
+            assert app.query_one(Link).url == "file:///tmp/AGENTS.md"
+
+    asyncio.run(work())
+
+
 def test_init_failure_status_survives_generic_command_dispatch(tmp_path: Path):
     # Dispatch integration is covered by the app's command tests; this verifies
     # the context carries the native card result for the remote feed as well.
@@ -187,7 +208,7 @@ def test_full_app_init_card_fits_narrow_terminal(tmp_path: Path, theme):
                 reference = app.query_one(".workboard")
                 adapter = ReupTUIAdapter(app)
                 await adapter.begin_command_progress("/init", "Reading README.md")
-                message = "Created AGENTS.md\n18 files checked · 7.2 KiB\nActive in this chat\n/workspaces/example-project/AGENTS.md"
+                message = "Created AGENTS.md\n/workspaces/example-project/AGENTS.md"
                 await adapter.finish_command_progress(
                     "/init", message, status="completed"
                 )
@@ -199,7 +220,9 @@ def test_full_app_init_card_fits_narrow_terminal(tmp_path: Path, theme):
                 assert not card.query(".command-kicker")
                 body = card.query_one(".command-body")
                 assert body.region.right <= app.screen.size.width
-                assert body.size.height > 3  # Actual styles wrap every long result row.
+                link = card.query_one(".init-file-link", Link)
+                assert link.region.right <= app.screen.size.width
+                assert link.size.height > 1  # Long file paths wrap at narrow widths.
                 assert not card.query_one(VerticalScroll).show_horizontal_scrollbar
                 assert len(app.query(".init-card")) == 1
 

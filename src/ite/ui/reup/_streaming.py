@@ -23,7 +23,7 @@ from textual.css.query import NoMatches
 from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widget import Widget
-from textual.widgets import Button, Footer, Header, Input, Select, Static, TextArea, Tree
+from textual.widgets import Button, Footer, Header, Input, Link, Select, Static, TextArea, Tree
 
 from ite.agent.agent import Agent
 from ite.agent.events import AgentEvent, AgentEventType
@@ -966,6 +966,10 @@ class StreamingMixin:
                 body_widget.add_class("card-body", "workboard-body")
                 card = Container(
                     Static("Project initialization", classes="card-title workboard-title"),
+                    Static(
+                        "This may take up to a few minutes.",
+                        classes="init-duration-hint",
+                    ),
                     body_widget,
                     classes="block workboard init-card",
                 )
@@ -1289,6 +1293,27 @@ class StreamingMixin:
         card, body_widget, scroll_widget, lines, _pending_active, _pending_text = (
             existing
         )
+        if command == "/init":
+            card.query_one(".init-duration-hint", Static).display = False
+            result_lines = "\n".join(lines).splitlines()
+            if (
+                len(result_lines) == 2
+                and result_lines[0] in {"Created AGENTS.md", "Updated AGENTS.md"}
+                and Path(result_lines[-1]).is_absolute()
+            ):
+                body_widget.update(
+                    Group(
+                        Text(result_lines[0], style=f"bold {self._style('fg')}"),
+                    )
+                )
+                scroll_widget.mount(
+                    Link(
+                        result_lines[-1],
+                        url=Path(result_lines[-1]).as_uri(),
+                        classes="init-file-link",
+                    )
+                )
+                return
         if any(self._looks_like_command_error(line) for line in lines):
             card.add_class("command-error")
         body_widget.update(

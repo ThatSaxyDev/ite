@@ -884,6 +884,23 @@
     border: round $warning-muted;
 }
 
+.block.workboard.init-card .init-duration-hint {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    margin-bottom: 1;
+    color: $foreground-muted;
+}
+
+.block.workboard.init-card .init-file-link {
+    width: 1fr;
+    min-width: 0;
+    height: auto;
+    margin-top: 1;
+    color: $text-warning;
+    text-style: underline;
+}
+
 .block.workboard.init-card.command-error .card-title {
     color: $text-warning;
 }
