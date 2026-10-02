@@ -143,7 +143,7 @@ def load_profile(cwd: Path) -> tuple[str, str]:
             raw = stream.read(PROFILE_MAX_BYTES + 1)
         if len(raw) > PROFILE_MAX_BYTES:
             return "", "learn.md exceeds 16 KiB; using built-in preferences."
-        return raw.decode("utf-8"), f"Loaded {path}."
+        return raw.decode("utf-8"), "Loaded learn.md."
     except FileNotFoundError:
         return "", "No learn.md found; using built-in preferences."
     except (OSError, UnicodeError):

@@ -59,6 +59,7 @@ from ite.update_check import check_runtime_update, current_runtime_version, dete
 from ite.voice import VoiceRecorder, VoiceRecorderError, transcribe_voice_file
 
 from .adapters.registry import StreamingCommandOutput, build_command_context
+from .widgets.learning_status import LearningStatusBody
 from .widgets.prompt_area import ReupPromptTextArea
 from .widgets.message_row import UserMessageRow
 from .widgets.state import SessionRunState, ShellSessionCardState
@@ -941,7 +942,7 @@ class TurnMixin:
 
         error = learning_command_error(self.agent.session if self.agent else None, command)
         if error:
-            cast(Any, self).post_system("Learning mode", error, is_error=True)
+            cast(Any, self).post_system("Learning", error, is_error=True)
             return
         if command == "/learn":
             await self._run_learn_command_native(args)
@@ -1280,10 +1281,10 @@ class TurnMixin:
 
         await app.ensure_agent()
         if not app.agent or not app.agent.session:
-            app.post_system("Learning mode", "No active session.", is_error=True)
+            app.post_system("Learning", "No active session.", is_error=True)
             return
         if app._is_turn_running or app._queued_turn_payload is not None:
-            app.post_system("Learning mode", "Wait for the current turn to finish, or stop it first.", is_error=True)
+            app.post_system("Learning", "Wait for the current turn to finish, or stop it first.", is_error=True)
             return
         if len(args) == 1 and args[0].lower() == "setup":
             from ite.agent.learning_profile import LearningPreferences, read_setup_profile
@@ -1318,7 +1319,8 @@ class TurnMixin:
         ctx = build_command_context(config=app.config, agent=app.agent, tui=app._adapter, output_stream=output)
         await cmd_learn(ctx, args)
         await app.add_assistant_card(
-            "Learning mode", ctx.result,
+            "Learning",
+            LearningStatusBody(ctx.result, app.agent.session.config.cwd / "learn.md"),
             css_class="system error" if ctx.outcome == "failed" else "system",
         )
         app.refresh_header()

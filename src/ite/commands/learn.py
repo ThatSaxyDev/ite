@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ite.agent.learning import PROFILE_TEMPLATE
 from ite.commands import Command, CommandContext, CommandRegistry
+from ite.commands.help_catalog import COMMAND_VARIANTS
 
 
 async def cmd_learn(ctx: CommandContext, args: list[str]) -> None:
@@ -49,9 +50,9 @@ async def cmd_learn(ctx: CommandContext, args: list[str]) -> None:
             if action == "on" and not was_enabled:
                 ctx.assistant_message = (
                     "What would you like to build or understand? A short description is enough. "
-                    "You can also run `/learn setup` to personalize your learning goals and preferences."
+                    "Use `/learn hint` for a hint or `/learn review` for feedback on your attempt. Personalize your preferences with `/learn setup`, or edit learn.md and run `/learn reload`."
                     if not session.learning.objective
-                    else "Continue with your learning request whenever you are ready. You can also run `/learn setup` to personalize your learning goals and preferences."
+                    else "Continue with your learning request whenever you are ready. Use `/learn hint` for a hint or `/learn review` for feedback on your attempt. Personalize your preferences with `/learn setup`, or edit learn.md and run `/learn reload`."
                 )
                 session.learning.phase = "awaiting_learner"
                 if session.context_manager is not None:
@@ -99,7 +100,11 @@ async def cmd_learn(ctx: CommandContext, args: list[str]) -> None:
                 f"Objective: {state.objective or 'Not set yet'}\n"
                 f"Next step: {state.current_step or 'Ask what you want to build or understand'}\n"
                 f"Hint level: {state.hint_level}/3\n{state.profile_notice}\n"
-                "Use /learn setup to personalize your profile, or on, off, init, reload, hint, review."
+                "\nLearning commands:\n"
+                + "\n".join(
+                    f"/learn {arguments} — {description}"
+                    for arguments, description in COMMAND_VARIANTS["/learn"]
+                )
             )
         else:
             raise ValueError(

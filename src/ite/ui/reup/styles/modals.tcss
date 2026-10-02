@@ -24,6 +24,7 @@ ActivityModal,
 DayActivityModal,
 AttachPickerModal,
 SetupModal,
+LearningSetupModal,
 VoiceSetupModal {
     align: center middle;
     background: $background-darken-1 62%;
@@ -724,6 +725,7 @@ DayActivityModal .modal-actions,
 AttachPickerModal .modal-actions,
 RemoteSetupModal .modal-actions,
 SetupModal .modal-actions,
+LearningSetupModal .modal-actions,
 VoiceSetupModal .modal-actions {
     height: 1;
     min-height: 1;
@@ -847,4 +849,88 @@ ContextSummaryModal .usage-summary-body {
 
 ActivityModal .usage-summary-body {
     height: 1fr;
+}
+
+/* Learning setup shares the scrim and slim action rail with the other modals. */
+LearningSetupModal .learning-setup-shell {
+    width: 74;
+    max-width: 95%;
+    height: 27;
+    max-height: 95%;
+    padding: 1 2;
+    border: heavy $border;
+    background: $surface;
+}
+
+LearningSetupModal.reviewing .learning-setup-shell {
+    height: 95%;
+    max-height: 100%;
+}
+
+LearningSetupModal .learning-setup-title {
+    height: 1;
+    text-style: bold;
+    color: $text-primary;
+}
+
+LearningSetupModal #learn-setup-help {
+    height: auto;
+    color: $foreground-muted;
+    margin-bottom: 1;
+}
+
+LearningSetupModal ContentSwitcher,
+LearningSetupModal VerticalScroll {
+    height: 1fr;
+}
+
+LearningSetupModal .learning-question {
+    height: auto;
+    margin-bottom: 1;
+}
+
+LearningSetupModal TextArea {
+    height: 1fr;
+    min-height: 3;
+    background: $panel;
+}
+
+LearningSetupModal #learn-profile-preview {
+    height: 1fr;
+}
+
+LearningSetupModal Select {
+    margin-bottom: 1;
+}
+
+LearningSetupModal #learn-setup-error {
+    height: auto;
+    max-height: 3;
+    color: $text-error;
+}
+
+LearningSetupModal .learning-actions Button {
+    width: 12;
+    min-width: 12;
+    height: 1;
+    min-height: 1;
+    padding: 0 1;
+    margin-left: 1;
+    border: none;
+    text-style: bold;
+    background: $panel;
+    color: $foreground;
+}
+
+LearningSetupModal .learning-actions Button:hover {
+    background: $panel-lighten-1;
+}
+
+LearningSetupModal #learn-setup-next {
+    background: $primary;
+    color: $button-color-foreground;
+}
+
+LearningSetupModal #learn-setup-next:hover {
+    background: $primary-lighten-1;
 }

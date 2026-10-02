@@ -81,7 +81,7 @@ class ReupLearningTests(unittest.IsolatedAsyncioTestCase):
 
             async def add_card(title, body, css_class="assistant", **kwargs):
                 if "system" in css_class:
-                    notices.append(str(body))
+                    notices.append(str(getattr(body, "text", body)))
                 if css_class == "assistant" and hasattr(body, "stream_fragment"):
                     original_fragment = body.stream_fragment
 

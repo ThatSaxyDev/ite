@@ -25,25 +25,6 @@ class LearningSetupModal(ModalScreen[bool]):
         ("escape", "cancel", "Cancel"),
         ("ctrl+enter", "next", "Next / save"),
     ]
-    DEFAULT_CSS = """
-    LearningSetupModal { align: center middle; background: $background 70%; }
-    LearningSetupModal .learning-setup-shell {
-        width: 74; max-width: 95%; height: 27; max-height: 95%;
-        padding: 1 2; border: round $border; background: $surface;
-    }
-    LearningSetupModal.reviewing .learning-setup-shell { height: 95%; max-height: 100%; }
-    LearningSetupModal .learning-setup-title { height: 1; text-style: bold; }
-    LearningSetupModal #learn-setup-help { height: 2; color: $foreground-muted; margin-bottom: 1; }
-    LearningSetupModal ContentSwitcher { height: 1fr; }
-    LearningSetupModal VerticalScroll { height: 1fr; }
-    LearningSetupModal .learning-question { height: auto; margin-bottom: 1; }
-    LearningSetupModal TextArea { height: 6; background: $panel; }
-    LearningSetupModal #learn-profile-preview { height: 1fr; }
-    LearningSetupModal Select { margin-bottom: 1; }
-    LearningSetupModal #learn-setup-error { height: auto; max-height: 3; color: $text-error; }
-    LearningSetupModal .learning-actions { height: 3; margin-top: 1; align-horizontal: right; }
-    LearningSetupModal Button { min-width: 10; margin-left: 1; }
-    """
 
     def __init__(
         self, path: Path, original: str | None, *, require_idle: Callable[[], None]
@@ -72,28 +53,28 @@ class LearningSetupModal(ModalScreen[bool]):
                         "What do you want to build or understand?",
                         classes="learning-question",
                     )
+                    yield Static(
+                        "Optional. You can discover your goal in the conversation.",
+                        classes="learning-question",
+                    )
                     yield TextArea(
                         self.preferences.objective,
                         id="learn-setup-goal",
                         soft_wrap=True,
-                    )
-                    yield Static(
-                        "Optional. You can discover your goal in the conversation.",
-                        classes="learning-question",
                     )
                 with VerticalScroll(id="learn-experience-page"):
                     yield Static(
                         "What do you already know, and what feels unfamiliar?",
                         classes="learning-question",
                     )
+                    yield Static(
+                        "A sentence is enough. Leave blank if you are unsure.",
+                        classes="learning-question",
+                    )
                     yield TextArea(
                         self.preferences.starting_point,
                         id="learn-setup-experience",
                         soft_wrap=True,
-                    )
-                    yield Static(
-                        "A sentence is enough. Leave blank if you are unsure.",
-                        classes="learning-question",
                     )
                 with VerticalScroll(id="learn-style-page"):
                     yield Static(
@@ -119,7 +100,7 @@ class LearningSetupModal(ModalScreen[bool]):
                 with Container(id="learn-review-page"):
                     yield TextArea("", id="learn-profile-preview", soft_wrap=True)
             yield Static("", id="learn-setup-error", markup=False)
-            with Horizontal(classes="learning-actions"):
+            with Horizontal(classes="learning-actions modal-actions"):
                 yield Button("Cancel", id="learn-setup-cancel")
                 yield Button("Back", id="learn-setup-back", disabled=True)
                 yield Button("Next", id="learn-setup-next", variant="primary")
