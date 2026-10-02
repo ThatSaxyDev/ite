@@ -46,6 +46,7 @@ from ite.config.config import (
 )
 from ite.config.loader import save_openrouter_oauth_secret
 from ite.git.branches import BranchInfo, is_valid_branch_name
+from ite.git.commit_messages import validate_commit_message
 from ite.model_metadata import (
     format_context_window_label,
     parse_openrouter_model_metadata,
@@ -671,6 +672,8 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         )
         try:
             for messages in attempts:
+                if self._last_ai_error:
+                    messages.append({"role": "user", "content": f"The previous response failed validation: {self._last_ai_error}. Return a valid Conventional Commit subject."})
                 try:
                     content = await client.complete_text(messages)
                     if not content.strip():
@@ -689,7 +692,10 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         finally:
             if owns_client:
                 await client.close()
-        return self._suggest_commit_message()
+        try:
+            return validate_commit_message(self._suggest_commit_message())
+        except ValueError:
+            return "chore: update related files"
 
     def _build_commit_messages(self, *, mode: str) -> list[dict[str, str]]:
         system = (
@@ -738,7 +744,8 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         line = line.strip("\"'` ")
         line = re.sub(r"\s+", " ", line)
         line = re.sub(r"^(commit message:|subject:)\s*", "", line, flags=re.IGNORECASE)
-        return line[:72].rstrip() or "chore: update related files"
+        validate_commit_message(line)
+        return validate_commit_message(line[:72].rstrip())
 
     def _loading_copy(self, step: int) -> str:
         index = (self._ai_loading_seed + max(0, step)) % len(self._AI_LOADING_LINES)
