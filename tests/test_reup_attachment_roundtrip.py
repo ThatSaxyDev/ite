@@ -41,6 +41,10 @@ class AttachmentApp(ComposerMixin, StreamingMixin, App):
         self._attachable_files_cache = []
         self._attachable_files_cache_cwd = cwd.resolve()
         self.palette = []
+        self.notes = []
+
+    def post_attachment_note(self, message: str) -> None:
+        self.notes.append(message)
 
     def compose(self):
         yield VerticalScroll(id="conversation")
@@ -273,3 +277,138 @@ def test_workspace_index_does_not_block_a_drop(tmp_path: Path) -> None:
                     release.set()
                 await pilot.pause()
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("delivery", ["paste", "typed"])
+@pytest.mark.parametrize("count", [9, 10])
+def test_drop_limit_preserves_existing_draft(tmp_path: Path, delivery: str, count: int) -> None:
+    import asyncio
+
+    paths = []
+    for index in range(12):
+        sample = tmp_path / f"file_{index}.json"
+        sample.touch()
+        paths.append(str(sample))
+
+    async def scenario():
+        app = AttachmentApp(tmp_path)
+        async with app.run_test() as pilot:
+            app.agent.session.pending_attachment_paths = paths[:count]
+            area = app.query_one(ReupPromptTextArea)
+            draft = "review " + " ".join("@" + Path(path).name for path in paths[:count]) + " "
+            area.load_text(draft)
+            area.move_cursor((0, len(draft)))
+            area.focus()
+            await pilot.pause()
+            batch = " ".join(paths[count:])
+            if delivery == "paste":
+                app.post_message(events.Paste(batch))
+            else:
+                area.insert(batch, maintain_selection_offset=False)
+            await pilot.pause()
+            assert app.agent.session.pending_attachment_paths == paths[:10]
+            assert area.text.startswith(draft)
+            assert "@file_10.json" not in area.text
+            assert "@file_11.json" not in area.text
+            assert str(tmp_path) not in area.text
+            assert any("File limit exceeded" in note and "10 files" in note for note in app.notes)
+            assert area.cursor_location == (0, len(area.text))
+    asyncio.run(scenario())
+
+
+def test_duplicate_drop_at_limit_is_allowed(tmp_path: Path) -> None:
+    import asyncio
+
+    paths = []
+    for index in range(10):
+        sample = tmp_path / f"file_{index}.json"
+        sample.touch()
+        paths.append(str(sample))
+
+    async def scenario():
+        app = AttachmentApp(tmp_path)
+        async with app.run_test() as pilot:
+            app.agent.session.pending_attachment_paths = paths[:]
+            area = app.query_one(ReupPromptTextArea)
+            area.focus()
+            app.post_message(events.Paste(paths[0]))
+            await pilot.pause()
+            assert app.agent.session.pending_attachment_paths == paths
+            assert app.notes == []
+            assert area.text == "@file_0.json "
+    asyncio.run(scenario())
+
+
+def test_modal_counts_files_already_in_composer(tmp_path: Path) -> None:
+    import asyncio
+
+    from ite.ui.reup._panels import PanelsMixin
+
+    paths = []
+    for index in range(11):
+        sample = tmp_path / f"file_{index}.json"
+        sample.touch()
+        paths.append(str(sample))
+
+    async def scenario():
+        app = AttachmentApp(tmp_path)
+        async with app.run_test() as pilot:
+            app.agent.session.pending_attachment_paths = paths[:10]
+            app.ensure_agent = lambda: asyncio.sleep(0)
+            async def select(modal):
+                assert len(modal._selected_paths) == 10
+                return paths
+            app._open_modal = select
+            await PanelsMixin._open_attach_picker_from_meta(app)
+            await pilot.pause()
+            assert app.agent.session.pending_attachment_paths == paths[:10]
+            assert "@file_10.json" not in app.query_one(ReupPromptTextArea).text
+            assert any("File limit exceeded" in note for note in app.notes)
+    asyncio.run(scenario())
+
+
+def test_modal_deselection_frees_a_slot(tmp_path: Path) -> None:
+    import asyncio
+
+    from ite.ui.reup._panels import PanelsMixin
+
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.touch()
+    second.touch()
+
+    async def scenario():
+        app = AttachmentApp(tmp_path)
+        async with app.run_test() as pilot:
+            app.agent.session.pending_attachment_paths = [str(first), str(second)]
+            area = app.query_one(ReupPromptTextArea)
+            area.load_text("review @first.json @second.json ")
+            area.move_cursor((0, len(area.text)))
+            app.ensure_agent = lambda: asyncio.sleep(0)
+            async def select(_modal):
+                return [str(second)]
+            app._open_modal = select
+            await PanelsMixin._open_attach_picker_from_meta(app)
+            await pilot.pause()
+            assert app.agent.session.pending_attachment_paths == [str(second)]
+            assert "@first.json" not in area.text
+            assert "@second.json" in area.text
+    asyncio.run(scenario())
+
+
+def test_modal_rejects_eleventh_selection_with_notice(tmp_path: Path) -> None:
+    from ite.ui.reup.modals import AttachPickerModal
+
+    files = []
+    for index in range(11):
+        sample = tmp_path / f"file_{index}.json"
+        sample.touch()
+        files.append(sample)
+    modal = AttachPickerModal(tmp_path, [str(path) for path in files[:9]])
+    with patch.object(modal, "_current_tree_path", return_value=files[9]), patch.object(modal, "_refresh_status"), patch.object(modal, "_refresh_preview"):
+        modal._toggle_current_selection()
+    assert len(modal._selected_paths) == 10
+    with patch.object(modal, "_current_tree_path", return_value=files[10]), patch.object(modal, "notify") as notify:
+        modal._toggle_current_selection()
+    assert len(modal._selected_paths) == 10
+    assert "10 files" in notify.call_args.args[0]

@@ -32,7 +32,7 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
 from ite.attachment_refs import attachment_copy_text, format_attachment_ref, discover_attachable_files, extract_at_query, extract_inline_attachment_refs, parse_dropped_file_paths, resolve_inline_attachment_refs, suggest_inline_attachment_paths
-from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
+from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, queue_attachment_paths, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
 from ite.cloud.services import generate_cloud_session_title
@@ -588,9 +588,12 @@ class ComposerMixin:
         insert_text = option.insert_text or option.name
         path = getattr(option, "attachment_path", None)
         if path and self.agent and self.agent.session:
-            pending = self.agent.session.pending_attachment_paths
-            if path not in pending and len(pending) < MAX_ATTACHMENTS:
-                pending.append(path)
+            pending, accepted, errors = queue_attachment_paths(self.agent.session.pending_attachment_paths, [path])
+            for error in errors:
+                self.post_attachment_note(error)
+            if not accepted:
+                return
+            self.agent.session.pending_attachment_paths = pending
         updated = re.sub(
             r"(?:^|[\s(\[{])@[^\s@]*$",
             lambda match: (
@@ -707,23 +710,23 @@ class ComposerMixin:
         head, tail = text[: newline + 1], text[newline + 1 :]
         if not tail:
             return None
-        refs = extract_inline_attachment_refs(text)
+        bound_refs = extract_inline_attachment_refs(text)
         for start in self._drop_candidate_starts(tail):
             position = len(head) + start
-            if any(ref.start <= position < ref.end for ref in refs):
+            if any(ref.start <= position < ref.end for ref in bound_refs):
                 continue
             candidate = tail[start:]
             if not self._is_path_like_probe(candidate):
                 continue
-            parsed = parse_dropped_file_paths(candidate)
+            parsed = parse_dropped_file_paths(candidate, max_attachments=None)
             if not parsed.paths:
                 continue
-            refs = " ".join(
+            rendered_refs = " ".join(
                 self._attachment_ref_for_path(Path(path)) for path in parsed.paths
             )
             prefix = tail[:start]
             separator = "" if not prefix or prefix[-1].isspace() else " "
-            return f"{head}{prefix}{separator}{refs}", parsed.paths
+            return f"{head}{prefix}{separator}{rendered_refs}", parsed.paths
         return None
 
 
@@ -751,19 +754,19 @@ class ComposerMixin:
             return message
 
         session = getattr(getattr(self, "agent", None), "session", None)
+        accepted = result.paths
+        errors = list(result.errors)
         if result.paths and session is not None:
-            pending = list(session.pending_attachment_paths)
-            for path in result.paths:
-                if path not in pending:
-                    pending.append(path)
-            session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
+            pending, accepted, limit_errors = queue_attachment_paths(session.pending_attachment_paths, result.paths)
+            session.pending_attachment_paths = pending
+            errors.extend(limit_errors)
 
-        for error in result.errors:
+        for error in errors:
             self.post_attachment_note(error)
 
-        if not result.paths:
+        if not accepted:
             return None
-        return " ".join(self._attachment_ref_for_path(Path(p)) for p in result.paths)
+        return " ".join(self._attachment_ref_for_path(Path(p)) for p in accepted)
 
 
     def _apply_command_palette_selection(self, *, complete_only: bool = False) -> bool:
@@ -1504,20 +1507,21 @@ class ComposerMixin:
             rewrite = self._rewrite_trailing_dropped_path(prompt.text)
             if rewrite is not None:
                 updated, paths = rewrite
+                session = getattr(getattr(self, "agent", None), "session", None)
+                if session is not None:
+                    pending, accepted, errors = queue_attachment_paths(session.pending_attachment_paths, paths)
+                    for error in errors:
+                        self.post_attachment_note(error)
+                    refs = " ".join(self._attachment_ref_for_path(Path(path)) for path in paths)
+                    prefix = updated[:-len(refs)]
+                    session.pending_attachment_paths = pending
+                    updated = prefix + " ".join(self._attachment_ref_for_path(Path(path)) for path in accepted)
                 self._rewriting_dropped_path = True
                 try:
-                    updated = updated.rstrip() + " "
+                    updated = updated.rstrip() + " " if updated.strip() else ""
                     prompt.load_text(updated)
                     lines = updated.split("\n")
                     prompt.move_cursor((len(lines) - 1, len(lines[-1])))
-                    if self.agent and self.agent.session:
-                        pending = list(self.agent.session.pending_attachment_paths)
-                        for path in paths:
-                            if path not in pending:
-                                pending.append(path)
-                        self.agent.session.pending_attachment_paths = pending[
-                            :MAX_ATTACHMENTS
-                        ]
                 finally:
                     self._rewriting_dropped_path = False
                 self._clear_command_palette()

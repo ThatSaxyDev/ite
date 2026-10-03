@@ -406,7 +406,7 @@ def _strip_wrapping_quotes(value: str) -> str:
     return value
 
 
-def parse_dropped_file_paths(text: str) -> DroppedFilePaths:
+def parse_dropped_file_paths(text: str, *, max_attachments: int | None = MAX_ATTACHMENTS) -> DroppedFilePaths:
     """Parse text that may hold one or more dropped/pasted file paths.
 
     Handles the formats terminals emit on drag-and-drop: bare absolute
@@ -531,13 +531,13 @@ def parse_dropped_file_paths(text: str) -> DroppedFilePaths:
             seen.add(key)
             paths.append(key)
 
-    if len(paths) > MAX_ATTACHMENTS:
-        overflow = paths[MAX_ATTACHMENTS:]
-        del paths[MAX_ATTACHMENTS:]
+    if max_attachments is not None and len(paths) > max_attachments:
+        overflow = paths[max_attachments:]
+        del paths[max_attachments:]
         names = ", ".join(Path(p).name for p in overflow[:3])
         more = "" if len(overflow) <= 3 else f" (+{len(overflow) - 3} more)"
         errors.append(
-            f"Only {MAX_ATTACHMENTS} attachments allowed; skipped: {names}{more}"
+            f"File limit exceeded. Only {max_attachments} attachments allowed; skipped: {names}{more}"
         )
 
     return DroppedFilePaths(paths, errors, path_like_count, prose_count)

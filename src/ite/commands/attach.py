@@ -10,7 +10,7 @@ from rich.panel import Panel
 from rich.text import Text
 from rich import box
 
-from ite.attachments import MAX_ATTACHMENTS
+from ite.attachments import MAX_ATTACHMENTS, queue_attachment_paths
 from ite.commands import Command, CommandContext, CommandRegistry
 
 
@@ -18,15 +18,11 @@ def _queue_paths(ctx: CommandContext, paths: list[str]) -> int:
     if not ctx.agent or not ctx.agent.session:
         return 0
     queue = ctx.agent.session.pending_attachment_paths
-    added = 0
-    for raw in paths:
-        p = str(Path(raw).expanduser().resolve())
-        if p in queue:
-            continue
-        if len(queue) >= MAX_ATTACHMENTS:
-            break
-        queue.append(p)
-        added += 1
+    pending, _accepted, errors = queue_attachment_paths(queue, paths)
+    added = len(pending) - len(queue)
+    ctx.agent.session.pending_attachment_paths = pending
+    for error in errors:
+        ctx.console.print(Text(error, style="red"))
     return added
 
 

@@ -33,7 +33,7 @@ from textual.widgets import (
 )
 from textual.widgets.directory_tree import DirEntry
 
-from ite.attachments import MAX_ATTACHMENTS
+from ite.attachments import ATTACHMENT_LIMIT_MESSAGE, MAX_ATTACHMENTS
 from ite.auth import openrouter_pkce
 from ite.client.llm_client import LLMClient
 from ite.client.ollama_metadata import discover_context_window
@@ -2377,6 +2377,7 @@ class AttachPickerModal(ModalScreen[list[str] | None]):
             self._selected_paths.remove(path_key)
         else:
             if len(self._selected_paths) >= MAX_ATTACHMENTS:
+                self.notify(ATTACHMENT_LIMIT_MESSAGE, severity="warning")
                 return
             self._selected_paths.add(path_key)
         self._refresh_status()

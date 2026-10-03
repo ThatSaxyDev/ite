@@ -7,7 +7,8 @@ import mimetypes
 import shutil
 import uuid
 
-MAX_ATTACHMENTS = 3
+MAX_ATTACHMENTS = 10
+ATTACHMENT_LIMIT_MESSAGE = f"File limit exceeded. You can attach at most {MAX_ATTACHMENTS} files."
 MAX_FILE_SIZE_BYTES = 35 * 1024 * 1024  # 35MB max per attachment
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -35,6 +36,31 @@ TEXT_EXTS = {
 }
 PDF_EXTS = {".pdf"}
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
+
+
+def queue_attachment_paths(
+    existing_paths: list[str], paths: list[str],
+) -> tuple[list[str], list[str], list[str]]:
+    """Accept files that fit, preserving the draft and rejecting only overflow."""
+    pending = list(existing_paths)
+    seen = {str(Path(path).expanduser().resolve()) for path in pending}
+    accepted: list[str] = []
+    rejected: list[str] = []
+    for path in paths:
+        key = str(Path(path).expanduser().resolve())
+        if key in seen:
+            accepted.append(path)
+        elif len(seen) < MAX_ATTACHMENTS:
+            pending.append(path)
+            seen.add(key)
+            accepted.append(path)
+        else:
+            rejected.append(path)
+    errors = []
+    if rejected:
+        names = ", ".join(Path(path).name for path in rejected[:3])
+        errors.append(f"{ATTACHMENT_LIMIT_MESSAGE} Skipped: {names}")
+    return pending, accepted, errors
 
 
 @dataclass

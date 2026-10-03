@@ -7,7 +7,7 @@ from textual.message import Message
 from textual.widgets import TextArea
 
 from ite.attachment_refs import extract_inline_attachment_refs, parse_dropped_file_paths
-from ite.attachments import MAX_ATTACHMENTS
+from ite.attachments import queue_attachment_paths
 
 
 class ReupPromptTextArea(TextArea):
@@ -68,15 +68,18 @@ class ReupPromptTextArea(TextArea):
             ]
             if not paths:
                 return
-            pending = list(dict.fromkeys([*session.pending_attachment_paths, *paths]))
-            if len(pending) > MAX_ATTACHMENTS:
-                return  # Leave full references intact for the send-time limit error.
+            pending, accepted, errors = queue_attachment_paths(session.pending_attachment_paths, paths)
             session.pending_attachment_paths = pending
+            note = getattr(app, "post_attachment_note", None)
+            for error in errors:
+                if callable(note):
+                    note(error)
             text = event.text
             for ref in reversed(refs):
                 path = str(Path(ref.value).expanduser().resolve())
                 if path in paths:
-                    text = text[:ref.start] + formatter(Path(path)) + ref.trailing + text[ref.end:]
+                    replacement = formatter(Path(path)) if path in accepted else ""
+                    text = text[:ref.start] + replacement + ref.trailing + text[ref.end:]
             event.prevent_default()
             event.stop()
             self.replace(text, *self.selection, maintain_selection_offset=False)
@@ -88,18 +91,18 @@ class ReupPromptTextArea(TextArea):
 
         app = self.app
         session = getattr(getattr(app, "agent", None), "session", None)
+        accepted = result.paths
+        errors = list(result.errors)
         if session is not None and result.paths:
-            pending = list(session.pending_attachment_paths)
-            for path in result.paths:
-                if path not in pending:
-                    pending.append(path)
-            session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
+            pending, accepted, limit_errors = queue_attachment_paths(session.pending_attachment_paths, result.paths)
+            session.pending_attachment_paths = pending
+            errors.extend(limit_errors)
 
         insert = getattr(app, "_insert_attachment_refs_into_prompt", None)
-        if result.paths and callable(insert):
-            insert(result.paths)
+        if accepted and callable(insert):
+            insert(accepted)
 
         note = getattr(app, "post_attachment_note", None)
-        for error in result.errors:
+        for error in errors:
             if callable(note):
                 note(error)

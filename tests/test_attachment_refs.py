@@ -84,15 +84,13 @@ class AttachmentRefsTests(unittest.TestCase):
         self.assertIn("@missing.py", result.errors[0])
 
     def test_resolve_inline_attachment_refs_enforces_attachment_limit(self) -> None:
-        extra = self.cwd / "notes.txt"
-        extra.write_text("notes\n", encoding="utf-8")
-        third = self.cwd / "todo.txt"
-        third.write_text("todo\n", encoding="utf-8")
-        fourth = self.cwd / "more.txt"
-        fourth.write_text("more\n", encoding="utf-8")
-
+        paths = []
+        for index in range(11):
+            path = self.cwd / f"file_{index}.txt"
+            path.touch()
+            paths.append(path)
         result = resolve_inline_attachment_refs(
-            "@README.md @notes.txt @todo.txt @more.txt",
+            " ".join(f"@{path.name}" for path in paths),
             cwd=self.cwd,
             existing_paths=[],
         )

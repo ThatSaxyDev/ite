@@ -31,7 +31,7 @@ from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
 from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
-from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
+from ite.attachments import Attachment, AttachmentManager, queue_attachment_paths, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
 from ite.cloud.services import generate_cloud_session_title
@@ -993,16 +993,32 @@ class PanelsMixin:
         if not self.agent:
             return
         cwd = Path(self.config.cwd).resolve()
-        selected = await self._open_modal(AttachPickerModal(cwd, []))
+        queued = list(self.agent.session.pending_attachment_paths) if self.agent.session else []
+        selected = await self._open_modal(AttachPickerModal(cwd, queued))
         if selected is None:
             return
-        paths = list(selected)[:MAX_ATTACHMENTS]
+        paths = list(selected)
         if self.agent.session:
-            pending = list(self.agent.session.pending_attachment_paths)
-            for path in paths:
-                if path not in pending:
-                    pending.append(path)
-            self.agent.session.pending_attachment_paths = pending[:MAX_ATTACHMENTS]
+            selected_keys = {str(Path(path).resolve()) for path in paths}
+            kept = [path for path in queued if str(Path(path).resolve()) in selected_keys]
+            pending, paths, errors = queue_attachment_paths(kept, paths)
+            self.agent.session.pending_attachment_paths = pending
+            for error in errors:
+                self.post_attachment_note(error)
+            removed = {str(Path(path).resolve()) for path in queued} - selected_keys
+            prompt = self.query_one("#prompt", TextArea)
+            for ref in reversed(extract_inline_attachment_refs(prompt.text)):
+                resolved = resolve_inline_attachment_refs(
+                    prompt.text[ref.start:ref.end], cwd=cwd,
+                    existing_paths=list(removed), files=[],
+                )
+                if not removed or resolved.errors or resolved.added_paths:
+                    continue
+                before, through = prompt.text[:ref.start], prompt.text[:ref.end]
+                prompt.replace("", (before.count("\n"), len(before.split("\n")[-1])),
+                               (through.count("\n"), len(through.split("\n")[-1])))
+            queued_keys = {str(Path(path).resolve()) for path in kept}
+            paths = [path for path in paths if str(Path(path).resolve()) not in queued_keys]
         self._insert_attachment_refs_into_prompt(paths)
 
 
