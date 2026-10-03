@@ -251,7 +251,7 @@ class ComposerMixin:
 
         mode = current_mode(self.config)
         label = {PermissionMode.ASK: "ask", PermissionMode.AUTOMATIC: "auto", PermissionMode.FULL: "full access"}.get(mode, "custom")
-        text.append("  ")
+        text.append("    ")
         start = cell_len(text.plain)
         style = self._render_styles().get("warning" if mode == PermissionMode.FULL else "muted", "")
         text.append(f"{label} ▾", style=style)
@@ -1886,7 +1886,7 @@ class ComposerMixin:
         if not attachments:
             return message, None, None, []
         manager = AttachmentManager(workspace)
-        temp_turn_id = f"reup_{turn_id}"
+        temp_turn_id = f"reup_{turn_id}_{uuid.uuid4().hex}"
         staged, errors = manager.stage_paths(attachments, temp_turn_id)
         if errors:
             for error in errors:

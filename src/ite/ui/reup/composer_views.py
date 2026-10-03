@@ -259,28 +259,28 @@ def composer_meta_text(
     width = available_width if available_width and available_width > 0 else None
     candidates = [
         dict(
-            spacer="     ",
+            spacer="    ",
             include_usage=show_usage,
             include_context=show_context,
             meter_width=6,
             compact_labels=False,
         ),
         dict(
-            spacer="  ",
+            spacer="    ",
             include_usage=show_usage,
             include_context=show_context,
             meter_width=4,
             compact_labels=True,
         ),
         dict(
-            spacer="  ",
+            spacer="    ",
             include_usage=show_usage,
             include_context=False if show_usage else show_context,
             meter_width=4,
             compact_labels=True,
         ),
         dict(
-            spacer="  ",
+            spacer="    ",
             include_usage=False,
             include_context=False,
             meter_width=4,
@@ -301,7 +301,7 @@ def composer_meta_text(
     model_cells = max(4, min(cell_len(model_name), available_for_names // 2))
     branch_cells = max(2, available_for_names - model_cells)
     compact = _build(
-        spacer="  ",
+        spacer="    ",
         include_usage=False,
         include_context=False,
         meter_width=4,
@@ -314,7 +314,7 @@ def composer_meta_text(
 
     for model_cells in range(cell_len(model_name), 0, -1):
         compact = _build(
-            spacer="  ",
+            spacer="    ",
             include_usage=False,
             include_context=False,
             meter_width=4,
@@ -325,7 +325,7 @@ def composer_meta_text(
         if cell_len(compact[0].plain) <= width:
             return compact
     compact = _build(
-        spacer="  ",
+        spacer="    ",
         include_usage=False,
         include_context=False,
         meter_width=4,
@@ -336,7 +336,7 @@ def composer_meta_text(
     if cell_len(compact[0].plain) <= width:
         return compact
     return _build(
-        spacer="  ",
+        spacer="    ",
         include_usage=False,
         include_context=False,
         meter_width=4,

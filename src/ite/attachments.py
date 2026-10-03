@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import base64
+import hashlib
 import mimetypes
 import shutil
 import uuid
@@ -91,6 +92,23 @@ class AttachmentManager:
     def __init__(self, workspace: Path):
         self.workspace = workspace.resolve()
         self.temp_root = self.workspace / ".ite" / "tmp_attachments"
+        self.snapshot_root = self.workspace / ".ite" / "attachments"
+
+    def _persist_attachment(self, staged_path: Path, original_name: str) -> Path:
+        """Retain the exact attached bytes for later turns and saved threads."""
+        with staged_path.open("rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+        directory = self.snapshot_root / digest
+        directory.mkdir(parents=True, exist_ok=True)
+        snapshot = directory / original_name
+        if not snapshot.is_file():
+            partial = directory / f".{uuid.uuid4().hex}.tmp"
+            try:
+                shutil.copy2(staged_path, partial)
+                partial.replace(snapshot)
+            finally:
+                partial.unlink(missing_ok=True)
+        return snapshot
 
     def stage_paths(self, paths: list[str | Path], turn_id: str) -> tuple[list[Attachment], list[str]]:
         errors: list[str] = []
@@ -136,22 +154,13 @@ class AttachmentManager:
             mime = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
             if ext in IMAGE_EXTS:
                 kind = "image"
-                # Also cache image to persistent location for survival across restarts
-                try:
-                    from ite.tools.builtin.media_tools import _cache_image
-                    cached_path = _cache_image(src)
-                    # Store cached path in metadata for later use
-                    cached_path_str = str(cached_path)
-                except Exception:
-                    cached_path_str = None
             elif ext in PDF_EXTS:
                 kind = "pdf"
-                cached_path_str = None
             else:
                 kind = "text"
-                cached_path_str = None
             dest = turn_dir / f"{uuid.uuid4().hex}_{src.name}"
             shutil.copy2(src, dest)
+            snapshot = self._persist_attachment(dest, src.name)
 
             staged.append(
                 Attachment(
@@ -162,11 +171,9 @@ class AttachmentManager:
                     source_path=str(src),
                     temp_path=str(dest),
                     kind=kind,
+                    metadata={"cached_path": str(snapshot)},
                 )
             )
-            # Add cached_path to metadata after creating attachment
-            if cached_path_str:
-                staged[-1].metadata = {"cached_path": cached_path_str}
 
         return staged, errors
 
@@ -185,20 +192,16 @@ def _manifest_lines(attachments: list[Attachment], workspace: Path) -> list[str]
         except Exception:
             return path_text
 
-    def is_in_workspace(path_text: str) -> bool:
-        try:
-            Path(path_text).resolve().relative_to(workspace.resolve())
-            return True
-        except Exception:
-            return False
-
     lines = ["Attached files:"]
     for a in attachments:
         source_text = display_path(a.source_path)
-        temp_text = display_path(a.temp_path)
-        line = f"- {a.original_name} ({a.mime_type}, {a.size_bytes} bytes) -> {source_text}"
-        if not is_in_workspace(a.source_path) and temp_text != source_text:
-            line += f" [attached as {temp_text}]"
+        # The manifest survives in model history after turn cleanup. Never
+        # advertise temp_path, which is deliberately deleted at that point.
+        retained_path = (a.metadata or {}).get("cached_path") or a.source_path
+        attached_text = display_path(retained_path)
+        line = f"- {a.original_name} ({a.mime_type}, {a.size_bytes} bytes) -> {attached_text}"
+        if attached_text != source_text:
+            line += f" [source: {source_text}]"
         lines.append(line)
     return lines
 

@@ -85,3 +85,9 @@ def test_mounted_editor_accepts_users_nonconventional_message():
             assert results[0]["message"] == "My own checkpoint"
 
     asyncio.run(run())
+
+
+def test_generated_subject_preserves_description_beyond_72_characters() -> None:
+    message = "fix(attachments): persist exact bytes and prevent temporary paths from leaking into later turns"
+    assert len(message) > 72
+    assert CommitModal._normalize_commit_message(message) == message

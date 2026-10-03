@@ -63,13 +63,13 @@ class InlineAttachmentResolution:
 def discover_attachable_files(cwd: Path, *, max_files: int = 10000) -> list[Path]:
     cwd = cwd.resolve()
     files: list[Path] = []
-    temp_root = cwd / ".ite" / "tmp_attachments"
+    attachment_roots = {cwd / ".ite" / "tmp_attachments", cwd / ".ite" / "attachments"}
     for root, dirs, filenames in os.walk(cwd):
         dirs[:] = [
             name
             for name in dirs
             if name not in _SKIP_DIRS
-            and not str(Path(root, name)).startswith(str(temp_root))
+            and Path(root, name) not in attachment_roots
         ]
         root_path = Path(root)
         for filename in filenames:

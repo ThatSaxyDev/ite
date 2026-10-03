@@ -744,8 +744,7 @@ class CommitModal(ModalScreen[dict[str, Any] | None]):
         line = line.strip("\"'` ")
         line = re.sub(r"\s+", " ", line)
         line = re.sub(r"^(commit message:|subject:)\s*", "", line, flags=re.IGNORECASE)
-        validate_commit_message(line)
-        return validate_commit_message(line[:72].rstrip())
+        return validate_commit_message(line)
 
     def _loading_copy(self, step: int) -> str:
         index = (self._ai_loading_seed + max(0, step)) % len(self._AI_LOADING_LINES)

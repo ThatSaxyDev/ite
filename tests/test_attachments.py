@@ -34,7 +34,7 @@ class AttachmentManifestTests(unittest.TestCase):
             self.assertIn("-> README.md", rendered)
             self.assertNotIn("tmp_attachments", rendered)
 
-    def test_manifest_includes_attached_as_path_for_external_pdf(self) -> None:
+    def test_manifest_does_not_advertise_temporary_path_for_external_pdf(self) -> None:
         with TemporaryDirectory() as tmp, TemporaryDirectory() as external_tmp:
             cwd = Path(tmp)
             external = Path(external_tmp) / "report.pdf"
@@ -55,7 +55,8 @@ class AttachmentManifestTests(unittest.TestCase):
 
             rendered = build_user_text_with_manifest("inspect this", [attachment], cwd)
 
-            self.assertIn("[attached as .ite/tmp_attachments/turn1/report.pdf]", rendered)
+            self.assertIn(str(external), rendered)
+            self.assertNotIn("tmp_attachments", rendered)
 
     def test_stage_paths_accepts_pdf_attachments(self) -> None:
         with TemporaryDirectory() as tmp:
