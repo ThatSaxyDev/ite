@@ -506,3 +506,8 @@
 #settings-panel #settings-permissions-change { height: 1; min-height: 1; width: 22; border: none; padding: 0 1; background: $panel; color: $foreground; }
 #settings-panel .permissions-full .settings-info-value { color: $text-warning; text-style: bold; }
 #settings-panel .permissions-automatic .settings-info-value { color: $text-success; text-style: bold; }
+
+#settings-panel.connections-active { min-width: 0; padding: 0 2; }
+#settings-panel .settings-connections-entry { height: auto; margin-bottom: 1; }
+#settings-panel .settings-connections-copy { height: auto; color: $foreground-muted; }
+#settings-panel #settings-connections-manage { margin-top: 1; }

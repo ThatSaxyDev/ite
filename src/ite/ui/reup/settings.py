@@ -301,6 +301,12 @@ class SettingsPanel(Widget):
                 yield self._info_agents
                 yield self._info_skills
 
+            yield Static("Connections (MCP)", classes="settings-section-title")
+            with Container(classes="settings-connections-entry"):
+                yield Static("Connect services and tools to iTE.", classes="settings-connections-copy")
+                yield Static("", id="settings-connections-summary", classes="settings-connections-copy")
+                yield Button("Manage connections", id="settings-connections-manage", variant="default")
+
             # Token activity
             yield Static(
                 "Token activity",
@@ -371,9 +377,40 @@ class SettingsPanel(Widget):
             # Footer
             yield AppFooter(classes="settings-footer")
 
+    @on(Button.Pressed, "#settings-connections-manage")
+    async def open_connections(self) -> None:
+        from .connections import ConnectionsPanel
+
+        if not self.query("#settings-connections"):
+            await self.mount(ConnectionsPanel(id="settings-connections"))
+        self.query_one("#settings-content").display = False
+        panel = self.query_one("#settings-connections", ConnectionsPanel)
+        panel.display = True
+        self.add_class("connections-active")
+        panel.refresh_connections()
+        panel.query_one("#connections-add", Button).focus()
+
+    def close_connections(self) -> None:
+        self.query_one("#settings-connections").display = False
+        self.query_one("#settings-content").display = True
+        self.remove_class("connections-active")
+        self.query_one("#settings-connections-manage", Button).focus()
+        self.refresh_connections_summary()
+
+    def refresh_connections_summary(self) -> None:
+        from .connections import service_for_app
+
+        service = service_for_app(self.app)
+        rows = [service.snapshot(record) for record in service.records()]
+        connected = sum(row["status"] == "connected" for row in rows)
+        attention = sum(row["status"] in {"failed", "error", "needs_setup", "needs_approval"} for row in rows)
+        self.query_one("#settings-connections-summary", Static).update(
+            f"{connected} connected · {len(rows)} configured" + (f" · {attention} need attention" if attention else ""))
+
     def on_mount(self) -> None:
         self._account_action.display = False
         self._populate_context()
+        self.refresh_connections_summary()
         self.refresh_open_island_state()
         self.refresh_cloud_data()
 
@@ -381,6 +418,7 @@ class SettingsPanel(Widget):
         # The agent/session may not have been ready at mount time, and model
         # or approval can change while the panel is hidden. Refresh on open.
         self._populate_context()
+        self.refresh_connections_summary()
         self.refresh_open_island_state()
         self.refresh_cloud_data()
 

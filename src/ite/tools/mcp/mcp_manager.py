@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 from ite.tools.mcp.mcp_tool import MCPTool
 from ite.tools.mcp.client import MCPServerStatus
@@ -6,6 +8,8 @@ import asyncio
 from ite.tools.mcp.client import MCPClient
 from ite.config.config import Config
 from ite.config.loader import load_mcp_keyring_env_vars
+from ite.tools.mcp.trust import local_launch_trusted
+from ite.tools.mcp.credentials import CredentialStore
 from rich.text import Text
 from rich.table import Table
 from rich.panel import Panel
@@ -36,9 +40,6 @@ class MCPManager:
             return
 
         for name, server_config in mcp_configs.items():
-            if not server_config.enabled:
-                continue
-
             logger.info(
                 "Initializing MCP server '%s' (command=%s url=%s cwd=%s)",
                 name,
@@ -51,7 +52,8 @@ class MCPManager:
                 config=server_config,
                 cwd=self.config.cwd,
             )
-            self._clients[name].status = MCPServerStatus.READY
+            self._clients[name].status = MCPServerStatus.READY if server_config.enabled else MCPServerStatus.DISABLED
+            self._clients[name].allow_browser = False
 
         if not self._clients:
             self._initialized = True
@@ -63,7 +65,8 @@ class MCPManager:
         names = ", ".join(self._clients.keys())
 
         startup_clients = [
-            client for client in self._clients.values() if client.config.auto_connect
+            client for client in self._clients.values() if client.config.auto_connect and client.config.enabled
+            and local_launch_trusted(client.name, client.config, self.config.cwd)
         ]
 
         if not startup_clients:
@@ -129,9 +132,23 @@ class MCPManager:
             if client.config.auth == "oauth"
             else client.config.startup_timeout_sec
         )
-        keyring_env = load_mcp_keyring_env_vars(client.name)
+        if not getattr(client.config, "enabled", True):
+            raise RuntimeError("This connection is disabled. Enable it in Settings → Connections.")
+        if getattr(client.config, "command", None) and not local_launch_trusted(client.name, client.config, self.config.cwd):
+            client.status_detail = "Review and approve local startup in Settings → Connections."
+            raise RuntimeError(client.status_detail)
+        keyring_env = await asyncio.to_thread(load_mcp_keyring_env_vars, client.name)
         if keyring_env:
-            client.config.env.update(keyring_env)
+            client.config = client.config.model_copy(deep=True, update={"env": {**keyring_env, **client.config.env}})
+        if getattr(client.config, "credential_ref", None):
+            credentials = await asyncio.to_thread(CredentialStore(client.config.credential_ref).read)
+            effective = client.config.model_copy(deep=True)
+            effective.env.update(credentials.get("env", {}))
+            effective.headers.update(credentials.get("headers", {}))
+            for field in ("auth", "client_credentials_client_id", "client_credentials_client_secret"):
+                if field in credentials:
+                    setattr(effective, field, credentials[field])
+            client.config = effective
         try:
             await asyncio.wait_for(
                 client.connect(status_callback=status_callback),
@@ -156,6 +173,8 @@ class MCPManager:
             raise KeyError(f"Unknown MCP server: {name}")
         if client.status == MCPServerStatus.CONNECTED:
             return 0
+        if client._client is not None:
+            await client.disconnect()
 
         await self._connect_client(client, status_callback=status_callback)
         return self._register_client_tools(client, registry)
@@ -214,6 +233,8 @@ class MCPManager:
         count = 0
         registry.unregister_mcp_server(client.name)
         for tool_info in client.tools:
+            if client.config.enabled_tools is not None and tool_info.name not in client.config.enabled_tools:
+                continue
             mcp_tool = MCPTool(
                 tool_info=tool_info,
                 client=client,

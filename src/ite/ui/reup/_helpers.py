@@ -3,6 +3,7 @@ These cannot live in app.py because mixins import from here and app.py imports m
 """
 from __future__ import annotations
 
+import re
 import ssl
 from typing import Any
 
@@ -64,6 +65,9 @@ def redact_sensitive_command_text(text: str) -> str:
     if not stripped:
         return ""
     lowered = stripped.lower()
+    if re.match(r"^/mcp\s+env\s+set(?:\s|$)", lowered):
+        parts = stripped.split()
+        return " ".join(parts[:5]) + " [redacted]" if len(parts) >= 5 else "/mcp env set [redacted]"
     if lowered.startswith("/flow setup "):
         return "/flow setup [redacted]"
     if lowered.startswith("/voice setup "):

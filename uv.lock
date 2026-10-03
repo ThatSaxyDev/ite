@@ -671,7 +671,7 @@ wheels = [
 
 [[package]]
 name = "ite-agent"
-version = "0.2.22"
+version = "0.2.32"
 source = { editable = "." }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -682,6 +682,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "firecrawl-anydoc" },
     { name = "html2text" },
+    { name = "keyring" },
     { name = "lxml" },
     { name = "openai" },
     { name = "pdf-inspector" },
@@ -718,6 +719,7 @@ requires-dist = [
     { name = "fastmcp" },
     { name = "firecrawl-anydoc" },
     { name = "html2text" },
+    { name = "keyring", specifier = ">=25" },
     { name = "lxml" },
     { name = "mypy", marker = "extra == 'dev'" },
     { name = "openai" },

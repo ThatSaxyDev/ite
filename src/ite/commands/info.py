@@ -1,11 +1,12 @@
 """Info commands: /stats, /tools, /mcp, /workboard, /memory."""
 
+import asyncio
+
 from collections import Counter, defaultdict
 from datetime import datetime
 from ite.commands import Command, CommandContext, CommandRegistry
 from ite.config.loader import (
     clear_mcp_env_vars,
-    get_data_dir,
     invalidate_mcp_keyring_cache,
     get_system_secrets_path,
     get_workspace_secrets_path,
@@ -502,9 +503,16 @@ async def cmd_mcp(ctx: CommandContext, args: list[str]) -> None:
             await mcp_mgr.disconnect_server(name, ctx.agent.session.tool_registry)
         except Exception:
             pass
-        token_file = get_data_dir() / "auth" / "mcp_oauth_tokens.json"
-        if token_file.exists():
-            token_file.unlink()
+        from ite.tools.mcp.service import clear_legacy_oauth_tokens
+        server_config = ctx.config.mcp_servers.get(name)
+        if server_config is not None:
+            if server_config.credential_ref:
+                from ite.tools.mcp.credentials import CredentialStore
+                store = CredentialStore(server_config.credential_ref)
+                await asyncio.to_thread(store.clear)
+                await asyncio.to_thread(store.clear, "oauth")
+            else:
+                clear_legacy_oauth_tokens(server_config)
         clear_mcp_env_vars(name, cwd=ctx.config.cwd)
         invalidate_mcp_keyring_cache()
         _reload_mcp_runtime_config(ctx)
@@ -813,7 +821,7 @@ async def _cmd_mcp_doctor(ctx: CommandContext, args: list[str]) -> None:
     lines = [
         Text.assemble(("server ", "code"), (server, "bold cyan")),
         Text.assemble(("transport ", "code"), (config.effective_transport, "bold cyan")),
-        Text.assemble(("auth ", "code"), (str(config.auth or "none"), "bold cyan")),
+        Text.assemble(("auth ", "code"), (str(config.auth if config.auth in {"oauth", "client_credentials"} else "token" if config.auth else "none"), "bold cyan")),
         Text.assemble(("startup timeout ", "code"), (f"{config.startup_timeout_sec:g}s", "bold cyan")),
         Text.assemble(("oauth timeout ", "code"), (f"{config.oauth_timeout_sec:g}s", "bold cyan")),
         Text.assemble(("global env ", "code"), (", ".join(global_keys) if global_keys else "none", "bold cyan")),
@@ -998,6 +1006,14 @@ def _reload_mcp_runtime_config(ctx: CommandContext) -> None:
     manager_config = getattr(manager, "config", None)
     if manager_config is not None:
         manager_config.mcp_servers = fresh.mcp_servers
+    from ite.tools.mcp.mcp_manager import MCPManager
+    from ite.tools.mcp.client import MCPClient, MCPServerStatus
+    if isinstance(manager, MCPManager):
+        for name, server_config in fresh.mcp_servers.items():
+            if name not in manager._clients:
+                client = MCPClient(name, server_config.model_copy(deep=True), ctx.config.cwd)
+                client.status = MCPServerStatus.READY if server_config.enabled else MCPServerStatus.DISABLED
+                manager._clients[name] = client
     for name, client in getattr(manager, "_clients", {}).items():
         if name in fresh.mcp_servers:
             client.config = fresh.mcp_servers[name]

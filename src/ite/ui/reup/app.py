@@ -1335,6 +1335,13 @@ class ReupApp(CloudMixin, PanelsMixin, ComposerMixin, ThreadsMixin, TurnMixin, S
         if self._shutdown_started:
             return
         self._shutdown_started = True
+        standalone = getattr(self, "_standalone_connections_service", None)
+        if standalone is not None:
+            try:
+                await asyncio.wait_for(standalone.manager.shutdown(), timeout=2.0)
+            except Exception:
+                pass
+            self._standalone_connections_service = None
         self._clear_thread_history_cache()
 
         try:

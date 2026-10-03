@@ -1072,6 +1072,16 @@ class TurnMixin:
             await self._open_usage_modal_from_meta()
             return
 
+        if command == "/mcp" and (not args or args == ["add"]):
+            await self._open_settings_screen()
+            from .settings import SettingsPanel
+            panel = self.query_one("#settings-panel", SettingsPanel)
+            await panel.open_connections()
+            if args:
+                from .connections import ConnectionsPanel
+                panel.query_one(ConnectionsPanel).open_add()
+            return
+
         if command == "/settings":
             await self._open_settings_screen()
             return

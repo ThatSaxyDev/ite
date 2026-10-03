@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from copy import deepcopy
 from typing import Any
 import re
 from ite.config.config import Config
@@ -38,13 +41,13 @@ class MCPTool(Tool):
 
     @property
     def schema(self) -> dict[str, Any]:
-        input_schema = self._tool_info.input_schema or {}
-        return {
-            "type": "object",
-            "properties": input_schema.get("properties", {}),
-            "required": input_schema.get("required", []),
-            "additionalProperties": input_schema.get("additionalProperties", True),
-        }
+        return deepcopy(self._tool_info.input_schema or {"type": "object", "properties": {}})
+
+    @property
+    def available(self) -> bool:
+        from ite.tools.mcp.client import MCPServerStatus
+        return (self._client.status == MCPServerStatus.CONNECTED and self._client.config.enabled
+                and (self._client.config.enabled_tools is None or self._tool_info.name in self._client.config.enabled_tools))
 
     def is_mutating(self, params: dict[str, Any]) -> bool:
         annotations = self._tool_info.annotations
@@ -93,7 +96,11 @@ class MCPTool(Tool):
                     metadata=self._error_metadata(str(output or "")),
                 )
 
-            return ToolResult.success_result(output, metadata=self._success_metadata())
+            metadata = self._success_metadata()
+            if result.get("structured_content") is not None:
+                metadata["structured_content"] = result["structured_content"]
+            metadata["mcp_content"] = result.get("content", [])
+            return ToolResult.success_result(output, metadata=metadata, truncated=result.get("truncated", False))
         except Exception as e:
             raw = f"MCP tool failed: {e}"
             return ToolResult.error_result(
@@ -135,9 +142,9 @@ class MCPTool(Tool):
             or "invalid_literal" in text
         ):
             summary = f"That {server_label} call used the wrong input."
-            detail = "Trying again with corrected arguments."
+            detail = "Retry with corrected arguments."
             if expected_operation:
-                detail = f"Trying the `{expected_operation}` action instead."
+                detail = f"Use the `{expected_operation}` action instead."
             return (summary, detail, True)
 
         if "Could not connect to Chrome" in text:
@@ -150,7 +157,7 @@ class MCPTool(Tool):
         if "Failed to fetch API: 404" in text or re.search(r"\b404\b", compact):
             return (
                 f"That {server_label} item wasn't found.",
-                "Trying a different item or identifier.",
+                "Check the item or identifier, then retry.",
                 True,
             )
 
@@ -210,15 +217,6 @@ class MCPTool(Tool):
         if self._is_discovery_tool():
             return None
 
-        likely_context_params = [
-            name
-            for name, prop in properties.items()
-            if self._looks_like_context_param(name, prop, required=False)
-        ]
-        if len(likely_context_params) == 1 and not any(
-            self._has_value(params.get(name)) for name in likely_context_params
-        ) and self._is_detail_tool():
-            return self._missing_context_result(likely_context_params)
         return None
 
     def _missing_context_result(self, fields: list[str]) -> ToolResult:

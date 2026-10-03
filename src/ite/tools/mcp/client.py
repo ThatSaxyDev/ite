@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+import json
 from typing import Any
 from dataclasses import field
 from dataclasses import dataclass
@@ -20,6 +24,7 @@ from ite.config.loader import get_data_dir
 from fastmcp import Client
 import logging
 from ite.tools.mcp.oauth import build_oauth_provider
+from ite.tools.mcp.credentials import redact_connection_text
 from ite.tools.mcp.client_credentials import (
     build_client_credentials_auth,
     client_credentials_http_client_factory,
@@ -37,6 +42,7 @@ class MCPServerStatus(str, Enum):
     CONNECTING = "connecting"
     CONNECTED = "connected"
     ERROR = "error"
+    DISABLED = "disabled"
 
 
 @dataclass
@@ -64,8 +70,11 @@ class MCPClient:
         self.status_detail: str | None = None
         self.auth_phase: str | None = None
         self.last_error: str | None = None
+        self.authorization_url: str | None = None
+        self.allow_browser = True
         self._client: Client | None = None
         self._status_callback: MCPStatusCallback = None
+        self.status_observer: MCPStatusCallback = None
 
         self._tools: dict[str, MCPToolInfo] = dict()
         self._resolved_stdio_log_path: Path | None = None
@@ -151,7 +160,9 @@ class MCPClient:
         transport = self.config.effective_transport
         auth = self._resolve_auth()
         if transport == "stdio":
-            env = os.environ.copy()
+            env = (os.environ.copy() if self.config.inherit_environment else
+                   {key: value for key, value in os.environ.items()
+                    if key in {"PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "TEMP", "TMP", "LANG", "LC_ALL"}})
             env.update(self.config.env)
             self._apply_npm_runtime_env(env)
             cwd = self.config.cwd if self.config.cwd is not None else self.cwd
@@ -204,6 +215,7 @@ class MCPClient:
                 self.config,
                 str(self.config.url),
                 progress_reporter=self._oauth_progress,
+                allow_browser=self.allow_browser,
             )
         if self.config.auth == "client_credentials":
             return build_client_credentials_auth(self.config)
@@ -225,6 +237,7 @@ class MCPClient:
         self.auth_phase = None
 
         try:
+            await self._set_status(MCPServerStatus.CONNECTING, detail="Connecting.")
             self._client = Client(transport=self._create_transport())
 
             await self._client.__aenter__()
@@ -264,6 +277,10 @@ class MCPClient:
             )
             self.auth_phase = None
 
+        except asyncio.CancelledError:
+            await self._cleanup_failed_connect()
+            await self._set_status(MCPServerStatus.READY, detail="Connection cancelled.")
+            raise
         except Exception as e:
             await self._cleanup_failed_connect()
             cmd = self.config.command or self.config.url or "unknown"
@@ -291,8 +308,10 @@ class MCPClient:
 
             # All other connection errors — clean message, no traceback
             # Extract the root error message for clarity
-            error_str = str(root) if root is not e else str(e)
+            error_str = redact_connection_text(str(root) if root is not e else str(e), self.config)
             stderr_tail = self._read_stdio_log_tail()
+            if stderr_tail:
+                stderr_tail = redact_connection_text(stderr_tail, self.config)
             detail = error_str
             if stderr_tail:
                 first_line = stderr_tail.splitlines()[0].strip()
@@ -347,9 +366,8 @@ class MCPClient:
             self._client = None
 
         self._tools.clear()
-        self.status = status
-        self.status_detail = None
         self.auth_phase = None
+        await self._set_status(status)
 
     async def call_tool(
         self,
@@ -359,18 +377,46 @@ class MCPClient:
         if not self._client or self.status != MCPServerStatus.CONNECTED:
             raise RuntimeError(f"Not connected to server {self.name}")
 
-        result = await self._client.call_tool(tool_name, arguments)
-        output = []
+        try:
+            result = await asyncio.wait_for(
+                self._client.call_tool(tool_name, arguments),
+                timeout=self.config.call_timeout_sec,
+            )
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            await self._set_status(MCPServerStatus.ERROR, detail="Connection interrupted. Reconnect to continue.")
+            raise RuntimeError("Connection interrupted. The last action's outcome may be unknown; verify before retrying.") from exc
+        except Exception as exc:
+            if any(word in str(exc).lower() for word in ("connection closed", "not connected", "401", "unauthorized")):
+                await self._set_status(MCPServerStatus.ERROR, detail="Reconnect or sign in to continue.")
+            raise RuntimeError(redact_connection_text(str(exc), self.config)) from None
+        output: list[str] = []
+        content: list[dict[str, Any]] = []
         for item in result.content:
+            if hasattr(item, "model_dump"):
+                content.append(item.model_dump(mode="json", exclude_none=True))
             if hasattr(item, "text"):
                 output.append(item.text)
+            elif getattr(item, "type", None) in {"image", "audio"}:
+                output.append(f"[{item.type} content: {getattr(item, 'mimeType', 'unknown')}]")
             else:
                 output.append(str(item))
-
-        return {"output": "\n".join(output), "is_error": result.is_error}
+        structured = getattr(result, "structured_content", None)
+        if structured is None:
+            structured = getattr(result, "structuredContent", None)
+        if structured is not None:
+            output.append(json.dumps(structured, ensure_ascii=False, default=str))
+        text = "\n".join(output)
+        truncated = len(text) > 100_000
+        if truncated:
+            text = text[:100_000] + "\n[Output truncated]"
+        return {"output": text, "is_error": result.is_error,
+                "structured_content": structured, "content": content, "truncated": truncated}
 
     async def _oauth_progress(self, phase: str, detail: str | None = None) -> None:
         self.auth_phase = phase
+        if phase == "authorization_url":
+            self.authorization_url = detail
+            return
         if phase in {"auth_required", "opening_browser", "waiting_for_callback", "callback_received", "exchanging_token"}:
             await self._set_status(MCPServerStatus.CONNECTING, detail=detail)
 
@@ -382,15 +428,10 @@ class MCPClient:
     ) -> None:
         self.status = status
         self.status_detail = detail
-        if self._status_callback is None:
-            return
-        result = self._status_callback(
-            {
-                "server": self.name,
-                "status": status.value,
-                "detail": detail,
-                "auth_phase": self.auth_phase,
-            }
-        )
-        if result is not None:
-            await result
+        event = {"server": self.name, "status": status.value,
+                 "detail": detail, "auth_phase": self.auth_phase}
+        for callback in (self._status_callback, self.status_observer):
+            if callback is not None:
+                result = callback(event)
+                if result is not None:
+                    await result

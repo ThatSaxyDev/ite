@@ -75,7 +75,8 @@ class ToolRegistry:
         if name in self._tools:
             return self._tools[name]
         elif name in self._mcp_tools:
-            return self._mcp_tools[name]
+            tool = self._mcp_tools[name]
+            return tool if getattr(tool, "available", True) else None
 
         return None
 
@@ -86,7 +87,8 @@ class ToolRegistry:
             tools.append(tool)
 
         for tool in self._mcp_tools.values():
-            tools.append(tool)
+            if getattr(tool, "available", True):
+                tools.append(tool)
 
         if self.config.allowed_tools:
             allowed_set = set(self.config.allowed_tools)

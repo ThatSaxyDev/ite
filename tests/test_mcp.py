@@ -292,7 +292,7 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.metadata["ui_summary"], "That Netlify call used the wrong input.")
             self.assertEqual(
                 result.metadata["ui_detail"],
-                "Trying the `get-deploy` action instead.",
+                "Use the `get-deploy` action instead.",
             )
 
     async def test_mcp_preflight_blocks_missing_required_identifier_context(self) -> None:
@@ -375,11 +375,11 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("`ResolvePatient` or `SearchPatients` first", result.metadata["ui_detail"])
             client.call_tool.assert_not_awaited()
 
-    async def test_mcp_preflight_blocks_missing_likely_identifier_for_detail_tool(self) -> None:
+    async def test_mcp_preflight_allows_optional_identifier_for_detail_tool(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
             client = MagicMock()
-            client.call_tool = AsyncMock()
+            client.call_tool = AsyncMock(return_value={"output": "Conditions", "is_error": False})
             client.tools = [MCPToolInfo(name="ListPatients", description="List patients")]
             tool = MCPTool(
                 config=Config(cwd=cwd, api_key="test"),
@@ -404,10 +404,8 @@ class MCPToolTests(unittest.IsolatedAsyncioTestCase):
 
             result = await tool.execute(ToolInvocation(params={"includeResolved": True}, cwd=cwd))
 
-            self.assertFalse(result.success)
-            self.assertTrue(result.metadata["recoverable"])
-            self.assertEqual(result.metadata["missing_context"], ["patientId"])
-            client.call_tool.assert_not_awaited()
+            self.assertTrue(result.success)
+            client.call_tool.assert_awaited_once_with("GetConditions", {"includeResolved": True})
 
     async def test_mcp_patient_context_error_gets_calm_recoverable_copy(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -911,7 +909,15 @@ class MCPConfigTests(unittest.TestCase):
 
             env = config.mcp_servers["netlify"].env
             self.assertEqual(env["NETLIFY_PERSONAL_ACCESS_TOKEN"], "workspace-token")
-            self.assertEqual(env["NETLIFY_TEAM_ID"], "team-123")
+            self.assertNotIn("NETLIFY_TEAM_ID", env)
+            with patch("ite.config.loader.get_config_dir", return_value=system_dir), patch(
+                "ite.config.loader.keyring.get_password",
+                side_effect=lambda service, key: fake_keyring.get((service, key)),
+            ):
+                from ite.config.loader import invalidate_mcp_keyring_cache, load_mcp_keyring_env_vars
+                invalidate_mcp_keyring_cache()
+                self.assertEqual(load_mcp_keyring_env_vars("netlify")["NETLIFY_TEAM_ID"], "team-123")
+                invalidate_mcp_keyring_cache()
 
     def test_load_config_skips_invalid_mcp_server_instead_of_failing_startup(self) -> None:
         with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as sys_td:
@@ -1039,10 +1045,15 @@ class MCPEnvCommandTests(unittest.IsolatedAsyncioTestCase):
                 written[("ite.mcp.netlify", "NETLIFY_PERSONAL_ACCESS_TOKEN")],
                 "imported-token",
             )
-            self.assertEqual(
-                ctx.config.mcp_servers["netlify"].env["NETLIFY_PERSONAL_ACCESS_TOKEN"],
-                "imported-token",
-            )
+            self.assertNotIn("NETLIFY_PERSONAL_ACCESS_TOKEN", ctx.config.mcp_servers["netlify"].env)
+            # Global values remain in keyring until connection time; importing
+            # must nevertheless invalidate any already populated cache.
+            from ite.config.loader import invalidate_mcp_keyring_cache, load_mcp_keyring_env_vars
+            with patch("ite.config.loader.get_config_dir", return_value=Path(sys_td)), patch(
+                "ite.config.loader.keyring.get_password", side_effect=lambda service, key: written.get((service, key)),
+            ):
+                self.assertEqual(load_mcp_keyring_env_vars("netlify")["NETLIFY_PERSONAL_ACCESS_TOKEN"], "imported-token")
+            invalidate_mcp_keyring_cache()
 
 
 class MCPAddCommandTests(unittest.IsolatedAsyncioTestCase):

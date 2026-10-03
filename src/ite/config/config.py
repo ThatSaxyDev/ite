@@ -45,9 +45,16 @@ class ShellEnvironmentPolicy(BaseModel):
 
 
 class MCPServerConfig(BaseModel):
+    connection_id: str | None = None
+    display_name: str | None = None
+    provider: str | None = None
+    credential_ref: str | None = None
+    enabled_tools: list[str] | None = None
+    inherit_environment: bool = True
     enabled: bool = True
     auto_connect: bool = False
-    startup_timeout_sec: float = 10
+    startup_timeout_sec: float = Field(default=10, gt=0, le=600)
+    call_timeout_sec: float = Field(default=60, gt=0, le=3600)
     context_resolution: dict[str, list[str]] = Field(default_factory=dict)
 
     # stdio transport
@@ -62,7 +69,7 @@ class MCPServerConfig(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict)
     auth: str | None = None
     sse_read_timeout_sec: float | None = None
-    oauth_timeout_sec: float = 300
+    oauth_timeout_sec: float = Field(default=300, gt=0, le=1800)
     oauth_scopes: list[str] = Field(default_factory=list)
     oauth_client_name: str = "iTE MCP Client"
     oauth_callback_port: int | None = None
@@ -134,6 +141,16 @@ class MCPServerConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_transport(self) -> MCPServerConfig:
+        if self.command is not None and not self.command.strip():
+            raise ValueError("Enter a command to run the local server")
+        if self.url is not None:
+            from urllib.parse import urlsplit
+
+            parsed = urlsplit(self.url)
+            if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.hostname:
+                raise ValueError("Enter a valid HTTP, HTTPS, or WebSocket server URL")
+            if parsed.username or parsed.password:
+                raise ValueError("Store credentials separately from the server URL")
         has_command = self.command is not None
         has_url = self.url is not None
 
@@ -192,7 +209,9 @@ class MCPServerConfig(BaseModel):
 
     def unresolved_env_vars(self) -> list[str]:
         names: set[str] = set()
-        for value in [self.command, self.url, self.auth, *(self.args or [])]:
+        for value in [self.command, self.url, self.auth, self.client_credentials_url,
+                      self.client_credentials_client_id, self.client_credentials_client_secret,
+                      *(self.args or [])]:
             names.update(self._extract_unresolved_env_var_names(value))
         for mapping in (self.env, self.headers):
             for item in mapping.values():

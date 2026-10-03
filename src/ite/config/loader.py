@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from ite.config.config import ApprovalPolicy, Config, MCPServerConfig, PermissionMode
 from ite.utils.errors import ConfigError
+from ite.utils.atomic_file import atomic_write, locked_file
 
 CONFIG_FILE_NAME = "config.toml"
 SECRETS_FILE_NAME = "secrets.toml"
@@ -1140,22 +1141,37 @@ def save_mcp_server_config(
     server: str,
     config: dict[str, Any],
 ) -> Path:
+    if scope not in {"global", "workspace"}:
+        raise ValueError("Choose global or workspace scope")
+    if not server.strip() or len(server) > 100:
+        raise ValueError("Enter a connection name with at most 100 characters")
     normalized = MCPServerConfig(**config).model_dump(exclude_defaults=True)
     for secret_field in (
-        "client_credentials_client_id",
-        "client_credentials_client_secret",
+        "client_credentials_client_id", "client_credentials_client_secret",
     ):
         normalized.pop(secret_field, None)
     path = _mcp_config_path_for_scope(cwd, scope)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    table_name = f"mcp_servers.{server}"
-    remaining = _remove_toml_table(existing, table_name).rstrip()
-    section = _render_mcp_server_section(server, normalized)
-    content = f"{remaining}\n\n{section}\n" if remaining else f"{section}\n"
-    path.write_text(content, encoding="utf-8")
-    if path == get_system_config_path():
-        os.chmod(path, 0o600)
+    with locked_file(path):
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        if existing.strip():
+            tomli.loads(existing)  # Never overwrite a malformed configuration.
+        remaining = _remove_toml_table(existing, f"mcp_servers.{_toml_key(server)}").rstrip()
+        section = _render_mcp_server_section(server, normalized)
+        content = f"{remaining}\n\n{section}\n" if remaining else f"{section}\n"
+        tomli.loads(content)
+        atomic_write(path, content)
+    return path
+
+
+def remove_mcp_server_config(*, cwd: Path | None, scope: str, server: str) -> Path:
+    if scope not in {"global", "workspace"}:
+        raise ValueError("Choose global or workspace scope")
+    path = _mcp_config_path_for_scope(cwd, scope)
+    with locked_file(path):
+        if path.exists():
+            existing = path.read_text(encoding="utf-8")
+            tomli.loads(existing)
+            atomic_write(path, _remove_toml_table(existing, f"mcp_servers.{_toml_key(server)}") + "\n")
     return path
 
 
@@ -1188,30 +1204,35 @@ def _mcp_config_path_for_scope(cwd: Path | None, scope: str) -> Path:
     return ensure_workspace_layout(cwd) / CONFIG_FILE_NAME
 
 
+def _toml_table_parts(header: str) -> tuple[str, ...]:
+    try:
+        payload = tomli.loads(f"[{header}]\n__ite_table_probe__ = true\n")
+    except tomli.TOMLDecodeError:
+        return (header,)
+    parts = []
+    while isinstance(payload, dict) and "__ite_table_probe__" not in payload:
+        key = next(iter(payload))
+        parts.append(key)
+        payload = payload[key]
+    return tuple(parts)
+
+
 def _remove_toml_table(text: str, table_name: str) -> str:
-    if not text.strip():
-        return ""
-    lines = text.splitlines()
+    target = _toml_table_parts(table_name)
     kept: list[str] = []
     skipping = False
-    for line in lines:
+    for line in text.splitlines():
         match = _TOML_TABLE_RE.match(line)
         if match:
-            current_name = match.group(1).strip()
-            if current_name == table_name:
-                skipping = True
-                continue
-            if skipping:
-                skipping = False
+            current = _toml_table_parts(match.group(1).strip())
+            skipping = current[:len(target)] == target
         if not skipping:
             kept.append(line)
-    while kept and not kept[-1].strip():
-        kept.pop()
-    return "\n".join(kept)
+    return "\n".join(kept).rstrip()
 
 
 def _render_mcp_server_section(server: str, config: dict[str, Any]) -> str:
-    lines = [f"[mcp_servers.{server}]"]
+    lines = [f"[mcp_servers.{_toml_key(server)}]"]
     preferred_order = [
         "enabled",
         "auto_connect",
@@ -1292,12 +1313,13 @@ def save_mcp_env_var(
     value: str,
 ) -> Path:
     path = _mcp_secrets_path_for_scope(cwd, scope)
-    secrets = _load_mcp_secrets(path)
-    bucket = secrets.setdefault(server, {})
-    bucket[key] = value
-    if str(scope).strip().lower() == "global":
-        keyring.set_password(_mcp_keyring_service(server), key, value)
-    _write_mcp_secrets(path, secrets)
+    with locked_file(path):
+        secrets = _load_mcp_secrets(path)
+        bucket = secrets.setdefault(server, {})
+        bucket[key] = value
+        if str(scope).strip().lower() == "global":
+            keyring.set_password(_mcp_keyring_service(server), key, value)
+        _write_mcp_secrets(path, secrets)
     return path
 
 
@@ -1309,68 +1331,51 @@ def remove_mcp_env_var(
     key: str,
 ) -> Path:
     path = _mcp_secrets_path_for_scope(cwd, scope)
-    secrets = _load_mcp_secrets(path)
-    if str(scope).strip().lower() == "global":
-        try:
-            keyring.delete_password(_mcp_keyring_service(server), key)
-        except Exception:
-            pass
-    if server in secrets:
-        secrets[server].pop(key, None)
-        if not secrets[server]:
-            secrets.pop(server, None)
-    _write_mcp_secrets(path, secrets)
+    with locked_file(path):
+        secrets = _load_mcp_secrets(path)
+        if str(scope).strip().lower() == "global":
+            try:
+                keyring.delete_password(_mcp_keyring_service(server), key)
+            except Exception:
+                pass
+        if server in secrets:
+            secrets[server].pop(key, None)
+            if not secrets[server]:
+                secrets.pop(server, None)
+        _write_mcp_secrets(path, secrets)
     return path
 
 
-def clear_mcp_env_vars(server: str, *, cwd: Path | None = None) -> None:
-    """Remove all env vars for an MCP server from all storage locations."""
+def clear_mcp_env_vars(server: str, *, cwd: Path | None = None, scope: str | None = None) -> None:
+    """Clear legacy environment credentials without copying layered definitions.
+
+    Omitting scope retains the existing command's all-scopes behavior.
+    Connections uses an explicit scope to preserve identically named neighbors.
+    """
     import keyring as kr
 
-    # Global scope — clear keyring and metadata
-    sys_path = get_system_secrets_path()
-    sys_secrets = _load_mcp_secrets(sys_path)
-    if server in sys_secrets:
-        for key in list(sys_secrets[server]):
-            try:
-                kr.delete_password(_mcp_keyring_service(server), key)
-            except Exception:
-                pass
-        del sys_secrets[server]
-    _write_mcp_secrets(sys_path, sys_secrets)
-
-    # Workspace scope — clear from .ite/secrets.toml
-    if cwd is not None:
-        ws_path = get_workspace_secrets_path(cwd)
-        ws_secrets = _load_mcp_secrets(ws_path)
-        if server in ws_secrets:
-            del ws_secrets[server]
-        _write_mcp_secrets(ws_path, ws_secrets)
-
-    # Strip env vars baked into config TOML files
-    for scope_name, scope_cwd in (
-        ("global", None),
-        ("workspace", cwd),
-    ):
-        try:
-            config_path = _mcp_config_path_for_scope(scope_cwd, scope_name)
-        except ValueError:
+    scopes = (scope,) if scope is not None else ("global", "workspace")
+    for selected in scopes:
+        if selected not in {"global", "workspace"}:
+            raise ValueError("Choose global or workspace scope")
+        if selected == "workspace" and cwd is None:
             continue
-        if not config_path.exists():
-            continue
-        cfg = load_config(scope_cwd)
-        if server not in cfg.mcp_servers:
-            continue
-        srv = cfg.mcp_servers[server]
-        if not srv.env:
-            continue
-        srv.env = {}
-        save_mcp_server_config(
-            cwd=scope_cwd,
-            scope=scope_name,
-            server=server,
-            config=srv.model_dump(exclude_defaults=True),
-        )
+        path = _mcp_secrets_path_for_scope(cwd, selected)
+        with locked_file(path):
+            secrets = _load_mcp_secrets(path)
+            values = secrets.pop(server, {})
+            if selected == "global":
+                for key in values:
+                    try:
+                        kr.delete_password(_mcp_keyring_service(server), key)
+                    except kr.errors.PasswordDeleteError:
+                        pass
+            _write_mcp_secrets(path, secrets)
+        invalidate_mcp_keyring_cache()
+        definition = load_mcp_server_config(cwd=cwd, scope=selected, server=server)
+        if definition and definition.get("env"):
+            definition["env"] = {}
+            save_mcp_server_config(cwd=cwd, scope=selected, server=server, config=definition)
 
 
 def _mcp_secrets_path_for_scope(cwd: Path | None, scope: str) -> Path:
@@ -1473,26 +1478,28 @@ def _merge_mcp_client_credentials_secrets_into_config(
     return result
 
 
+def _replace_secret_table(path: Path, table: str, bodies: dict[str, dict[str, Any]]) -> None:
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    if existing.strip():
+        tomli.loads(existing)
+    remaining = _remove_toml_table(existing, table)
+    sections = []
+    for name, values in sorted(bodies.items()):
+        if values:
+            lines = [f"[{table}.{_toml_key(name)}]"]
+            lines.extend(f"{_toml_key(key)} = {_toml_value(value)}" for key, value in sorted(values.items()))
+            sections.append("\n".join(lines))
+    content = "\n\n".join(part for part in [remaining, *sections] if part) + "\n"
+    tomli.loads(content)
+    atomic_write(path, content)
+
+
 def _write_mcp_secrets(path: Path, secrets: dict[str, dict[str, str]]) -> None:
     if path == get_system_secrets_path():
         _write_global_mcp_secret_metadata(path, secrets)
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines: list[str] = [
-        "# MCP secrets for iTE",
-        "# Generated by /mcp env commands.",
-        "",
-    ]
-    for server in sorted(secrets):
-        values = secrets[server]
-        if not values:
-            continue
-        lines.append(f"[mcp_env.{server}]")
-        for key in sorted(values):
-            lines.append(f"{key} = {json.dumps(values[key])}")
-        lines.append("")
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    os.chmod(path, 0o600)
+    else:
+        _replace_secret_table(path, "mcp_env", secrets)
+    invalidate_mcp_keyring_cache()
 
 
 _keyring_mcp_secrets_cache: dict[str, dict[str, str]] | None = None
@@ -1563,21 +1570,9 @@ def _load_mcp_secret_metadata(path: Path) -> dict[str, list[str]]:
 def _write_global_mcp_secret_metadata(
     path: Path, secrets: dict[str, dict[str, str]]
 ) -> None:
-    metadata = {
-        server: sorted(values.keys()) for server, values in secrets.items() if values
-    }
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines: list[str] = [
-        "# MCP secret metadata for iTE",
-        "# Values are stored in the OS keyring. This file only tracks key names.",
-        "",
-    ]
-    for server in sorted(metadata):
-        lines.append(f"[mcp_env.{server}]")
-        lines.append(f"keys = {json.dumps(metadata[server])}")
-        lines.append("")
-    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    os.chmod(path, 0o600)
+    _replace_secret_table(path, "mcp_env", {
+        server: {"keys": sorted(values)} for server, values in secrets.items() if values
+    })
 
 
 def _mcp_keyring_service(server: str) -> str:

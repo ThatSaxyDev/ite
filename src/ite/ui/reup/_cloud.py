@@ -1021,7 +1021,6 @@ class CloudMixin:
         in_settings = (
             (not in_startup)
             and (not in_required_update)
-            and (not in_signed_out)
             and (not in_onboarding)
             and (not in_bootstrap)
             and (not in_session_switch)
@@ -1041,7 +1040,7 @@ class CloudMixin:
 
         startup.display = in_startup
         update_required.display = in_required_update
-        signed_out.display = in_signed_out
+        signed_out.display = in_signed_out and not in_settings
         onboarding.display = in_onboarding
         session_switch.display = in_session_switch
         settings_panel.display = in_settings
