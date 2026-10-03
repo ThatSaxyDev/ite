@@ -23,6 +23,7 @@ from ite.tools.mcp.catalog import CONNECTION_CATALOG
 from ite.tools.mcp.service import ConnectionRecord, ConnectionsService
 
 from .modals import ConfirmModal
+from .widgets.action_button import FlatActionButton
 
 
 class ConnectionSetupModal(ModalScreen[dict[str, Any] | None]):
@@ -39,7 +40,7 @@ class ConnectionSetupModal(ModalScreen[dict[str, Any] | None]):
     ConnectionSetupModal .connection-form-title { text-style: bold; margin-bottom: 1; }
     ConnectionSetupModal .connection-form-note { color: $foreground-muted; margin-bottom: 1; }
     ConnectionSetupModal .connection-form-error { color: $text-error; }
-    ConnectionSetupModal .connection-form-actions { height: 3; margin-top: 1; align-horizontal: right; }
+    ConnectionSetupModal .connection-form-actions { height: 1; min-height: 1; margin-top: 1; align-horizontal: right; }
     ConnectionSetupModal TextArea { height: 8; }
     """
 
@@ -112,9 +113,9 @@ class ConnectionSetupModal(ModalScreen[dict[str, Any] | None]):
                     yield Checkbox("Connect automatically using saved credentials", value=config.auto_connect if config else False, id="connection-auto")
                     yield Checkbox("Inherit all process environment variables", value=config.inherit_environment if config else False, id="connection-inherit")
             yield Static("", id="connection-form-error", classes="connection-form-error")
-            with Horizontal(classes="connection-form-actions"):
-                yield Button("Cancel", id="connection-cancel")
-                yield Button("Save", variant="primary", id="connection-save")
+            with Horizontal(classes="modal-actions resume-actions connection-form-actions"):
+                yield FlatActionButton("Cancel", id="connection-cancel")
+                yield FlatActionButton("Save", variant="primary", id="connection-save")
 
     def on_mount(self) -> None:
         self._update_kind()
@@ -233,7 +234,7 @@ class ConnectionCredentialsModal(ModalScreen[dict[str, Any] | None]):
     ConnectionCredentialsModal Input { margin-bottom: 1; }
     ConnectionCredentialsModal .credential-title { text-style: bold; margin-bottom: 1; }
     ConnectionCredentialsModal .credential-note { color: $foreground-muted; margin-bottom: 1; }
-    ConnectionCredentialsModal .credential-actions { height: 3; margin-top: 1; align-horizontal: right; }
+    ConnectionCredentialsModal .credential-actions { height: 1; min-height: 1; margin-top: 1; align-horizontal: right; }
     """
 
     def __init__(self, record: ConnectionRecord) -> None:
@@ -263,9 +264,9 @@ class ConnectionCredentialsModal(ModalScreen[dict[str, Any] | None]):
                     yield Input(password=True, id="credential-secret")
                 yield Checkbox("Remember in system keyring", value=True, id="credential-remember")
             yield Static("", id="credential-error")
-            with Horizontal(classes="credential-actions"):
-                yield Button("Cancel", id="credential-cancel")
-                yield Button("Save credentials", variant="primary", id="credential-save")
+            with Horizontal(classes="modal-actions resume-actions credential-actions"):
+                yield FlatActionButton("Cancel", id="credential-cancel")
+                yield FlatActionButton("Save credentials", variant="primary", id="credential-save")
 
     def on_mount(self) -> None:
         self.query_one("#credential-secret", Input).focus()

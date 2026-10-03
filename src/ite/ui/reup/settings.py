@@ -29,6 +29,8 @@ from ite.skills.manager import SkillManager
 from ite.skills.trust import SkillTrustManager
 from ite.tools.registry import create_default_registry, refresh_subagent_tools
 
+from .widgets.action_button import FlatActionButton
+
 WEEK_COUNT = 52
 DAY_LABELS = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 LABELED_WEEKDAYS = (1, 3, 5)
@@ -301,12 +303,6 @@ class SettingsPanel(Widget):
                 yield self._info_agents
                 yield self._info_skills
 
-            yield Static("Connections (MCP)", classes="settings-section-title")
-            with Container(classes="settings-connections-entry"):
-                yield Static("Connect services and tools to iTE.", classes="settings-connections-copy")
-                yield Static("", id="settings-connections-summary", classes="settings-connections-copy")
-                yield Button("Manage connections", id="settings-connections-manage", variant="default")
-
             # Token activity
             yield Static(
                 "Token activity",
@@ -331,6 +327,12 @@ class SettingsPanel(Widget):
                 yield self._info_permissions
                 yield Static("Applies to all workspaces", classes="settings-permissions-scope")
                 yield Button("Change permissions", id="settings-permissions-change", variant="default")
+
+            yield Static("Connections (MCP)", classes="settings-section-title")
+            with Container(classes="settings-connections-entry"):
+                yield Static("Connect services and tools to iTE.", classes="settings-connections-copy")
+                yield Static("", id="settings-connections-summary", classes="settings-connections-copy")
+                yield FlatActionButton("Manage connections", id="settings-connections-manage", variant="default")
 
             # Open Island is device-local and therefore available regardless
             # of the user's Cloud sign-in state.

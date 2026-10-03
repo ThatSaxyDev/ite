@@ -6,13 +6,14 @@ import sys
 import tempfile
 import tomllib
 from contextlib import ExitStack
+from itertools import pairwise
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 from textual.app import App, ComposeResult
-from textual.widgets import Button, Input, OptionList, Select
+from textual.widgets import Button, Input, OptionList, Select, Static
 
 from ite.config.config import Config, MCPServerConfig
 from ite.config.loader import (
@@ -32,9 +33,13 @@ from ite.tools.mcp.oauth import KeyringAsyncKeyValueStore
 from ite.tools.mcp.service import ConnectionsService
 from ite.tools.registry import ToolRegistry
 from ite.ui.reup._helpers import redact_sensitive_command_text
-from ite.ui.reup.connection_modals import ConnectionSetupModal
+from ite.ui.reup.connection_modals import (
+    ConnectionCredentialsModal,
+    ConnectionSetupModal,
+)
 from ite.ui.reup.connections import ConnectionsPanel
 from ite.ui.reup.settings import SettingsPanel
+from ite.ui.reup.widgets.action_button import FlatActionButton
 
 
 class ConnectionsTestApp(App[None]):
@@ -223,9 +228,15 @@ class ConnectionsTests(IsolatedAsyncioTestCase):
                 await pilot.pause()
                 self.assertEqual(self.service.records()[0].label, "Test notes")
                 self.assertTrue(app.query_one("#connection-connect", Button).display)
+                self.assertEqual(str(connections.query_one("#connections-title", Static).content), "Test notes")
+                self.assertFalse(connections.query_one("#connections-add").display)
+                self.assertFalse(connections.query_one("#connections-summary").display)
                 await pilot.press("escape")
                 await pilot.pause()
                 self.assertTrue(app.query_one("#connections-list", OptionList).display)
+                self.assertEqual(str(connections.query_one("#connections-title", Static).content), "Connections")
+                self.assertTrue(connections.query_one("#connections-add").display)
+                self.assertTrue(connections.query_one("#connections-summary").display)
                 await pilot.press("escape")
                 await pilot.pause()
                 self.assertTrue(app.query_one("#settings-content").display)
@@ -243,3 +254,52 @@ class ConnectionsTests(IsolatedAsyncioTestCase):
                 self.assertGreater(save.region.width, 0)
                 self.assertLessEqual(save.region.bottom, 20)
                 self.assertLessEqual(cancel.region.bottom, 20)
+
+    async def test_mcp_action_buttons_fit_small_terminals_and_follow_theme(self) -> None:
+        record = await self.service.save("github", "workspace", {"url": CONNECTION_CATALOG["github"].url})
+        for size, theme in (((80, 24), "textual-dark"), ((60, 20), "textual-light"),
+                            ((240, 50), "textual-dark")):
+            with self.subTest(size=size, theme=theme), patch.object(SettingsPanel, "refresh_cloud_data"), patch.object(SettingsPanel, "_populate_context"):
+                app = ConnectionsTestApp(self.service)
+                app.theme = theme
+                async with app.run_test(size=size) as pilot:
+                    panel = app.query_one(SettingsPanel)
+                    manage = panel.query_one("#settings-connections-manage", Button)
+                    self.assertIsInstance(manage, FlatActionButton)
+                    await panel.open_connections()
+                    await pilot.pause()
+                    connections = app.query_one(ConnectionsPanel)
+                    connections._selected = record.key
+                    connections.refresh_connections()
+                    connections.query_one("#connections-pages").current = "connections-detail"
+                    await pilot.pause()
+                    pages = connections.query_one("#connections-pages")
+                    self.assertEqual(pages.region.width, min(connections.region.width, 200))
+                    left_space = pages.region.x - connections.region.x
+                    right_space = connections.region.right - pages.region.right
+                    self.assertLessEqual(abs(left_space - right_space), 1)
+                    self.assertEqual(connections.query_one(".connections-header").region.width, pages.region.width)
+                    for button in connections.query(FlatActionButton):
+                        if not button.display:
+                            continue
+                        self.assertEqual(button.region.height, 1)
+                        self.assertEqual(button.styles.border.spacing.width, 0)
+                        self.assertGreaterEqual(button.content_region.width, len(str(button.label)))
+                    for column in (("connect", "edit", "doctor"),
+                                   ("disconnect", "enable", "refresh"),
+                                   ("credentials", "signout", "remove")):
+                        buttons = [connections.query_one(f"#connection-{name}", Button) for name in column]
+                        for above, below in pairwise(buttons):
+                            self.assertEqual(below.region.y - above.region.bottom, 1)
+                    app.push_screen(ConnectionCredentialsModal(record))
+                    await pilot.pause()
+                    save = app.screen.query_one("#credential-save", Button)
+                    cancel = app.screen.query_one("#credential-cancel", Button)
+                    for button in (save, cancel):
+                        self.assertEqual(button.region.height, 1)
+                        self.assertLessEqual(button.region.bottom, size[1])
+                        self.assertEqual(button.styles.border.spacing.width, 0)
+                    cancel.focus()
+                    await pilot.press("enter")
+                    await pilot.pause()
+                    self.assertIs(app.screen, app.screen_stack[0])

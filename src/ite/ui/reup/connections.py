@@ -28,6 +28,7 @@ from ite.tools.registry import ToolRegistry
 
 from .connection_modals import ConnectionCredentialsModal, ConnectionSetupModal
 from .modals import ConfirmModal
+from .widgets.action_button import FlatActionButton
 
 STATUS_LABELS = {"needs_setup": "Needs setup", "needs_approval": "Needs approval",
                  "failed": "Needs attention", "connecting": "Connecting",
@@ -53,18 +54,24 @@ class ConnectionsPanel(Widget):
     BINDINGS: ClassVar = [("escape", "back", "Back")]
     DEFAULT_CSS = """
     ConnectionsPanel { height: 1fr; width: 100%; background: $background; }
-    ConnectionsPanel .connections-header { height: 3; margin: 1 0; }
-    ConnectionsPanel .connections-title { width: 1fr; height: 3; content-align: center middle;
+    ConnectionsPanel.connections-detail-active { align-horizontal: center; }
+    ConnectionsPanel.connections-detail-active .connections-header,
+    ConnectionsPanel.connections-detail-active #connections-pages,
+    ConnectionsPanel.connections-detail-active #connections-notice {
+        width: 100%; max-width: 200;
+    }
+    ConnectionsPanel .connections-header { height: 1; min-height: 1; margin: 1 0; }
+    ConnectionsPanel .connections-title { width: 1fr; height: 1; content-align: center middle;
         text-style: bold; color: $text-primary; }
+    ConnectionsPanel #connections-header-spacer { width: 13; height: 1; display: none; }
     ConnectionsPanel .connections-summary { height: auto; color: $foreground-muted; margin-bottom: 1; }
     ConnectionsPanel ContentSwitcher { height: 1fr; }
     ConnectionsPanel #connections-list { height: 1fr; border: none; background: $background; }
     ConnectionsPanel #connections-filter { margin-bottom: 1; }
     ConnectionsPanel .connections-detail-scroll { height: 1fr; }
-    ConnectionsPanel .connections-detail-title { text-style: bold; height: auto; margin-top: 1; }
     ConnectionsPanel .connections-description { height: auto; color: $foreground-muted; margin: 1 0; }
     ConnectionsPanel .connections-actions { height: auto; layout: grid; grid-size: 3;
-        grid-columns: 1fr 1fr 1fr; grid-rows: 3; margin: 1 0; }
+        grid-columns: 1fr 1fr 1fr; grid-rows: 2; margin: 1 0; }
     ConnectionsPanel .connections-actions Button { width: 100%; min-width: 8; }
     ConnectionsPanel #connection-tools { height: 12; max-height: 35vh; border: none; background: $surface; }
     ConnectionsPanel .connections-section { height: auto; text-style: bold; margin-top: 1; }
@@ -88,9 +95,10 @@ class ConnectionsPanel(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="connections-header"):
-            yield Button("Back", id="connections-back")
-            yield Static("Connections", classes="connections-title")
-            yield Button("Add connection", variant="primary", id="connections-add")
+            yield FlatActionButton("Back", id="connections-back")
+            yield Static("Connections", id="connections-title", classes="connections-title", markup=False)
+            yield FlatActionButton("Add connection", variant="primary", id="connections-add")
+            yield Static("", id="connections-header-spacer")
         yield Static("", id="connections-summary", classes="connections-summary")
         yield Static("", id="connections-notice", markup=False)
         with ContentSwitcher(initial="connections-overview", id="connections-pages"):
@@ -100,25 +108,24 @@ class ConnectionsPanel(Widget):
                 yield Static("Connect services and tools to iTE. Choose Add connection to get started.",
                              id="connections-empty", classes="connections-description")
             with VerticalScroll(id="connections-detail", classes="connections-detail-scroll"):
-                yield Static("", id="connection-detail-title", classes="connections-detail-title", markup=False)
                 yield Static("", id="connection-detail-status", classes="connections-description", markup=False)
                 yield Static("", id="connection-detail-source", classes="connections-description", markup=False)
                 with Container(classes="connections-actions"):
-                    yield Button("Connect", variant="primary", id="connection-connect")
-                    yield Button("Disconnect", id="connection-disconnect")
-                    yield Button("Credentials", id="connection-credentials")
-                    yield Button("Edit", id="connection-edit")
-                    yield Button("Disable", id="connection-enable")
-                    yield Button("Sign out", id="connection-signout")
-                    yield Button("Troubleshoot", id="connection-doctor")
-                    yield Button("Refresh tools", id="connection-refresh")
-                    yield Button("Remove", variant="warning", id="connection-remove")
+                    yield FlatActionButton("Connect", variant="primary", id="connection-connect")
+                    yield FlatActionButton("Disconnect", id="connection-disconnect")
+                    yield FlatActionButton("Credentials", id="connection-credentials")
+                    yield FlatActionButton("Edit", id="connection-edit")
+                    yield FlatActionButton("Disable", id="connection-enable")
+                    yield FlatActionButton("Sign out", id="connection-signout")
+                    yield FlatActionButton("Troubleshoot", id="connection-doctor")
+                    yield FlatActionButton("Refresh tools", id="connection-refresh")
+                    yield FlatActionButton("Remove", variant="warning", id="connection-remove")
                 yield Static("", id="connection-authorization-url", markup=False)
                 yield Static("", id="connection-diagnostics", markup=False)
                 yield Static("Available tools", classes="connections-section")
                 yield Static("Choose which tools the agent can use. Action approval still applies.", classes="connections-description")
                 yield SelectionList[str](id="connection-tools")
-                yield Button("Save tool access", id="connection-save-tools")
+                yield FlatActionButton("Save tool access", id="connection-save-tools")
 
     def on_mount(self) -> None:
         self.refresh_connections()
@@ -167,6 +174,16 @@ class ConnectionsPanel(Widget):
             except KeyError:
                 self._selected = None
                 self.query_one("#connections-pages", ContentSwitcher).current = "connections-overview"
+        if not self._selected:
+            self._render_header()
+
+    def _render_header(self, label: str | None = None) -> None:
+        detail = label is not None
+        self.set_class(detail, "connections-detail-active")
+        self.query_one("#connections-title", Static).update(label if label is not None else "Connections")
+        self.query_one("#connections-add").display = not detail
+        self.query_one("#connections-summary").display = not detail
+        self.query_one("#connections-header-spacer").display = detail
 
     @on(Input.Changed, "#connections-filter")
     def _filter(self) -> None:
@@ -186,7 +203,7 @@ class ConnectionsPanel(Widget):
         record = self.service.record(self._selected)
         row = self.service.snapshot(record)
         config = record.config
-        self.query_one("#connection-detail-title", Static).update(record.label)
+        self._render_header(record.label)
         self.query_one("#connection-detail-status", Static).update(STATUS_LABELS.get(row["status"], row["status"]) + (f" · {row['detail']}" if row["detail"] else ""))
         location = "Available in all projects" if record.scope == "global" else "Only this project"
         endpoint = config.url if config else None
@@ -216,6 +233,7 @@ class ConnectionsPanel(Widget):
     def action_back(self) -> None:
         if self._selected:
             self._selected = None
+            self._render_header()
             self.query_one("#connections-pages", ContentSwitcher).current = "connections-overview"
             self.query_one("#connections-list", OptionList).focus()
         else:
