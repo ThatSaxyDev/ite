@@ -591,9 +591,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
         class DummyPrompt:
             def __init__(self) -> None:
                 self.text = "check this"
+                self.cursor_location = (0, len(self.text))
 
-            def load_text(self, value: str) -> None:
-                self.text = value
+            def insert(self, value: str, *, maintain_selection_offset: bool) -> None:
+                self.text += value
+                self.cursor_location = (0, len(self.text))
+
+            def focus(self) -> None:
+                pass
 
             def move_cursor(self, _cursor) -> None:
                 return None
@@ -601,13 +606,14 @@ class ReupCommandPaletteTests(unittest.TestCase):
         prompt = DummyPrompt()
         with (
             patch.object(app, "query_one", return_value=prompt),
-            patch.object(app, "_sync_command_palette"),
+            patch.object(app, "_clear_command_palette"),
             patch.object(app, "_resize_composer_for_prompt"),
         ):
             added = app._insert_attachment_refs_into_prompt([str(sample)])
 
         self.assertEqual(added, 1)
-        self.assertIn('@"Screenshot 2021.png"', prompt.text)
+        self.assertEqual(prompt.text, 'check this @"Screenshot 2021.png" ')
+        self.assertEqual(prompt.cursor_location, (0, len(prompt.text)))
 
     def test_build_command_result_renderable_omits_generic_label(self) -> None:
         app = self._app()

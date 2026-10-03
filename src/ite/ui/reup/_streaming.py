@@ -30,7 +30,7 @@ from ite.agent.events import AgentEvent, AgentEventType
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
-from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
+from ite.attachment_refs import attachment_copy_text, discover_attachable_files, extract_at_query, extract_inline_attachment_refs, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
@@ -361,10 +361,15 @@ class StreamingMixin:
             classes="chat-user-bubble",
         )
         desired_width = self._user_bubble_width(message)
+        session = getattr(getattr(self, "agent", None), "session", None)
+        copy_text = attachment_copy_text(
+            message, cwd=Path(self.config.cwd).resolve(),
+            paths=[] if self._hydrating_from_snapshot else list(getattr(session, "pending_attachment_paths", [])),
+        )
         row = UserMessageRow(
             bubble,
             desired_width=desired_width,
-            raw_text=message,
+            raw_text=copy_text,
             classes="chat-user-row",
         )
         row.refresh_bubble_width(int(getattr(conversation.size, "width", 0) or 0))

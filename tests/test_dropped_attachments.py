@@ -200,7 +200,7 @@ class PromptAreaPasteInterceptionTests(unittest.TestCase):
 
 class NormalizeDroppedPathMessageTests(unittest.TestCase):
     def _make_app(self):
-        app = SimpleNamespace()
+        app = SimpleNamespace(config=SimpleNamespace(cwd=Path.cwd()))
         app.agent = SimpleNamespace(
             session=SimpleNamespace(pending_attachment_paths=[])
         )
@@ -247,7 +247,7 @@ class NormalizeDroppedPathMessageTests(unittest.TestCase):
 
 class RewriteTrailingDroppedPathTests(unittest.TestCase):
     def _make_app(self):
-        app = SimpleNamespace()
+        app = SimpleNamespace(config=SimpleNamespace(cwd=Path.cwd()))
         app.agent = SimpleNamespace(
             session=SimpleNamespace(pending_attachment_paths=[])
         )

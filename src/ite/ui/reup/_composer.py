@@ -31,7 +31,7 @@ from ite.agent.learning import is_learning_enabled
 from ite.agent.session import Session
 from ite.agent.session_manager import SessionManager, SessionSnapshot
 
-from ite.attachment_refs import discover_attachable_files, extract_at_query, extract_inline_attachment_refs, parse_dropped_file_paths, resolve_inline_attachment_refs, suggest_inline_attachment_paths
+from ite.attachment_refs import attachment_copy_text, format_attachment_ref, discover_attachable_files, extract_at_query, extract_inline_attachment_refs, parse_dropped_file_paths, resolve_inline_attachment_refs, suggest_inline_attachment_paths
 from ite.attachments import MAX_ATTACHMENTS, Attachment, AttachmentManager, build_user_model_content, build_user_text_with_manifest
 from ite.model_metadata import detect_vision_from_model_name
 from ite.cloud import CloudAuthError, CloudConnectionError, CloudSessionState, clear_cloud_auth, ensure_cloud_auth, get_activity, get_bundled_models_result, get_cloud_auth_status, get_cloud_entitlements_result, get_remote_companion_access_status, get_usage_summary, has_stored_cloud_auth, is_cloud_api_reachable, mark_cloud_signed_out
@@ -300,7 +300,7 @@ class ComposerMixin:
 
     def _discover_attachable_files(self) -> list[Path]:
         cwd = Path(self.config.cwd).resolve()
-        if self._attachable_files_cache_cwd == cwd and self._attachable_files_cache:
+        if self._attachable_files_cache_cwd == cwd:
             return self._attachable_files_cache
         files = discover_attachable_files(cwd)
         self._attachable_files_cache = files
@@ -312,12 +312,23 @@ class ComposerMixin:
         query = self._extract_at_query(text)
         if query is None:
             return []
+        refs = extract_inline_attachment_refs(text)
+        if refs and refs[-1].start == text.rfind("@"):
+            return []
         cwd = Path(self.config.cwd).resolve()
+        if self.is_running and self._attachable_files_cache_cwd != cwd:
+            worker = getattr(self, "_attachment_index_worker", None)
+            if worker is None or worker.is_finished:
+                self._attachment_index_worker = self.run_worker(
+                    self._refresh_attachment_index(cwd),
+                    group="attachment-index", exclusive=True,
+                )
+            return []
         matches = suggest_inline_attachment_paths(
             query,
             cwd=cwd,
             files=self._discover_attachable_files(),
-            limit=10000,
+            limit=50,
         )
         options: list[SlashCommandOption] = []
         for path in matches:
@@ -338,6 +349,16 @@ class ComposerMixin:
                 )
             )
         return options
+
+
+    async def _refresh_attachment_index(self, cwd: Path) -> None:
+        files = await asyncio.to_thread(discover_attachable_files, cwd)
+        if Path(self.config.cwd).resolve() != cwd:
+            return
+        self._attachable_files_cache = files
+        self._attachable_files_cache_cwd = cwd
+        if self.is_running:
+            self._sync_command_palette(self.query_one("#prompt", TextArea).text)
 
 
     def _filtered_command_palette(self, text: str) -> list[SlashCommandOption]:
@@ -565,6 +586,11 @@ class ComposerMixin:
         prompt = self.query_one("#prompt", TextArea)
         text = prompt.text or ""
         insert_text = option.insert_text or option.name
+        path = getattr(option, "attachment_path", None)
+        if path and self.agent and self.agent.session:
+            pending = self.agent.session.pending_attachment_paths
+            if path not in pending and len(pending) < MAX_ATTACHMENTS:
+                pending.append(path)
         updated = re.sub(
             r"(?:^|[\s(\[{])@[^\s@]*$",
             lambda match: (
@@ -577,34 +603,57 @@ class ComposerMixin:
         if updated == text:
             updated = (text + " " + insert_text).strip()
         prompt.load_text(updated + " ")
-        prompt.move_cursor((0, len(prompt.text)))
+        prompt.move_cursor((len(prompt.text.split("\n")) - 1, len(prompt.text.split("\n")[-1])))
         self._clear_command_palette()
         self._resize_composer_for_prompt()
 
 
     def _attachment_ref_for_path(self, path: Path) -> str:
-        name = path.expanduser().resolve().name
-        if any(ch.isspace() for ch in name):
-            return f'@"{name}"'
-        return f"@{name}"
+        resolved = path.expanduser().resolve()
+        cwd = Path(self.config.cwd).resolve()
+        try:
+            value = str(resolved.relative_to(cwd))
+        except ValueError:
+            value = resolved.name
+            # A basename is safe only if it identifies a single pending file.
+            session = getattr(getattr(self, "agent", None), "session", None)
+            pending = getattr(session, "pending_attachment_paths", [])
+            if any(Path(raw).name == resolved.name and Path(raw).resolve() != resolved for raw in pending):
+                value = str(resolved)
+        return format_attachment_ref(value)
 
 
     def _insert_attachment_refs_into_prompt(self, paths: list[str]) -> int:
         prompt = self.query_one("#prompt", TextArea)
-        existing = prompt.text or ""
+        session = getattr(getattr(self, "agent", None), "session", None)
+        pending = getattr(session, "pending_attachment_paths", [])
+        new_paths = {str(Path(raw).resolve()) for raw in paths}
+        # If a second external file shares a name with an earlier draft
+        # attachment, expand the earlier token before its basename is ambiguous.
+        for existing_ref in reversed(extract_inline_attachment_refs(prompt.text)):
+            matches = {str(Path(raw).resolve()) for raw in pending if Path(raw).name == existing_ref.value}
+            previous = matches - new_paths
+            if len(matches) > 1 and len(previous) == 1:
+                before = prompt.text[:existing_ref.start]
+                through = prompt.text[:existing_ref.end]
+                start = (before.count("\n"), len(before.split("\n")[-1]))
+                end = (through.count("\n"), len(through.split("\n")[-1]))
+                prompt.replace(format_attachment_ref(previous.pop()), start, end)
         refs: list[str] = []
+        existing_refs = {ref.value for ref in extract_inline_attachment_refs(prompt.text)}
         for raw in paths:
             ref = self._attachment_ref_for_path(Path(raw))
-            if ref in existing or ref in refs:
+            if ref[1:].strip("\"'") in existing_refs or ref in refs:
                 continue
             refs.append(ref)
         if not refs:
             return 0
-        separator = "\n" if existing.strip() else ""
-        updated = f"{existing.rstrip()}{separator}{' '.join(refs)}".strip()
-        prompt.load_text(updated + " ")
-        prompt.move_cursor((0, len(prompt.text)))
-        self._sync_command_palette(prompt.text)
+        row, column = prompt.cursor_location
+        before = prompt.text.split("\n")[row][:column]
+        separator = " " if before and not before[-1].isspace() else ""
+        prompt.insert(separator + " ".join(refs) + " ", maintain_selection_offset=False)
+        prompt.focus()
+        self._clear_command_palette()
         self._resize_composer_for_prompt()
         return len(refs)
 
@@ -658,7 +707,11 @@ class ComposerMixin:
         head, tail = text[: newline + 1], text[newline + 1 :]
         if not tail:
             return None
+        refs = extract_inline_attachment_refs(text)
         for start in self._drop_candidate_starts(tail):
+            position = len(head) + start
+            if any(ref.start <= position < ref.end for ref in refs):
+                continue
             candidate = tail[start:]
             if not self._is_path_like_probe(candidate):
                 continue
@@ -1453,9 +1506,10 @@ class ComposerMixin:
                 updated, paths = rewrite
                 self._rewriting_dropped_path = True
                 try:
+                    updated = updated.rstrip() + " "
                     prompt.load_text(updated)
-                    if hasattr(prompt, "action_cursor_document_end"):
-                        prompt.action_cursor_document_end()
+                    lines = updated.split("\n")
+                    prompt.move_cursor((len(lines) - 1, len(lines[-1])))
                     if self.agent and self.agent.session:
                         pending = list(self.agent.session.pending_attachment_paths)
                         for path in paths:
@@ -1466,7 +1520,7 @@ class ComposerMixin:
                         ]
                 finally:
                     self._rewriting_dropped_path = False
-                self._sync_command_palette(updated)
+                self._clear_command_palette()
                 self._resize_composer_for_prompt()
                 return
         self._sync_command_palette(prompt.text)
@@ -1794,8 +1848,15 @@ class ComposerMixin:
             message,
             cwd=Path(self.config.cwd).resolve(),
             existing_paths=attachments,
-            files=self._discover_attachable_files(),
+            files=[],
         )
+        # Bound and absolute references need no workspace walk. Discover files
+        # only when a free-form reference actually needs a name lookup.
+        if any(error.startswith("File not found for @") for error in resolution.errors):
+            resolution = resolve_inline_attachment_refs(
+                message, cwd=Path(self.config.cwd).resolve(),
+                existing_paths=attachments, files=self._discover_attachable_files(),
+            )
         if resolution.errors:
             return None, resolution.errors
         return (
@@ -1837,7 +1898,12 @@ class ComposerMixin:
 
     def _clear_composer_after_submit(self, *, clear_attachments: bool = False) -> None:
         prompt = self.query_one("#prompt", TextArea)
-        self._record_composer_history(redact_sensitive_command_text(prompt.text))
+        session = getattr(getattr(self, "agent", None), "session", None)
+        history_text = attachment_copy_text(
+            prompt.text, cwd=Path(self.config.cwd).resolve(),
+            paths=list(getattr(session, "pending_attachment_paths", [])),
+        )
+        self._record_composer_history(redact_sensitive_command_text(history_text))
         self._composer_history_index = None
         self._composer_history_draft = ""
         prompt.text = ""

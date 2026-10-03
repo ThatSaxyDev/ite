@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual import events
 from textual.message import Message
 from textual.widgets import TextArea
 
-from ite.attachment_refs import parse_dropped_file_paths
+from ite.attachment_refs import extract_inline_attachment_refs, parse_dropped_file_paths
 from ite.attachments import MAX_ATTACHMENTS
 
 
@@ -51,6 +53,34 @@ class ReupPromptTextArea(TextArea):
         """
         result = parse_dropped_file_paths(event.text or "")
         if result.path_like_count == 0 or result.prose_count > 0:
+            # Copied bubbles include full @paths. Restore their bindings while
+            # retaining compact references in the composer, including prose.
+            app = self.app
+            session = getattr(getattr(app, "agent", None), "session", None)
+            formatter = getattr(app, "_attachment_ref_for_path", None)
+            if session is None or not callable(formatter):
+                return
+            refs = extract_inline_attachment_refs(event.text)
+            paths = [
+                str(Path(ref.value).expanduser().resolve())
+                for ref in refs
+                if Path(ref.value).expanduser().is_absolute() and Path(ref.value).expanduser().is_file()
+            ]
+            if not paths:
+                return
+            pending = list(dict.fromkeys([*session.pending_attachment_paths, *paths]))
+            if len(pending) > MAX_ATTACHMENTS:
+                return  # Leave full references intact for the send-time limit error.
+            session.pending_attachment_paths = pending
+            text = event.text
+            for ref in reversed(refs):
+                path = str(Path(ref.value).expanduser().resolve())
+                if path in paths:
+                    text = text[:ref.start] + formatter(Path(path)) + ref.trailing + text[ref.end:]
+            event.prevent_default()
+            event.stop()
+            self.replace(text, *self.selection, maintain_selection_offset=False)
+            self.focus()
             return
 
         event.prevent_default()

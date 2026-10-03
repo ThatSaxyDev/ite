@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import re
 import shlex
+from dataclasses import dataclass
+from pathlib import Path
 from urllib.parse import unquote
 
 from ite.attachments import IMAGE_EXTS, MAX_ATTACHMENTS, PDF_EXTS, TEXT_EXTS
-
 
 _SKIP_DIRS = {
     ".git",
@@ -137,11 +136,12 @@ def suggest_inline_attachment_paths(
     query_text = (query or "").strip().lower()
     candidates = files if files is not None else discover_attachable_files(cwd)
     scored: list[tuple[int, str, Path]] = []
+    cwd = cwd.resolve()
     for path in candidates:
         try:
-            rel = str(path.resolve().relative_to(cwd.resolve()))
-        except Exception:
-            rel = str(path.resolve())
+            rel = str(path.relative_to(cwd))
+        except ValueError:
+            rel = str(path)
         rel_lower = rel.lower()
         name_lower = path.name.lower()
         if query_text:
@@ -164,6 +164,44 @@ def suggest_inline_attachment_paths(
     return [path for _, _, path in scored[:limit]]
 
 
+def format_attachment_ref(value: str) -> str:
+    """Keep a reference readable, quoting paths containing whitespace."""
+    if any(char.isspace() for char in value):
+        return f'@"{value}"'
+    return f"@{value}"
+
+
+def attachment_copy_text(message: str, *, cwd: Path, paths: list[str]) -> str:
+    """Serialize attachment locations into plain text that can be sent again.
+
+    Each bubble owns this text, so clearing the draft or attaching another file
+    with the same name cannot change what an older bubble copies.
+    """
+    if not paths:
+        return message
+    parts: list[str] = []
+    used: set[str] = set()
+    cursor = 0
+    for ref in extract_inline_attachment_refs(message):
+        parts.append(message[cursor:ref.start])
+        resolved, error = _resolve_ref_path(
+            ref.value, cwd=cwd, files=[], existing_paths=paths,
+        )
+        if error is None and resolved is not None:
+            parts.append(format_attachment_ref(str(resolved)) + ref.trailing)
+            used.add(str(resolved))
+        else:
+            parts.append(message[ref.start:ref.end])
+        cursor = ref.end
+    parts.append(message[cursor:])
+    text = "".join(parts)
+    remaining = [
+        format_attachment_ref(str(Path(path).expanduser().resolve()))
+        for path in paths if str(Path(path).expanduser().resolve()) not in used
+    ]
+    return " ".join([text.rstrip(), *remaining]).strip()
+
+
 def _resolve_ref_path(
     ref: str,
     *,
@@ -180,7 +218,7 @@ def _resolve_ref_path(
         direct = (cwd / direct).resolve()
     else:
         direct = direct.resolve()
-    if direct.exists() and direct.is_file():
+    if (Path(raw).is_absolute() or Path(raw).parent != Path(".")) and direct.is_file():
         return direct, None
 
     queued_matches: list[Path] = []
@@ -199,15 +237,18 @@ def _resolve_ref_path(
         if rel_existing == raw.replace("\\", "/").lstrip("./").lower():
             queued_matches.append(resolved_existing)
             continue
-        if resolved_existing.name.lower() == normalized_raw_name:
+        if Path(raw).name == raw and resolved_existing.name.lower() == normalized_raw_name:
             queued_matches.append(resolved_existing)
 
     if queued_matches:
         unique_queued = sorted({str(path): path for path in queued_matches}.values(), key=lambda p: str(p))
         if len(unique_queued) == 1:
             return unique_queued[0], None
-        options = ", ".join(str(path.relative_to(cwd)) for path in unique_queued[:3])
+        options = ", ".join(str(path) for path in unique_queued[:3])
         return None, f"Ambiguous @{raw}. Matches: {options}"
+
+    if direct.is_file():
+        return direct, None
 
     normalized = raw.replace("\\", "/").lstrip("./").lower()
     rel_matches: list[Path] = []
